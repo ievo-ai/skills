@@ -99,6 +99,19 @@ After first project-wide evolution:
         └── skills/
 ```
 
+After init runs (diagnostic logs):
+```
+<your-project>/
+└── .ievo/
+    └── log/
+        ├── init-20260517-143200.md     # ← each /ievo:init writes one
+        └── init-20260517-150412.md
+```
+
+Logs capture: detected stack + dependencies, the exact prompt sent to find-skills and its raw response, dedup outcomes (which skills got dropped and why), your install/skip choices, install results per skill. Useful when iEvo suggested something off and you want to file a precise bug — `/ievo:feedback` can attach the latest log automatically.
+
+`.ievo/log/` is intended for local debugging, not version control. Init auto-adds it to your `.gitignore` if you have one.
+
 After more lessons:
 ```
 <your-project>/

@@ -6,17 +6,51 @@ iEvo turns ad-hoc feedback ("the agent forgot to check git status before commits
 
 ## Install
 
+iEvo ships as a Claude Code plugin marketplace. Two steps:
+
 ```
-/plugin install ievo-ai/skills
+/plugin marketplace add ievo-ai/skills
+/plugin install ievo@ievo-skills
 ```
 
-Then, in any project where you want iEvo to be active:
+After install, the `/ievo:*` commands and the `evolution` skill become available. To activate iEvo in the current project:
 
 ```
 /ievo:install
 ```
 
 This injects the iEvo kernel (`iEVO.md`) into your project's `CLAUDE.md` (or `AGENTS.md`) and prepares the evolution log directory at `.ievo/`.
+
+### Project-scope only
+
+To make the marketplace and its plugins available **only in this project** (not globally for your user), add to your project's `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "ievo-skills": {
+      "source": {
+        "source": "github",
+        "repo": "ievo-ai/skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "ievo@ievo-skills": true
+  }
+}
+```
+
+This loads the marketplace and enables the plugin scoped to this project only.
+
+### Try without installing
+
+To test the plugin without adding it to a marketplace:
+
+```bash
+git clone https://github.com/ievo-ai/skills /tmp/ievo-skills
+claude --plugin-dir /tmp/ievo-skills
+```
 
 ## Commands & Skills
 

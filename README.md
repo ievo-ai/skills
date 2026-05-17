@@ -18,14 +18,23 @@ Then, in any project where you want iEvo to be active:
 
 This injects the iEvo kernel (`iEVO.md`) into your project's `CLAUDE.md` (or `AGENTS.md`) and prepares the evolution log directory at `.ievo/`.
 
-## Commands
+## Commands & Skills
+
+**Commands** (explicit-only invocation, Claude Code-specific):
 
 | Command | What it does |
 |---------|--------------|
 | `/ievo:install` | Inject `iEVO.md` reference + create `.ievo/evolution/` structure |
 | `/ievo:uninstall` | Remove the injection. Preserves `.ievo/` (your evolution data) |
-| `/ievo:evolution "<lesson>"` | Capture a lesson and patch the relevant agent or skill |
 | `/ievo:update` | Refresh kernel from plugin + replay evolution logs onto fresh upstream |
+
+**Skills** (slash-invocable AND auto-activatable, cross-platform via [agentskills.io](https://agentskills.io)):
+
+| Skill | What it does |
+|-------|--------------|
+| `/ievo:evolution` `"<lesson>"` | Capture a lesson and patch the relevant agent or skill. Auto-activates when the user expresses a lesson worth persisting. |
+
+Why the split: project-setup operations (install / uninstall / update) should be strictly explicit — we don't want the model deciding to deploy plugin state on its own. Evolution capture is **agentic** — the model picking up "we should remember X" is a feature, not a bug.
 
 ## How it works
 
@@ -48,14 +57,15 @@ The evolution log is plain markdown and is the source of truth for your project'
 ```
 ievo-ai/skills/
 ├── .claude-plugin/plugin.json   # Plugin manifest (name: "ievo")
-├── commands/                    # Slash commands
+├── commands/                    # Strictly-explicit slash commands
 │   ├── install.md
 │   ├── uninstall.md
-│   ├── evolution.md
 │   └── update.md
+├── skills/                      # agentskills.io-compliant skills (cross-platform)
+│   └── evolution/
+│       └── SKILL.md             # Capture-a-lesson — slash or auto-activate
 ├── agents/
-│   └── evolution.md             # The evolution sub-agent
-├── skills/                      # Bundled skills (agentskills.io-compliant)
+│   └── evolution.md             # Sub-agent dispatched by the evolution skill on Claude Code
 ├── iEVO.md                      # The iEvo kernel — copied to your project on install
 └── README.md
 ```

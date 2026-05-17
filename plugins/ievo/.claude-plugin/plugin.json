@@ -1,10 +1,9 @@
 {
   "name": "ievo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "iEvo — self-evolving plugin for Claude Code. Capture lessons, patch local agents and skills, replay logs on upstream updates.",
   "author": {
-    "name": "iEvo",
-    "url": "https://ievo.ai"
+    "name": "iEvo"
   },
   "homepage": "https://github.com/ievo-ai/skills",
   "repository": {

@@ -48,8 +48,9 @@ To make iEvo's marketplace and plugin available **only in this project** (not gl
 
 | Skill | What it does |
 |-------|--------------|
-| `/ievo:init` | Discover and install relevant skills from skills.sh. Per-skill interview. Sets up `.ievo/evolution/` structure. |
+| `/ievo:init` | Discover and install relevant skills from skills.sh. Deep manifest scan (30+ stacks), per-skill interview. Sets up `.ievo/evolution/` structure. |
 | `/ievo:evolution "<lesson>"` | Capture a lesson. Routes to the right place: an agent, a skill, or the project's `CLAUDE.md`. Auto-activates when the user expresses a lesson worth persisting. |
+| `/ievo:feedback` | Submit a bug report, feature request, or general feedback. Posts a public GitHub issue to `ievo-ai/skills` via `gh` CLI. Auto-activates when the user expresses dissatisfaction or wants to suggest something. |
 
 **Commands** (explicit-only invocation, Claude Code-specific):
 
@@ -131,7 +132,8 @@ ievo-ai/skills/
 │   └── update.md
 ├── skills/
 │   ├── init/SKILL.md           # /ievo:init
-│   └── evolution/SKILL.md      # /ievo:evolution
+│   ├── evolution/SKILL.md      # /ievo:evolution
+│   └── feedback/SKILL.md       # /ievo:feedback
 ├── agents/
 │   └── evolution.md            # sub-agent dispatched by evolution skill
 └── README.md

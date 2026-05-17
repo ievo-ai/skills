@@ -237,6 +237,27 @@ iEvo is set up. From here:
 - Update later with /ievo:update
 ```
 
+## Step 10: Invite feedback
+
+Init is a complex flow with lots of moving parts (find-skills, interview, installs). Worth asking how it went so we can improve the next version. Use `AskUserQuestion`:
+
+- **Question:** `How did the iEvo init flow go for you?`
+- **Header:** `Feedback`
+- **Options** (single-select):
+  - `Share feedback` — description: `Open the feedback skill and post a public issue to github.com/ievo-ai/skills (bug, idea, or suggestion).`
+  - `Skip` — description: `Maybe later.`
+
+If the user picks **Share feedback**, activate the `feedback` skill via natural prompt:
+
+```
+Use the feedback skill to collect the user's feedback about /ievo:init
+and submit it as a GitHub issue.
+```
+
+The `feedback` skill handles the rest — type classification, text collection, public-post confirmation, gh CLI submission.
+
+If the user picks **Skip**, do nothing — init is done.
+
 ## Rules
 
 - **Hard prereq, no auto-install of find-skills.** Reload requirement makes auto-install bad UX.

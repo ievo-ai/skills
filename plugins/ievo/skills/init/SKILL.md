@@ -71,6 +71,26 @@ with the user and install only those they accept.
 
 Wait for find-skills to return the list.
 
+### 3.5. Deduplicate the suggestion list
+
+find-skills runs multiple parallel queries (e.g. "dicom", "medical imaging", "sitk") and aggregates the top hits from each. The same skill can appear multiple times. The user sees redundant prompts. Filter before the interview.
+
+Apply three deduplication passes, in order:
+
+**Pass 1 — Drop already-installed skills.** For each candidate, check if it's already installed locally. Scan:
+- `.claude/skills/<skill-name>/SKILL.md`
+- `.claude/plugins/*/skills/<skill-name>/SKILL.md`
+- `~/.claude/skills/<skill-name>/SKILL.md`
+- `~/.claude/plugins/*/skills/<skill-name>/SKILL.md`
+
+If a candidate's skill-name already exists in any of these locations, drop it from the list. Don't ask about it.
+
+**Pass 2 — Dedup exact identifier.** Group remaining candidates by their full `<owner>/<repo>@<skill-name>` identifier. If the same identifier appears more than once (find-skills returned it from multiple queries), keep one — prefer the entry with higher install count if metadata differs.
+
+**Pass 3 — Dedup by skill-name across different sources.** Group remaining candidates by just the `<skill-name>` portion. If two different `<owner>/<repo>` provide a skill with the same name (e.g. `davila7/templates@pydicom` and `someone/other@pydicom`), keep ONLY the one with the highest install count. Drop the rest silently — the user does not need to see "Install pydicom?" three times from different sources.
+
+After all three passes, you should have a clean list with no duplicates by name and no already-installed skills. Use that for the interview.
+
 ### 4. Interview: one question per skill
 
 For each candidate skill from find-skills's output, ask the user using the `AskUserQuestion` tool. **One question per skill** (batched in groups of 4, since `AskUserQuestion` supports up to 4 questions per call).

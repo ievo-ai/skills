@@ -1,15 +1,12 @@
 {
   "name": "ievo",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "iEvo — self-evolving plugin for Claude Code. Capture lessons, patch local agents and skills, replay logs on upstream updates.",
   "author": {
     "name": "Denys Rotnov"
   },
   "homepage": "https://github.com/ievo-ai/skills",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/ievo-ai/skills.git"
-  },
+  "repository": "https://github.com/ievo-ai/skills",
   "license": "MIT",
   "keywords": [
     "claude-code",

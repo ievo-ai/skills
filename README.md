@@ -2,28 +2,29 @@
 
 > Capture lessons, patch local agents and skills, replay logs on upstream updates.
 
-iEvo turns ad-hoc feedback ("the agent forgot to check git status before commits") into persistent improvements to your project's agents and skills — with a log that survives upstream plugin updates.
+iEvo turns ad-hoc feedback ("the agent forgot to check git status before commits") and project context ("we use Unity, our team uses trunk-based dev") into persistent improvements — recorded in markdown evolution logs that survive upstream plugin updates.
 
 ## Install
 
-iEvo ships as a Claude Code plugin marketplace. Two steps:
+iEvo ships as a Claude Code plugin marketplace.
 
 ```
 /plugin marketplace add ievo-ai/skills
 /plugin install ievo@ievo-skills
+/reload-plugins
 ```
 
-After install, the `/ievo:*` commands and the `evolution` skill become available. To activate iEvo in the current project:
+Then in your project:
 
 ```
-/ievo:install
+/ievo:init
 ```
 
-This injects the iEvo kernel (`iEVO.md`) into your project's `CLAUDE.md` (or `AGENTS.md`) and prepares the evolution log directory at `.ievo/`.
+`init` is an interactive skill that uses [`find-skills`](https://www.skills.sh/vercel-labs/skills/find-skills) to discover skills relevant to your project and walks you through installing them one at a time.
 
 ### Project-scope only
 
-To make the marketplace and its plugins available **only in this project** (not globally for your user), add to your project's `.claude/settings.json`:
+To make iEvo's marketplace and plugin available **only in this project** (not globally for your user), add to your project's `.claude/settings.json`:
 
 ```json
 {
@@ -41,99 +42,113 @@ To make the marketplace and its plugins available **only in this project** (not 
 }
 ```
 
-This loads the marketplace and enables the plugin scoped to this project only.
-
-### Try without installing
-
-To test the plugin without adding it to a marketplace:
-
-```bash
-git clone https://github.com/ievo-ai/skills /tmp/ievo-skills
-claude --plugin-dir /tmp/ievo-skills
-```
-
 ## Commands & Skills
-
-**Commands** (explicit-only invocation, Claude Code-specific):
-
-| Command | What it does |
-|---------|--------------|
-| `/ievo:install` | Inject `iEVO.md` reference + create `.ievo/evolution/` structure |
-| `/ievo:uninstall` | Remove the injection. Preserves `.ievo/` (your evolution data) |
-| `/ievo:update` | Refresh kernel from plugin + replay evolution logs onto fresh upstream |
 
 **Skills** (slash-invocable AND auto-activatable, cross-platform via [agentskills.io](https://agentskills.io)):
 
 | Skill | What it does |
 |-------|--------------|
-| `/ievo:evolution` `"<lesson>"` | Capture a lesson and patch the relevant agent or skill. Auto-activates when the user expresses a lesson worth persisting. |
+| `/ievo:init` | Discover and install relevant skills from skills.sh. Per-skill interview. Sets up `.ievo/evolution/` structure. |
+| `/ievo:evolution "<lesson>"` | Capture a lesson. Routes to the right place: an agent, a skill, or the project's `CLAUDE.md`. Auto-activates when the user expresses a lesson worth persisting. |
 
-Why the split: project-setup operations (install / uninstall / update) should be strictly explicit — we don't want the model deciding to deploy plugin state on its own. Evolution capture is **agentic** — the model picking up "we should remember X" is a feature, not a bug.
+**Commands** (explicit-only invocation, Claude Code-specific):
 
-## How it works
+| Command | What it does |
+|---------|--------------|
+| `/ievo:uninstall` | Ask the user, then remove iEvo's marker block from `CLAUDE.md` / `AGENTS.md`. Preserves all of `.ievo/`. |
+| `/ievo:update` | Replay evolution logs against fresh upstream agents/skills (after `/plugin update`). |
 
-When you record a lesson with `/ievo:evolution`:
+Why the split: project-setup operations should be strictly explicit — we don't want the model deciding to remove plugin state on its own. Discovery and lesson capture are **agentic** — the model picking up "we should remember X" or "this project would benefit from skill Y" is a feature, not a bug.
 
-1. The `evolution` agent classifies the lesson — agent or skill, which one.
-2. If the target file lives in a plugin (not yet in your project's `.claude/`), it's copied into the project first.
-3. The lesson is integrated into the local file with the help of Claude — same prompt the agent uses for upstream replay.
-4. A timestamped entry is appended to `.ievo/evolution/<type>/<name>.md`.
+## How project rules work
 
-When you run `/ievo:update`:
+iEvo does **not** inject anything into your `CLAUDE.md` / `AGENTS.md` at install time. The first time you record a **project-wide** lesson via `/ievo:evolution` (e.g. "we use Unity", "PR titles start with the task ID"), the evolution skill:
 
-1. The plugin's `iEVO.md` is copied into your project, replacing the previous version.
-2. For each evolved agent/skill, the fresh upstream is fetched and every log entry is replayed onto it. Your evolved local files are regenerated from `upstream + log`.
+1. Creates `.ievo/evolution/project.md` and appends the rule as a dated section.
+2. Injects a one-time marker block into `CLAUDE.md` (or `AGENTS.md` if no `CLAUDE.md`):
+   ```markdown
+   <!-- ievo:start -->
+   @.ievo/evolution/project.md
+   <!-- ievo:end -->
+   ```
 
-The evolution log is plain markdown and is the source of truth for your project's iEvo state. The `.claude/<type>/<name>.md` files are derived — re-creatable from `upstream + log`.
+After that, every Claude Code session in your project automatically loads `project.md` because of the `@` import in `CLAUDE.md`. Subsequent project-wide lessons just append to `project.md` — no further CLAUDE.md changes.
+
+If you `/ievo:uninstall`, the marker block is removed (after confirmation). The `project.md` and all evolution logs are preserved.
+
+## Project-side layout
+
+After `/ievo:init`:
+```
+<your-project>/
+└── .ievo/
+    └── evolution/
+        ├── agents/      # (empty) per-agent logs go here
+        └── skills/      # (empty) per-skill logs go here
+```
+
+After first project-wide evolution:
+```
+<your-project>/
+├── CLAUDE.md            # ← marker block injected, references .ievo/evolution/project.md
+└── .ievo/
+    └── evolution/
+        ├── project.md   # ← project-wide rules log
+        ├── agents/
+        └── skills/
+```
+
+After more lessons:
+```
+<your-project>/
+├── CLAUDE.md
+├── .claude/
+│   ├── agents/
+│   │   └── spec-writer.md    # ← local copy, patched via evolution skill
+│   └── skills/
+│       └── changelog/
+│           └── SKILL.md      # ← local copy, patched
+└── .ievo/
+    └── evolution/
+        ├── project.md
+        ├── agents/
+        │   └── spec-writer.md   # ← evolution log for the agent
+        └── skills/
+            └── changelog.md     # ← evolution log for the skill
+```
+
+The `.ievo/evolution/` logs are the source of truth — patched `.claude/<type>/` files are derived artifacts, re-creatable from upstream + log via `/ievo:update`.
 
 ## Repository structure
 
 ```
 ievo-ai/skills/
-├── .claude-plugin/plugin.json   # Plugin manifest (name: "ievo")
-├── commands/                    # Strictly-explicit slash commands
-│   ├── install.md
+├── .claude-plugin/
+│   ├── plugin.json
+│   └── marketplace.json
+├── commands/
 │   ├── uninstall.md
 │   └── update.md
-├── skills/                      # agentskills.io-compliant skills (cross-platform)
-│   └── evolution/
-│       └── SKILL.md             # Capture-a-lesson — slash or auto-activate
+├── skills/
+│   ├── init/SKILL.md           # /ievo:init
+│   └── evolution/SKILL.md      # /ievo:evolution
 ├── agents/
-│   └── evolution.md             # Sub-agent dispatched by the evolution skill on Claude Code
-├── iEVO.md                      # The iEvo kernel — copied to your project on install
+│   └── evolution.md            # sub-agent dispatched by evolution skill
 └── README.md
-```
-
-## Project-side layout (after `/ievo:install`)
-
-```
-<your-project>/
-├── CLAUDE.md or AGENTS.md   # ← marker block injected, references .ievo/iEVO.md
-└── .ievo/
-    ├── iEVO.md              # Copy of the plugin kernel
-    └── evolution/
-        ├── agents/
-        │   └── <agent>.md   # Per-agent evolution log (markdown)
-        └── skills/
-            └── <skill>.md   # Per-skill evolution log (markdown)
 ```
 
 ## Standards compliance
 
-- **Skills** in `skills/` follow the [Agent Skills specification](https://agentskills.io/specification) — portable to Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, and 30+ other agent platforms.
-- **Plugin format** is Claude Code-native (commands, agents, hooks). Use via Claude Code plugin install.
-- **Distribution** through both Claude Code (`/plugin install`) and [skills.sh](https://www.skills.sh/) (`npx skills add ievo-ai/skills --skill <name>`).
+- Plugin format: Claude Code-native
+- Skills inside: [agentskills.io spec](https://agentskills.io/specification) — portable to Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, and 30+ other agent platforms
+- Distribution: dual-mode — Claude Code plugin install OR `npx skills add ievo-ai/skills --skill <name>` via [skills.sh](https://www.skills.sh/)
+
+## Roadmap
+
+- **v0.1 (this release):** Patch-and-log. No A/B validation. Manual updates. find-skills as prerequisite for init.
+- **v0.2:** Opt-in A/B validation via the iEvo cortex pipeline. Mutations that don't improve get rejected.
+- **v1.0:** Cross-project pattern detection (curator). Lessons that recur across multiple projects get promoted to "blessed" upstream evolutions.
 
 ## License
 
 MIT. See `LICENSE`.
-
-## Roadmap
-
-- **v0.1 (this release):** Patch-and-log. No A/B validation. Manual updates.
-- **v0.2:** Opt-in A/B validation via the iEvo cortex pipeline. Mutations that don't improve get rejected.
-- **v1.0:** Cross-project pattern detection (curator). Lessons that recur across multiple projects get promoted to "blessed" upstream evolutions.
-
-## Contributing
-
-iEvo is open and welcomes contributions. The standard contract for evolution logs is the markdown format documented in `iEVO.md`. Future versions may extend this with a sibling `LEARNING.md` spec for the broader agent-skills ecosystem.

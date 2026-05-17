@@ -179,9 +179,9 @@ DO NOT install anything. Just return the consolidated list.
 
 Wait for find-skills to return the list.
 
-## Step 6: Deduplicate the suggestion list (safety net)
+## Step 6: Deduplicate and validate the suggestion list (safety net)
 
-find-skills should follow the instructions in step 5 — but it may not perfectly. Apply this defensive dedup:
+find-skills should follow the instructions in step 5 — but it may not perfectly, and skills.sh registry data can be stale (listed skills that no longer exist in their source repos). Apply these defensive passes:
 
 **Pass 1 — Drop already-installed.** For each candidate, match against the installed inventory from step 3 (both skills and agents):
 - exact skill-name match against installed skills
@@ -193,7 +193,18 @@ Drop candidates that match.
 
 **Pass 3 — Dedup by skill-name across sources.** Group remaining candidates by just `<skill-name>`. Different `<owner>/<repo>` provide a skill with the same name → keep only the highest-install-count one. Drop the rest silently.
 
-After all three passes, the candidate list should be clean. Use it for the interview.
+**Pass 4 — Verify source exists upstream.** skills.sh caches listings; the source repo may have removed/renamed the skill since indexing. For each remaining candidate, do a fast existence check on the source repo via `gh` API:
+
+```bash
+gh api repos/<owner>/<repo>/contents/skills/<skill-name>/SKILL.md --silent 2>/dev/null \
+  || gh api repos/<owner>/<repo>/contents/<skill-name>/SKILL.md --silent 2>/dev/null
+```
+
+If both return non-zero (skill not found at expected paths in the source repo's default branch), the listing is **stale** — drop it from candidates. Also notable: report to the user in the final summary which candidates were dropped as stale, so they understand `find-skills` returned more than the interview asked about.
+
+If `gh` is not installed or not authenticated, **skip Pass 4 silently** — don't block on this defensive check. Install errors at Step 8 will catch stale entries as fallback.
+
+After all four passes, the candidate list should be clean and source-verified. Use it for the interview.
 
 ## Step 7: Interview — one question per skill
 

@@ -133,6 +133,42 @@ Stack: Python (pyproject.toml)
 Deps: numpy, scipy, pydantic, SimpleITK, vtk, pydicom, fastapi, pytest, mypy, ruff
 ```
 
+## Step 4.5: Disambiguate broad categories
+
+Many "broad categories" (i18n, testing, security, docs, ...) have multiple sub-types that solve completely different problems. Suggesting `mkdocs-i18n` for a project that translates UI code strings (gettext-style) is wrong: same word, different category. Resolve this **before** calling find-skills.
+
+### Ambiguous category registry
+
+For each broad category in the table below: if the project shows signals for it, examine file-level signals to pick the right sub-type. If signals point to one sub-type → tag the category with that sub-type. If signals point to multiple or none → mark as `ambiguous`.
+
+| Broad category | Sub-types | Signal hints |
+|----------------|-----------|--------------|
+| `i18n` / translation | `code-strings`, `documentation` | `.po`/`.mo` files, `locale/` dir → `code-strings`; `mkdocs.yml` with `i18n` plugin, `docs/locales/` → `documentation` |
+| `testing` | `unit`, `integration`, `e2e` | `vitest.config`/`jest.config`/`pytest.ini` → `unit`; `playwright.config`/`cypress.config`/`detox` → `e2e`; `tox.ini`/separate `integration_tests/` → `integration` |
+| `security` | `app-sec`, `supply-chain`, `static-analysis` | runtime deps (Helmet, JWT, CSRF middleware) → `app-sec`; lockfile + `npm audit`/`Snyk`/`Dependabot` → `supply-chain`; `bandit`/`semgrep`/`CodeQL` → `static-analysis` |
+| `documentation` | `user`, `api`, `internal` | `mkdocs.yml`/`docusaurus`/`sphinx-conf.py` (high-level project docs) → `user`; `openapi.yaml`/`swagger.json`/`apispec` → `api` |
+| `linting` | `style`, `types`, `security` | `prettier`/`black`/`rustfmt` → `style`; `mypy`/`tsc`/`pyright` → `types`; `bandit`/`semgrep`/`gosec` → `security` |
+| `observability` | `logging`, `tracing`, `metrics` | structured logger configs (`structlog`, `pino`, `winston`) → `logging`; `opentelemetry-*` deps → `tracing`; `prometheus-client`/`statsd` → `metrics` |
+| `state-management` (frontend) | `redux`, `zustand`, `mobx`, `recoil`, `context-only` | match dep name in `package.json` directly |
+| `build-tools` | `bundler`, `package-manager`, `task-runner` | `webpack.config`/`vite.config`/`rollup.config` → `bundler`; `npm`/`yarn`/`pnpm`/`uv` → `package-manager`; `Makefile`/`taskfile.yml`/`just` → `task-runner` |
+| `database` | `orm`, `query-builder`, `migrations`, `driver` | `sqlalchemy`/`prisma`/`typeorm` → `orm`; `kysely`/`knex` → `query-builder`; `alembic`/`flyway` → `migrations`; raw drivers → `driver` |
+
+### Algorithm
+
+For each candidate category, in order:
+
+1. If the category is **not in the registry** → leave as is. Pass to find-skills with the broad name only.
+2. If in registry:
+   - Run the signal checks for each sub-type.
+   - **One sub-type matched** → tag the category as `<category>/<sub-type>` (auto-resolved). Output one line for transparency: `Detected i18n/code-strings (found ./locale/ + *.po files)`.
+   - **Multiple sub-types matched** → tag as `<category>/<sub-A>+<sub-B>+...` (multi-resolved — pass all). User likely needs help in both areas.
+   - **No sub-types matched but the broad category fires** → tag as `<category>/ambiguous`. We will ask the user in Step 7.
+3. Add new entries to the registry only when the same ambiguity pattern is observed in multiple projects — premature registry growth is worse than missing entries.
+
+### What this prevents
+
+The bug behind issue #11: init suggested `mkdocs-i18n` for a project that only translates UI code strings. With this step, signals (`.po` files / no `mkdocs.yml`) would have resolved `i18n` → `code-strings`, find-skills would have been asked for gettext / Babel / react-intl class skills, and `mkdocs-i18n` would never have been a candidate.
+
 ## Step 5: Invoke find-skills (with full context)
 
 Trigger the `find-skills` skill, passing the detected stack, dependency list, and installed inventory. Use this prompt:
@@ -153,16 +189,22 @@ Agents: <list from step 3>
 INSTRUCTIONS
 1. Run all relevant searches and CONSOLIDATE into a SINGLE ranked list.
    Do not return parallel per-query top-Ns — merge everything and rank once.
-2. Cover these categories (skip any that don't apply to this project):
+2. Cover these categories (skip any that don't apply to this project) — use
+   the resolved category/sub-type from step 4.5 where available:
    - Language/runtime fundamentals (e.g. python-pro for Python, typescript-pro for TS)
-   - Testing framework (e.g. pytest, jest, junit, go test, cargo test)
-   - Linting & typing (e.g. mypy, ruff, eslint, prettier, golangci-lint, clippy)
+   - Testing framework — sub-type resolved (e.g. testing/unit → pytest;
+     testing/e2e → playwright)
+   - Linting & typing — sub-type resolved (e.g. linting/style vs linting/types)
    - Build/package tools (uv, poetry, npm, yarn, pnpm, cargo, gradle)
    - Each LIBRARY in the dependencies list (search each one — e.g. SimpleITK,
      VTK, pydicom, fastapi, react — return skills covering them)
    - Domain-specific based on project content (e.g. medical imaging, finance,
      game dev) — but only if a signal supports it
-   - Security & compliance if project handles sensitive data
+   - Security & compliance — sub-type resolved (app-sec / supply-chain /
+     static-analysis)
+   - For any category tagged `<name>/ambiguous` in step 4.5: return suggestions
+     for ALL sub-types. The user will pick which sub-type they need during the
+     interview (step 7).
 3. Deduplicate by `<owner>/<repo>@<skill>` identifier and by skill name —
    keep highest-install-count winner per name.
 4. Drop any skill whose name overlaps with the ALREADY INSTALLED lists.
@@ -208,7 +250,24 @@ After all four passes, the candidate list should be clean and source-verified. U
 
 ## Step 7: Interview — one question per skill
 
-For each candidate skill, ask the user using `AskUserQuestion`. **One question per skill**, batched in groups of 4 (AskUserQuestion supports up to 4 questions per call).
+### 7a — Resolve ambiguous categories first (if any)
+
+Before per-skill questions, if step 4.5 marked any categories as `<name>/ambiguous`, ask the user to pick a sub-type via `AskUserQuestion`. Up to 4 ambiguous categories per call.
+
+For each ambiguous category:
+- **Question:** `Which type of <category> are you working with?`
+- **Header:** `<category>` (e.g. `i18n`, `testing`)
+- **Options** (single-select, sub-types from the registry):
+  - `<sub-type-1>` — description: short explanation, e.g. for `i18n`: "Translate UI code strings (gettext-style)"
+  - `<sub-type-2>` — description: e.g. "Translate documentation pages (mkdocs-i18n, sphinx-intl)"
+  - `Both` — description: "Show me suggestions for both."
+  - `Skip category` — description: "Don't suggest anything in this area."
+
+Filter the candidate list: keep only skills whose primary sub-type matches the user's pick. Drop the rest.
+
+### 7b — Per-skill questions
+
+For each remaining candidate skill, ask the user using `AskUserQuestion`. **One question per skill**, batched in groups of 4 (AskUserQuestion supports up to 4 questions per call).
 
 Per-skill question shape:
 - **Question:** `Install <skill-name>?`

@@ -219,6 +219,10 @@ Per-skill question shape:
 
 The user reads the description (which includes the skills.sh URL) before choosing. They can open the URL to learn more before answering.
 
+**Track outcomes.** Keep two lists for use in step 10:
+- `installed[]` — skills the user chose `Install` for
+- `skipped[]` — skills the user chose `Skip` for, with full identifier (`<owner>/<repo>@<skill>`)
+
 ## Step 8: Install selected skills
 
 For each skill the user chose `Install` for:
@@ -248,26 +252,55 @@ iEvo is set up. From here:
 - Update later with /ievo:update
 ```
 
-## Step 10: Invite feedback
+## Step 10: Invite feedback (especially on rejections)
 
-Init is a complex flow with lots of moving parts (find-skills, interview, installs). Worth asking how it went so we can improve the next version. Use `AskUserQuestion`:
+Init is a complex flow. Worth asking how it went — and especially **why** the user skipped specific suggestions, since that's the best signal for improving find-skills recommendations and the skills.sh registry quality.
 
-- **Question:** `How did the iEvo init flow go for you?`
+The prompt adapts based on how the interview went:
+
+### If the user skipped at least one skill
+
+Use `AskUserQuestion`:
+
+- **Question:** `You skipped <M> of <N> suggested skills. Share why?`
 - **Header:** `Feedback`
 - **Options** (single-select):
-  - `Share feedback` — description: `Open the feedback skill and post a public issue to github.com/ievo-ai/skills (bug, idea, or suggestion).`
+  - `Share rejection reasons` — description: `For each skipped skill, pick a reason (Not relevant / Already using alt / Low quality / Don't need now). Submitted as public issue to github.com/ievo-ai/skills with registry-quality label so vercel-labs can improve their recommendations too.`
+  - `General feedback` — description: `Skip the per-skill breakdown, just share a general note.`
   - `Skip` — description: `Maybe later.`
 
-If the user picks **Share feedback**, activate the `feedback` skill via natural prompt:
+If `Share rejection reasons` → activate the `feedback` skill with this prompt:
 
 ```
-Use the feedback skill to collect the user's feedback about /ievo:init
-and submit it as a GitHub issue.
+Use the feedback skill in REJECTIONS flow (flow B).
+
+Skipped skills (with metadata):
+<list of <owner>/<repo>@<skill> with one-line description each>
+
+Installed skills:
+<list of <owner>/<repo>@<skill>>
+
+Collect a structured rejection reason for each skipped skill and submit
+to ievo-ai/skills with labels `feedback` + `registry-quality`.
 ```
 
-The `feedback` skill handles the rest — type classification, text collection, public-post confirmation, gh CLI submission.
+If `General feedback` → activate the `feedback` skill with the default flow A prompt (no rejections context).
 
-If the user picks **Skip**, do nothing — init is done.
+### If the user installed everything (no skips)
+
+Use `AskUserQuestion`:
+
+- **Question:** `Init completed cleanly — anything to add?`
+- **Header:** `Feedback`
+- **Options** (single-select):
+  - `Share feedback` — description: `Bug, idea, or suggestion. Submitted as public issue to github.com/ievo-ai/skills.`
+  - `Skip` — description: `Maybe later.`
+
+If `Share feedback` → activate the `feedback` skill (flow A).
+
+### In both cases
+
+If the user picks `Skip`, do nothing — init is done.
 
 ## Rules
 

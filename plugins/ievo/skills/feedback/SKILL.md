@@ -12,7 +12,23 @@ metadata:
 
 Post user feedback as a GitHub issue in `ievo-ai/skills` so we can fix bugs, prioritize features, and improve the plugin.
 
-## Step 1: Classify the feedback type
+## Step 0: Detect invocation context
+
+This skill has two flows:
+
+**(A) Generic feedback** — default. User invoked `/ievo:feedback` or expressed feedback intent freely. Go to Step 1.
+
+**(B) Skill-rejections feedback** — invoked from `/ievo:init` step 10 with a list of skipped skills from the interview. The caller will provide context like:
+```
+The user just completed /ievo:init interview. They installed N skills
+and skipped these M skills: <list>. Collect reasons for the skips and
+submit as feedback to ievo-ai/skills, copying reasons forward as
+registry-improvement signal that can be relayed to vercel-labs/skills.
+```
+
+If invoked in flow (B), **skip Step 1** (type is implicitly "Idea" / registry-improvement) and **jump to Step 1b** below. Otherwise proceed with Step 1.
+
+## Step 1: Classify the feedback type (flow A only)
 
 Ask the user using `AskUserQuestion`:
 
@@ -25,6 +41,31 @@ Ask the user using `AskUserQuestion`:
   - `Question` — description: `You're stuck and want help / clarification.`
 
 Map to GitHub label: `bug` / `enhancement` / `idea` / `question`.
+
+## Step 1b: Collect per-skill rejection reasons (flow B only)
+
+For each skipped skill (batched in groups of 4 — `AskUserQuestion` supports up to 4 questions per call), ask:
+
+- **Question:** `Why did you skip <skill-name>?`
+- **Header:** `<short-tag, max 12 chars>`
+- **Options** (single-select):
+  - `Not relevant to my stack` — description: `Doesn't apply to the languages/frameworks in this project.`
+  - `Already using alternative` — description: `I have something else that does this.`
+  - `Low quality` — description: `Install count too low, unknown author, or description was unclear.`
+  - `Don't need right now` — description: `Maybe useful later, not today.`
+
+(Cannot use freeform "Other" easily — keep to 4 options. If a user has a different reason, they can elaborate in Step 2.)
+
+After all per-skill questions, also ask once via `AskUserQuestion`:
+- **Question:** `Anything else to add about the suggestions?`
+- **Header:** `Notes`
+- **Options:**
+  - `No, that's all` — description: `Submit with just the structured reasons above.`
+  - `Yes, add a note` — description: `Open a freeform text prompt.`
+
+If user picks `Yes, add a note`, collect freeform text per Step 2.
+
+Use **type = idea** and **labels = feedback, registry-quality** for flow B.
 
 ## Step 2: Collect the feedback text
 
@@ -55,9 +96,53 @@ Do NOT collect:
 - Git URLs, branch names
 - Anything from `.env`, `.git/config`, `~/.ssh/`, etc.
 
+## Step 3.5: Analyze feedback and ask clarifying questions
+
+Before building the issue, review what the user provided. The goal is to **catch missing context that would make the issue useful**, without turning into a bureaucratic form. Apply a type-specific checklist (mental, not visible to user):
+
+### For Bug reports
+- [ ] What command/action triggered it?
+- [ ] What was expected to happen?
+- [ ] What actually happened (error message verbatim if possible)?
+- [ ] Reproducible or one-off?
+
+### For Feature requests
+- [ ] What problem does the feature solve?
+- [ ] How is the user working around it now?
+- [ ] Concrete example of usage?
+
+### For Ideas
+- [ ] What's the underlying problem or opportunity?
+- [ ] Any alternatives the user considered?
+
+### For Questions
+- [ ] What has the user already tried?
+- [ ] What outcome are they hoping for?
+
+### For Rejections (flow B)
+- Per-skill reasons are already structured (4 options). Skip the checklist.
+- If user opted to add a freeform note, lightly review it for clarity — only ask clarification if the note is highly ambiguous (e.g. "they're all bad" with no specifics).
+
+## Clarifying question rules
+
+If 2+ checklist items are missing OR critical for the issue to be actionable, ask **up to 3** clarifying questions via `AskUserQuestion`. Critical-but-missing examples:
+- Bug with no error message and no reproduction → ask both
+- Feature request with no use case → ask once
+- Idea without underlying problem stated → ask once
+
+Question framing:
+- Make answers easy: prefer single-select options + "Other" / "Skip"
+- Or open-ended "What would you like to add about <gap>?" with options like:
+  - `<concrete option from inference>`
+  - `Skip — submit as is`
+
+**Hard cap:** one round of clarifications. After the user answers (or skips), proceed to Step 4. Do not loop "analyze → ask → analyze → ask".
+
+**Skip the analysis if** the feedback is already detailed and specific (e.g. user wrote 200+ words covering steps, expected, actual). Don't drag a complete report through unnecessary questions.
+
 ## Step 4: Build the issue body
 
-Format the issue body like this:
+### Flow A (generic) format
 
 ```markdown
 ## Feedback
@@ -74,6 +159,38 @@ Format the issue body like this:
 - Project stack: <manifest list>
 
 > Submitted via `/ievo:feedback` skill
+```
+
+### Flow B (skill rejections) format
+
+```markdown
+## Init interview — skill rejection reasons
+
+After running `/ievo:init`, the user installed <N> of <M> suggested skills.
+Below are the reasons for the rejections, useful as signal to improve
+recommendation quality (both for iEvo and upstream skills.sh).
+
+### Installed
+- <owner/repo@skill> — (no comment, accepted)
+- ...
+
+### Skipped with reasons
+- <owner/repo@skill> — Reason: <Not relevant to my stack | Already using alternative | Low quality | Don't need right now>
+- ...
+
+### Note from user
+<freeform from step 2, or "(none)">
+
+---
+
+## Environment
+
+- iEvo plugin: <version> (<commit-sha>)
+- Claude Code: <claude --version output>
+- OS: <uname output>
+- Project stack: <manifest list>
+
+> Submitted via `/ievo:feedback` skill (rejections flow from `/ievo:init` step 10)
 ```
 
 ## Step 5: Preview and confirm
@@ -98,6 +215,7 @@ Title format:
 - Feature → `[feature] <short summary>`
 - Idea → `[idea] <short summary>`
 - Question → `[question] <short summary>`
+- Flow B (rejections) → `[feedback/rejections] <stack name>: <N>/<M> skills declined`
 
 Run:
 ```bash
@@ -107,6 +225,11 @@ gh issue create \
   --body "<body from step 4>" \
   --label "<bug|enhancement|idea|question>" \
   --label "feedback"
+```
+
+For flow B add an extra label:
+```bash
+  --label "registry-quality"
 ```
 
 If `gh` is not installed or not authenticated:

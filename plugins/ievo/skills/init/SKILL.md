@@ -69,33 +69,63 @@ This is the **signal that matters most** for discovering relevant skills. find-s
 
 Parse the project's manifest files **at the project root**. For each found manifest, extract the **direct (top-level) dependency names** — not transitive deps, not version constraints, just library names.
 
-| Manifest | What to extract |
-|----------|-----------------|
-| `pyproject.toml` | `[project].dependencies` + `[project.optional-dependencies].*` + `[tool.poetry.dependencies]` |
-| `requirements.txt`, `requirements*.txt` | Package names (left of `==`, `>=`, etc.) |
-| `Pipfile` | `[packages]` and `[dev-packages]` sections |
-| `package.json` | `dependencies` + `devDependencies` |
-| `Cargo.toml` | `[dependencies]` + `[dev-dependencies]` |
-| `go.mod` | `require` directives |
-| `pom.xml` | `<artifactId>` from each `<dependency>` |
-| `build.gradle` / `build.gradle.kts` | `implementation`/`api`/`testImplementation` lines |
-| `Gemfile` | `gem '<name>'` |
-| `composer.json` | `require` + `require-dev` |
-| `pubspec.yaml` | `dependencies` + `dev_dependencies` |
-| `mix.exs` | `deps` function return list |
-| `*.csproj` | `<PackageReference Include="..."/>` |
-| `*.uproject` | plugin block |
-| `project.godot` | plugin/addon entries |
+| Stack | Manifest | What to extract |
+|-------|----------|-----------------|
+| Python | `pyproject.toml` | `[project].dependencies` + `[project.optional-dependencies].*` + `[tool.poetry.dependencies]` |
+| Python | `requirements.txt`, `requirements*.txt` | Package names (left of `==`, `>=`, etc.) |
+| Python | `Pipfile` | `[packages]` and `[dev-packages]` sections |
+| Node / TypeScript / Bun | `package.json` | `dependencies` + `devDependencies` |
+| Deno | `deno.json`, `deno.jsonc` | `imports` map (bare specifiers) |
+| Rust | `Cargo.toml` | `[dependencies]` + `[dev-dependencies]` |
+| Go | `go.mod` | `require` directives |
+| Java | `pom.xml` | `<artifactId>` from each `<dependency>` |
+| Java / Kotlin | `build.gradle`, `build.gradle.kts` | `implementation` / `api` / `testImplementation` lines |
+| Ruby | `Gemfile`, `*.gemspec` | `gem '<name>'` |
+| PHP | `composer.json` | `require` + `require-dev` |
+| Dart / Flutter | `pubspec.yaml` | `dependencies` + `dev_dependencies` |
+| Elixir | `mix.exs` | `deps` function return list |
+| .NET / C# / F# | `*.csproj`, `*.fsproj`, `Directory.Packages.props` | `<PackageReference Include="..."/>` |
+| Swift / iOS | `Package.swift` | `dependencies:` array in `Package(...)` |
+| Swift / iOS | `Podfile` | `pod '<name>'` |
+| Swift / iOS | `Cartfile` | `github "<owner>/<repo>"` |
+| Haskell | `*.cabal` | `build-depends:` field |
+| Haskell | `package.yaml` (hpack) | `dependencies:` array |
+| Haskell | `stack.yaml` | `extra-deps:` |
+| Clojure | `deps.edn` | `:deps` map keys |
+| Clojure | `project.clj` (Leiningen) | `:dependencies` vector |
+| Crystal | `shard.yml` | `dependencies:` + `development_dependencies:` |
+| OCaml | `dune-project`, `*.opam` | `depends` field |
+| Nim | `*.nimble` | `requires` strings |
+| Lua | `*.rockspec` | `dependencies` table |
+| R | `DESCRIPTION` | `Imports:` + `Depends:` |
+| Julia | `Project.toml` | `[deps]` table |
+| Zig | `build.zig.zon` | `.dependencies` struct |
+| C / C++ | `conanfile.txt`, `conanfile.py`, `vcpkg.json` | `[requires]` / `requires` / `dependencies` |
+| C / C++ | `CMakeLists.txt` | `find_package(...)` calls (best-effort) |
+| Unreal Engine | `*.uproject` | `Plugins` block |
+| Godot | `project.godot` | `[autoload]` and plugin entries in `addons/` |
+| Unity | `Packages/manifest.json` | `dependencies` map |
 
-Also note **stack-level signals** from file presence:
-- `pyproject.toml` → Python
-- `package.json` → Node.js/JS/TS (check `"type": "module"`, dependencies for framework: React, Vue, Next.js, etc.)
+Also note **stack-level signals** from file presence and secondary indicators:
+- `pyproject.toml` → Python (check for `[tool.uv]` / `[tool.poetry]` / `[tool.hatch]` for tool family)
+- `package.json` → Node.js / JS / TS / Bun (check `"type": "module"`, look for `tsconfig.json` to confirm TS, framework deps for React / Vue / Next.js / Svelte / etc.)
+- `deno.json` → Deno
 - `Cargo.toml` → Rust
 - `go.mod` → Go
-- `pom.xml`/`build.gradle` → Java/Kotlin
+- `pom.xml` / `build.gradle*` → Java / Kotlin / Android (check `android` block in gradle for Android)
+- `Package.swift` → Swift (likely macOS/iOS native or SwiftUI)
+- `*.csproj` / `*.fsproj` → .NET / C# / F#
+- `*.cabal` / `stack.yaml` → Haskell
+- `deps.edn` / `project.clj` → Clojure / ClojureScript
 - `*.uproject` → Unreal Engine
 - `project.godot` → Godot
+- `Packages/manifest.json` → Unity
 - `Dockerfile` / `docker-compose.yml` → Docker (secondary signal, not stack)
+- `.github/workflows/*.yml` → GitHub Actions CI (secondary, useful for testing/deploy skills)
+- `terraform/*.tf` → Terraform/IaC (secondary)
+- `.tool-versions` / `mise.toml` → asdf/mise version manager (gives stack hints)
+
+If multiple manifests are found (monorepo / polyglot project), parse ALL of them and produce a combined stack list. Tag each dep with its source manifest in case it matters for the search ("this lib is from the frontend package.json, not the Python backend").
 
 Output a compact stack + deps summary like:
 ```

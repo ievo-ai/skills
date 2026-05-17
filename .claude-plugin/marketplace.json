@@ -11,7 +11,7 @@
   "plugins": [
     {
       "name": "ievo",
-      "source": ".",
+      "source": "./plugins/ievo",
       "description": "Capture lessons, patch local agents and skills, replay logs on upstream updates.",
       "version": "0.1.0",
       "author": {

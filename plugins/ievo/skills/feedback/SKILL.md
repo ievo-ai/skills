@@ -167,6 +167,23 @@ If no translation was needed, `body_original` is empty and only `body_en` is use
 
 Structured rejection reasons (flow B options like "Not relevant to my stack") are already in English — no translation needed for those. Only the freeform note (if any) gets translated.
 
+## Step 3.85: Offer to attach the latest init log (flow B and useful for flow A bug reports)
+
+If a recent `.ievo/log/init-*.md` exists, ask the user once:
+
+- **Question:** `Attach the latest /ievo:init log? (Helps maintainers diagnose what happened)`
+- **Header:** `Attach log`
+- **Options:**
+  - `Attach (Recommended for bug reports)` — description: `Includes detected stack, find-skills prompt + raw response, dedup outcomes, and your install/skip choices. No file contents, no secrets — see .ievo/log/<filename>.md to verify.`
+  - `Don't attach` — description: `Keep the report short.`
+
+If user picks `Attach`:
+- Read the most recent `.ievo/log/init-*.md` (sort filenames lexicographically, take last).
+- Cap at 16KB. If the log is larger, truncate from the middle with a `... <truncated N bytes> ...` marker so head + tail are preserved.
+- Hold the log content for inclusion in the body in step 4.
+
+If user picks `Don't attach` or no log exists, skip.
+
 ## Step 4: Build the issue body
 
 ### Flow A (generic) format
@@ -193,6 +210,17 @@ Structured rejection reasons (flow B options like "Not relevant to my stack") ar
 - Claude Code: <claude --version output>
 - OS: <uname output>
 - Project stack: <manifest list>
+
+<if init log was attached in step 3.85:>
+
+<details>
+<summary>Attached: /ievo:init run log</summary>
+
+```markdown
+<contents of the latest .ievo/log/init-*.md, truncated to 16KB if needed>
+```
+
+</details>
 
 > Submitted via `/ievo:feedback` skill
 ```
@@ -236,6 +264,17 @@ recommendation quality (both for iEvo and upstream skills.sh).
 - Project stack: <manifest list>
 
 > Submitted via `/ievo:feedback` skill (rejections flow from `/ievo:init` step 10)
+
+<if init log was attached in step 3.85:>
+
+<details>
+<summary>Attached: /ievo:init run log</summary>
+
+```markdown
+<contents of the latest .ievo/log/init-*.md, truncated to 16KB if needed>
+```
+
+</details>
 ```
 
 ## Step 5: Preview and confirm

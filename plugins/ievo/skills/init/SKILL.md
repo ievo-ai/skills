@@ -39,9 +39,28 @@ Do not proceed. Do not auto-install find-skills — the user needs to reload plu
 Create (if missing):
 - `.ievo/evolution/agents/` — per-agent evolution logs
 - `.ievo/evolution/skills/` — per-skill evolution logs
+- `.ievo/log/` — per-run diagnostic logs (this run will write to it in step 11)
 - `.claude/` — required by `npx skills add` for project-local installs (without it, the Claude Code symlinks are silently skipped — see vercel-labs/skills bug reports)
 
 Do not touch `CLAUDE.md` or `AGENTS.md` here. They are only modified on the first project-specific evolution.
+
+## Step 2.5: Open run log buffer
+
+Start a buffer (a markdown string in memory) for this init run. Add sections as you progress through steps; write the full buffer to `.ievo/log/init-<YYYYMMDD-HHMMSS>.md` at step 11. This log is the **single most useful artifact** for diagnosing why init suggested what it suggested.
+
+Initialize the buffer with:
+
+```markdown
+# Init run — <ISO-8601 timestamp>
+
+## 0. Plugin metadata
+- iEvo plugin version: <read from ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json>
+- Plugin commit SHA: <git -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD>
+- Claude Code: <claude --version>
+- OS: <uname -srm>
+```
+
+Append a new `## N. <step name>` section after each major step below.
 
 ## Step 3: Build the "already-installed" inventory
 
@@ -62,6 +81,13 @@ Collect names of everything already installed in the project. This serves two pu
 - `~/.claude/plugins/*/agents/<name>.md`
 
 Hold both lists for use in steps 5 and 6.
+
+**Log:** append to buffer:
+```markdown
+## 3. Installed inventory
+- Skills: <count> — names: <comma-separated>
+- Agents: <count> — names: <comma-separated>
+```
 
 ## Step 4: Detect stack and dependencies
 
@@ -133,6 +159,16 @@ Stack: Python (pyproject.toml)
 Deps: numpy, scipy, pydantic, SimpleITK, vtk, pydicom, fastapi, pytest, mypy, ruff
 ```
 
+**Log:** append to buffer:
+```markdown
+## 4. Stack & dependencies
+- Manifests found: <list>
+- Detected stack: <Python / Node / Rust / ...>
+- Tool family hints: <uv / poetry / npm / yarn / cargo / ...>
+- Direct deps (<N> total): <comma-separated list>
+- Secondary signals: <Dockerfile / .github/workflows / etc.>
+```
+
 ## Step 4.5: Disambiguate broad categories
 
 Many "broad categories" (i18n, testing, security, docs, ...) have multiple sub-types that solve completely different problems. Suggesting `mkdocs-i18n` for a project that translates UI code strings (gettext-style) is wrong: same word, different category. Resolve this **before** calling find-skills.
@@ -168,6 +204,14 @@ For each candidate category, in order:
 ### What this prevents
 
 The bug behind issue #11: init suggested `mkdocs-i18n` for a project that only translates UI code strings. With this step, signals (`.po` files / no `mkdocs.yml`) would have resolved `i18n` → `code-strings`, find-skills would have been asked for gettext / Babel / react-intl class skills, and `mkdocs-i18n` would never have been a candidate.
+
+**Log:** append to buffer:
+```markdown
+## 4.5. Disambiguation outcomes
+- <category> → <sub-type> (signals: <which files/deps triggered>)
+- <category> → ambiguous (no matching signals — will ask user)
+- ... (one line per category considered)
+```
 
 ## Step 5: Invoke find-skills (with full context)
 
@@ -221,6 +265,15 @@ DO NOT install anything. Just return the consolidated list.
 
 Wait for find-skills to return the list.
 
+**Log:** append to buffer:
+````markdown
+## 5. Prompt sent to find-skills
+<full prompt verbatim, wrapped in ``` for readability>
+
+## 5b. find-skills raw response
+<the list returned, with name + install count per entry — keep it terse, one line per>
+````
+
 ## Step 6: Deduplicate and validate the suggestion list (safety net)
 
 find-skills should follow the instructions in step 5 — but it may not perfectly, and skills.sh registry data can be stale (listed skills that no longer exist in their source repos). Apply these defensive passes:
@@ -247,6 +300,16 @@ If both return non-zero (skill not found at expected paths in the source repo's 
 If `gh` is not installed or not authenticated, **skip Pass 4 silently** — don't block on this defensive check. Install errors at Step 8 will catch stale entries as fallback.
 
 After all four passes, the candidate list should be clean and source-verified. Use it for the interview.
+
+**Log:** append to buffer:
+```markdown
+## 6. Dedup outcomes
+- Pass 1 (already-installed): dropped <N> — <names>
+- Pass 2 (exact id): dropped <N>
+- Pass 3 (skill-name dedup): dropped <N>
+- Pass 4 (source-validate): dropped <N> as stale — <names>
+- Final candidates: <N>
+```
 
 ## Step 7: Interview — one question per skill
 
@@ -282,6 +345,19 @@ The user reads the description (which includes the skills.sh URL) before choosin
 - `installed[]` — skills the user chose `Install` for
 - `skipped[]` — skills the user chose `Skip` for, with full identifier (`<owner>/<repo>@<skill>`)
 
+**Log:** append to buffer:
+```markdown
+## 7. Interview results
+- Installed: <list of <owner/repo@skill>>
+- Skipped: <list of <owner/repo@skill>>
+```
+
+If step 7a ran (ambiguous categories resolved by user), include those answers too:
+```markdown
+## 7a. Ambiguity resolutions
+- <category> → user picked <sub-type>
+```
+
 ## Step 8: Install selected skills
 
 For each skill the user chose `Install` for:
@@ -294,6 +370,13 @@ Notes:
 - **No `-g` flag** — install project-local into `.claude/skills/<name>/`.
 - `-y` suppresses interactive confirmation from the `skills` CLI (we already got user consent in step 7).
 - Run each install in its own Bash invocation. If one fails, report the error and continue with the next — do not abort the whole flow.
+
+**Log:** append to buffer:
+```markdown
+## 8. Install outcomes
+- <owner/repo@skill>: OK (<install duration if available>)
+- <owner/repo@skill>: FAILED — <error one-liner>
+```
 
 ## Step 9: Final reminder
 
@@ -360,6 +443,32 @@ If `Share feedback` → activate the `feedback` skill (flow A).
 ### In both cases
 
 If the user picks `Skip`, do nothing — init is done.
+
+## Step 11: Write the run log
+
+Write the buffer accumulated through this run to `.ievo/log/init-<YYYYMMDD-HHMMSS>.md`.
+
+In the final user-facing summary, mention the log path so the user knows where to look:
+
+```
+Init log written to .ievo/log/init-20260517-143200.md
+
+If you hit a bug or want to share specific feedback about why /ievo:init
+made certain suggestions, attach this log when filing — it captures the
+exact prompt, find-skills response, dedup outcomes, and your choices.
+You can attach it automatically via /ievo:feedback.
+```
+
+### Logs gitignore note (one-time, idempotent)
+
+Check the project's root `.gitignore` for `.ievo/log/` (or similar covering pattern like `.ievo/`). If neither matches, add a line:
+
+```
+# iEvo diagnostic logs (local-only; do not commit)
+.ievo/log/
+```
+
+If the project has no `.gitignore` at all, do **not** create one — the user may not be using git, or may want their own structure. Just mention in the summary: "Consider adding `.ievo/log/` to your .gitignore — these logs contain run metadata only, but are intended for local debugging, not version control."
 
 ## Rules
 

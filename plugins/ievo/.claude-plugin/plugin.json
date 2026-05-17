@@ -1,6 +1,6 @@
 {
   "name": "ievo",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "iEvo — self-evolving plugin for Claude Code. Capture lessons, patch local agents and skills, replay logs on upstream updates.",
   "author": {
     "name": "Denys Rotnov"

@@ -140,6 +140,33 @@ Question framing:
 
 **Skip the analysis if** the feedback is already detailed and specific (e.g. user wrote 200+ words covering steps, expected, actual). Don't drag a complete report through unnecessary questions.
 
+## Step 3.75: Translate to English if needed
+
+The `ievo-ai/skills` repo (and upstream `vercel-labs/skills`) is in English. Users may write feedback in their native language. Translate to English **before** building the issue body, but preserve the original verbatim for context.
+
+### Detection
+
+Look at the user's freeform text from Step 2 and any clarification answers from Step 3.5.
+
+- If the text is **already English** → no translation needed. Skip this step.
+- If the text is in **any other language** (Russian, Spanish, French, Chinese, Japanese, German, ...) → translate to English. Use your own multilingual capability — no external API.
+
+### Translation rules
+
+- **Preserve technical terms verbatim** — file names, command names, error messages, stack traces, library names. Don't translate `pyproject.toml`, `SimpleITK`, `/ievo:init`, etc.
+- **Translate intent, not word-for-word.** The English version should read naturally to a native speaker.
+- **No paraphrasing for "improvement".** Stay faithful to the user's content and tone. If they said "this is annoying", translate to "this is annoying" — not "this could be improved".
+
+### Output format
+
+Hold two versions:
+- `body_en` — the English translation, used as the primary body
+- `body_original` — the user's original text verbatim, included in collapsed `<details>` for context
+
+If no translation was needed, `body_original` is empty and only `body_en` is used.
+
+Structured rejection reasons (flow B options like "Not relevant to my stack") are already in English — no translation needed for those. Only the freeform note (if any) gets translated.
+
 ## Step 4: Build the issue body
 
 ### Flow A (generic) format
@@ -147,7 +174,16 @@ Question framing:
 ```markdown
 ## Feedback
 
-<the user's text from step 2 — quote verbatim>
+<body_en — English translation from step 3.75, or the original if it was already English>
+
+<if body_original is non-empty, also include:>
+
+<details>
+<summary>Original (untranslated)</summary>
+
+<body_original — user's verbatim text in source language>
+
+</details>
 
 ---
 
@@ -179,7 +215,16 @@ recommendation quality (both for iEvo and upstream skills.sh).
 - ...
 
 ### Note from user
-<freeform from step 2, or "(none)">
+<freeform_en — translated if needed, or "(none)">
+
+<if freeform_original is non-empty (user wrote in non-English), also include:>
+
+<details>
+<summary>Original note (untranslated)</summary>
+
+<freeform_original verbatim>
+
+</details>
 
 ---
 
@@ -252,7 +297,7 @@ On failure (gh missing or network):
 ## Rules
 
 - **Public posting requires explicit confirm.** Never skip step 5. Feedback is public on the internet; no surprises.
-- **Verbatim user text.** Do not paraphrase, "improve", or sanitize the user's words. Their voice is the value.
+- **Verbatim user text — preserved in `<details>` block.** Do not paraphrase, "improve", or sanitize the user's words. If the original is non-English, translate the primary body to English (Step 3.75) but include the verbatim original in a collapsed `<details>` block so maintainers can verify the translation or fall back to it.
 - **No secrets leak.** The auto-collect list is closed — version, OS, manifest names only. Do not include git remote URLs, branch names, or anything from environment variables.
 - **Best-effort context.** If any Bash command in step 3 fails, omit that line. Never block submission on metadata collection.
 - **Graceful gh-CLI fallback.** If `gh` is missing/unauthenticated, give the user a way to post manually — don't just say "failed".

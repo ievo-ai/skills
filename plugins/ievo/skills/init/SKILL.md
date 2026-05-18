@@ -10,6 +10,22 @@ metadata:
 
 # Init
 
+## ⚠️ Critical execution directive — read first
+
+**Execute the entire pipeline continuously, without pausing.** Do NOT wait for user input between steps. The ONLY user-facing pauses are:
+
+1. **Step 1** (permission check) — `AskUserQuestion`
+2. **Step 7a** (resolve ambiguous categories) — `AskUserQuestion`, only if any categories were marked `/ambiguous`
+3. **Step 7b** (per-candidate interview) — `AskUserQuestion`
+4. **Step 8** (RED security verdict) — `AskUserQuestion`, only for RED candidates
+5. **Step 13** (final feedback prompt) — `AskUserQuestion`
+
+Between every other step, **proceed immediately** to the next step. If you find yourself thinking "should I confirm with the user before doing X?" — the answer is NO. Just do it. Write to the log so the user can monitor via `tail -f`.
+
+Especially: between Step 5 (find-skills result) and Step 6 (index-repos) → **no pause, no confirmation, no summary checkpoint**. Just invoke index-repos for each unique repo in sequence.
+
+## Pipeline
+
 Set up iEvo in the current project. Pipeline:
 
 ```
@@ -302,13 +318,19 @@ Extract the **unique set of `<owner>/<repo>` values** from find-skills' output. 
 - anthropics/claude-code               (demo plugins)
 ```
 
-For each unique repo, invoke the `index-repos` skill:
+For each unique repo, invoke the `index-repos` skill — **in sequence**, **without pausing** between them, **logging progress after each**.
 
 ```
-Use index-repos to enumerate <owner>/<repo>.
+For each repo in unique_repos:
+  Use index-repos to enumerate <owner>/<repo>.
+  Append a one-liner to $LOG_PATH section 6 immediately:
+    "- <owner>/<repo>: indexed (cache: hit|miss) — N skills, M agents, K plugins"
+  Continue to next repo. Do NOT pause for confirmation.
 ```
 
 `index-repos` writes (or hits cache for) `.ievo/cache/index/<owner>-<repo>.md` per repo.
+
+**Performance expectation:** for 8 repos with cache-miss, this takes 5-15 minutes total depending on repo sizes. wshobson/agents alone is ~2-3 min (72 plugins). Cache hits make subsequent runs sub-second per repo. Surface progress to the user via the incremental log file — they can `tail -f .ievo/log/init-*.md` to monitor.
 
 Read each generated index and **expand the candidate list**:
 - All standalone skills from index

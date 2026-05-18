@@ -122,18 +122,30 @@ Create if missing:
 
 Do NOT touch `CLAUDE.md` or `AGENTS.md` here.
 
-## Step 2.5: Open run-log buffer
+## Step 2.5: Create run-log file (incremental writes — do not defer!)
 
-Start buffer (in memory). Write to `.ievo/log/init-<YYYYMMDD-HHMMSS>.md` at Step 11. Initialize:
+**Critical:** the log is written **incrementally**, after each major step — not as a single flush at the end. If init hangs, crashes, or the user cancels mid-run, the diagnostic log up to the point of failure must be on disk.
 
-```markdown
-# Init run — <ISO-8601 timestamp>
+Create the file NOW with timestamp and section 0:
+
+```bash
+LOG_PATH=".ievo/log/init-$(date -u +%Y%m%d-%H%M%S).md"
+mkdir -p .ievo/log
+cat > "$LOG_PATH" <<EOF
+# Init run — $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 ## 0. Plugin metadata
-- iEvo plugin: <version> (<sha>)
+- iEvo plugin: <version from Step 0 banner>
+- Plugin commit SHA: <or "marketplace-installed">
 - Claude Code: <claude --version>
 - OS: <uname -srm>
+- Run started: <ISO-8601 timestamp>
+EOF
 ```
+
+Remember `LOG_PATH` for all subsequent steps. Each step below has a **`Log:` instruction** — it means **append that section to `$LOG_PATH` immediately**, before proceeding to the next step.
+
+If a step takes a long time (e.g. `find-skills` or `index-repos` for big repos), the user can `tail -f $LOG_PATH` in another shell and see progress.
 
 ## Step 3: Build installed inventory
 
@@ -305,6 +317,8 @@ Read each generated index and **expand the candidate list**:
 
 Now your candidate list has three types: `skill` (install via vendor), `agent` (install via vendor), `plugin` (install via marketplace settings).
 
+### Log: append section 6 to `$LOG_PATH` NOW (do not defer) — index-repos can take 5-15 minutes for big repos like wshobson/agents
+
 ### MANDATORY log content — section 6 (expansion)
 
 ```markdown
@@ -340,6 +354,8 @@ Filter and rank:
 - **Rank by score then by install count** (where available) then by stars.
 
 Keep top 12-15 candidates total.
+
+### Log: append section 6b to `$LOG_PATH` NOW (do not defer)
 
 ### MANDATORY log content — section 6b (filtering outcome)
 
@@ -419,6 +435,8 @@ Track selections:
 - `vendor_queue[]` — skills + agents to vendor
 - `plugin_queue[]` — plugins to install via settings.json
 
+### Log: append section 7 + 7b to `$LOG_PATH` NOW (do not defer)
+
 ### MANDATORY log content — section 7b (interview results)
 
 ```markdown
@@ -472,7 +490,7 @@ Use security-check on <owner>/<repo>@<name> with type=<skill|agent|plugin>.
   - If force-install → add to final list with `force=true` flag.
   - If skip → remove from queue.
 
-Log per-item audit outcomes (section 8).
+**Log: append section 8 to `$LOG_PATH` NOW (do not defer)** — audit happens per-item, can take seconds-to-minutes each; user wants to see results as they come.
 
 ## Step 9: Execute install
 
@@ -542,7 +560,7 @@ This file gets committed to git → teammates `git pull` → Claude Code prompts
 
 Per existing convention: if any install step fails, report and continue with the next. Do NOT abort the whole flow.
 
-Log install outcomes per-item (section 9).
+**Log: append section 9 to `$LOG_PATH` NOW (do not defer) after EACH install** — not after the entire batch. Each install line written as it completes so the user sees progress live in `tail -f`.
 
 ## Step 10: Add `.ievo/` to .gitignore (selectively)
 
@@ -562,9 +580,21 @@ Check project's `.gitignore`. If it doesn't already cover `.ievo/log/` and `.iev
 
 If no `.gitignore` exists, do not create one — note in summary.
 
-## Step 11: Write diagnostic log
+## Step 11: Finalize log
 
-Flush the buffer (sections 0-9) to `.ievo/log/init-<YYYYMMDD-HHMMSS>.md`.
+The log file at `$LOG_PATH` already contains sections 0-9 — each was appended as the corresponding step completed.
+
+Append a final closing section so post-mortem readers know the run ended cleanly:
+
+```markdown
+
+## Final
+- Run completed: <ISO-8601 timestamp>
+- Total duration: <wall-clock>
+- Status: COMPLETE
+```
+
+**Why incremental writes matter:** if init crashes / hangs / user cancels at any step, the partial log up to that point is on disk. `tail -f .ievo/log/init-*.md` works during long-running steps (find-skills, index-repos). Post-mortem diagnosis works even on failed runs.
 
 ## Step 12: Final summary and reload reminder
 

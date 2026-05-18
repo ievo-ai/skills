@@ -42,31 +42,60 @@ security-check (per selection)
 install (vendor or plugin)
 ```
 
-## Step 0: Print version banner
+## Step 0: Print version banner (read from disk — never infer)
 
-**Before any other work**, read the plugin version and print a banner so the user immediately knows what's running. This is the primary diagnostic for "is the new init body loaded after marketplace update?" — if the user sees an old version here, they know to `/reload-plugins`.
+**MANDATORY first action.** The version MUST come from actual disk read of the plugin.json file. If you "know" the version from prior conversation turns, from being trained, or from SKILL.md text — **IGNORE that knowledge**. The diagnostic value depends on showing what's actually loaded, not what you expect.
 
-```bash
-VERSION=$(jq -r '.version' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
+### Step 0a — Read plugin.json from disk (Read tool, not Bash)
+
+Use the **Read tool** on:
+```
+${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json
 ```
 
-Output:
+The Read tool returns the file contents verbatim in the tool result — no chance of substitution or inference. Extract the `version` field from the JSON.
+
+If Read fails (file missing, permission denied, etc.), print error and stop:
 ```
-🧬 iEvo init v<version>
-   github.com/ievo-ai/skills
+❌ Cannot read plugin.json from ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json
+   <error message>
+   Reinstall plugin: /plugin reinstall ievo@ievo-skills
 ```
 
-If the version reads as expected by the user (matches recently-merged release), proceed. If not, the user can interrupt and reload.
+Do NOT fall back to "I think it's v0.2.x" — that defeats the diagnostic.
 
-Append to log buffer:
+### Step 0b — Print banner
+
+Output exactly (substitute only `<version-from-read>` with the value extracted in 0a):
+
+```
+🧬 iEvo init v<version-from-read>
+   from: ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json
+```
+
+The **`from:` line is part of the banner** — shows the user the exact path the version came from. They can manually inspect that file to verify if suspicious.
+
+### Why Read instead of Bash
+
+`jq` via Bash works, but Bash tool invocations can be skipped by some inference paths — the model can complete the next line as if Bash had returned the expected value. **Read tool is deterministic**: its result is a file content snapshot in the tool response. The version IS what Read returned, by construction.
+
+### Step 0c — Write to log
+
+Create `$LOG_PATH` (see Step 2.5) and write section 0:
+
 ```markdown
+# Init run — <ISO-8601 timestamp>
+
 ## 0. Plugin metadata
-- iEvo plugin version: <version>
-- Plugin commit SHA: <gh -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD or "marketplace-installed">
-- Claude Code: <claude --version>
-- OS: <uname -srm>
+- iEvo plugin version: <version-from-read>
+- Plugin path: ${CLAUDE_PLUGIN_ROOT}
+- Plugin commit SHA: <run `git -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD 2>/dev/null` or write "marketplace-installed">
+- Claude Code: <output of `claude --version`>
+- OS: <output of `uname -srm`>
 - Run started: <ISO-8601 timestamp>
 ```
+
+Plugin path in the log helps diagnose "which install dir is Claude Code loading the plugin from".
 
 ## Step 1: Verify prerequisites
 

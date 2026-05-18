@@ -26,6 +26,32 @@ security-check (per selection)
 install (vendor or plugin)
 ```
 
+## Step 0: Print version banner
+
+**Before any other work**, read the plugin version and print a banner so the user immediately knows what's running. This is the primary diagnostic for "is the new init body loaded after marketplace update?" — if the user sees an old version here, they know to `/reload-plugins`.
+
+```bash
+VERSION=$(jq -r '.version' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
+```
+
+Output:
+```
+🧬 iEvo init v<version>
+   github.com/ievo-ai/skills
+```
+
+If the version reads as expected by the user (matches recently-merged release), proceed. If not, the user can interrupt and reload.
+
+Append to log buffer:
+```markdown
+## 0. Plugin metadata
+- iEvo plugin version: <version>
+- Plugin commit SHA: <gh -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD or "marketplace-installed">
+- Claude Code: <claude --version>
+- OS: <uname -srm>
+- Run started: <ISO-8601 timestamp>
+```
+
 ## Step 1: Verify prerequisites
 
 Hard prereqs:
@@ -95,7 +121,30 @@ Collect names from:
 **Plugins enabled:**
 - Parse `.claude/settings.json` field `enabledPlugins` keys
 
-Log to buffer (section 3).
+### MANDATORY log content — section 3
+
+Write **complete lists**, do not abbreviate. The diagnostic value depends on seeing everything:
+
+```markdown
+## 3. Installed inventory
+
+### Skills (<N> total)
+**Project-level** (`.claude/skills/`): <full comma-separated list>
+**Project-level plugins** (`.claude/plugins/*/skills/`): <full list>
+**User-level** (`~/.claude/skills/`): <full list>
+**User-level plugins** (`~/.claude/plugins/*/skills/`): <full list>
+
+### Agents (<N> total)
+**Project-level** (`.claude/agents/`): <full comma-separated list — do not truncate>
+**Project-level plugins** (`.claude/plugins/*/agents/`): <full list>
+**User-level** (`~/.claude/agents/`): <full list>
+**User-level plugins** (`~/.claude/plugins/*/agents/`): <full list>
+
+### Plugins enabled (`.claude/settings.json`)
+<comma-separated list of enabledPlugins keys, or "(none)">
+```
+
+If a project has 26 agents, the log MUST list all 26 names. Do not collapse to "12 iEvo-managed plus N others" — that loses information needed for filtering decisions in step 5.
 
 ## Step 4: Detect stack and dependencies
 
@@ -223,6 +272,29 @@ Read each generated index and **expand the candidate list**:
 
 Now your candidate list has three types: `skill` (install via vendor), `agent` (install via vendor), `plugin` (install via marketplace settings).
 
+### MANDATORY log content — section 6 (expansion)
+
+```markdown
+## 6. Repo indexing + candidate expansion
+
+### Repos considered (<N>)
+<for each repo: name, source (find-skills | auto-available), cache hit/miss>
+
+### Per-repo expansion
+#### <owner>/<repo>
+- Index path: `.ievo/cache/index/<owner>-<repo>.md`
+- Skills found: <count> — <full list>
+- Agents found: <count> — <full list>
+- Plugins found: <count> — <full list>
+- Hooks present in any plugin: <yes/no> (which plugins)
+[...repeat per repo...]
+
+### Expanded candidate list (before stack matching)
+- Skills: <count> from <N> repos
+- Agents: <count> from <M> repos
+- Plugins: <count> from <K> repos
+```
+
 ## Step 7: Match expanded candidates against stack and rank
 
 Filter and rank:
@@ -234,7 +306,27 @@ Filter and rank:
   - Generic universally-useful (e.g. "code-reviewer") → low but non-zero
 - **Rank by score then by install count** (where available) then by stars.
 
-Keep top 12-15 candidates total. Log final candidate list (section 6).
+Keep top 12-15 candidates total.
+
+### MANDATORY log content — section 6b (filtering outcome)
+
+```markdown
+## 6b. Stack-match filtering
+
+### Dropped: already-installed (<N>)
+<list with name + reason "matches installed <agent|skill|plugin>: <name>">
+
+### Dropped: out-of-stack (<N>)
+<list with name + reason "no signal match for project's stack">
+
+### Dropped: low score (<N>)
+<list with name + score>
+
+### Final candidates (<N>)
+| name | type | source repo | install_count/stars | score | category |
+|------|------|-------------|---------------------|-------|----------|
+[...one row per candidate, ranked]
+```
 
 ## Step 7a: Resolve ambiguous categories first (if any)
 
@@ -294,7 +386,26 @@ Track selections:
 - `vendor_queue[]` — skills + agents to vendor
 - `plugin_queue[]` — plugins to install via settings.json
 
-Log results (section 7b).
+### MANDATORY log content — section 7b (interview results)
+
+```markdown
+## 7b. Interview results
+
+### Vendor queue (<N>)
+| name | type | source repo | user choice |
+|------|------|-------------|-------------|
+[...rows for skills + agents user picked "vendor"...]
+
+### Plugin queue (<N>)
+| name | marketplace | from plugin | user choice |
+|------|-------------|-------------|-------------|
+[...rows for plugins user picked "install whole plugin"...]
+
+### Skipped (<N>)
+| name | type | source repo | reason (if known from question) |
+|------|------|-------------|----------------------------------|
+[...all candidates user skipped or rejected via security in step 8...]
+```
 
 ## Step 8: Per-selection security check
 

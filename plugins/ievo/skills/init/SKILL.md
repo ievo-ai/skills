@@ -288,18 +288,39 @@ Drop candidates that match.
 
 **Pass 3 — Dedup by skill-name across sources.** Group remaining candidates by just `<skill-name>`. Different `<owner>/<repo>` provide a skill with the same name → keep only the highest-install-count one. Drop the rest silently.
 
-**Pass 4 — Verify source exists upstream.** skills.sh caches listings; the source repo may have removed/renamed the skill since indexing. For each remaining candidate, do a fast existence check on the source repo via `gh` API:
+**Pass 4 — Verify source exists upstream (soft-fail).** skills.sh caches listings; the source repo may have removed/renamed the skill since indexing. For each remaining candidate, probe **multiple common layouts** in the source repo via `gh` API. Real-world skill repos use varied directory structures — narrow probes cause false-negatives that throw out valid skills.
+
+Try these paths in order (stop at first 2xx):
 
 ```bash
-gh api repos/<owner>/<repo>/contents/skills/<skill-name>/SKILL.md --silent 2>/dev/null \
-  || gh api repos/<owner>/<repo>/contents/<skill-name>/SKILL.md --silent 2>/dev/null
+# Standard layouts
+gh api repos/<owner>/<repo>/contents/skills/<skill>/SKILL.md --silent
+gh api repos/<owner>/<repo>/contents/<skill>/SKILL.md --silent
+
+# Plugin-style (e.g. trailofbits/skills)
+gh api repos/<owner>/<repo>/contents/plugins/<skill>/SKILL.md --silent
+gh api repos/<owner>/<repo>/contents/plugins/<skill>/skills/<skill>/SKILL.md --silent
+
+# Categorized layouts (e.g. mattpocock/skills uses skills/<category>/<name>/)
+# Probe one level of category nesting:
+gh api repos/<owner>/<repo>/contents/skills --jq '.[].name' --silent | xargs -I{} \
+  gh api repos/<owner>/<repo>/contents/skills/{}/<skill>/SKILL.md --silent
+
+# Custom-deep layouts (e.g. davila7/claude-code-templates) — single-shot search
+gh search code "filename:SKILL.md path:<skill>" --repo <owner>/<repo> --limit 1 --json path
 ```
 
-If both return non-zero (skill not found at expected paths in the source repo's default branch), the listing is **stale** — drop it from candidates. Also notable: report to the user in the final summary which candidates were dropped as stale, so they understand `find-skills` returned more than the interview asked about.
+**Soft-fail rule.** If ALL probes return non-200 / empty:
+- **DO NOT drop the candidate.** False-negative is worse than letting a stale entry try-and-fail at install.
+- Mark it as `possibly-stale` in the log section 6.
+- Keep it in the candidate list so it appears in the interview.
+- The user may still want to try it. If genuinely stale, `npx skills add` at step 8 will fail, and our install rule "report and continue" handles that gracefully.
 
-If `gh` is not installed or not authenticated, **skip Pass 4 silently** — don't block on this defensive check. Install errors at Step 8 will catch stale entries as fallback.
+Only DROP from candidates if you positively confirm the listing is stale via authoritative signal — for example, the skills.sh page returns 404 entirely (the listing itself was removed). Layout-based probes are too noisy to drop on alone.
 
-After all four passes, the candidate list should be clean and source-verified. Use it for the interview.
+If `gh` is not installed or not authenticated, **skip Pass 4 silently** — don't block on this defensive check.
+
+After all four passes, the candidate list should be clean (Pass 1-3) and source-checked (Pass 4 soft). Use it for the interview.
 
 **Log:** append to buffer:
 ```markdown
@@ -307,9 +328,11 @@ After all four passes, the candidate list should be clean and source-verified. U
 - Pass 1 (already-installed): dropped <N> — <names>
 - Pass 2 (exact id): dropped <N>
 - Pass 3 (skill-name dedup): dropped <N>
-- Pass 4 (source-validate): dropped <N> as stale — <names>
+- Pass 4 (source-validate soft): kept all <N>; marked possibly-stale: <N> — <names with probed paths>
 - Final candidates: <N>
 ```
+
+Pass 4 only drops on authoritative stale signal (skills.sh listing 404). Layout probe misses are logged as `possibly-stale` but kept.
 
 ## Step 7: Interview — one question per skill
 

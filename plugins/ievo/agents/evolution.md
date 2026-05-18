@@ -31,12 +31,22 @@ Three possible scopes:
 3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → `.ievo/evolution/skills/<name>.md`
 
 For agent/skill scope, determine the target name explicitly (from user) or by matching the lesson against available targets:
-- Local agents: `.claude/agents/*.md`
-- Local skills: `.claude/skills/*/SKILL.md`
-- Plugin agents: `<plugin>/agents/*.md`
-- Plugin skills: `<plugin>/skills/*/SKILL.md`
 
-If no clear match, ask the user. Do not guess.
+**Project-level (preferred):**
+- `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`
+- `.claude/plugins/*/agents/*.md`, `.claude/plugins/*/skills/*/SKILL.md`
+
+**User-level (fallback):**
+- `~/.claude/agents/*.md`, `~/.claude/skills/*/SKILL.md`
+- `~/.claude/plugins/*/agents/*.md`, `~/.claude/plugins/*/skills/*/SKILL.md`
+
+Project-level wins on name match. If a target is found only at user-level, ask the user before proceeding (see "User-level handling" below). If no clear match anywhere, ask which target. Do not guess.
+
+## User-level handling
+
+If target found ONLY at user-level: ask `AskUserQuestion`:
+- `Copy to project (Recommended)` — copies to `.claude/<type>/<name>/`, proceeds with vendor/marker/overlay flow. Record trigger as `copied-from-user-level`.
+- `Skip` — don't evolve user-level installs. Inform user the lesson was not captured.
 
 ## Step 2: Ensure target file exists locally (vendor if needed)
 

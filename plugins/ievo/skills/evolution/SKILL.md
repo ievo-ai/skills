@@ -34,12 +34,41 @@ Three possible scopes:
 3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → goes to `.ievo/evolution/skills/<name>.md`
 
 For agent/skill scope, determine the **target name** explicitly (from user) or by matching the lesson against available targets:
-- Local agents: `.claude/agents/*.md`
-- Local skills: `.claude/skills/*/SKILL.md`
-- Plugin agents: `<plugin>/agents/*.md`
-- Plugin skills: `<plugin>/skills/*/SKILL.md`
 
-If no clear match, ask the user. Do not guess.
+**Project-level (preferred):**
+- `.claude/agents/*.md`
+- `.claude/skills/*/SKILL.md`
+- `.claude/plugins/*/agents/*.md`
+- `.claude/plugins/*/skills/*/SKILL.md`
+
+**User-level (fallback — see Step 1.5):**
+- `~/.claude/agents/*.md`
+- `~/.claude/skills/*/SKILL.md`
+- `~/.claude/plugins/*/agents/*.md`
+- `~/.claude/plugins/*/skills/*/SKILL.md`
+
+Match priority: project-level wins if same name appears in both. If no clear match anywhere, ask the user. Do not guess.
+
+## Step 1.5: Handle user-level-only targets (downgrade to project)
+
+If the target was matched **only at user-level** (no project-level instance), evolution can't directly apply to it — overlay files live in `<project>/.ievo/evolution/`, so they only affect this project. The user-level installation is shared across all projects on this machine.
+
+Ask the user via `AskUserQuestion`:
+
+- **Question:** `<target-name> is installed at user-level (~/.claude/). Copy to project to enable per-project evolution?`
+- **Header:** `User-level`
+- **Options** (single-select):
+  - `Copy to project (Recommended)` — description: `Copies <target> into .claude/<type>/<name>/ in this project. Future evolutions apply to this project only. User-level original unchanged.`
+  - `Skip` — description: `Don't evolve user-level installs. The lesson will not be recorded.`
+
+If user picks **Copy to project**:
+1. Copy the entire file/directory from user-level location → project location.
+2. Treat as locally vendored. Proceed with Step 2-4 below (vendor step will see file exists locally and skip its own vendoring).
+3. Record this in the overlay's first section: `**Trigger:** copied-from-user-level`.
+
+If user picks **Skip**: exit without writing anything. Inform the user that the lesson was not captured.
+
+**Note:** Once copied, the project-level version takes precedence (Claude Code name resolution). The user-level version still exists in other projects unchanged.
 
 ## Step 2: Ensure target file exists locally (vendor if needed)
 

@@ -18,7 +18,7 @@ This skill has two flows:
 
 **(A) Generic feedback** — default. User invoked `/ievo:feedback` or expressed feedback intent freely. Go to Step 1.
 
-**(B) Skill-rejections feedback** — invoked from `/ievo:init` step 10 with a list of skipped skills from the interview. The caller will provide context like:
+**(B) Skill-rejections feedback** — invoked from `/ievo:init` final feedback step (step 13 in v0.2.0+) with a list of skipped skills from the interview. The caller will provide context like:
 ```
 The user just completed /ievo:init interview. They installed N skills
 and skipped these M skills: <list>. Collect reasons for the skips and
@@ -263,7 +263,7 @@ recommendation quality (both for iEvo and upstream skills.sh).
 - OS: <uname output>
 - Project stack: <manifest list>
 
-> Submitted via `/ievo:feedback` skill (rejections flow from `/ievo:init` step 10)
+> Submitted via `/ievo:feedback` skill (rejections flow from `/ievo:init` final feedback step)
 
 <if init log was attached in step 3.85:>
 

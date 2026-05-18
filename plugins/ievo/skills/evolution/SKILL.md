@@ -1,6 +1,6 @@
 ---
 name: evolution
-description: Capture a lesson learned and integrate it into the right place — a local agent file, a local skill file, or the project's CLAUDE.md/AGENTS.md (for project-wide rules). Use when the user identifies a behavior to improve, a mistake to prevent, a project convention, a team role, a tech-stack constraint, or any pattern worth persisting beyond the current session. Patches the target and appends a section to the appropriate `.ievo/evolution/` log.
+description: Capture a lesson and add it to the appropriate evolution overlay — a per-agent file, per-skill file, or project-wide rules file. Use when the user identifies a behavior to improve, a mistake to prevent, a project convention, a team role, a tech-stack constraint, or any pattern worth persisting beyond the current session. Appends to `.ievo/evolution/<scope>/<name>.md` (overlay file). The agent/skill body is never modified — overlays are read at dispatch time via a one-time marker injection.
 license: MIT
 compatibility: Designed for Claude Code with the iEvo plugin; usable on any agentskills.io-compatible platform with reduced functionality (no sub-agent isolation).
 metadata:
@@ -10,146 +10,207 @@ metadata:
 
 # Evolution
 
-Apply natural-language lessons to the right place: agent files, skill files, or the project's instruction file (`CLAUDE.md` / `AGENTS.md`). Always record the lesson in a markdown log under `.ievo/evolution/` so it survives upstream plugin updates via replay.
+Apply natural-language lessons to evolution overlays. **Overlay model:** agent/skill files are never modified after vendoring (only a one-time marker injection points to the overlay). Lessons accumulate in `.ievo/evolution/<scope>/<name>.md` and are read live at every dispatch.
+
+This is fundamentally different from "patch the file inline" — see the rationale at the bottom.
 
 ## Inputs
 
 - **Required:** lesson text (free-form natural language)
-- **Optional:** explicit target (e.g., "apply this to the spec-writer agent" or "this is project-wide")
+- **Optional:** explicit target ("apply this to spec-writer agent" / "this is project-wide")
 
-If the lesson is too vague to apply (e.g., "be better"), ask the user for clarification before doing anything. A useful lesson states a rule, a context where it applies, and ideally why.
+If the lesson is too vague (e.g. "be better"), ask for clarification first.
 
 ## On Claude Code with the iEvo plugin
 
-If the `evolution` sub-agent is available (Claude Code with `ievo-ai/skills` plugin installed), **delegate to it via the Task tool** with `subagent_type: "evolution"`. The sub-agent runs in isolated context, doesn't pollute the main conversation. Pass the lesson verbatim and let it report back.
+If the `evolution` sub-agent is available, delegate via Task tool with `subagent_type: "evolution"`. Pass the lesson verbatim. Otherwise execute the steps below directly.
 
-If the Task tool is not available, OR the `evolution` sub-agent is not present, execute the steps below directly.
+## Step 1: Classify scope
 
-## Step 1: Classify the target
+Three possible scopes:
 
-Three possible targets:
+1. **Project-wide** — applies to the whole project (tech stack, team conventions, project context). Signals: "we use X", "our team Y", "this codebase Z". → goes to `.ievo/evolution/project.md`
+2. **Agent-specific** — names an agent or describes sub-agent behavior. Signals: "the spec-writer should X". → goes to `.ievo/evolution/agents/<name>.md`
+3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → goes to `.ievo/evolution/skills/<name>.md`
 
-1. **Project-wide** — applies to *this whole project*, not to a specific agent or skill. Signals:
-   - Tech stack: "we use Unity", "this is a Rust project", "FastAPI with Pydantic v2"
-   - Team conventions: "our team uses trunk-based development", "PR titles start with the task ID"
-   - Project context: "this app talks to a legacy XML API", "deployments happen on Tuesdays"
-   - Roles: "Alice owns the auth module"
-   - **Phrasing hint:** "in this project always X", "we / our team / our codebase", broad statements not tied to a single agent
-2. **Agent-specific** — applies to *one sub-agent*. Signals:
-   - Names an agent: "the spec-writer should X", "code-reviewer must Y"
-   - Describes sub-agent behavior in isolated dispatch (`subagent_type:`)
-3. **Skill-specific** — applies to *one skill / procedural knowledge*. Signals:
-   - Names a skill: "the changelog skill should X"
-   - Describes how to perform a task: "when writing PDFs, use the iText library"
+For agent/skill scope, determine the **target name** explicitly (from user) or by matching the lesson against available targets:
+- Local agents: `.claude/agents/*.md`
+- Local skills: `.claude/skills/*/SKILL.md`
+- Plugin agents: `<plugin>/agents/*.md`
+- Plugin skills: `<plugin>/skills/*/SKILL.md`
 
-Decide the **target name** if agent- or skill-specific:
-- If the user named the target explicitly → use that.
-- Else scan available targets:
-  - Local agents: `.claude/agents/*.md`
-  - Local skills: `.claude/skills/*/SKILL.md`
-  - Plugin agents: `<plugin>/agents/*.md`
-  - Plugin skills: `<plugin>/skills/*/SKILL.md`
-- Match the lesson to the most relevant target by name and description.
-- If nothing matches well, ask the user. Do not guess.
+If no clear match, ask the user. Do not guess.
 
-For project-wide lessons no "target name" is needed — they go to `CLAUDE.md`/`AGENTS.md` and `.ievo/evolution/project.md`.
+## Step 2: Ensure target file exists locally (vendor if needed)
 
-## Step 2 (agent/skill targets only): Localize if needed
+Only for agent/skill scope. Skip for project-wide.
 
-Skip this step for project-wide lessons.
+If the target lives in a plugin (not already in `.claude/<type>/`):
 
-If the target file lives in a plugin (not already in `.claude/<type>/`):
+**Vendor the file:**
+- For agent: copy `<plugin>/agents/<name>.md` → `<project>/.claude/agents/<name>.md`
+- For skill: copy `<plugin>/skills/<name>/` directory → `<project>/.claude/skills/<name>/` (whole tree)
 
-1. Find the plugin source path.
-2. Copy the upstream file into the project:
-   - Agent: `<plugin-source>` → `<project>/.claude/agents/<name>.md`
-   - Skill: `<plugin-source-dir>` → `<project>/.claude/skills/<name>/` (the whole directory)
+Use `gh api repos/<owner>/<repo>/contents/<path>` for fetching source.
 
-This local copy now overrides the plugin's version when Claude resolves the agent/skill by name.
+**This is one-time.** Subsequent evolutions on the same target reuse the local copy.
 
-## Step 3: Apply the lesson
+## Step 3: Inject overlay marker (one-time per target)
 
-### For agent/skill targets
+Read the local target file. Check if it already contains the iEvo overlay marker:
 
-Read the current local file. Integrate the lesson:
+```markdown
+<!-- ievo:start -->
+...
+<!-- ievo:end -->
+```
 
-- Find the most appropriate section. If none fits cleanly, add a new section with a descriptive header.
-- Match the file's existing formatting, style, and tone.
-- Do NOT duplicate existing rules. If a similar rule already exists, refine it instead.
-- Do NOT remove or change unrelated existing content.
-- Do NOT add HTML comment markers like `<!-- evolution:NNN -->`. Traceability lives in the evolution log.
+If **marker already present** → skip step 3. Marker is idempotent.
 
-Write the updated file back.
+If **no marker** → inject it. Placement depends on scope:
 
-### For project-wide lessons
+### Agent (`.claude/agents/<name>.md`)
 
-The lesson is stored in `.ievo/evolution/project.md` and referenced from `CLAUDE.md` / `AGENTS.md`.
+Insert marker BLOCK right after the frontmatter `---` line, before the agent's body:
 
-1. **Ensure the reference exists in the project's instruction file.**
+```markdown
+---
+name: spec-writer
+description: ...
+---
 
-   Pick the right file by priority:
-   - If `CLAUDE.md` exists in project root → use it
-   - Else if `AGENTS.md` exists → use it
-   - Else → create `CLAUDE.md` (empty if needed)
+<!-- ievo:start -->
+**Before applying the instructions below**, read `.ievo/evolution/agents/spec-writer.md` if it exists, and apply ALL rules from its sections IN ADDITION to the agent's instructions.
+<!-- ievo:end -->
 
-   Check if it already contains the iEvo marker block:
-   ```markdown
-   <!-- ievo:start -->
-   @.ievo/evolution/project.md
-   <!-- ievo:end -->
-   ```
+# Spec Writer
+[agent body...]
+```
 
-   - **If yes** → do nothing here, move to step 2.
-   - **If no** → append the marker block at the end of the file (with a leading blank line for separation). This is a one-time injection that happens on the very first project-wide evolution.
+### Skill (`.claude/skills/<name>/SKILL.md`)
 
-2. **Append the rule to `.ievo/evolution/project.md`.**
+Same pattern — marker after frontmatter, before body:
 
-   If the file does not exist, create it with the header:
-   ```markdown
-   # Project — Evolution Log
-   ```
+```markdown
+---
+name: <skill-name>
+description: ...
+---
 
-   Append a new section at the bottom:
-   ```markdown
+<!-- ievo:start -->
+**Before applying the instructions below**, read `.ievo/evolution/skills/<name>.md` if it exists, and apply ALL rules from its sections IN ADDITION to the skill's instructions.
+<!-- ievo:end -->
 
-   ## YYYY-MM-DD — <short title derived from lesson>
-   <full lesson text>
-   ```
+# <Skill Body>
+[...]
+```
 
-   Use today's date in `YYYY-MM-DD` format. The title should be 5-10 words summarizing the rule.
+### Project-wide (`CLAUDE.md` or `AGENTS.md`)
 
-## Step 4 (agent/skill targets only): Append to the per-target log
+Find project root instruction file. Priority:
+- `CLAUDE.md` if exists
+- Else `AGENTS.md` if exists
+- Else create `CLAUDE.md` (empty if needed)
 
-Skip for project-wide (that was handled in step 3).
+If the file already contains `<!-- ievo:start -->` marker → skip.
+If no marker → append to end of file:
 
-The log path is:
+```markdown
+
+<!-- ievo:start -->
+@.ievo/evolution/project.md
+<!-- ievo:end -->
+```
+
+## Step 4: Append the lesson to the overlay file
+
+The overlay file path:
 - Agents: `.ievo/evolution/agents/<name>.md`
 - Skills: `.ievo/evolution/skills/<name>.md`
+- Project: `.ievo/evolution/project.md`
 
-If the log file doesn't exist, create it with the header:
+### If overlay file does NOT exist
+
+Create with frontmatter (for agent/skill) and header.
+
+**Agent / Skill format:**
 ```markdown
-# <Name> — Evolution Log
+---
+target: <agent | skill>
+target_name: <name>
+created: <ISO timestamp>
+# `source` populated only if vendored from a plugin:
+source:
+  repo: <owner>/<repo>
+  path: <source path>
+  commit_sha: <short sha>
+  fetched_at: <ISO timestamp>
+---
+
+# <name> — Evolution Overlay
+
+(empty until first evolution added)
 ```
 
-Append:
+**Project format:**
 ```markdown
+# Project — Evolution Overlay
 
-## YYYY-MM-DD — <short title derived from lesson>
-<full lesson text>
+(project-wide rules accumulated here; loaded into context via marker block in CLAUDE.md/AGENTS.md)
 ```
 
-## Step 5: Report
+### Append the new section
+
+```markdown
+
+## <YYYY-MM-DD HH:MM UTC> — <short title derived from lesson>
+**Trigger:** <user-observed mistake / user-defined convention / vendored / etc.>
+
+<full lesson text — verbatim from user>
+```
+
+Date in `YYYY-MM-DD HH:MM UTC`. Title 5-10 words. Trigger field captures the WHY (see Step 5).
+
+## Step 5: Determine the Trigger value
+
+Pick one from this list (or write a short custom string if none fits):
+
+- `user-observed mistake during <activity>` — user noticed buggy behavior
+- `user-defined convention` — establishing a new rule, not fixing
+- `vendored from <upstream>` — initial vendor (only set by /ievo:init)
+- `upstream rebase` — added by /ievo:update during replay
+- `agent self-correction` (future)
+- `curator pattern (from N projects)` (future)
+
+If unclear from the conversation, default to `user-observed mistake` or `user-defined convention` based on lesson tone.
+
+## Step 6: Report
 
 Output a short summary to the user:
 
-- **For agent/skill targets:** which target was patched (path), whether it was already local or copied from plugin, the section title added to the log.
-- **For project-wide:** which instruction file (CLAUDE.md or AGENTS.md), whether the marker block was newly added (first project-wide evolution) or already existed, the section title added to `project.md`.
-- Suggested next step: "Review the diff with `git diff` and commit if satisfied."
+- **Scope + target:** project | agents/<name> | skills/<name>
+- **Overlay file:** path
+- **Marker injected:** yes (first evolution for this target) | no (already present)
+- **Section title added:** "<title>"
+- **Next:** "Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."
 
 ## Rules
 
-- **No validation runs.** This MVP version does not run A/B tests, benchmarks, or external judges. Trust the lesson.
-- **Idempotent failures.** If anything goes wrong mid-flow (e.g., write fails), report what was done and what was not. Do not silently leave inconsistent state.
-- **Conflict surfacing.** If the lesson contradicts an existing rule, do NOT silently override. Quote the conflicting rule and ask the user how to resolve.
-- **Log is source of truth.** Patched `.claude/<type>/<name>.md` files (and the marker block in CLAUDE.md/AGENTS.md) are derived artifacts. The evolution log is what survives. The marker block can be re-injected at any time by recording another project-wide evolution.
-- **Project-wide marker is one-time.** Inject only on first project-wide evolution. Subsequent project-wide rules just append to `project.md`. The marker stays where it is.
+- **NEVER modify the agent/skill body.** Only inject the marker block ONCE per target. All rules accumulate in the overlay file. The agent file stays close to upstream forever.
+- **Idempotent marker injection.** Re-running evolution on the same target adds to the overlay only — marker is already there from first run.
+- **Verbatim lesson text.** No paraphrasing, no sanitization, no "improvement". The user's voice is the rule.
+- **Conflict surfacing.** If the new lesson contradicts an existing section in the overlay, do NOT silently override. Quote the conflicting section and ask the user how to resolve.
+- **Idempotent failures.** If any step fails (write fails, gh api error), report what was done and what was not. Don't leave inconsistent state.
+- **Project-wide overlay is shared.** All project-wide rules accumulate in one `project.md`. No splitting by topic — chronological with `## Trigger` field for context.
+
+## Why overlay model
+
+| Aspect | Old patch-direct | New overlay |
+|--------|------------------|-------------|
+| Agent file | Drifts from upstream with each evolution | Stays clean, ~unmodified after vendor |
+| Source of truth | Split: file body + log | **Single:** overlay file |
+| Upstream rebase | Replay all log entries via Opus (drift risk) | Refresh agent file, overlay untouched |
+| Visibility of evolutions | Mixed into agent prose | `cat overlay.md` shows everything |
+| Conflict detection | Hard (need diff against past) | Easy (compare overlay sections) |
+
+The overlay file is also a self-contained record: anyone reading `<name>.md` sees the full history with dates and triggers. Useful for curator (L2) to detect cross-project patterns.

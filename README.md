@@ -18,7 +18,28 @@ cd <your-project>
 /ievo:init
 ```
 
+`/ievo:init` will ask you to add Bash permissions for `npx skills` and `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval.
+
 That's it. Interactive interview, security checks, install. Then `/reload-plugins` to activate.
+
+### Permission pre-setup (optional, skips the prompt)
+
+If you want to set permissions before running `/ievo:init`, add to `.claude/settings.local.json` (per-user, gitignored — recommended) or `.claude/settings.json` (team-shared, committed):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills*)",
+      "Bash(npx -y skills*)",
+      "Bash(gh api*)",
+      "Bash(gh search*)"
+    ]
+  }
+}
+```
+
+Without these, Claude Code's auto-mode classifier blocks each `npx skills` / `gh api` call as "untrusted network command" — works but with manual Allow prompts.
 
 ## The pipeline
 

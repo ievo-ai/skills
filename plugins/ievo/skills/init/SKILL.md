@@ -57,6 +57,7 @@ Append to log buffer:
 Hard prereqs:
 - `find-skills` skill installed — check `.claude/skills/find-skills/SKILL.md` or `~/.claude/skills/find-skills/SKILL.md` or in any plugin's `skills/`
 - `gh` CLI — `which gh` and `gh auth status`
+- **Bash permissions** for the commands init will run (see below)
 
 If `find-skills` missing:
 ```
@@ -74,7 +75,39 @@ This skill needs the `gh` CLI for indexing and security checks. Install:
   gh auth login
 ```
 
-Stop on either failure.
+### Permission check (auto-mode classifier)
+
+Init will run network/CLI commands the auto-mode classifier may block: `npx skills`, `gh api`, `gh search`. Without pre-approval, each call hits a confirmation prompt — friction during the discovery phase.
+
+Recommended: ensure `.claude/settings.local.json` (per-user, gitignored) OR `.claude/settings.json` (team-shared, committed) contains:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills*)",
+      "Bash(npx -y skills*)",
+      "Bash(gh api*)",
+      "Bash(gh search*)"
+    ]
+  }
+}
+```
+
+**Check at init start:** read the project's settings files. If the four patterns above are NOT present, ask user via `AskUserQuestion`:
+
+- **Question:** `Init needs Bash permissions for npx skills + gh CLI. Add them?`
+- **Header:** `Permissions`
+- **Options:**
+  - `Add to .claude/settings.local.json (Recommended)` — description: `Per-user permission, gitignored. Only affects you on this machine.`
+  - `Add to .claude/settings.json (team-shared)` — description: `Permission shared with team via git commit. Useful if everyone runs iEvo here.`
+  - `Skip — I'll approve each command manually` — description: `Each blocked Bash call needs explicit Allow. Slower but no permission file changes.`
+
+For `Add to ...` options: merge the four patterns into the existing `permissions.allow` array. Do not overwrite other permissions. If file doesn't exist, create with minimal `{"permissions": {"allow": [...]}}`.
+
+For `Skip`: continue — but expect blocked commands during the run.
+
+Stop only on missing find-skills or gh prereqs. Permission setup is opt-in but strongly recommended.
 
 ## Step 2: Prepare project directories
 

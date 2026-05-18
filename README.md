@@ -1,137 +1,165 @@
 # iEvo — Self-Evolving Plugin for Claude Code
 
-> Capture lessons, patch local agents and skills, replay logs on upstream updates.
+> Discover relevant skills + agents for your project, audit them for safety, install with project-scope portability. Capture lessons as overlays that survive upstream updates.
 
-iEvo turns ad-hoc feedback ("the agent forgot to check git status before commits") and project context ("we use Unity, our team uses trunk-based dev") into persistent improvements — recorded in markdown evolution logs that survive upstream plugin updates.
+iEvo is a discovery + safety + evolution layer on top of [skills.sh](https://www.skills.sh) and the Claude Code plugin ecosystem.
 
-## Install
+## Quick start
 
-iEvo ships as a Claude Code plugin marketplace.
-
-```
+```bash
+# 1. Install find-skills (prereq) and the iEvo plugin
+npx skills add vercel-labs/skills --skill find-skills
 /plugin marketplace add ievo-ai/skills
 /plugin install ievo@ievo-skills
 /reload-plugins
-```
 
-Then in your project:
-
-```
+# 2. Initialize in your project
+cd <your-project>
 /ievo:init
 ```
 
-`init` is an interactive skill that uses [`find-skills`](https://www.skills.sh/vercel-labs/skills/find-skills) to discover skills relevant to your project and walks you through installing them one at a time.
+That's it. Interactive interview, security checks, install. Then `/reload-plugins` to activate.
 
-### Project-scope only
+## The pipeline
 
-To make iEvo's marketplace and plugin available **only in this project** (not globally for your user), add to your project's `.claude/settings.json`:
+`/ievo:init` composes 4 stages:
 
-```json
-{
-  "extraKnownMarketplaces": {
-    "ievo-skills": {
-      "source": {
-        "source": "github",
-        "repo": "ievo-ai/skills"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "ievo@ievo-skills": true
-  }
-}
 ```
+find-skills (vercel-labs)  →  index-repos (ours)  →  security-check (ours)  →  install
+   discovery                    enumerate full         per-item audit          two paths
+                                content per repo       with fallback
+```
+
+1. **find-skills** queries skills.sh for skill candidates based on your project's stack.
+2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands that skills.sh didn't index.
+3. **security-check** audits each candidate the user selects — combines skills.sh's Snyk/Socket/Gen Agent Trust Hub audits with our own content scan (hooks, allowed-tools, prompts) and repo metadata.
+4. **install** runs two paths:
+   - **Vendor** (skills + agents): `gh api fetch` → write to `.claude/<type>/` → inject overlay marker
+   - **Plugin install** (anything with hooks/MCP/commands): edit `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins` for team-portable activation
 
 ## Commands & Skills
 
-**Skills** (slash-invocable AND auto-activatable, cross-platform via [agentskills.io](https://agentskills.io)):
+### Skills (auto-activatable, cross-platform via agentskills.io)
 
 | Skill | What it does |
 |-------|--------------|
-| `/ievo:init` | Discover and install relevant skills from skills.sh. Deep manifest scan (30+ stacks), per-skill interview. Sets up `.ievo/evolution/` structure. |
-| `/ievo:evolution "<lesson>"` | Capture a lesson. Routes to the right place: an agent, a skill, or the project's `CLAUDE.md`. Auto-activates when the user expresses a lesson worth persisting. |
-| `/ievo:feedback` | Submit a bug report, feature request, or general feedback. Posts a public GitHub issue to `ievo-ai/skills` via `gh` CLI. Auto-activates when the user expresses dissatisfaction or wants to suggest something. |
+| `/ievo:init` | Full pipeline: discover, audit, install |
+| `/ievo:evolution "<lesson>"` | Capture a lesson — append to overlay file. Never modifies agent/skill body. |
+| `/ievo:feedback` | Submit bug/idea/skip-reasons as GitHub issue |
+| `/ievo:index-repos` | Standalone: enumerate a repo (callable on its own) |
+| `/ievo:security-check` | Standalone: audit a specific skill/agent/plugin |
 
-**Commands** (explicit-only invocation, Claude Code-specific):
+### Commands (strictly explicit, Claude Code-specific)
 
 | Command | What it does |
 |---------|--------------|
-| `/ievo:uninstall` | Ask the user, then remove iEvo's marker block from `CLAUDE.md` / `AGENTS.md`. Preserves all of `.ievo/`. |
-| `/ievo:update` | Replay evolution logs against fresh upstream agents/skills (after `/plugin update`). |
+| `/ievo:uninstall` | Remove markers from CLAUDE.md/AGENTS.md and `.claude/agents/`, `.claude/skills/`. Preserves `.ievo/`. |
+| `/ievo:update` | Refresh vendored agent/skill files from upstream. Re-inject markers. Overlay files untouched. |
 
-Why the split: project-setup operations should be strictly explicit — we don't want the model deciding to remove plugin state on its own. Discovery and lesson capture are **agentic** — the model picking up "we should remember X" or "this project would benefit from skill Y" is a feature, not a bug.
+## The overlay model
 
-## How project rules work
+Under v0.2.0, **agent and skill files are never modified by evolution**. Lessons accumulate in separate **overlay files**, read live at every dispatch.
 
-iEvo does **not** inject anything into your `CLAUDE.md` / `AGENTS.md` at install time. The first time you record a **project-wide** lesson via `/ievo:evolution` (e.g. "we use Unity", "PR titles start with the task ID"), the evolution skill:
+When you vendor an agent (via `/ievo:init`) or evolve it (via `/ievo:evolution`):
 
-1. Creates `.ievo/evolution/project.md` and appends the rule as a dated section.
-2. Injects a one-time marker block into `CLAUDE.md` (or `AGENTS.md` if no `CLAUDE.md`):
+1. **Local file** (`.claude/agents/<name>.md`) gets a ONE-TIME marker block right after its frontmatter:
    ```markdown
    <!-- ievo:start -->
-   @.ievo/evolution/project.md
+   **Before applying the instructions below**, read `.ievo/evolution/agents/<name>.md` if it exists, and apply ALL rules from its sections IN ADDITION to the instructions below.
    <!-- ievo:end -->
    ```
+2. **Overlay file** (`.ievo/evolution/agents/<name>.md`) holds the accumulated rules:
+   ```markdown
+   ---
+   source:
+     repo: wshobson/agents
+     path: plugins/python-development/agents/python-pro.md
+     commit_sha: a1b2c3d4
+     fetched_at: 2026-05-18T10:00:00Z
+   ---
 
-After that, every Claude Code session in your project automatically loads `project.md` because of the `@` import in `CLAUDE.md`. Subsequent project-wide lessons just append to `project.md` — no further CLAUDE.md changes.
+   # python-pro — Evolution Overlay
 
-If you `/ievo:uninstall`, the marker block is removed (after confirmation). The `project.md` and all evolution logs are preserved.
+   ## 2026-05-19 14:32 UTC — Check git status before commit
+   **Trigger:** user-observed mistake during code review
+
+   Always check `git status` before commits to avoid orphaned files.
+   ```
+
+When the agent is dispatched, Claude reads both files automatically — the agent body's instructions and the overlay's accumulated rules.
+
+**Why this matters:**
+- Upstream updates are trivial: `/ievo:update` re-fetches the file and re-injects the marker. Overlay rules continue applying.
+- No drift, no Opus replay loop, no patches accumulating in the agent body.
+- Overlay file is the **single source of truth** for evolution. Easy to audit, easy to share via git.
 
 ## Project-side layout
 
-After `/ievo:init`:
+After `/ievo:init` with some skills/agents vendored and some plugins installed:
+
 ```
 <your-project>/
-└── .ievo/
-    └── evolution/
-        ├── agents/      # (empty) per-agent logs go here
-        └── skills/      # (empty) per-skill logs go here
-```
-
-After first project-wide evolution:
-```
-<your-project>/
-├── CLAUDE.md            # ← marker block injected, references .ievo/evolution/project.md
-└── .ievo/
-    └── evolution/
-        ├── project.md   # ← project-wide rules log
-        ├── agents/
-        └── skills/
-```
-
-After init runs (diagnostic logs):
-```
-<your-project>/
-└── .ievo/
-    └── log/
-        ├── init-20260517-143200.md     # ← each /ievo:init writes one
-        └── init-20260517-150412.md
-```
-
-Logs capture: detected stack + dependencies, the exact prompt sent to find-skills and its raw response, dedup outcomes (which skills got dropped and why), your install/skip choices, install results per skill. Useful when iEvo suggested something off and you want to file a precise bug — `/ievo:feedback` can attach the latest log automatically.
-
-`.ievo/log/` is intended for local debugging, not version control. Init auto-adds it to your `.gitignore` if you have one.
-
-After more lessons:
-```
-<your-project>/
-├── CLAUDE.md
+├── CLAUDE.md                        # (if first project-wide evolution recorded — gets marker block)
 ├── .claude/
+│   ├── settings.json                # NEW: plugin marketplaces + enabledPlugins (commit for team sync)
 │   ├── agents/
-│   │   └── spec-writer.md    # ← local copy, patched via evolution skill
+│   │   └── python-pro.md            # vendored, has overlay marker
 │   └── skills/
 │       └── changelog/
-│           └── SKILL.md      # ← local copy, patched
+│           └── SKILL.md             # vendored, has overlay marker
 └── .ievo/
-    └── evolution/
-        ├── project.md
-        ├── agents/
-        │   └── spec-writer.md   # ← evolution log for the agent
-        └── skills/
-            └── changelog.md     # ← evolution log for the skill
+    ├── evolution/                   # COMMIT to git — project's evolution state
+    │   ├── project.md
+    │   ├── agents/
+    │   │   └── python-pro.md        # overlay file — actual rules live here
+    │   └── skills/
+    │       └── changelog.md
+    ├── cache/                       # GITIGNORE — re-derivable
+    │   └── index/
+    │       └── wshobson-agents.md
+    └── log/                         # GITIGNORE — local diagnostic
+        └── init-20260518-093613.md
 ```
 
-The `.ievo/evolution/` logs are the source of truth — patched `.claude/<type>/` files are derived artifacts, re-creatable from upstream + log via `/ievo:update`.
+`/ievo:init` adds the right `.gitignore` entries automatically if your project has a `.gitignore`.
+
+## Security model
+
+`security-check` runs per selected candidate before install. Risk tiers:
+
+| Tier | What | UX |
+|------|------|-----|
+| 🟢 GREEN | All skills.sh audits pass + no risky content patterns + trusted repo signals | silent auto-install |
+| 🟡 YELLOW | Audit warning, has scripts/, has non-tool hooks, young repo | brief note + install confirm |
+| 🔴 RED | Audit FAIL, has PreToolUse/UserPromptSubmit hooks, broad Bash permissions, suspicious prompts | strict review: show alternatives or force-install |
+
+What we layer on top of skills.sh:
+- **Hooks scan** — skills.sh doesn't expose hook presence; we flag PreToolUse / UserPromptSubmit as RED (they intercept every tool call / user input)
+- **Permission analysis** — `allowed-tools: Bash(*)` etc. flagged
+- **Prompt injection signatures** — known suspicious patterns
+- **Agent vendoring** — skills.sh doesn't audit agents at all; our scan covers them
+
+## Install paths
+
+iEvo supports two install paths per candidate:
+
+### Vendor (skills + agents)
+
+- `gh api` fetches the source file/directory.
+- Writes to `.claude/<type>/<name>/` in your project.
+- Injects the overlay marker.
+- Creates `.ievo/evolution/<scope>/<name>.md` with source metadata frontmatter.
+- **No hooks, no MCP, no commands** come along — just the agent/skill content.
+- Best for: pulling specific agents/skills without committing to a whole plugin.
+
+### Plugin install (anything with hooks / MCP / commands)
+
+- Edits `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins`.
+- Settings file is committed to git → team gets prompt to trust folder → plugin auto-installs for them too.
+- Brings everything: agents, skills, commands, hooks, MCP servers.
+- Best for: plugins where the value is the integration (hooks intercepting workflows, MCP servers, slash commands).
+
+The interview at `/ievo:init` step 7b asks per candidate: vendor specific items OR install whole plugin OR skip.
 
 ## Repository structure
 
@@ -140,29 +168,37 @@ ievo-ai/skills/
 ├── .claude-plugin/
 │   ├── plugin.json
 │   └── marketplace.json
-├── commands/
-│   ├── uninstall.md
-│   └── update.md
-├── skills/
-│   ├── init/SKILL.md           # /ievo:init
-│   ├── evolution/SKILL.md      # /ievo:evolution
-│   └── feedback/SKILL.md       # /ievo:feedback
-├── agents/
-│   └── evolution.md            # sub-agent dispatched by evolution skill
-└── README.md
+└── plugins/ievo/
+    ├── .claude-plugin/plugin.json
+    ├── commands/
+    │   ├── uninstall.md
+    │   └── update.md
+    ├── skills/
+    │   ├── init/SKILL.md           # /ievo:init — orchestrator
+    │   ├── evolution/SKILL.md      # /ievo:evolution — overlay capture
+    │   ├── feedback/SKILL.md       # /ievo:feedback — file GitHub issues
+    │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo
+    │   └── security-check/SKILL.md # /ievo:security-check — audit a candidate
+    └── agents/
+        └── evolution.md            # sub-agent dispatched by evolution skill
 ```
 
 ## Standards compliance
 
 - Plugin format: Claude Code-native
-- Skills inside: [agentskills.io spec](https://agentskills.io/specification) — portable to Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, and 30+ other agent platforms
-- Distribution: dual-mode — Claude Code plugin install OR `npx skills add ievo-ai/skills --skill <name>` via [skills.sh](https://www.skills.sh/)
+- Skills inside: [agentskills.io spec](https://agentskills.io/specification) — portable to Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, 30+ other agent platforms
+- Distribution: dual-mode — Claude Code plugin install OR `npx skills add ievo-ai/skills --skill <name>` via [skills.sh](https://www.skills.sh)
 
 ## Roadmap
 
-- **v0.1 (this release):** Patch-and-log. No A/B validation. Manual updates. find-skills as prerequisite for init.
-- **v0.2:** Opt-in A/B validation via the iEvo cortex pipeline. Mutations that don't improve get rejected.
-- **v1.0:** Cross-project pattern detection (curator). Lessons that recur across multiple projects get promoted to "blessed" upstream evolutions.
+- **v0.2 (this release):** Full pipeline (find-skills → index-repos → security-check → install). Overlay model for evolutions. Two install paths.
+- **v0.3:** Cortex A/B validation gate. Mutations that don't improve get rejected via blind evaluation.
+- **v1.0:** Cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
+
+## Acknowledgments
+
+- [find-skills](https://github.com/vercel-labs/skills) — vercel-labs's skill discovery (we use it as the bootstrap for our pipeline)
+- [agentskills.io](https://agentskills.io) — the open standard for skills
 
 ## License
 

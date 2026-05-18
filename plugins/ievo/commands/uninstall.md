@@ -1,57 +1,126 @@
 ---
-description: Uninstall iEvo from the current project. Asks the user before removing the project-rules marker block from CLAUDE.md/AGENTS.md. Preserves `.ievo/` evolution logs.
+description: Uninstall iEvo from the current project. Removes injected overlay markers (project-wide and per-agent/skill) after explicit user confirmation. Always preserves `.ievo/` directory.
 allowed-tools: Read, Edit, Glob, AskUserQuestion
 ---
 
 # Uninstall iEvo
 
-Remove iEvo's project-rules reference from the project. Evolution logs in `.ievo/` are preserved as user-owned data and a future-curator data source.
+Remove iEvo's injected markers from the project. Evolution overlays in `.ievo/evolution/` and diagnostic logs in `.ievo/log/` are preserved as user-owned data — fully removable by user manually if desired.
 
 ## Steps
 
-### 1. Find the marker block
+### 1. Discover all injected markers
 
-Look for `<!-- ievo:start -->` in project root files, in priority order:
-- `CLAUDE.md`
-- `AGENTS.md`
+Scan project for `<!-- ievo:start -->` markers in three locations:
 
-If **no file contains the marker** → report "no iEvo reference found (already uninstalled or never recorded a project-wide evolution)" and exit. Do not delete anything.
+**Project-wide markers** (in CLAUDE.md / AGENTS.md):
+```bash
+grep -l '<!-- ievo:start -->' CLAUDE.md AGENTS.md 2>/dev/null
+```
 
-### 2. Warn the user, ask before removing
+**Agent overlay markers** (in `.claude/agents/*.md`):
+```bash
+grep -l '<!-- ievo:start -->' .claude/agents/*.md 2>/dev/null
+```
 
-If the marker is found, use `AskUserQuestion` to confirm:
+**Skill overlay markers** (in `.claude/skills/*/SKILL.md`):
+```bash
+grep -l '<!-- ievo:start -->' .claude/skills/*/SKILL.md 2>/dev/null
+```
 
-- **Question:** `Remove iEvo's project-rules reference from <file>?`
+Collect three lists. If **all three are empty** → report "no iEvo markers found (already uninstalled or never used)" and exit. Do not delete anything.
+
+### 2. Show the user what was found
+
+Print a structured summary before asking:
+
+```
+Found iEvo markers in:
+- Project-wide: <CLAUDE.md or AGENTS.md or "none">
+- Agent overlays: <list, e.g. "python-pro, code-reviewer" or "none">
+- Skill overlays: <list, e.g. "pydicom, changelog" or "none">
+
+Preserved (will NOT be deleted):
+- .ievo/evolution/ — your evolution overlays (rules accumulated by /ievo:evolution)
+- .ievo/log/ — diagnostic logs
+- .ievo/cache/ — repo indices (re-derivable)
+```
+
+### 3. Ask for removal scope
+
+Use `AskUserQuestion`:
+
+- **Question:** `Remove iEvo markers?`
 - **Header:** `Uninstall`
 - **Options** (single-select):
-  - `Remove reference (Recommended)` — description: `Removes the marker block from <file>. Your project rules in .ievo/evolution/project.md will be preserved but no longer loaded by Claude in this project.`
-  - `Keep reference` — description: `Leave the marker block in <file>. Useful if you plan to keep using iEvo in this project.`
+  - `Remove all markers (Recommended)` — description: `Removes <!-- ievo:start -->...<!-- ievo:end --> blocks from CLAUDE.md/AGENTS.md, and from every .claude/agents/*.md and .claude/skills/*/SKILL.md that has them. Overlay files in .ievo/evolution/ remain — they just stop being read by Claude.`
+  - `Remove only project-wide marker` — description: `Keep agent/skill overlay markers (vendored content stays evolution-aware). Useful if you only want to detach project-level rules.`
+  - `Cancel — keep everything` — description: `No changes. Run /ievo:uninstall again later if you change your mind.`
 
-### 3. Act on the choice
+### 4. Act on the choice
 
-- **Remove reference:** delete everything between `<!-- ievo:start -->` and `<!-- ievo:end -->` inclusive of both markers. Clean up any extra blank lines left behind so the file doesn't have a gap.
-- **Keep reference:** do nothing, report "no changes made".
+For each file that gets a marker removed:
 
-### 4. Preserve user data
+1. Read file content.
+2. Find the marker block: `<!-- ievo:start -->` ... `<!-- ievo:end -->` (inclusive).
+3. Delete the block plus any extra blank lines left dangling.
+4. Write back.
+
+**Scope of action by choice:**
+
+| Choice | Affects |
+|--------|---------|
+| Remove all markers | Project-wide marker + ALL agent/skill overlay markers |
+| Remove only project-wide | ONLY CLAUDE.md/AGENTS.md marker |
+| Cancel | Nothing |
+
+### 5. Preserve `.ievo/` directory
 
 **Never** delete:
-- `.ievo/iEVO.md` (if it exists from older iEvo versions)
 - `.ievo/evolution/project.md` — your project rules
-- `.ievo/evolution/agents/*.md` — agent evolution logs
-- `.ievo/evolution/skills/*.md` — skill evolution logs
+- `.ievo/evolution/agents/*.md` — agent evolution overlays
+- `.ievo/evolution/skills/*.md` — skill evolution overlays
+- `.ievo/log/*.md` — diagnostic logs
+- `.ievo/cache/` — repo indices
 
-These belong to the project and survive uninstall.
+If user wants total cleanup, instruct them: "Run `rm -rf .ievo/` manually to also remove evolution data."
+
+### 6. Vendored content (`.claude/agents/`, `.claude/skills/`)
+
+When agents/skills were vendored via `/ievo:init`, they live in `.claude/`. With markers removed, they continue working but without overlay-aware loading.
+
+Do **not** delete the vendored content — it's the user's project's local files now. If they want to fully remove, they can `rm .claude/agents/<name>.md` and `rm -rf .claude/skills/<name>/`.
+
+Mention in the final report:
+```
+Vendored agents/skills (in .claude/) are preserved. They will continue to
+work without overlay-aware behavior. Run `rm` manually to fully remove.
+```
+
+### 7. Plugin installs in `.claude/settings.json`
+
+If init added plugins via `extraKnownMarketplaces`/`enabledPlugins`, those entries remain in `.claude/settings.json`. Removing them is a separate concern (could be a future `/ievo:disable-plugin` command, or user edits settings.json directly).
+
+For this MVP, do not auto-remove settings entries. Just mention them in the report:
+
+```
+Plugins added by /ievo:init (in .claude/settings.json):
+- <plugin@marketplace>: <state>
+
+To disable a plugin: /plugin disable <plugin@marketplace> --scope project
+Or edit .claude/settings.json's enabledPlugins manually.
+```
 
 ## Report
 
 After completion:
-
-- Which file was modified (or "none — kept reference" / "none — no marker found")
-- Confirmation: `.ievo/evolution/` is preserved at `<path>`. Contains: N project rules, M agents, K skills.
-- If user kept the reference: remind them they can run `/ievo:uninstall` again later.
+- Files modified: list with counts of markers removed per file
+- Files preserved: brief note about `.ievo/` and `.claude/`
+- Optional follow-up actions: full cleanup commands
 
 ## Rules
 
-- **Never delete `.ievo/`.** Even if the user wants to fully remove iEvo, deleting their evolution log is their explicit action with `rm -rf .ievo/`. We don't do destructive cleanup.
-- **Always confirm before editing.** No automatic removal of the marker block. The marker affects how Claude reads the project's context — modifying it without consent is a footgun.
-- **Idempotent.** Running `/ievo:uninstall` twice is safe — second run finds no marker and reports "already uninstalled".
+- **Never auto-delete `.ievo/` content.** Evolution overlays are user data. The user knows what they want — surface the manual commands, don't run them.
+- **Marker pattern is unified.** All marker blocks use `<!-- ievo:start -->`/`<!-- ievo:end -->`. Same find logic works everywhere.
+- **Per-file confirm not required.** Once user picks scope in step 3, apply to all matching files. Batch by intent, not per-file.
+- **Idempotent.** Re-running `/ievo:uninstall` after all markers removed reports "already uninstalled" cleanly.

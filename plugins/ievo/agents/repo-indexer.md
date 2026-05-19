@@ -1,7 +1,7 @@
 ---
 name: repo-indexer
 description: Index a single GitHub repository for Claude Code skills, agents, and plugins via shallow clone + filesystem scan. Designed to be dispatched in parallel — multiple repos can be indexed concurrently by sending multiple Task tool calls in one message. Returns a one-line summary plus writes the structured index to `.ievo/cache/index/`.
-model: haiku
+model: sonnet
 tools:
   - Bash
   - Read

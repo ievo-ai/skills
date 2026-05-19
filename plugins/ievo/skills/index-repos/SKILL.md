@@ -1,8 +1,8 @@
 ---
 name: index-repos
-description: Enumerate the full content of one or more GitHub repos that host Claude Code skills, agents, and plugins. Thin wrapper around `scripts/scan_repo.py` (deterministic Python scanner — no LLM required). Returns structured markdown indices per repo. Use when expanding a small set of candidate skills into the full breadth of what their host repos offer.
+description: Enumerate the full content of one or more GitHub repos that host Claude Code skills, agents, and plugins. Thin wrapper around `scripts/scan_repo.mjs` (deterministic Node scanner — no LLM required). Returns structured markdown indices per repo. Use when expanding a small set of candidate skills into the full breadth of what their host repos offer.
 license: MIT
-compatibility: Requires `git` CLI + Python 3.9+. Same script is used by ievo-ai/community-index GHA — single source of truth.
+compatibility: Requires `git` CLI + Node.js 18+ (ships with Claude Code — guaranteed available). Same script is used by ievo-ai/community-index GHA — single source of truth.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -10,7 +10,7 @@ metadata:
 
 # Index Repos
 
-Enumerate GitHub repo content. **v0.3.4 architectural change:** delegates all heavy lifting to `scripts/scan_repo.py` — a pure-Python deterministic scanner that the `ievo-ai/community-index` GitHub Action ALSO uses. Single source of truth for the indexing algorithm.
+Enumerate GitHub repo content. **v0.4.0 architectural change:** delegates all heavy lifting to `scripts/scan_repo.mjs` — a pure-Node deterministic scanner that the `ievo-ai/community-index` GitHub Action ALSO uses. Single source of truth for the indexing algorithm. (v0.3.x used Python; migrated to Node so no extra runtime install needed — Node ships with Claude Code.)
 
 ## Input
 
@@ -20,7 +20,7 @@ Either:
 
 Caller provides via prompt. No interactive input.
 
-## What scan_repo.py does (executed via Bash)
+## What scan_repo.mjs does (executed via Bash)
 
 For each repo:
 1. Shallow clone into `~/.ievo/checkouts/<owner>-<repo>/` (or refresh if cached + TTL expired)
@@ -32,7 +32,7 @@ For each repo:
 7. Write `<owner>-<repo>.md` matching `ievo-ai/community-index/indices/_TEMPLATE.md` format
 8. Write `<owner>-<repo>.json` (manifest entry update for community-index)
 
-No LLM. No API tokens. Just `git`, `python3`, filesystem ops, `jq`-equivalent JSON parsing in stdlib.
+No LLM. No API tokens. Just `git`, `node`, filesystem ops, native JSON parsing in stdlib.
 
 ## Step-by-step (what Claude does when this skill activates)
 
@@ -45,7 +45,7 @@ No LLM. No API tokens. Just `git`, `python3`, filesystem ops, `jq`-equivalent JS
 For each repo in the input list, run:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.py" \
+node "${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.mjs" \
   <owner>/<repo> \
   --output-dir <project>/.ievo/cache/index \
   --checkout-dir ~/.ievo/checkouts
@@ -66,7 +66,7 @@ If caller specifies `force_refresh=true`, append `--force-refresh` to the Python
 
 ### 4. Network failure handling
 
-`scan_repo.py` handles its own network errors:
+`scan_repo.mjs` handles its own network errors:
 - If `git clone`/`fetch` fails and a stale checkout exists, use it
 - If fully unable, the script exits with code 2 and a message to stderr
 
@@ -82,7 +82,7 @@ When invoked from `/ievo:init`, the caller dispatches `repo-indexer` sub-agents 
 
 - **Use the script, never re-implement.** The Python scanner is the single source of truth. If you find yourself thinking "I'll just grep with awk here for speed" — STOP. Use the script. Drift between script-output and Claude-shell-output breaks the community-index trust model.
 - **No LLM in indexing.** The whole point of this rewrite is removing rate-limit risk and ensuring deterministic output. Don't override the script's output with model-generated content.
-- **One repo per invocation.** Loop over multiple repos by repeating the Bash call. Each `scan_repo.py` invocation handles one repo.
+- **One repo per invocation.** Loop over multiple repos by repeating the Bash call. Each `scan_repo.mjs` invocation handles one repo.
 - **Output dir defaults to project's `.ievo/cache/index/`.** Pass explicit `--output-dir` if caller wants elsewhere (community-index GHA uses its own location).
 - **Checkout dir is user-level.** Default `~/.ievo/checkouts/` shared across projects.
 - **Script version is `SCRIPT_VERSION` constant.** Bumped when the scanner output format changes. Stays in sync with plugin.json version (0.3.4+).
@@ -97,12 +97,12 @@ Three callers, one algorithm:
 3. ievo-ai/community-index GitHub Action (daily refresh)
 ```
 
-All three invoke `scripts/scan_repo.py` with identical CLI args. Output is byte-identical regardless of which path triggered it.
+All three invoke `scripts/scan_repo.mjs` with identical CLI args. Output is byte-identical regardless of which path triggered it.
 
 This is **critical for the community-index trust model**: when iEvo init compares its local scan against community-index's recorded `scanner_sha`, the content must match because both sides ran the same algorithm.
 
 ## See also
 
-- `${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.py` — the scanner source
+- `${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.mjs` — the scanner source
 - [`ievo-ai/community-index/indices/_TEMPLATE.md`](https://github.com/ievo-ai/community-index/blob/main/indices/_TEMPLATE.md) — canonical output format
 - `security-check` skill — per-item audit, reads scanner-cached signals + adds deeper review

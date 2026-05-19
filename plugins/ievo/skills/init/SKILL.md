@@ -1,8 +1,8 @@
 ---
 name: init
-description: Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem, audit them for safety, install through an interactive interview. Composes three lower-level skills (find-skills, index-repos, security-check) into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks "set up iEvo here" / "find skills for this project".
+description: Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem, audit them for safety, install through an interactive interview. Composes four lower-level skills (find-skills, community-index, index-repos, security-check) into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks "set up iEvo here" / "find skills for this project".
 license: MIT
-compatibility: Requires `find-skills` (vercel-labs/skills), `gh` CLI, and network access.
+compatibility: Requires `find-skills` (vercel-labs/skills), `gh` CLI, `git` CLI, Node 18+ (bundled with Claude Code — guaranteed available), and network access. v0.4.0+ consults ievo-ai/community-index for SHA-gated cached scans, with local Node-based scanner as fallback.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -22,7 +22,7 @@ metadata:
 
 Between every other step, **proceed immediately** to the next step. If you find yourself thinking "should I confirm with the user before doing X?" — the answer is NO. Just do it. Write to the log so the user can monitor via `tail -f`.
 
-Especially: between Step 5 (find-skills result) and Step 6 (index-repos) → **no pause, no confirmation, no summary checkpoint**. Just invoke index-repos for each unique repo in sequence.
+Especially: between Step 5 (find-skills result) → Step 5.5 (community-index trust gate) → Step 6 (index-repos fallback) → **no pause, no confirmation, no summary checkpoint**. Just chain straight through.
 
 ## Pipeline
 
@@ -31,7 +31,9 @@ Set up iEvo in the current project. Pipeline:
 ```
 find-skills (skills.sh)
     ↓
-index-repos (full repo content per unique repo)
+community-index trust gate (SHA-gated, v0.4.0+)
+    ↓                ↘ (community_match → cached MD, skip dispatch)
+index-repos (local fallback for stale/unknown/unreachable)
     ↓
 match against stack + rank
     ↓
@@ -101,8 +103,9 @@ Plugin path in the log helps diagnose "which install dir is Claude Code loading 
 
 Hard prereqs:
 - `find-skills` skill installed — check `.claude/skills/find-skills/SKILL.md` or `~/.claude/skills/find-skills/SKILL.md` or in any plugin's `skills/`
-- `git` CLI — `which git`. Used for checkout-based indexing (v0.3.0+).
+- `git` CLI — `which git`. Used for checkout-based indexing (v0.3.0+) and community-index cache (v0.4.0+).
 - `gh` CLI — `which gh` and `gh auth status`. Used only by security-check (audit data from skills.sh) and uninstall (marker discovery).
+- `node` (≥18) — `node --version`. Used by `scan_repo.mjs` (Step 6 local fallback) and `community_lookup.mjs` (Step 5.5). Node ships with Claude Code, so this is normally always available — but if user has a damaged install, hard-fail.
 - **Bash permissions** for the commands init will run (see below)
 
 If `find-skills` missing:
@@ -120,6 +123,19 @@ This skill needs the `gh` CLI for indexing and security checks. Install:
   # or see https://cli.github.com
   gh auth login
 ```
+
+If `node` missing OR version < 18:
+```
+This skill needs Node.js 18+ for repo scanning. Normally Node ships with Claude Code —
+if it's missing your install may be damaged. Try reinstalling Claude Code, or install Node directly:
+  brew install node       # macOS
+  apt install nodejs      # Debian/Ubuntu
+  # or see https://nodejs.org
+
+Verify: node --version  → must be v18.0.0 or higher
+```
+
+Stop init on missing node. No graceful fallback — scan_repo.mjs + community_lookup.mjs are core to the pipeline.
 
 ### Permission check (auto-mode classifier)
 
@@ -339,25 +355,100 @@ For each return:
 
 Log prompt + response (section 5, 5b).
 
-## Step 6: Expand via index-repos
+## Step 5.5: Community-index trust gate (v0.4.0+)
 
-Extract the **unique set of `<owner>/<repo>` values** from find-skills' output. Also include this small list of auto-available repos (not on skills.sh but always relevant):
+Before doing a cold-cache local scan of every find-skills candidate's repo, check whether `ievo-ai/community-index` already has a **byte-accurate** index for it. Typical result: most candidates served from cache, only a handful need local scan.
+
+### Step 5.5a — Build unique-repos list
+
+From the find-skills output, extract the unique `<owner>/<repo>` values. Add the auto-available repos (always tracked by the community index):
 
 ```
 - anthropics/claude-plugins-official   (official, built-in to Claude Code)
 - anthropics/claude-code               (demo plugins)
 ```
 
-For each unique repo, dispatch a **`repo-indexer` sub-agent** via Task tool. **Send ALL dispatches in a SINGLE message** so they run in parallel.
+Result: `unique_repos[]` — typically 5-15 items.
+
+### Step 5.5b — Invoke `community-index` skill
+
+Activate `community-index` with `unique_repos` as input. It runs `scripts/community_lookup.py` — clones/refreshes the community cache, parallel ls-remote, SHA compare.
+
+The skill returns a single JSON object on stdout. Capture and parse it.
+
+### Step 5.5c — Split into buckets by `verdict`
+
+For each entry in `results`:
+
+- **`community_match`** → `community_repos[]` (read cached MD at `index_path`, NO sub-agent in Step 6)
+- **`community_stale`** → `fallback_repos[]` (upstream advanced — local rescan required)
+- **`community_unknown`** → `fallback_repos[]` (not in manifest)
+- **`community_unreachable`** → `fallback_repos[]` (ls-remote failed)
+
+If the skill itself fails completely (cache unwritable + no network), default ALL repos to `fallback_repos[]` and continue. Init MUST never block on community-index errors.
+
+### Step 5.5d — MANDATORY log section 5.5 — append to `$LOG_PATH` NOW
+
+```markdown
+## 5.5. Community-index trust gate
+
+- Cache: ~/.ievo/community-cache/community-index/ (commit <cache_commit_sha>)
+- Manifest: v<manifest_version> by <scanner>
+- Lookup completed: <lookup_timestamp>
+
+| Repo | Verdict | Manifest SHA | Upstream SHA | Notes |
+|------|---------|--------------|--------------|-------|
+| owner/repo | community_match | abc1234 | abc1234 | ✓ cached index used |
+| owner/repo | community_stale | abc1234 | def5678 | upstream advanced — local fallback |
+| owner/repo | community_unknown | — | — | not in manifest — local fallback |
+| owner/repo | community_unreachable | abc1234 | — | ls-remote failed — local fallback |
+
+Summary:
+- community_match: N (cached MD used, no sub-agent)
+- community_stale: M (local fallback)
+- community_unknown: K (local fallback)
+- community_unreachable: L (local fallback)
+- Total: <N+M+K+L>
+- Est. time saved by community cache: ~<N × 5>s
+```
+
+### Rules for Step 5.5
+
+- **Always refresh.** Don't pass `--no-refresh` — init runs once, fetch cost is ~500ms.
+- **SHA-match is the only trust signal.** Time, ttl_hours, last_scan — all advisory.
+- **Stale ≡ unknown ≡ unreachable** for fallback purposes. All three go to local scan.
+- **Cached MD `index_path` is the manifest-canonical absolute path** — read directly. Same format as `repo-indexer` output (both run `scan_repo.mjs`).
+- **No user-facing prompts.** This step is fully automatic — log result, proceed.
+
+## Step 6: Expand candidates (community cache + sub-agent fallback)
+
+Now produce a unified candidate list by combining two passes:
+
+### Step 6a — Community-match pass (instant)
+
+For each repo in `community_repos[]` (verdict from Step 5.5 = `community_match`):
+
+- Read the cached index MD at `<index_path>` from the lookup JSON
+- Parse it identically to fresh repo-indexer output — same format (the `scan_repo.mjs` script is shared, output is byte-identical across all callers)
+
+No sub-agent, no network, no `gh api`. Sub-second per repo.
+
+### Step 6b — Sub-agent fallback pass (parallel)
+
+For each repo in `fallback_repos[]` (verdict ∈ {community_stale, community_unknown, community_unreachable}):
+
+Dispatch a **`repo-indexer` sub-agent** via Task tool. **Send ALL dispatches in a SINGLE message** so they run in parallel.
 
 ```
-SINGLE MESSAGE with N Task tool calls (one per unique repo):
+SINGLE MESSAGE with N Task tool calls (one per fallback repo):
 
 Task(subagent_type="repo-indexer", prompt="Index <repo-1>. project_root=<abs-path>. force_refresh=false")
 Task(subagent_type="repo-indexer", prompt="Index <repo-2>. project_root=<abs-path>. force_refresh=false")
 ...
-Task(subagent_type="repo-indexer", prompt="Index <repo-N>. project_root=<abs-path>. force_refresh=false")
+Task(subagent_type="repo-indexer", prompt="Index <repo-K>. project_root=<abs-path>. force_refresh=false")
 ```
+
+If `fallback_repos[]` is empty (best case — full community-match), **skip Step 6b entirely** and proceed straight to Step 7.
 
 Each sub-agent does ONE shallow clone + filesystem scan + writes its own index file. They are isolated — no shared state, no contention. The slowest repo determines total wall-clock time (~30-60 sec for big repos like wshobson/agents).
 
@@ -377,7 +468,14 @@ Each `repo-indexer` writes to `<project>/.ievo/cache/index/<owner>-<repo>.md` (n
 
 Surface progress to user via the incremental log file — they can `tail -f .ievo/log/init-*.md` to monitor.
 
-Read each generated index and **expand the candidate list**:
+### Step 6c — Merge and expand candidates from BOTH sources
+
+You now have indices from two sources:
+- `community_repos[]` — cached MD files at `<index_path>` (community-index cache)
+- `fallback_repos[]` — sub-agent-generated MD files at `<project>/.ievo/cache/index/<owner>-<repo>.md`
+
+Both formats are byte-identical (same `scan_repo.mjs` produced them). Read each generated index and **expand the candidate list**:
+
 - All standalone skills from index
 - All standalone agents from index
 - All plugins from index (each plugin = candidate with `type: plugin`)
@@ -391,12 +489,14 @@ Now your candidate list has three types: `skill` (install via vendor), `agent` (
 ```markdown
 ## 6. Repo indexing + candidate expansion
 
-### Repos considered (<N>)
-<for each repo: name, source (find-skills | auto-available), cache hit/miss>
+### Repos considered (<N total>)
+- From community-index cache: <N_community>
+- From sub-agent fallback: <N_fallback>
 
 ### Per-repo expansion
 #### <owner>/<repo>
-- Index path: `.ievo/cache/index/<owner>-<repo>.md`
+- Source: community-index (manifest SHA <abc1234>) | sub-agent (fresh scan)
+- Index path: <absolute path — cache OR project>
 - Skills found: <count> — <full list>
 - Agents found: <count> — <full list>
 - Plugins found: <count> — <full list>
@@ -704,8 +804,9 @@ If no skips, simpler prompt: "Init complete — share feedback?" → Skip defaul
 
 ## Rules
 
-- **Hard prereqs.** find-skills + gh CLI both required. Don't proceed without them.
-- **Pipeline is sequential.** find-skills → index-repos → match → interview → security-check → install. Each step's output feeds the next.
+- **Hard prereqs.** find-skills + gh CLI + git CLI all required. Don't proceed without them.
+- **Pipeline is sequential.** find-skills → community-index trust gate → index-repos (fallback only) → match → interview → security-check → install. Each step's output feeds the next.
+- **Community-index is opportunistic, not required.** v0.4.0+ consults it for SHA-gated speedup, but ANY failure path falls back to local scan transparently. Init must never block on community-index errors.
 - **Two install paths only.** Vendor (skills + agents) OR plugin (everything else). Never mix.
 - **Security check is gate, not advisor.** RED requires explicit force-install. Default flow respects audit results.
 - **Project-scope everything.** No `-g` flags. Settings.json edits are project-scope by file location. Team gets state via git.

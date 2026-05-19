@@ -52,7 +52,7 @@ find-skills (vercel-labs)  →  index-repos (ours)  →  security-check (ours)  
 ```
 
 1. **find-skills** queries skills.sh for skill candidates based on your project's stack.
-2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands that skills.sh didn't index.
+2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands that skills.sh didn't index. Uses shallow `git clone --depth=1` into `~/.ievo/checkouts/` (one network op per repo, then filesystem scan — no API rate limits).
 3. **security-check** audits each candidate the user selects — combines skills.sh's Snyk/Socket/Gen Agent Trust Hub audits with our own content scan (hooks, allowed-tools, prompts) and repo metadata.
 4. **install** runs two paths:
    - **Vendor** (skills + agents): `gh api fetch` → write to `.claude/<type>/` → inject overlay marker

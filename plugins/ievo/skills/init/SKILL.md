@@ -348,19 +348,30 @@ Extract the **unique set of `<owner>/<repo>` values** from find-skills' output. 
 - anthropics/claude-code               (demo plugins)
 ```
 
-For each unique repo, invoke the `index-repos` skill — **in sequence**, **without pausing** between them, **logging progress after each**.
+For each unique repo, dispatch a **`repo-indexer` sub-agent** via Task tool. **Send ALL dispatches in a SINGLE message** so they run in parallel.
 
 ```
-For each repo in unique_repos:
-  Use index-repos to enumerate <owner>/<repo>.
-  Append a one-liner to $LOG_PATH section 6 immediately:
-    "- <owner>/<repo>: indexed (cache: hit|miss) — N skills, M agents, K plugins"
-  Continue to next repo. Do NOT pause for confirmation.
+SINGLE MESSAGE with N Task tool calls (one per unique repo):
+
+Task(subagent_type="repo-indexer", prompt="Index <repo-1>. project_root=<abs-path>. force_refresh=false")
+Task(subagent_type="repo-indexer", prompt="Index <repo-2>. project_root=<abs-path>. force_refresh=false")
+...
+Task(subagent_type="repo-indexer", prompt="Index <repo-N>. project_root=<abs-path>. force_refresh=false")
 ```
 
-`index-repos` writes (or hits cache for) `.ievo/cache/index/<owner>-<repo>.md` per repo.
+Each sub-agent does ONE shallow clone + filesystem scan + writes its own index file. They are isolated — no shared state, no contention. The slowest repo determines total wall-clock time (~30-60 sec for big repos like wshobson/agents).
 
-**Performance expectation (v0.3.0+ — checkout-based):** for 8 repos with cache-miss, this takes ~1-4 minutes total. Each repo is one `git clone --depth=1` (~5-30 sec) plus filesystem scan (instant). wshobson/agents (72 plugins) is ~30-60 sec. Cache hits are sub-second.
+Wait for all to complete. Collect their one-line summaries.
+
+Each `repo-indexer` writes to `<project>/.ievo/cache/index/<owner>-<repo>.md` (no conflicts — different paths per repo).
+
+**Why parallel via sub-agents (not sequential):**
+- Cold-cache 8 repos sequentially: ~4-8 minutes
+- Parallel via sub-agents: ~30-60 sec (slowest repo's time)
+- Each sub-agent has isolated context — terminal output and progress noise stays in its scope, doesn't pollute init's log buffer
+- Each returns ONE clean summary line
+
+**Performance expectation (v0.3.1+ — parallel checkout-based):** 8 repos in parallel = total wall-clock ~30-60 sec for cold cache (slowest repo wins). Per-repo: shallow clone (~5-30 sec) + filesystem scan (instant). Cache hits are sub-second per repo. Total init time for cold-cache 8 repos drops from ~4-8 min (v0.3.0 sequential) to ~30-60 sec (v0.3.1 parallel).
 
 **No more rate limit issues.** v0.2.x used `gh api` per file (50-200 calls per repo) which triggered Anthropic-side rate limits on big repos. v0.3.0 uses shallow git clone + filesystem scan — one network operation per repo, then everything local.
 

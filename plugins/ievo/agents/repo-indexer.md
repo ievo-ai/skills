@@ -19,57 +19,45 @@ You index ONE GitHub repo (passed in your prompt) into the project's iEvo cache.
 - `project_root`: absolute path to the project where the index goes
 - `force_refresh`: `true|false` — whether to bypass TTL check
 
-## Steps
+## Steps — single command (v0.4.0+)
 
-### 1. Resolve paths
+### 1. Invoke `scripts/scan_repo.mjs` via Bash
 
-- Checkout: `~/.ievo/checkouts/<owner>-<repo>/`
-- Index output: `<project_root>/.ievo/cache/index/<owner>-<repo>.md`
-
-### 2. Update or create checkout
-
-If checkout dir doesn't exist:
 ```bash
-git clone --depth=1 https://github.com/<owner>/<repo>.git ~/.ievo/checkouts/<owner>-<repo>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.mjs" \
+  <owner>/<repo> \
+  --output-dir <project_root>/.ievo/cache/index \
+  --checkout-dir ~/.ievo/checkouts
 ```
 
-If exists and (`force_refresh=true` OR age ≥ 7 days):
-```bash
-git -C ~/.ievo/checkouts/<owner>-<repo> fetch --depth=1
-git -C ~/.ievo/checkouts/<owner>-<repo> reset --hard origin/HEAD
+Add `--force-refresh` if `force_refresh=true` was passed in the dispatch prompt.
+
+The script handles ALL the work internally:
+- Shallow clone or refresh checkout (7-day TTL)
+- Detect layout, enumerate plugins/agents/skills/commands/hooks/MCP
+- Parse frontmatter, compute risk_tier
+- Render `<owner>-<repo>.md` + `<owner>-<repo>.json` into `--output-dir`
+- Print one-line summary to stdout
+
+### 2. Capture stdout and return as final response
+
+The script prints exactly one line:
+```
+<owner>/<repo>: indexed (commit=<sha>) — N plugins, M agents, K skills, hooks: yes/no, risk: <tier>
 ```
 
-If network fails but stale checkout exists, USE IT (annotate as "stale" in index).
-If no checkout at all and network fails, report failure and exit.
+Return this line verbatim as your only response. No commentary, no markdown.
 
-### 3. Probe layout + enumerate
+### 3. Failure handling
 
-Per the `index-repos` skill's layout logic (in `plugins/ievo/skills/index-repos/SKILL.md`):
-- Identify present top-level dirs (`plugins/`, `agents/`, `skills/`, `commands/`, etc.)
-- For each plugin: list agents, skills, commands, check hooks/MCP presence
-- For standalone files: read frontmatter via `awk '/^---$/{c++} c==1{print} c==2{exit}' <file>`
-
-All filesystem ops on the local checkout. No network calls after Step 2.
-
-### 4. Write structured markdown to the index path
-
-Format per `index-repos` skill's Step 5 — same template (repo metadata, plugins section, standalone agents/skills/commands).
-
-### 5. Return one-line summary
-
-Return to the dispatching agent exactly one line:
-
-```
-<owner>/<repo>: indexed (clone: hit|miss|stale-network) — N plugins, M agents, K skills, hooks: yes/no
-```
-
-This is the ONLY output your dispatching agent needs. Keep your response terse — no commentary, no markdown headers, just the line.
+- Exit code 0 → success, return the summary line
+- Exit code 2 → network failure with no stale checkout → return `FAILED: <owner>/<repo> — network unreachable`
+- Other nonzero → return `FAILED: <owner>/<repo> — <stderr first line>`
 
 ## Rules
 
 - **One repo per invocation.** Do not loop over multiple repos. If the dispatcher needs N repos, they dispatch N copies of you.
-- **Filesystem-only after clone.** Never `gh api` to fetch content — Step 2's clone is the only network operation.
+- **Delegate to the script.** Do NOT re-implement scanning logic in shell or Read/Glob tool calls. The script is the single source of truth — drift between agent prompt and script output breaks the community-index trust model.
 - **Quiet output.** Only the one-line summary at the end. Internal progress noise stays internal.
 - **Idempotent.** Re-running on a fresh checkout produces the same index.
-- **Cache HIT is sub-second.** If checkout exists and is < 7 days old, just re-scan filesystem and rewrite the index.
 - **No security audit.** That's `security-check`'s job, invoked later by init.

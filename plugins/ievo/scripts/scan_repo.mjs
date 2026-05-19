@@ -1,0 +1,682 @@
+#!/usr/bin/env node
+// scan_repo.mjs — deterministic repo scanner for iEvo (Node port of scan_repo.py).
+//
+// Clones a GitHub repo shallowly, enumerates Claude Code skills/agents/plugins,
+// extracts heuristic security signals, and writes two artifacts:
+//
+//   <output_dir>/<owner>-<repo>.md       — index file (matches _TEMPLATE.md format)
+//   <output_dir>/<owner>-<repo>.json     — manifest entry update (stats, sha, risk_tier)
+//
+// Usage:
+//   node scan_repo.mjs <owner>/<repo> [--output-dir <dir>] [--checkout-dir <dir>] [--force-refresh]
+//
+// Pure Node stdlib. No LLM. Designed to be called from:
+//   - `index-repos` skill via Bash (local indexing)
+//   - `ievo-ai/community-index` GHA workflow (centralized indexing)
+//
+// Both call sites get identical output. Single source of truth for the algorithm.
+
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+
+const SCRIPT_VERSION = "1.0.0";
+const TTL_SECONDS = 7 * 24 * 3600;
+
+// ---------------------------------------------------------------------------
+// git ops
+// ---------------------------------------------------------------------------
+
+function run(cmd, args, { cwd = undefined, check = true } = {}) {
+  try {
+    const out = execFileSync(cmd, args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+    return out.trim();
+  } catch (err) {
+    if (check) throw err;
+    return (err.stdout?.toString() ?? "").trim();
+  }
+}
+
+function isDir(p) {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function fileExists(p) {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function checkoutOrRefresh(ownerRepo, checkoutDir, force) {
+  const safeName = ownerRepo.replace("/", "-");
+  const target = join(checkoutDir, safeName);
+
+  if (isDir(target)) {
+    const headFile = join(target, ".git", "HEAD");
+    if (fileExists(headFile) && !force) {
+      const age = (Date.now() - statSync(headFile).mtimeMs) / 1000;
+      if (age < TTL_SECONDS) return target;
+    }
+    try {
+      run("git", ["fetch", "--depth=1"], { cwd: target });
+      run("git", ["reset", "--hard", "origin/HEAD"], { cwd: target });
+    } catch {
+      return target;
+    }
+  } else {
+    mkdirSync(checkoutDir, { recursive: true });
+    const url = `https://github.com/${ownerRepo}.git`;
+    run("git", ["clone", "--depth=1", url, target]);
+  }
+  return target;
+}
+
+function getCommitSha(repo) {
+  return run("git", ["rev-parse", "--short", "HEAD"], { cwd: repo });
+}
+
+function getLastCommitDate(repo) {
+  return run("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: repo }).slice(0, 10);
+}
+
+function getDefaultBranch(repo) {
+  try {
+    return run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: repo });
+  } catch {
+    return "main";
+  }
+}
+
+function countRecentCommits(repo, sinceDate) {
+  const output = run("git", ["log", `--since=${sinceDate}`, "--oneline"], { cwd: repo, check: false });
+  return output.split("\n").filter((l) => l.trim()).length;
+}
+
+// ---------------------------------------------------------------------------
+// frontmatter
+// ---------------------------------------------------------------------------
+
+const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
+
+function parseFrontmatter(filePath) {
+  if (!fileExists(filePath)) return {};
+  let content;
+  try {
+    content = readFileSync(filePath, "utf-8");
+  } catch {
+    return {};
+  }
+  const m = content.match(FRONTMATTER_RE);
+  if (!m) return {};
+
+  const fm = {};
+  let currentKey = null;
+  for (const line of m[1].split("\n")) {
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    if (/^\s+/.test(line) && currentKey) continue;
+    const colonIdx = line.indexOf(":");
+    if (colonIdx > 0) {
+      const key = line.slice(0, colonIdx).trim();
+      const value = line.slice(colonIdx + 1).trim();
+      if (value) {
+        fm[key] = value.replace(/^["']|["']$/g, "");
+        currentKey = null;
+      } else {
+        currentKey = key;
+      }
+    }
+  }
+  return fm;
+}
+
+function truncate(text, limit) {
+  if (!text) return "";
+  text = text.replace(/\s+/g, " ").trim();
+  // Match Python's len() which counts Unicode code points, not UTF-16 units.
+  // Without this, emojis (surrogate pairs) cause earlier truncation than Python.
+  const chars = [...text];
+  if (chars.length <= limit) return text;
+  return chars.slice(0, limit - 1).join("") + "…";
+}
+
+// ---------------------------------------------------------------------------
+// layout detection + enumeration
+// ---------------------------------------------------------------------------
+
+function detectLayout(repo) {
+  const hasPlugins = isDir(join(repo, "plugins"));
+  const hasAgents = isDir(join(repo, "agents"));
+  const hasSkills = isDir(join(repo, "skills"));
+  const hasClaudePlugin = isDir(join(repo, ".claude-plugin"));
+
+  if (hasPlugins) return "marketplace";
+  if (hasClaudePlugin) return "single-plugin";
+  if (hasSkills && hasAgents) return "mixed";
+  if (hasSkills) return "flat-skills";
+  if (hasAgents) return "flat-agents";
+  return "other";
+}
+
+function listDirSorted(dir) {
+  if (!isDir(dir)) return [];
+  return readdirSync(dir).sort();
+}
+
+function listFilesSorted(dir, ext) {
+  return listDirSorted(dir).filter((n) => n.endsWith(ext));
+}
+
+function enumeratePlugins(repo) {
+  const pluginsDir = join(repo, "plugins");
+  if (!isDir(pluginsDir)) return [];
+  const plugins = [];
+  for (const name of listDirSorted(pluginsDir)) {
+    if (name.startsWith(".")) continue;
+    const pluginPath = join(pluginsDir, name);
+    if (!isDir(pluginPath)) continue;
+    plugins.push(enumerateOnePlugin(pluginPath));
+  }
+  return plugins;
+}
+
+function enumerateOnePlugin(pluginPath) {
+  const name = pluginPath.split("/").pop();
+  const manifestPath = join(pluginPath, ".claude-plugin", "plugin.json");
+  let manifest = {};
+  if (fileExists(manifestPath)) {
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    } catch {}
+  }
+
+  const agents = [];
+  const agentsDir = join(pluginPath, "agents");
+  for (const f of listFilesSorted(agentsDir, ".md")) {
+    const agentFile = join(agentsDir, f);
+    const fm = parseFrontmatter(agentFile);
+    agents.push({
+      name: fm.name ?? f.replace(/\.md$/, ""),
+      model: fm.model ?? "—",
+      tools: fm.tools ?? "—",
+      description: truncate(fm.description, 120),
+    });
+  }
+
+  const skills = [];
+  const skillsDir = join(pluginPath, "skills");
+  if (isDir(skillsDir)) {
+    for (const skillName of listDirSorted(skillsDir)) {
+      const skillPath = join(skillsDir, skillName);
+      if (!isDir(skillPath)) continue;
+      const skillMd = join(skillPath, "SKILL.md");
+      if (!fileExists(skillMd)) continue;
+      const fm = parseFrontmatter(skillMd);
+      const hasScripts = isDir(join(skillPath, "scripts"));
+      const hasRefs = isDir(join(skillPath, "references"));
+      const allowedTools = fm["allowed-tools"] ?? "";
+      const broadBash = /Bash\(\*\)|Bash\(rm:|Bash\(sudo:|Bash\(curl:/.test(allowedTools);
+      skills.push({
+        name: fm.name ?? skillName,
+        description: truncate(fm.description, 120),
+        has_scripts: hasScripts,
+        has_refs: hasRefs,
+        license: fm.license ?? "—",
+        compatibility: truncate(fm.compatibility, 80) || "any",
+        broad_bash: broadBash,
+      });
+    }
+  }
+
+  const commands = [];
+  const commandsDir = join(pluginPath, "commands");
+  for (const f of listFilesSorted(commandsDir, ".md")) {
+    const cmdFile = join(commandsDir, f);
+    const fm = parseFrontmatter(cmdFile);
+    commands.push({ name: f.replace(/\.md$/, ""), description: truncate(fm.description, 120) });
+  }
+
+  const hooks = enumerateHooks(join(pluginPath, "hooks", "hooks.json"));
+  const mcp = enumerateMcp(join(pluginPath, ".mcp.json"));
+
+  let author = "—";
+  if (manifest.author && typeof manifest.author === "object") author = manifest.author.name ?? "—";
+
+  return {
+    name,
+    description: truncate(manifest.description, 200),
+    version: manifest.version ?? "unset",
+    path: `plugins/${name}/`,
+    author,
+    license: manifest.license ?? "—",
+    agents,
+    skills,
+    commands,
+    hooks,
+    mcp,
+  };
+}
+
+function enumerateHooks(hooksJsonPath) {
+  if (!fileExists(hooksJsonPath)) return { present: false, events: [], entries: [] };
+  let data;
+  try {
+    data = JSON.parse(readFileSync(hooksJsonPath, "utf-8"));
+  } catch {
+    return { present: false, events: [], entries: [] };
+  }
+
+  const hooks = data.hooks ?? {};
+  const events = Object.keys(hooks);
+  const entries = [];
+  for (const [event, hookList] of Object.entries(hooks)) {
+    if (!Array.isArray(hookList)) continue;
+    for (const h of hookList) {
+      const matcher = h.matcher ?? "—";
+      let cmd = "—";
+      const innerHooks = h.hooks ?? [];
+      if (innerHooks.length > 0) {
+        const first = innerHooks[0];
+        cmd = first.command ?? first.type ?? "—";
+      }
+      const risk = computeHookRisk(event);
+      entries.push({ event, matcher, command: truncate(cmd, 80), risk });
+    }
+  }
+  return {
+    present: true,
+    events,
+    entries,
+    has_pretooluse: events.includes("PreToolUse"),
+    has_userpromptsubmit: events.includes("UserPromptSubmit"),
+    has_posttooluse: events.includes("PostToolUse"),
+  };
+}
+
+function computeHookRisk(event) {
+  if (event === "PreToolUse" || event === "UserPromptSubmit") return "RED";
+  if (event === "PostToolUse") return "YELLOW";
+  return "YELLOW";
+}
+
+function enumerateMcp(mcpJsonPath) {
+  if (!fileExists(mcpJsonPath)) return { present: false, servers: [] };
+  let data;
+  try {
+    data = JSON.parse(readFileSync(mcpJsonPath, "utf-8"));
+  } catch {
+    return { present: false, servers: [] };
+  }
+  const servers = [];
+  for (const [name, config] of Object.entries(data.mcpServers ?? {})) {
+    const url = config.url ?? "";
+    const isLocal = /localhost|127\.0\.0\.1|::1/.test(url);
+    const risk = isLocal ? "GREEN" : "YELLOW";
+    servers.push({
+      name,
+      endpoint: truncate(url || config.command || "", 80),
+      is_local: isLocal,
+      risk,
+    });
+  }
+  return { present: true, servers };
+}
+
+function enumerateStandaloneAgents(repo) {
+  const agentsDir = join(repo, "agents");
+  if (!isDir(agentsDir)) return [];
+  const out = [];
+  for (const f of listFilesSorted(agentsDir, ".md")) {
+    const fm = parseFrontmatter(join(agentsDir, f));
+    out.push({
+      name: fm.name ?? f.replace(/\.md$/, ""),
+      model: fm.model ?? "—",
+      tools: fm.tools ?? "—",
+      description: truncate(fm.description, 120),
+      path: `agents/${f}`,
+    });
+  }
+  return out;
+}
+
+function enumerateStandaloneSkills(repo) {
+  const skillsDir = join(repo, "skills");
+  if (!isDir(skillsDir)) return [];
+  const out = [];
+  for (const skillName of listDirSorted(skillsDir)) {
+    const skillPath = join(skillsDir, skillName);
+    if (!isDir(skillPath)) continue;
+    const skillMd = join(skillPath, "SKILL.md");
+    if (!fileExists(skillMd)) {
+      for (const subName of listDirSorted(skillPath)) {
+        const sub = join(skillPath, subName);
+        if (isDir(sub) && fileExists(join(sub, "SKILL.md"))) {
+          const fm = parseFrontmatter(join(sub, "SKILL.md"));
+          out.push({
+            name: fm.name ?? subName,
+            description: truncate(fm.description, 120),
+            license: fm.license ?? "—",
+            compatibility: truncate(fm.compatibility, 80) || "any",
+            path: `skills/${skillName}/${subName}/SKILL.md`,
+          });
+        }
+      }
+      continue;
+    }
+    const fm = parseFrontmatter(skillMd);
+    out.push({
+      name: fm.name ?? skillName,
+      description: truncate(fm.description, 120),
+      license: fm.license ?? "—",
+      compatibility: truncate(fm.compatibility, 80) || "any",
+      path: `skills/${skillName}/SKILL.md`,
+    });
+  }
+  return out;
+}
+
+function enumerateStandaloneCommands(repo) {
+  const commandsDir = join(repo, "commands");
+  if (!isDir(commandsDir)) return [];
+  const out = [];
+  for (const f of listFilesSorted(commandsDir, ".md")) {
+    const fm = parseFrontmatter(join(commandsDir, f));
+    out.push({
+      name: f.replace(/\.md$/, ""),
+      description: truncate(fm.description, 120),
+      path: `commands/${f}`,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// risk aggregation
+// ---------------------------------------------------------------------------
+
+const TRUSTED_OWNERS = new Set([
+  "anthropics", "vercel-labs", "wshobson", "microsoft", "github",
+  "ievo-ai", "openai",
+]);
+
+function computeRiskTier(owner, stars, plugins, hasLicense) {
+  if (TRUSTED_OWNERS.has(owner) || stars >= 1000) {
+    const riskyHooks = plugins.some(
+      (p) => p.hooks?.has_pretooluse || p.hooks?.has_userpromptsubmit,
+    );
+    if (riskyHooks) return "caution";
+    return "trusted";
+  }
+  if (!hasLicense || stars < 10) return "caution";
+  return "neutral";
+}
+
+// ---------------------------------------------------------------------------
+// markdown rendering
+// ---------------------------------------------------------------------------
+
+function renderIndexMd(data) {
+  const lines = [];
+  const ownerRepo = data.owner_repo;
+  lines.push(`# \`${ownerRepo}\` — community index`);
+  lines.push("");
+  lines.push(`> Scanner: ievo-ai/community-index-bot v${SCRIPT_VERSION}`);
+  lines.push(`> Scanned: ${data.scanned_at}`);
+  lines.push(`> Commit SHA: ${data.commit_sha}`);
+  lines.push(`> Default branch: ${data.default_branch}`);
+  lines.push(`> Layout: ${data.layout}`);
+  lines.push("");
+  lines.push("## Repo metadata");
+  lines.push(`- **Description:** ${truncate(data.description, 200) || "—"}`);
+  lines.push(`- **License:** ${data.license || "missing"}`);
+  lines.push(`- **Stars:** ${data.stars ?? "unknown"}`);
+  lines.push(`- **Created:** ${data.created || "unknown"}`);
+  lines.push(`- **Last commit:** ${data.last_commit_date}`);
+  const rc = data.recent_commits ?? {};
+  if (rc && rc.count !== undefined) {
+    lines.push(`- **Recent commits:** ${rc.count} commits between ${rc.from} and ${rc.to}`);
+  }
+  lines.push("");
+  lines.push("## Risk signals (preliminary)");
+  lines.push("");
+  lines.push("> Heuristic indicators. Full security audit happens per-item via `/ievo:security-check` before install.");
+  lines.push("");
+  lines.push(`- **Trust tier:** ${data.risk_tier}`);
+  const plugins = data.plugins;
+  const totalHooks = plugins.reduce((s, p) => s + (p.hooks?.entries?.length ?? 0), 0);
+  const pluginsWithPretool = plugins.filter((p) => p.hooks?.has_pretooluse).map((p) => p.name);
+  const pluginsWithUserpr = plugins.filter((p) => p.hooks?.has_userpromptsubmit).map((p) => p.name);
+  const pluginsWithHooks = plugins.filter((p) => p.hooks?.present).length;
+  lines.push(`- **Hooks total:** ${totalHooks} across ${pluginsWithHooks} plugins`);
+  lines.push(`  - PreToolUse: ${pluginsWithPretool.length ? "yes — " + pluginsWithPretool.join(", ") : "no"}`);
+  lines.push(`  - UserPromptSubmit: ${pluginsWithUserpr.length ? "yes — " + pluginsWithUserpr.join(", ") : "no"}`);
+  const totalMcp = plugins.reduce((s, p) => s + (p.mcp?.servers?.length ?? 0), 0);
+  lines.push(`- **MCP servers total:** ${totalMcp}`);
+  const broadSkills = [];
+  for (const p of plugins) {
+    for (const s of p.skills ?? []) {
+      if (s.broad_bash) broadSkills.push(`${p.name}/${s.name}`);
+    }
+  }
+  lines.push(`- **Skills with broad allowed-tools:** ${broadSkills.length}${broadSkills.length ? " — " + broadSkills.join(", ") : ""}`);
+  lines.push("");
+
+  if (plugins.length > 0) {
+    lines.push(`## Plugins (${plugins.length})`);
+    lines.push("");
+    for (const p of plugins) {
+      lines.push(`### ${p.name}`);
+      lines.push(`- **Description:** ${p.description || "—"}`);
+      lines.push(`- **Version:** ${p.version}`);
+      lines.push(`- **Path:** \`${p.path}\``);
+      lines.push(`- **Author:** ${p.author}`);
+      lines.push(`- **License:** ${p.license}`);
+      lines.push("");
+      if (p.agents.length > 0) {
+        lines.push(`**Agents (${p.agents.length}):**`);
+        lines.push("");
+        lines.push("| Name | Model | Tools | Description |");
+        lines.push("|------|-------|-------|-------------|");
+        for (const a of p.agents) {
+          lines.push(`| ${a.name} | ${a.model} | ${a.tools} | ${a.description || "—"} |`);
+        }
+        lines.push("");
+      }
+      if (p.skills.length > 0) {
+        lines.push(`**Skills (${p.skills.length}):**`);
+        lines.push("");
+        lines.push("| Name | Description | Has scripts | License | Compat |");
+        lines.push("|------|-------------|-------------|---------|--------|");
+        for (const s of p.skills) {
+          const desc = (s.description || "—") + (s.broad_bash ? " — Bash(broad) RED" : "");
+          lines.push(`| ${s.name} | ${desc} | ${s.has_scripts ? "yes" : "no"} | ${s.license} | ${s.compatibility} |`);
+        }
+        lines.push("");
+      }
+      if (p.commands.length > 0) {
+        lines.push(`**Commands (${p.commands.length}):**`);
+        lines.push("");
+        lines.push("| Name | Description |");
+        lines.push("|------|-------------|");
+        for (const c of p.commands) {
+          lines.push(`| ${c.name} | ${c.description || "—"} |`);
+        }
+        lines.push("");
+      }
+      if (p.hooks?.present && p.hooks.entries.length > 0) {
+        lines.push("**Hooks:**");
+        lines.push("");
+        lines.push("| Event | Matcher | Command | Risk |");
+        lines.push("|-------|---------|---------|------|");
+        for (const h of p.hooks.entries) {
+          lines.push(`| ${h.event} | ${h.matcher} | \`${h.command}\` | ${h.risk} |`);
+        }
+        lines.push("");
+      }
+      if (p.mcp?.present && p.mcp.servers.length > 0) {
+        lines.push("**MCP servers:**");
+        lines.push("");
+        lines.push("| Name | Endpoint | Risk |");
+        lines.push("|------|----------|------|");
+        for (const m of p.mcp.servers) {
+          lines.push(`| ${m.name} | \`${m.endpoint}\` | ${m.risk} |`);
+        }
+        lines.push("");
+      }
+    }
+  }
+
+  const sa = data.standalone_agents;
+  if (sa.length > 0) {
+    lines.push(`## Standalone agents (${sa.length})`);
+    lines.push("");
+    lines.push("| Name | Model | Tools | Description | Path |");
+    lines.push("|------|-------|-------|-------------|------|");
+    for (const a of sa) {
+      lines.push(`| ${a.name} | ${a.model} | ${a.tools} | ${a.description || "—"} | \`${a.path}\` |`);
+    }
+    lines.push("");
+  }
+
+  const ss = data.standalone_skills;
+  if (ss.length > 0) {
+    lines.push(`## Standalone skills (${ss.length})`);
+    lines.push("");
+    lines.push("| Name | Description | License | Compat | Path |");
+    lines.push("|------|-------------|---------|--------|------|");
+    for (const s of ss) {
+      lines.push(`| ${s.name} | ${s.description || "—"} | ${s.license} | ${s.compatibility} | \`${s.path}\` |`);
+    }
+    lines.push("");
+  }
+
+  const sc = data.standalone_commands;
+  if (sc.length > 0) {
+    lines.push(`## Standalone commands (${sc.length})`);
+    lines.push("");
+    lines.push("| Name | Description | Path |");
+    lines.push("|------|-------------|------|");
+    for (const c of sc) {
+      lines.push(`| ${c.name} | ${c.description || "—"} | \`${c.path}\` |`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n") + "\n";
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+
+function isoNow() {
+  // Match Python's datetime.now(timezone.utc).isoformat(timespec="seconds")
+  // → "2026-05-19T15:09:55+00:00"
+  return new Date().toISOString().replace(/\.\d+Z$/, "+00:00");
+}
+
+function isoDate(daysAgo = 0) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - daysAgo);
+  return d.toISOString().slice(0, 10);
+}
+
+function parseArgs(argv) {
+  const args = { repo: null, outputDir: ".", checkoutDir: join(homedir(), ".ievo", "checkouts"), force: false };
+  for (let i = 2; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--output-dir") args.outputDir = argv[++i];
+    else if (a === "--checkout-dir") args.checkoutDir = argv[++i];
+    else if (a === "--force-refresh") args.force = true;
+    else if (!args.repo) args.repo = a;
+  }
+  return args;
+}
+
+function main() {
+  const args = parseArgs(process.argv);
+  if (!args.repo || !args.repo.includes("/")) {
+    console.error(`Error: repo must be in <owner>/<repo> format, got '${args.repo ?? ""}'`);
+    process.exit(1);
+  }
+
+  const [owner, name] = args.repo.split("/", 2);
+  const outputDir = resolve(args.outputDir);
+  mkdirSync(outputDir, { recursive: true });
+  const checkoutDir = resolve(args.checkoutDir);
+
+  let repo;
+  try {
+    repo = checkoutOrRefresh(args.repo, checkoutDir, args.force);
+  } catch (err) {
+    console.error(`Failed to clone ${args.repo}: ${err.message}`);
+    process.exit(2);
+  }
+
+  const commitSha = getCommitSha(repo);
+  const lastCommit = getLastCommitDate(repo);
+  const defaultBranch = getDefaultBranch(repo);
+  const layout = detectLayout(repo);
+
+  const scannedAt = isoNow();
+  const thirtyDaysAgo = isoDate(30);
+  const today = isoDate(0);
+  const recentCount = countRecentCommits(repo, thirtyDaysAgo);
+
+  const plugins = enumeratePlugins(repo);
+  const standaloneAgents = enumerateStandaloneAgents(repo);
+  const standaloneSkills = enumerateStandaloneSkills(repo);
+  const standaloneCommands = enumerateStandaloneCommands(repo);
+
+  const licenseFileExists = ["LICENSE", "LICENSE.md", "LICENSE.txt"].some((f) => fileExists(join(repo, f)));
+  const riskTier = computeRiskTier(owner, 0, plugins, licenseFileExists);
+  const hasHooks = plugins.some((p) => p.hooks?.present);
+  const hasMcp = plugins.some((p) => p.mcp?.present);
+
+  const data = {
+    owner_repo: args.repo,
+    scanned_at: scannedAt,
+    commit_sha: commitSha,
+    default_branch: defaultBranch,
+    layout,
+    last_commit_date: lastCommit,
+    recent_commits: { count: recentCount, from: thirtyDaysAgo, to: today },
+    license: licenseFileExists ? "MIT" : null,
+    risk_tier: riskTier,
+    plugins,
+    standalone_agents: standaloneAgents,
+    standalone_skills: standaloneSkills,
+    standalone_commands: standaloneCommands,
+  };
+
+  const safeName = args.repo.replace("/", "-");
+  writeFileSync(join(outputDir, `${safeName}.md`), renderIndexMd(data), "utf-8");
+
+  const totalAgents = standaloneAgents.length + plugins.reduce((s, p) => s + p.agents.length, 0);
+  const totalSkills = standaloneSkills.length + plugins.reduce((s, p) => s + p.skills.length, 0);
+  const manifestEntry = {
+    last_scan: scannedAt,
+    scanner_sha: commitSha,
+    default_branch: defaultBranch,
+    index_file: `indices/${safeName}.md`,
+    stats: { plugins: plugins.length, agents: totalAgents, skills: totalSkills },
+    risk_tier: riskTier,
+    has_hooks: hasHooks,
+    has_mcp: hasMcp,
+  };
+  writeFileSync(join(outputDir, `${safeName}.json`), JSON.stringify(manifestEntry, null, 2), "utf-8");
+
+  console.log(
+    `${args.repo}: indexed (commit=${commitSha}) — ${plugins.length} plugins, ` +
+    `${totalAgents} agents, ${totalSkills} skills, ` +
+    `hooks: ${hasHooks ? "yes" : "no"}, risk: ${riskTier}`,
+  );
+}
+
+main();

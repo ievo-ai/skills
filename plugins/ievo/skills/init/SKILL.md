@@ -101,7 +101,8 @@ Plugin path in the log helps diagnose "which install dir is Claude Code loading 
 
 Hard prereqs:
 - `find-skills` skill installed — check `.claude/skills/find-skills/SKILL.md` or `~/.claude/skills/find-skills/SKILL.md` or in any plugin's `skills/`
-- `gh` CLI — `which gh` and `gh auth status`
+- `git` CLI — `which git`. Used for checkout-based indexing (v0.3.0+).
+- `gh` CLI — `which gh` and `gh auth status`. Used only by security-check (audit data from skills.sh) and uninstall (marker discovery).
 - **Bash permissions** for the commands init will run (see below)
 
 If `find-skills` missing:
@@ -359,7 +360,11 @@ For each repo in unique_repos:
 
 `index-repos` writes (or hits cache for) `.ievo/cache/index/<owner>-<repo>.md` per repo.
 
-**Performance expectation:** for 8 repos with cache-miss, this takes 5-15 minutes total depending on repo sizes. wshobson/agents alone is ~2-3 min (72 plugins). Cache hits make subsequent runs sub-second per repo. Surface progress to the user via the incremental log file — they can `tail -f .ievo/log/init-*.md` to monitor.
+**Performance expectation (v0.3.0+ — checkout-based):** for 8 repos with cache-miss, this takes ~1-4 minutes total. Each repo is one `git clone --depth=1` (~5-30 sec) plus filesystem scan (instant). wshobson/agents (72 plugins) is ~30-60 sec. Cache hits are sub-second.
+
+**No more rate limit issues.** v0.2.x used `gh api` per file (50-200 calls per repo) which triggered Anthropic-side rate limits on big repos. v0.3.0 uses shallow git clone + filesystem scan — one network operation per repo, then everything local.
+
+Surface progress to user via the incremental log file — they can `tail -f .ievo/log/init-*.md` to monitor.
 
 Read each generated index and **expand the candidate list**:
 - All standalone skills from index

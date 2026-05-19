@@ -6,6 +6,8 @@ iEvo is a discovery + safety + evolution layer on top of [skills.sh](https://www
 
 ## Quick start
 
+### Claude Code
+
 ```bash
 # 1. Install find-skills (prereq) and the iEvo plugin
 npx skills add vercel-labs/skills --skill find-skills
@@ -17,6 +19,24 @@ npx skills add vercel-labs/skills --skill find-skills
 cd <your-project>
 /ievo:init
 ```
+
+### Codex (CLI / app / VS Code extension)
+
+```bash
+# 1. Add the iEvo marketplace
+/plugins add ievo-ai/skills
+
+# 2. Install
+/plugins install ievo@ievo-skills
+
+# 3. Initialize in your project
+cd <your-project>
+/ievo:init
+```
+
+Codex support added in v0.3.3 — same plugin content, separate marketplace manifests (`.claude-plugin/marketplace.json` vs `.codex-plugin/marketplace.json`).
+
+**Cross-platform skills inside the plugin** are fully portable via [agentskills.io](https://agentskills.io) spec. Slash commands and sub-agents work on Claude Code; Codex's own command/agent semantics may differ — refer to your platform's docs for exact behavior of the commands.
 
 `/ievo:init` will ask you to add Bash permissions for `npx skills` and `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval.
 

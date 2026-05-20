@@ -1,11 +1,14 @@
 #!/usr/bin/env node
-// scan_repo.mjs — deterministic repo scanner for iEvo (Node port of scan_repo.py).
+// scan_repo.mjs — deterministic repo scanner for iEvo (Node, stdlib only).
 //
-// Clones a GitHub repo shallowly, enumerates Claude Code skills/agents/plugins,
-// extracts heuristic security signals, and writes two artifacts:
+// Clones a GitHub repo shallowly, enumerates skills/agents/plugins/commands/hooks/MCP
+// (Claude Code + Codex marketplace formats), and writes two artifacts:
 //
-//   <output_dir>/<owner>-<repo>.md       — index file (matches _TEMPLATE.md format)
-//   <output_dir>/<owner>-<repo>.json     — manifest entry update (stats, sha, risk_tier)
+//   <output_dir>/<owner>-<repo>.md       — index file (structural facts only, no risk verdict)
+//   <output_dir>/<owner>-<repo>.json     — manifest entry update (stats, sha, has_hooks/has_mcp/has_pretooluse_hooks/has_userpromptsubmit_hooks as factual booleans)
+//
+// v0.5.2: removed all heuristic risk_tier / per-hook RISK / per-MCP RISK fields.
+// Verdicts come from security-auditor antivirus deep scan per item before install.
 //
 // Usage:
 //   node scan_repo.mjs <owner>/<repo> [--output-dir <dir>] [--checkout-dir <dir>] [--force-refresh]

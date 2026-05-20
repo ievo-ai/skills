@@ -52,7 +52,9 @@ ievo-ai/skills/
 - File extension `.mjs` (ESM)
 
 ### Version bumping
-- **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (`metadata.version` + `plugins[0].version`)
+- **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
+- **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block. No update needed there.
+- If the Codex marketplace spec evolves to require a version field, update this guidance and ensure all three manifests bump together.
 - Skip = bot/marketplace caches stale. Discipline matters.
 
 ### Branch + commit conventions
@@ -63,7 +65,7 @@ ievo-ai/skills/
 ### Security model (v0.5.2+)
 - **No owner-based trust** (no TRUSTED_OWNERS shortcuts). Reputation isn't security.
 - **No heuristic risk_tier** in indices. `scan_repo.mjs` emits structural facts only.
-- **Antivirus deep scan** via `security-auditor` sub-agent: reads FULL content of every file in the candidate + all dependencies, uses Sonnet 4.6 reasoning to detect threats. Per-install only.
+- **Antivirus deep scan** via `security-auditor` sub-agent: reads FULL content of every file in the candidate + all dependencies, uses current Sonnet family reasoning to detect threats (declared via `model: sonnet` alias for vendor neutrality — agentskills.io spec has no `model` field, this is Claude Code/Codex agent convention). Per-install only.
 - **Report-to-source flow** for RED verdicts: pre-filled GitHub issue body filed at source repo via `gh issue create`.
 
 ## Pipeline (`/ievo:init`)

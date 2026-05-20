@@ -1,6 +1,6 @@
 ---
 name: repo-indexer
-description: Index a single GitHub repository for Claude Code skills, agents, and plugins via shallow clone + filesystem scan. Designed to be dispatched in parallel — multiple repos can be indexed concurrently by sending multiple Task tool calls in one message. Returns a one-line summary plus writes the structured index to `.ievo/cache/index/`.
+description: Index a single GitHub repository for skills, agents, and plugins (Claude Code + Codex marketplace formats) via shallow clone + filesystem scan. Designed to be dispatched in parallel — multiple repos can be indexed concurrently by sending multiple Task tool calls in one message. Returns a one-line summary plus writes the structured index to `.ievo/cache/index/`.
 model: sonnet
 tools:
   - Bash
@@ -35,7 +35,7 @@ Add `--force-refresh` if `force_refresh=true` was passed in the dispatch prompt.
 The script handles ALL the work internally:
 - Shallow clone or refresh checkout (7-day TTL)
 - Detect layout, enumerate plugins/agents/skills/commands/hooks/MCP
-- Parse frontmatter, compute risk_tier
+- Parse frontmatter, emit structural facts (counts, hook presence, broad-bash flags). NO risk_tier in v0.5.2+ — risk verdicts come from security-auditor (LLM antivirus deep scan) per item before install, not from this index.
 - Render `<owner>-<repo>.md` + `<owner>-<repo>.json` into `--output-dir`
 - Print one-line summary to stdout
 

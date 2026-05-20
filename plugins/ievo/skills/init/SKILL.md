@@ -2,7 +2,7 @@
 name: init
 description: Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem, audit them for safety, install through an interactive interview. Composes three lower-level skills (find-skills, index-repos, security-check) into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks "set up iEvo here" / "find skills for this project".
 license: MIT
-compatibility: Requires `find-skills` (vercel-labs/skills), `gh` CLI, `git` CLI, Node 18+ (bundled with Claude Code and Codex — guaranteed available), and network access. Works on any agent platform supporting the agentskills.io standard for skill loading.
+compatibility: Requires `find-skills` (vercel-labs/skills), `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). The skills inside the pipeline are cross-platform via agentskills.io; the init orchestrator itself is Claude Code/Codex-specific.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -661,16 +661,24 @@ Options:
 
 #### 2. File via `gh issue create`
 
-```bash
-# Write body to temp file (gh issue create reads from --body-file for multi-line)
-echo "<report_template.body>" > /tmp/ievo-issue-body.md
+**CRITICAL**: write the body via the **Write tool**, NOT via `echo "..." > file`. The body may contain `$(...)`, backticks, or `${VAR}` patterns from cited malicious code excerpts — shell interpolation during `echo` would execute these. Write tool writes literal bytes.
 
+```
+# Step A — Use Write tool (NOT Bash):
+#   file_path: <project>/.ievo/log/pending-reports/issue-body-<ISO-timestamp>.md
+#   content:   <report_template.body>   (literal string, no expansion)
+
+# Step B — File the issue via gh, passing the body file:
 gh issue create --repo <owner>/<repo> \
-  --title "<report_template.title>" \
-  --body-file /tmp/ievo-issue-body.md
+  --title <report_template.title> \
+  --body-file <project>/.ievo/log/pending-reports/issue-body-<ISO-timestamp>.md
 ```
 
+Quote the `--title` argument safely — single quotes or `--title="$TITLE"` with the title in an env var, never directly substituting via shell. If using gh's Bash flag, use single quotes: `--title 'literal title here'`.
+
 Capture the returned issue URL (e.g., `https://github.com/owner/repo/issues/N`).
+
+The pending-reports/ directory doubles as audit trail — even successful filings retain a local copy so user can re-read what was sent.
 
 #### 3. Show result
 
@@ -711,7 +719,7 @@ In all failure modes: candidate stays removed from install queue (`skip` semanti
 
 Dispatched: <N> agents in parallel
 Wall-clock: <T>s
-Model: claude-sonnet-4-6 (Sonnet — pinned in security-auditor frontmatter)
+Model: sonnet (alias — host platform resolves to current Sonnet family; declared in security-auditor frontmatter)
 Total files scanned: <sum of files_scanned across agents>
 Total bytes scanned: <sum of total_bytes_scanned>
 

@@ -1,6 +1,6 @@
 # iEvo — Self-Evolving Plugin for AI Coding Agents
 
-> Discover relevant skills + agents for your project, audit them for safety with antivirus-style deep scanning, install with project-scope portability. Capture lessons as overlays that survive upstream updates. Works on Claude Code, Codex, and any platform that supports the [agentskills.io](https://agentskills.io) standard.
+> Discover relevant skills + agents for your project, audit them via senior-security-engineer review (deep content scan + threat modeling, no owner-based trust shortcuts), install with project-scope portability. Capture lessons as overlays that survive upstream updates. Works on Claude Code, Codex, and any platform that supports the [agentskills.io](https://agentskills.io) standard.
 
 iEvo is a **universal discovery + safety + evolution layer** on top of [skills.sh](https://www.skills.sh) and the multi-platform agent skills ecosystem.
 
@@ -95,7 +95,7 @@ install (vendor or plugin)
 1. **find-skills** queries skills.sh for skill candidates based on your project's stack.
 2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands that skills.sh didn't index. Uses shallow `git clone --depth=1` into `~/.ievo/checkouts/` (one network op per repo, then filesystem scan — no API rate limits). Sub-agents run in parallel — wall-clock = slowest repo (~30-60s).
 3. **categorical rank** groups candidates by category (testing, linting, security, observability, etc.) and keeps top-5 per category instead of overall top-12. Every relevant category gets visibility.
-4. **security-auditor** sub-agents run in parallel — one per selected item. Each applies the `security-check` skill (Sonnet 4.6): skills.sh Snyk/Socket/Trust Hub fetch + content scan (hooks, allowed-tools, prompt patterns) + repo metadata. Wall-clock ~10-15s for 5-7 items.
+4. **security-auditor** sub-agents run in parallel — one per selected item. Each applies the `security-check` skill via `model: sonnet` alias (current Sonnet family — 4.6 today). Deep scan of full content + dependencies; threat detection by reasoning, not heuristics. Wall-clock ~10-15s for 5-7 items.
 5. **install** runs two paths:
    - **Vendor** (skills + agents): `gh api fetch` → write to `.claude/<type>/` → inject overlay marker
    - **Plugin install** (anything with hooks/MCP/commands): edit `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins` for team-portable activation
@@ -186,11 +186,11 @@ After `/ievo:init` with some skills/agents vendored and some plugins installed:
 
 `/ievo:init` adds the right `.gitignore` entries automatically if your project has a `.gitignore`.
 
-## Security model (v0.5.2 — antivirus deep scan)
+## Security model (v0.5.2 — senior-security-engineer vulnerability assessment)
 
 **Reputation is not security.** Owner-based trust is unreliable — OpenAI, Anthropic, Microsoft accounts have all been compromised in past incidents. iEvo's verdict comes only from content scan.
 
-`security-auditor` agent dispatches in parallel per selected item. Each agent runs the `security-check` skill which performs **antivirus-style deep scan**: reads the FULL content of every file shipped with the item (SKILL.md/agent.md body + scripts/ + references/ + assets/ + bundled plugin files), then uses Sonnet 4.6's reasoning to detect threats — not surface heuristics.
+`security-auditor` agent dispatches in parallel per selected item. Each instance acts as a **senior application security engineer** with deep domain expertise in AI agent supply-chain vulnerabilities (prompt injection, credential exfiltration, supply-chain compromise, hook abuse, indirection attacks, encoded payloads, social engineering, tool-model bypass). It applies the `security-check` skill — full content review of every file shipped with the item (SKILL.md/agent.md body + scripts/ + references/ + assets/ + bundled plugin files), then performs threat modeling and structured vulnerability assessment using the current Sonnet family reasoning (`model: sonnet` alias — platform-agnostic, vendor-neutral).
 
 ### Verdicts
 
@@ -288,7 +288,7 @@ ievo-ai/skills/
 - **v0.4 (reverted):** Pre-built community-index integration. Replaced with simpler user-side architecture in v0.5.
 - **v0.5.0:** All-user-side architecture. Full Node migration. Categorical ranking. Parallel security-auditor sub-agents.
 - **v0.5.1:** `npx skills add --all --copy` flags; hard-stop on missing find-skills prereq.
-- **v0.5.2 (current):** Antivirus deep-scan security model. Dropped owner-based trust (TRUSTED_OWNERS), risk_tier heuristics, pattern-matching verdicts. Sonnet 4.6 reasoning over full content + all dependencies is the only trust signal. Report-to-source flow — file pre-filled GitHub issue at source repo when RED detected.
+- **v0.5.2 (current):** Antivirus deep-scan security model. Dropped owner-based trust (TRUSTED_OWNERS), risk_tier heuristics, pattern-matching verdicts. Current Sonnet family reasoning over full content + all dependencies is the only trust signal (declared via vendor-neutral `model: sonnet` alias). Report-to-source flow — file pre-filled GitHub issue at source repo when RED detected.
 - **v0.6 (planned):** Cortex A/B validation gate for evolutions. Mutations that don't improve get rejected via blind evaluation.
 - **v1.0:** Skills.sh publication + cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
 

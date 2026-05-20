@@ -228,14 +228,25 @@ function parsePositiveInt(value, flagName, fallback) {
   return n;
 }
 
+function requireValue(argv, i, flagName) {
+  const v = argv[i];
+  if (v === undefined) {
+    throw new Error(`${flagName} requires a value, got end of arguments`);
+  }
+  if (typeof v === "string" && v.startsWith("--")) {
+    throw new Error(`${flagName} requires a value, got flag '${v}' — looks like the value was forgotten`);
+  }
+  return v;
+}
+
 export function parseArgs(argv) {
   const args = { stackFile: null, limit: DEFAULT_TOTAL_LIMIT, concurrency: DEFAULT_CONCURRENCY, perQuery: DEFAULT_PER_QUERY_LIMIT };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--stack-file") args.stackFile = argv[++i];
-    else if (a === "--limit") args.limit = parsePositiveInt(argv[++i], "--limit", DEFAULT_TOTAL_LIMIT);
-    else if (a === "--concurrency") args.concurrency = parsePositiveInt(argv[++i], "--concurrency", DEFAULT_CONCURRENCY);
-    else if (a === "--per-query") args.perQuery = parsePositiveInt(argv[++i], "--per-query", DEFAULT_PER_QUERY_LIMIT);
+    if (a === "--stack-file") args.stackFile = requireValue(argv, ++i, "--stack-file");
+    else if (a === "--limit") args.limit = parsePositiveInt(requireValue(argv, ++i, "--limit"), "--limit", DEFAULT_TOTAL_LIMIT);
+    else if (a === "--concurrency") args.concurrency = parsePositiveInt(requireValue(argv, ++i, "--concurrency"), "--concurrency", DEFAULT_CONCURRENCY);
+    else if (a === "--per-query") args.perQuery = parsePositiveInt(requireValue(argv, ++i, "--per-query"), "--per-query", DEFAULT_PER_QUERY_LIMIT);
   }
   return args;
 }

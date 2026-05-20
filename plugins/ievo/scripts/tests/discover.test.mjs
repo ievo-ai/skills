@@ -488,6 +488,27 @@ describe("parseArgs", () => {
   it("throws on missing value after --per-query", () => {
     assert.throws(() => parseArgs(["node", "discover.mjs", "--per-query"]), /--per-query requires/);
   });
+
+  it("throws when --stack-file is last arg (no value provided)", () => {
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--stack-file"]),
+      /--stack-file requires a value, got end of arguments/,
+    );
+  });
+
+  it("throws when --stack-file is followed by another flag instead of a path", () => {
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--stack-file", "--limit", "20"]),
+      /--stack-file requires a value, got flag '--limit'/,
+    );
+  });
+
+  it("throws when --limit is followed by another flag instead of a number", () => {
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--limit", "--concurrency"]),
+      /--limit requires a value, got flag '--concurrency'/,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

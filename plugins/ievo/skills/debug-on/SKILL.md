@@ -70,7 +70,7 @@ Write `<project>/.ievo/log/debug/<session-id>/00-session-start.md`:
 - Node version: <output of `node --version`>
 - gh version: <output of `gh --version | head -1`>
 - git version: <output of `git --version`>
-- OS: <output of `uname -srm`>
+- OS: <Node-native, cross-platform: `${process.platform} ${os.release()} ${os.arch()}` — e.g. `darwin 24.1.0 arm64`, `linux 6.1.0 x64`, `win32 10.0.22631 x64`. Avoid `uname` (not available on native Windows).>
 - CWD: <process.cwd()>
 - Reason: <if provided by user>
 ```
@@ -112,9 +112,11 @@ When invoked, other iEvo skills MUST:
 ## Rules
 
 - **Idempotent**: if debug already on, just update `enabled_at` and confirm.
-- **No secrets in logs**: even in debug mode, redact `ANTHROPIC_API_KEY`, `GH_TOKEN`, `OPENAI_API_KEY`, etc. Use `[REDACTED]` placeholder.
+- **Secret redaction is best-effort, not a guarantee**: known credential env vars (`ANTHROPIC_API_KEY`, `GH_TOKEN`, `OPENAI_API_KEY`, `AWS_*`, `GITHUB_TOKEN`, `*_API_KEY`, `*_SECRET`, `*_TOKEN`) MUST be replaced with `[REDACTED]` before any write. But the denylist cannot catch every secret: source files, customer data, prompts, and `gh api` response bodies may contain credentials/PII/proprietary code that bypasses pattern matching. **Treat all debug logs as confidential by default.**
+- **Sensitive-source guard**: when about to log full content of a file matching `*.env`, `*.env.*`, `*credentials*`, `*secret*`, `*key*` (case-insensitive), `*.pem`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`, `.npmrc`, `.netrc` → log the path + SHA-256 hash + size only, never the body. Same for any file flagged `secret`/`credential` by `security-check`.
+- **Default to gitignore**: when activating debug mode for the first time in a project, append `.ievo/log/debug/` to `.gitignore` (after asking user via AskUserQuestion) so logs don't accidentally enter version control. `.ievo/debug.flag` itself is fine to commit (intent only, no payload).
 - **Size cap**: if any single log file exceeds 5MB, truncate to first 4.5MB + footer noting truncation. Saves disk + makes review tractable.
-- **Commit-friendly**: `.ievo/debug.flag` and `.ievo/log/debug/` are project-scope artifacts. Mention in user-facing message that they can commit these to git when filing issues, but should review for accidentally-logged sensitive context first.
+- **Commit-friendly (with review)**: `.ievo/debug.flag` and `.ievo/log/debug/` are project-scope artifacts. When user wants to share logs (issue filing, teammate help): tell them explicitly to review every file in `.ievo/log/debug/<session-id>/` for secrets/PII before committing or attaching. Suggest running `grep -RiE '(api[_-]?key|secret|token|password|bearer|x-api)' .ievo/log/debug/<session-id>/` as a final sanity check.
 - **Auto-cleanup of old sessions**: if `.ievo/log/debug/` contains more than 10 session subdirs, suggest user run cleanup. Don't delete without confirmation.
 
 ## See also

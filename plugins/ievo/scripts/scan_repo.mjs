@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const SCRIPT_VERSION = "1.0.0";
+const SCRIPT_VERSION = "1.1.0";
 const TTL_SECONDS = 7 * 24 * 3600;
 
 // ---------------------------------------------------------------------------
@@ -285,8 +285,7 @@ function enumerateHooks(hooksJsonPath) {
         const first = innerHooks[0];
         cmd = first.command ?? first.type ?? "—";
       }
-      const risk = computeHookRisk(event);
-      entries.push({ event, matcher, command: truncate(cmd, 80), risk });
+      entries.push({ event, matcher, command: truncate(cmd, 80) });
     }
   }
   return {
@@ -297,12 +296,6 @@ function enumerateHooks(hooksJsonPath) {
     has_userpromptsubmit: events.includes("UserPromptSubmit"),
     has_posttooluse: events.includes("PostToolUse"),
   };
-}
-
-function computeHookRisk(event) {
-  if (event === "PreToolUse" || event === "UserPromptSubmit") return "RED";
-  if (event === "PostToolUse") return "YELLOW";
-  return "YELLOW";
 }
 
 function enumerateMcp(mcpJsonPath) {
@@ -317,12 +310,10 @@ function enumerateMcp(mcpJsonPath) {
   for (const [name, config] of Object.entries(data.mcpServers ?? {})) {
     const url = config.url ?? "";
     const isLocal = /localhost|127\.0\.0\.1|::1/.test(url);
-    const risk = isLocal ? "GREEN" : "YELLOW";
     servers.push({
       name,
       endpoint: truncate(url || config.command || "", 80),
       is_local: isLocal,
-      risk,
     });
   }
   return { present: true, servers };
@@ -397,28 +388,11 @@ function enumerateStandaloneCommands(repo) {
 }
 
 // ---------------------------------------------------------------------------
-// risk aggregation
-// ---------------------------------------------------------------------------
-
-const TRUSTED_OWNERS = new Set([
-  "anthropics", "vercel-labs", "wshobson", "microsoft", "github",
-  "ievo-ai", "openai",
-]);
-
-function computeRiskTier(owner, stars, plugins, hasLicense) {
-  if (TRUSTED_OWNERS.has(owner) || stars >= 1000) {
-    const riskyHooks = plugins.some(
-      (p) => p.hooks?.has_pretooluse || p.hooks?.has_userpromptsubmit,
-    );
-    if (riskyHooks) return "caution";
-    return "trusted";
-  }
-  if (!hasLicense || stars < 10) return "caution";
-  return "neutral";
-}
-
-// ---------------------------------------------------------------------------
 // markdown rendering
+//
+// Note: v0.5.2 removed all `risk_tier` / hook RISK / MCP RISK heuristics.
+// scan_repo emits raw structural facts only — verdicts come from the
+// security-auditor agent (LLM antivirus deep scan) per item before install.
 // ---------------------------------------------------------------------------
 
 function renderIndexMd(data) {
@@ -443,11 +417,10 @@ function renderIndexMd(data) {
     lines.push(`- **Recent commits:** ${rc.count} commits between ${rc.from} and ${rc.to}`);
   }
   lines.push("");
-  lines.push("## Risk signals (preliminary)");
+  lines.push("## Structural signals");
   lines.push("");
-  lines.push("> Heuristic indicators. Full security audit happens per-item via `/ievo:security-check` before install.");
+  lines.push("> Raw facts only — no risk verdict from this index. Per-item verdict comes from `security-auditor` antivirus deep scan when user selects items for install. **Reputation is not security.**");
   lines.push("");
-  lines.push(`- **Trust tier:** ${data.risk_tier}`);
   const plugins = data.plugins;
   const totalHooks = plugins.reduce((s, p) => s + (p.hooks?.entries?.length ?? 0), 0);
   const pluginsWithPretool = plugins.filter((p) => p.hooks?.has_pretooluse).map((p) => p.name);
@@ -458,13 +431,13 @@ function renderIndexMd(data) {
   lines.push(`  - UserPromptSubmit: ${pluginsWithUserpr.length ? "yes — " + pluginsWithUserpr.join(", ") : "no"}`);
   const totalMcp = plugins.reduce((s, p) => s + (p.mcp?.servers?.length ?? 0), 0);
   lines.push(`- **MCP servers total:** ${totalMcp}`);
-  const broadSkills = [];
+  const broadBashSkills = [];
   for (const p of plugins) {
     for (const s of p.skills ?? []) {
-      if (s.broad_bash) broadSkills.push(`${p.name}/${s.name}`);
+      if (s.broad_bash) broadBashSkills.push(`${p.name}/${s.name}`);
     }
   }
-  lines.push(`- **Skills with broad allowed-tools:** ${broadSkills.length}${broadSkills.length ? " — " + broadSkills.join(", ") : ""}`);
+  lines.push(`- **Skills with broad allowed-tools:** ${broadBashSkills.length}${broadBashSkills.length ? " — " + broadBashSkills.join(", ") : ""}`);
   lines.push("");
 
   if (plugins.length > 0) {
@@ -491,11 +464,10 @@ function renderIndexMd(data) {
       if (p.skills.length > 0) {
         lines.push(`**Skills (${p.skills.length}):**`);
         lines.push("");
-        lines.push("| Name | Description | Has scripts | License | Compat |");
-        lines.push("|------|-------------|-------------|---------|--------|");
+        lines.push("| Name | Description | Has scripts | License | Compat | Broad bash |");
+        lines.push("|------|-------------|-------------|---------|--------|------------|");
         for (const s of p.skills) {
-          const desc = (s.description || "—") + (s.broad_bash ? " — Bash(broad) RED" : "");
-          lines.push(`| ${s.name} | ${desc} | ${s.has_scripts ? "yes" : "no"} | ${s.license} | ${s.compatibility} |`);
+          lines.push(`| ${s.name} | ${s.description || "—"} | ${s.has_scripts ? "yes" : "no"} | ${s.license} | ${s.compatibility} | ${s.broad_bash ? "yes" : "no"} |`);
         }
         lines.push("");
       }
@@ -512,20 +484,20 @@ function renderIndexMd(data) {
       if (p.hooks?.present && p.hooks.entries.length > 0) {
         lines.push("**Hooks:**");
         lines.push("");
-        lines.push("| Event | Matcher | Command | Risk |");
-        lines.push("|-------|---------|---------|------|");
+        lines.push("| Event | Matcher | Command |");
+        lines.push("|-------|---------|---------|");
         for (const h of p.hooks.entries) {
-          lines.push(`| ${h.event} | ${h.matcher} | \`${h.command}\` | ${h.risk} |`);
+          lines.push(`| ${h.event} | ${h.matcher} | \`${h.command}\` |`);
         }
         lines.push("");
       }
       if (p.mcp?.present && p.mcp.servers.length > 0) {
         lines.push("**MCP servers:**");
         lines.push("");
-        lines.push("| Name | Endpoint | Risk |");
-        lines.push("|------|----------|------|");
+        lines.push("| Name | Endpoint | Local |");
+        lines.push("|------|----------|-------|");
         for (const m of p.mcp.servers) {
-          lines.push(`| ${m.name} | \`${m.endpoint}\` | ${m.risk} |`);
+          lines.push(`| ${m.name} | \`${m.endpoint}\` | ${m.is_local ? "yes" : "no"} |`);
         }
         lines.push("");
       }
@@ -635,7 +607,6 @@ function main() {
   const standaloneCommands = enumerateStandaloneCommands(repo);
 
   const licenseFileExists = ["LICENSE", "LICENSE.md", "LICENSE.txt"].some((f) => fileExists(join(repo, f)));
-  const riskTier = computeRiskTier(owner, 0, plugins, licenseFileExists);
   const hasHooks = plugins.some((p) => p.hooks?.present);
   const hasMcp = plugins.some((p) => p.mcp?.present);
 
@@ -648,7 +619,6 @@ function main() {
     last_commit_date: lastCommit,
     recent_commits: { count: recentCount, from: thirtyDaysAgo, to: today },
     license: licenseFileExists ? "MIT" : null,
-    risk_tier: riskTier,
     plugins,
     standalone_agents: standaloneAgents,
     standalone_skills: standaloneSkills,
@@ -666,16 +636,16 @@ function main() {
     default_branch: defaultBranch,
     index_file: `indices/${safeName}.md`,
     stats: { plugins: plugins.length, agents: totalAgents, skills: totalSkills },
-    risk_tier: riskTier,
     has_hooks: hasHooks,
     has_mcp: hasMcp,
+    has_pretooluse_hooks: plugins.some((p) => p.hooks?.has_pretooluse),
+    has_userpromptsubmit_hooks: plugins.some((p) => p.hooks?.has_userpromptsubmit),
   };
   writeFileSync(join(outputDir, `${safeName}.json`), JSON.stringify(manifestEntry, null, 2), "utf-8");
 
   console.log(
     `${args.repo}: indexed (commit=${commitSha}) — ${plugins.length} plugins, ` +
-    `${totalAgents} agents, ${totalSkills} skills, ` +
-    `hooks: ${hasHooks ? "yes" : "no"}, risk: ${riskTier}`,
+    `${totalAgents} agents, ${totalSkills} skills, hooks: ${hasHooks ? "yes" : "no"}, mcp: ${hasMcp ? "yes" : "no"}`,
   );
 }
 

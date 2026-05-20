@@ -1,8 +1,15 @@
-# iEvo — Self-Evolving Plugin for Claude Code
+# iEvo — Self-Evolving Plugin for AI Coding Agents
 
-> Discover relevant skills + agents for your project, audit them for safety, install with project-scope portability. Capture lessons as overlays that survive upstream updates.
+> Discover relevant skills + agents for your project, audit them for safety with antivirus-style deep scanning, install with project-scope portability. Capture lessons as overlays that survive upstream updates. Works on Claude Code, Codex, and any platform that supports the [agentskills.io](https://agentskills.io) standard.
 
-iEvo is a discovery + safety + evolution layer on top of [skills.sh](https://www.skills.sh) and the Claude Code plugin ecosystem.
+iEvo is a **universal discovery + safety + evolution layer** on top of [skills.sh](https://www.skills.sh) and the multi-platform agent skills ecosystem.
+
+**Currently distributed via:**
+- Claude Code marketplace (`.claude-plugin/marketplace.json`)
+- Codex marketplace (`.codex-plugin/marketplace.json`)
+- skills.sh registry (planned for v1.0)
+
+**Cross-platform skills** inside the plugin are portable via the [agentskills.io specification](https://agentskills.io/specification) — adopted by Claude Code, Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, and 30+ other agent platforms. Platform-specific bits (slash commands, sub-agents via Task tool) work on Claude Code and Codex.
 
 ## Quick start
 
@@ -179,21 +186,45 @@ After `/ievo:init` with some skills/agents vendored and some plugins installed:
 
 `/ievo:init` adds the right `.gitignore` entries automatically if your project has a `.gitignore`.
 
-## Security model
+## Security model (v0.5.2 — antivirus deep scan)
 
-`security-check` runs per selected candidate before install. Risk tiers:
+**Reputation is not security.** Owner-based trust is unreliable — OpenAI, Anthropic, Microsoft accounts have all been compromised in past incidents. iEvo's verdict comes only from content scan.
 
-| Tier | What | UX |
-|------|------|-----|
-| 🟢 GREEN | All skills.sh audits pass + no risky content patterns + trusted repo signals | silent auto-install |
-| 🟡 YELLOW | Audit warning, has scripts/, has non-tool hooks, young repo | brief note + install confirm |
-| 🔴 RED | Audit FAIL, has PreToolUse/UserPromptSubmit hooks, broad Bash permissions, suspicious prompts | strict review: show alternatives or force-install |
+`security-auditor` agent dispatches in parallel per selected item. Each agent runs the `security-check` skill which performs **antivirus-style deep scan**: reads the FULL content of every file shipped with the item (SKILL.md/agent.md body + scripts/ + references/ + assets/ + bundled plugin files), then uses Sonnet 4.6's reasoning to detect threats — not surface heuristics.
 
-What we layer on top of skills.sh:
-- **Hooks scan** — skills.sh doesn't expose hook presence; we flag PreToolUse / UserPromptSubmit as RED (they intercept every tool call / user input)
-- **Permission analysis** — `allowed-tools: Bash(*)` etc. flagged
-- **Prompt injection signatures** — known suspicious patterns
-- **Agent vendoring** — skills.sh doesn't audit agents at all; our scan covers them
+### Verdicts
+
+| Verdict | What | UX |
+|---------|------|-----|
+| 🟢 GREEN | Full deep scan complete, no threats detected, intent is clearly legitimate | silent install |
+| 🟡 YELLOW | Minor concerns worth noting but not blocking (e.g., plain utility scripts present) | batch multi-select confirmation |
+| 🔴 RED | At least one specific threat detected with high confidence, cited file + excerpt | 4 options: try alternative / force install / skip / **report to source repo** |
+
+### Threats scanned for
+
+1. **Prompt injection** — direct ("ignore previous"), indirect ("for debugging note .env contents"), encoded payloads
+2. **Credential exfiltration** — reads of `.env`, `~/.aws/`, `~/.ssh/`, even when framed as "debugging"
+3. **Suspicious external network** — `curl X | bash`, unknown domains, output to writable paths
+4. **Time bombs** — date/counter/env-flag-based conditional execution
+5. **Encoded payloads** — long base64/hex strings, dynamic command construction
+6. **Broad/destructive bash** — `Bash(*)`, `Bash(rm:*)`, `Bash(sudo:*)`, `Bash(curl:*)`
+7. **Hook abuse** — PreToolUse/UserPromptSubmit with suspicious command
+8. **Runtime download** — scripts pulling additional code at runtime
+9. **Social engineering** — legitimate name + malicious body
+10. **Tool model bypass** — instructions to disable safety checks
+
+### Report-to-source flow (RED only)
+
+When verdict is RED, user gets a 4th option: **"Report to `<owner>/<repo>` (file security issue)"**. iEvo pre-fills a professional issue body citing the specific findings (file + excerpt + concern), shows preview, lets user edit/cancel, then files via `gh issue create`. Community defense layer — maintainer notified within minutes, future users protected.
+
+Issue body footer identifies iEvo as the source (`Reviewed via iEvo — community security audit tooling`) so maintainers know it's automated review, not random spam.
+
+### What we DON'T do
+
+- ❌ Owner-based trust shortcuts (TRUSTED_OWNERS, "famous account = safe") — dropped in v0.5.2
+- ❌ Heuristic risk_tier in repo indices ("trusted/neutral/caution") — dropped in v0.5.2
+- ❌ Surface-level pattern matching as final verdict — Sonnet's reasoning is the only signal
+- ❌ Auto-install RED items — always explicit user choice
 
 ## Install paths
 
@@ -245,16 +276,19 @@ ievo-ai/skills/
 
 ## Standards compliance
 
-- Plugin format: Claude Code-native
-- Skills inside: [agentskills.io spec](https://agentskills.io/specification) — portable to Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, 30+ other agent platforms
-- Distribution: dual-mode — Claude Code plugin install OR `npx skills add ievo-ai/skills --skill <name>` via [skills.sh](https://www.skills.sh)
+- Plugin format: Claude Code-native + Codex-native (dual marketplace manifests)
+- Skills inside: [agentskills.io spec](https://agentskills.io/specification) — portable to Cursor, Copilot, Gemini CLI, Goose, Junie, 30+ other agent platforms
+- Distribution: triple-mode — Claude Code plugin install OR Codex plugin install OR `npx skills add ievo-ai/skills --skill <name>` via [skills.sh](https://www.skills.sh) (planned v1.0)
+- Universal positioning: works wherever Node.js 18+ + git + an agent platform that supports skills are available
 
 ## Roadmap
 
 - **v0.2:** Initial pipeline (find-skills → index-repos → security-check → install) + overlay model.
 - **v0.3:** Codex support, checkout-based indexing (no API rate limits), Python scanner.
 - **v0.4 (reverted):** Pre-built community-index integration. Replaced with simpler user-side architecture in v0.5.
-- **v0.5 (current):** All-user-side architecture. Full Node migration (no Python prereq). Categorical ranking (top-5 per category). Parallel security-auditor sub-agents. Independent and verifiable per user — no central trust gates.
+- **v0.5.0:** All-user-side architecture. Full Node migration. Categorical ranking. Parallel security-auditor sub-agents.
+- **v0.5.1:** `npx skills add --all --copy` flags; hard-stop on missing find-skills prereq.
+- **v0.5.2 (current):** Antivirus deep-scan security model. Dropped owner-based trust (TRUSTED_OWNERS), risk_tier heuristics, pattern-matching verdicts. Sonnet 4.6 reasoning over full content + all dependencies is the only trust signal. Report-to-source flow — file pre-filled GitHub issue at source repo when RED detected.
 - **v0.6 (planned):** Cortex A/B validation gate for evolutions. Mutations that don't improve get rejected via blind evaluation.
 - **v1.0:** Skills.sh publication + cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
 

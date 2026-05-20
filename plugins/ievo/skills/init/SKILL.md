@@ -663,15 +663,17 @@ Options:
 
 **CRITICAL**: write the body via the **Write tool**, NOT via `echo "..." > file`. The body may contain `$(...)`, backticks, or `${VAR}` patterns from cited malicious code excerpts — shell interpolation during `echo` would execute these. Write tool writes literal bytes.
 
+**Filename safety**: use ISO-8601 *basic* format (no colons) for the timestamp portion. Windows filesystems reject `:` in filenames, and the project dir may be on Windows / WSL / cross-platform-shared volume. Format: `YYYYMMDDTHHMMSSZ` (e.g. `20260520T075958Z`), NOT `2026-05-20T07:59:58Z`.
+
 ```
 # Step A — Use Write tool (NOT Bash):
-#   file_path: <project>/.ievo/log/pending-reports/issue-body-<ISO-timestamp>.md
+#   file_path: <project>/.ievo/log/pending-reports/issue-body-<YYYYMMDDTHHMMSSZ>.md
 #   content:   <report_template.body>   (literal string, no expansion)
 
 # Step B — File the issue via gh, passing the body file:
 gh issue create --repo <owner>/<repo> \
   --title <report_template.title> \
-  --body-file <project>/.ievo/log/pending-reports/issue-body-<ISO-timestamp>.md
+  --body-file <project>/.ievo/log/pending-reports/issue-body-<YYYYMMDDTHHMMSSZ>.md
 ```
 
 Quote the `--title` argument safely — single quotes or `--title="$TITLE"` with the title in an env var, never directly substituting via shell. If using gh's Bash flag, use single quotes: `--title 'literal title here'`.

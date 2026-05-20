@@ -16,8 +16,8 @@
 //   node validate_agents.mjs <agents-dir>        (explicit dir)
 //   node validate_agents.mjs --quiet             (only print violations, suppress passes)
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 
 const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
 const REQUIRED_FIELDS = ["name", "description"];
@@ -134,7 +134,7 @@ function main() {
   let totalPassed = 0;
 
   for (const filePath of agentFiles) {
-    const rel = filePath.replace(process.cwd() + "/", "");
+    const rel = relative(process.cwd(), filePath);
     const violations = validateAgent(filePath);
 
     if (violations.length === 0) {

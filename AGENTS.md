@@ -51,6 +51,31 @@ ievo-ai/skills/
 - Stdlib only — no `package.json` dependencies needed (yet)
 - File extension `.mjs` (ESM)
 
+### Agent `model:` frontmatter — ALWAYS use vendor-neutral aliases
+
+**Rule**: agent `.md` files MUST use family-level aliases in their `model:` frontmatter, NEVER pinned IDs.
+
+**Allowed values:**
+- `sonnet` — Sonnet family (host resolves to current Sonnet)
+- `opus` — Opus family
+- `haiku` — Haiku family
+- `inherit` — inherit from caller context
+
+**Forbidden** (and why):
+- `claude-sonnet-4-6` — locks to specific Anthropic version (drift risk + vendor lock)
+- `claude-opus-4-7` — same
+- `claude-haiku-4-5-20251001` — same, even worse (date-pinned snapshot)
+- `gpt-5` / `gpt-4o` / `gemini-pro` — vendor-locked to non-Anthropic providers
+- Any model ID containing a vendor name or version number
+
+**Why this matters:**
+1. **agentskills.io spec doesn't define `model:` field** — it's Claude Code/Codex agent convention. Sticking to aliases means our agents work on any host that adopts this convention.
+2. **Version drift**: pinned IDs lock you to a specific snapshot. When Anthropic ships Sonnet 4.7, our pinned `claude-sonnet-4-6` agents don't benefit until manual bump. Aliases auto-roll.
+3. **Vendor lock**: `claude-sonnet-4-6` only resolves on hosts using Anthropic's API. Codex with OpenAI provider, Gemini CLI, etc. → broken. Aliases are vendor-neutral by design (host translates to its provider's equivalent).
+4. **Universal positioning**: iEvo claims cross-platform. Vendor IDs contradict this.
+
+**Validator**: run `node plugins/ievo/scripts/validate_agents.mjs` — checks every `plugins/ievo/agents/*.md` for forbidden model patterns. Fails CI / pre-commit on any violation. (Hook this into your workflow as `pre-commit`.)
+
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block. No update needed there.

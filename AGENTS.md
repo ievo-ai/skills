@@ -102,12 +102,13 @@ ievo-ai/skills/
 - "It works locally" — must have a test
 - "Tested manually" — must have a test
 - "Trivial getter" — must have a test if it's used by other code
+- `it("cleanup", …)` / `it("setup", …)` blocks that only run `rmSync` / `mkdirSync` and contain no `assert.*` call — these are test-count padding. Use `after()` / `before()` from `node:test` for teardown / setup instead. The 100% rule is about real-coverage signal, not reported-pass-count signal; tests that don't assert against the SUT erode that signal.
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
 **Current compliance ledger (v0.6.1):**
-- ✅ `validate_agents.mjs` — 100 / 100 / 100 (54 tests). The previously-documented carve-out for the `process.argv[1] ?? ""` branch in the CLI entry guard was eliminated in v0.6.1 by extracting the predicate into an exported pure function `isCliEntry(metaUrl, argv)`, which is now testable with any argv shape Node could plausibly produce (including `["node"]` from `node -e`).
-- ✅ `discover.mjs` — 100 / 100 / 100 (89 tests). Same refactor as `validate_agents.mjs` above; literal 100% reachable from tests, no carve-out remaining.
+- ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
+- ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.2**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.2 must-do — new modifications to `scan_repo.mjs` between v0.6.1 and v0.6.2 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
 - ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
 

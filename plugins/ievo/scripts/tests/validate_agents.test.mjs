@@ -1,7 +1,7 @@
 // Tests for validate_agents.mjs — agent frontmatter linter.
 // Run: node --test --experimental-test-coverage plugins/ievo/scripts/tests/validate_agents.test.mjs
 
-import { describe, it } from "node:test";
+import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -267,7 +267,7 @@ describe("validateAgent (filesystem)", () => {
   });
 
   // Cleanup once after all tests in this suite
-  it("cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });
@@ -371,7 +371,7 @@ describe("main (CLI entry)", () => {
     assert.match(run.logs.join("\n"), /3-good\.md/);
   });
 
-  it("cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });
@@ -426,7 +426,7 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     assert.match(r.stdout, /model-vendor-locked/);
   });
 
-  it("spawn cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });

@@ -1,9 +1,9 @@
 // Tests for discover.mjs — multi-source candidate discovery.
 // Run: node --test --experimental-test-coverage plugins/ievo/scripts/tests/discover.test.mjs
 
-import { describe, it } from "node:test";
+import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -37,8 +37,13 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("constants", () => {
-  it("SCRIPT_VERSION matches package version 0.6.0", () => {
-    assert.equal(SCRIPT_VERSION, "0.6.0");
+  it("SCRIPT_VERSION matches plugin.json — real coupling, not hardcoded", () => {
+    // Read the canonical package version from plugin.json at test time. If anyone
+    // bumps plugin.json without bumping SCRIPT_VERSION (or vice versa), this test
+    // fails — closing the drift gap we hit between v0.6.0 and v0.6.1.
+    const pluginJsonPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../.claude-plugin/plugin.json");
+    const { version } = JSON.parse(readFileSync(pluginJsonPath, "utf-8"));
+    assert.equal(SCRIPT_VERSION, version, `discover.mjs SCRIPT_VERSION ('${SCRIPT_VERSION}') and plugin.json version ('${version}') must agree — bump both in the same PR`);
   });
 
   it("SKILLS_SH_API points to skills.sh search endpoint", () => {
@@ -555,7 +560,11 @@ describe("runDiscover", () => {
       { languages: ["python"] },
       { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }) },
     );
-    assert.equal(out.script_version, "0.6.0");
+    // out.script_version is emitted from the same SCRIPT_VERSION constant covered
+    // by the constants test above — re-checking against the same constant here
+    // (not a hardcoded string) keeps runDiscover's wiring honest without
+    // re-asserting the package-version coupling.
+    assert.equal(out.script_version, SCRIPT_VERSION);
     assert.ok(out.sources[0].name === "skills.sh");
     assert.ok(out.sources[0].queries_executed >= 1);
     assert.ok(out.candidates.length >= 1);
@@ -747,7 +756,7 @@ describe("main", () => {
     }
   });
 
-  it("cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });
@@ -860,7 +869,7 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     assert.match(r.stderr, /--limit requires a positive integer/);
   });
 
-  it("cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });

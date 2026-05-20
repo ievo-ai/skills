@@ -188,7 +188,7 @@ If user picks `Don't attach` or no log exists, skip.
 
 ### Flow A (generic) format
 
-```markdown
+````markdown
 ## Feedback
 
 <body_en — English translation from step 3.75, or the original if it was already English>
@@ -223,11 +223,11 @@ If user picks `Don't attach` or no log exists, skip.
 </details>
 
 > Submitted via `/ievo:feedback` skill
-```
+````
 
 ### Flow B (skill rejections) format
 
-```markdown
+````markdown
 ## Init interview — skill rejection reasons
 
 After running `/ievo:init`, the user installed <N> of <M> suggested skills.
@@ -275,7 +275,7 @@ recommendation quality (both for iEvo and upstream skills.sh).
 ```
 
 </details>
-```
+````
 
 ## Step 5: Preview and confirm
 

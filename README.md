@@ -282,8 +282,9 @@ ievo-ai/skills/
 - **v0.5.0:** All-user-side architecture. Full Node migration. Categorical ranking. Parallel security-auditor sub-agents.
 - **v0.5.1:** `npx skills add --all --copy` flags; hard-stop on missing find-skills prereq.
 - **v0.5.2:** Antivirus deep-scan security model. Dropped owner-based trust (TRUSTED_OWNERS), risk_tier heuristics, pattern-matching verdicts. Current Sonnet family reasoning over full content + all dependencies is the only trust signal (declared via vendor-neutral `model: sonnet` alias). Report-to-source flow — file pre-filled GitHub issue at source repo when RED detected.
-- **v0.6.0 (current):** Drop find-skills prereq — own `discover.mjs` script hits skills.sh API directly with inherited heuristics. Zero-prereq install. New `debug-on` / `debug-off` skill pair for verbose session logging. 100% Node test coverage rule enforced via `validate_agents.mjs` + per-script test suites under `plugins/ievo/scripts/tests/`.
-- **v0.6 (planned):** Cortex A/B validation gate for evolutions. Mutations that don't improve get rejected via blind evaluation.
+- **v0.6.0:** Drop find-skills prereq — own `discover.mjs` script hits skills.sh API directly with inherited heuristics. Zero-prereq install. New `debug-on` / `debug-off` skill pair for verbose session logging. 100% Node test coverage rule enforced via `validate_agents.mjs` + per-script test suites under `plugins/ievo/scripts/tests/`.
+- **v0.6.1 (current):** CI coverage gate — `.github/workflows/coverage-gate.yml` enforces literal 100/100/100 on every PR. `isCliEntry` refactor in `discover.mjs` + `validate_agents.mjs` closes the CLI-entry-guard branch gap (extracted pure predicate is testable with any argv shape), eliminating the previously-documented carve-outs from the AGENTS.md compliance ledger.
+- **v0.7.0 (planned):** Cortex A/B validation gate for evolutions. Mutations that don't improve get rejected via blind evaluation.
 - **v1.0:** Skills.sh publication + cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
 
 ## Acknowledgments

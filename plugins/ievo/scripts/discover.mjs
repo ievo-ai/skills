@@ -395,10 +395,20 @@ export async function mainSafe(argv = process.argv, stdinStream = process.stdin,
   }
 }
 
-// CLI entry — only run when invoked directly.
-// Normalize both sides: process.argv[1] is often a relative path (`node plugins/ievo/scripts/discover.mjs`)
-// while import.meta.url is always absolute. Without resolve() the equality check silently fails
+// Pure entry-guard predicate — extracted so the `argv[1] ?? ""` fallback
+// branch is reachable from tests. Module-scope `if` runs at import time
+// with whatever argv Node populated; tests can call this directly with
+// argv shapes Node would never produce (e.g. `["node"]` from `node -e`).
+//
+// Normalises both sides: process.argv[1] is often a relative path
+// (`node plugins/ievo/scripts/discover.mjs`) while import.meta.url is
+// always absolute. Without resolve() the equality check silently fails
 // and main() never runs.
-if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+export function isCliEntry(metaUrl, argv) {
+  return fileURLToPath(metaUrl) === resolve(argv[1] ?? "");
+}
+
+// CLI entry — only run when invoked directly.
+if (isCliEntry(import.meta.url, process.argv)) {
   mainSafe();
 }

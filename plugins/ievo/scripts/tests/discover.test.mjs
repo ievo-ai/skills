@@ -29,6 +29,7 @@ import {
   runDiscover,
   main,
   mainSafe,
+  isCliEntry,
 } from "../discover.mjs";
 
 // ---------------------------------------------------------------------------
@@ -748,6 +749,41 @@ describe("main", () => {
 
   it("cleanup", () => {
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isCliEntry — pure predicate extracted from the module-scope CLI entry guard
+// ---------------------------------------------------------------------------
+
+describe("isCliEntry", () => {
+  const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "discover.mjs");
+  const scriptUrl = `file://${scriptPath}`;
+
+  it("returns true when argv[1] is the absolute script path", () => {
+    assert.equal(isCliEntry(scriptUrl, ["node", scriptPath]), true);
+  });
+
+  it("returns true when argv[1] is a relative path that resolves to the script", () => {
+    // Simulate `node ./relative/path/to/discover.mjs` — argv[1] is relative.
+    // resolve() normalises against process.cwd(); test by chdir'ing to script's dir.
+    const cwdBefore = process.cwd();
+    process.chdir(dirname(scriptPath));
+    try {
+      assert.equal(isCliEntry(scriptUrl, ["node", "./discover.mjs"]), true);
+    } finally {
+      process.chdir(cwdBefore);
+    }
+  });
+
+  it("returns false when argv[1] points to a different file", () => {
+    assert.equal(isCliEntry(scriptUrl, ["node", "/some/other/file.mjs"]), false);
+  });
+
+  it("returns false when argv[1] is undefined (covers `?? \"\"` fallback)", () => {
+    // Node populates argv[1] = undefined when launched via `node -e '...'` or REPL.
+    // The `?? ""` fallback resolves to cwd, which won't equal the script's absolute path.
+    assert.equal(isCliEntry(scriptUrl, ["node"]), false);
   });
 });
 

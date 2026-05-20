@@ -174,7 +174,7 @@ If a recent `.ievo/log/init-*.md` exists, ask the user once:
 - **Question:** `Attach the latest /ievo:init log? (Helps maintainers diagnose what happened)`
 - **Header:** `Attach log`
 - **Options:**
-  - `Attach (Recommended for bug reports)` — description: `Includes detected stack, find-skills prompt + raw response, dedup outcomes, and your install/skip choices. No file contents, no secrets — see .ievo/log/<filename>.md to verify.`
+  - `Attach (Recommended for bug reports)` — description: `Includes detected stack, discover.mjs queries + result counts, dedup outcomes, security-auditor verdicts, and your install/skip choices. No file contents, no secrets — see .ievo/log/<filename>.md to verify.`
   - `Don't attach` — description: `Keep the report short.`
 
 If user picks `Attach`:

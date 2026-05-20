@@ -18,12 +18,13 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
-const REQUIRED_FIELDS = ["name", "description"];
+export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
+export const REQUIRED_FIELDS = ["name", "description"];
 
 // Patterns that indicate vendor-specific or version-pinned IDs
-const FORBIDDEN_MODEL_PATTERNS = [
+export const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^claude-/, why: "Anthropic-specific ID — locks to one vendor" },
   { pattern: /^gpt-/, why: "OpenAI-specific ID — locks to one vendor" },
   { pattern: /^gemini-/, why: "Google-specific ID — locks to one vendor" },
@@ -33,7 +34,7 @@ const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^\S+@\S+/, why: "Provider-namespaced model — vendor lock" },
 ];
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = { agentsDir: "plugins/ievo/agents", quiet: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -43,13 +44,21 @@ function parseArgs(argv) {
   return args;
 }
 
-function parseFrontmatter(content) {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+export function parseFrontmatter(content) {
+  // Normalize CRLF and CR line endings to LF before parsing.
+  // Original regex was \n-only — files with Windows line endings could bypass.
+  const normalized = content.replace(/\r\n?/g, "\n");
+  const match = normalized.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return null;
+
   const fm = {};
   for (const line of match[1].split("\n")) {
-    if (!line.trim() || line.startsWith("#")) continue;
-    if (/^\s+/.test(line)) continue;
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+
+    // SECURITY: scan indented lines too — original `if (/^\s+/.test(line)) continue;`
+    // would silently skip a `model:` field nested under another key, letting
+    // attackers bypass the validator with deceptively-structured YAML.
+    // We don't try to be a real YAML parser — we just won't ignore the line.
     const colonIdx = line.indexOf(":");
     if (colonIdx > 0) {
       const key = line.slice(0, colonIdx).trim();
@@ -60,7 +69,7 @@ function parseFrontmatter(content) {
   return fm;
 }
 
-function checkModelField(model) {
+export function checkModelField(model) {
   const violations = [];
   if (ALLOWED_MODELS.has(model)) return [];
 
@@ -84,8 +93,13 @@ function checkModelField(model) {
   return violations;
 }
 
-function validateAgent(filePath) {
+export function validateAgent(filePath) {
   const content = readFileSync(filePath, "utf-8");
+  return validateAgentContent(content);
+}
+
+// Pure-function form for testing without filesystem
+export function validateAgentContent(content) {
   const fm = parseFrontmatter(content);
   const violations = [];
 
@@ -111,23 +125,23 @@ function validateAgent(filePath) {
   return violations;
 }
 
-function main() {
-  const args = parseArgs(process.argv);
+export function main(argv = process.argv, exit = process.exit, log = console.log, errLog = console.error) {
+  const args = parseArgs(argv);
   const agentsDir = resolve(args.agentsDir);
 
   let entries;
   try {
     entries = readdirSync(agentsDir);
   } catch (err) {
-    console.error(`Error: cannot read agents directory '${agentsDir}': ${err.message}`);
-    process.exit(2);
+    errLog(`Error: cannot read agents directory '${agentsDir}': ${err.message}`);
+    return exit(2);
   }
 
   const agentFiles = entries.filter((f) => f.endsWith(".md")).map((f) => resolve(agentsDir, f));
 
   if (agentFiles.length === 0) {
-    console.error(`Error: no .md files found in '${agentsDir}'`);
-    process.exit(2);
+    errLog(`Error: no .md files found in '${agentsDir}'`);
+    return exit(2);
   }
 
   let totalViolations = 0;
@@ -135,29 +149,47 @@ function main() {
 
   for (const filePath of agentFiles) {
     const rel = relative(process.cwd(), filePath);
-    const violations = validateAgent(filePath);
+    let violations;
+    try {
+      violations = validateAgent(filePath);
+    } catch (err) {
+      // Per-file isolation: a single unreadable file (permission, EISDIR, symlink
+      // loop, etc.) must NOT halt the loop. Record as a violation so the file is
+      // counted in totals and surfaces in the summary, then continue.
+      violations = [{
+        severity: "error",
+        rule: "file-unreadable",
+        message: `Could not read agent file: ${err.message}`,
+      }];
+    }
 
     if (violations.length === 0) {
       totalPassed++;
-      if (!args.quiet) console.log(`✓ ${rel}`);
+      if (!args.quiet) log(`✓ ${rel}`);
     } else {
       totalViolations += violations.length;
-      console.log(`✗ ${rel}`);
+      log(`✗ ${rel}`);
       for (const v of violations) {
-        console.log(`    [${v.severity}] ${v.rule}: ${v.message}`);
+        log(`    [${v.severity}] ${v.rule}: ${v.message}`);
       }
     }
   }
 
-  console.log();
-  console.log(`Summary: ${totalPassed} passed, ${totalViolations} violations across ${agentFiles.length} files`);
+  log("");
+  log(`Summary: ${totalPassed} passed, ${totalViolations} violations across ${agentFiles.length} files`);
 
   if (totalViolations > 0) {
-    console.log();
-    console.log("Fix: see AGENTS.md → 'Agent model frontmatter' for the rule and rationale.");
-    process.exit(1);
+    log("");
+    log("Fix: see AGENTS.md → 'Agent model frontmatter' for the rule and rationale.");
+    return exit(1);
   }
-  process.exit(0);
+  return exit(0);
 }
 
-main();
+// CLI entry — only run when invoked directly, not when imported for testing.
+// Normalize both sides: process.argv[1] is often a relative path (`node plugins/ievo/scripts/validate_agents.mjs`)
+// while import.meta.url is always absolute. Without resolve() the equality check silently fails
+// and main() never runs.
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+  main();
+}

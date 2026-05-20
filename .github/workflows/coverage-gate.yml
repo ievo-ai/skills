@@ -1,0 +1,49 @@
+name: Coverage Gate
+
+# Enforces the AGENTS.md 100% coverage rule for Node scripts in
+# plugins/ievo/scripts/. Fails PRs whose changes drop coverage below
+# 100/100/100 on any required script, or that add a new script without
+# tests. The carve-out list is explicit and version-gated — see
+# .github/scripts/check-coverage.mjs.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  coverage-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run tests with lcov coverage
+        run: |
+          node --test \
+            --experimental-test-coverage \
+            --test-reporter=lcov \
+            --test-reporter-destination=coverage.lcov \
+            --test-reporter=spec \
+            --test-reporter-destination=stdout \
+            plugins/ievo/scripts/tests/*.test.mjs
+
+      - name: Gate coverage at 100/100/100
+        run: node .github/scripts/check-coverage.mjs coverage.lcov
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage.lcov
+          retention-days: 14

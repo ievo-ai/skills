@@ -1,7 +1,7 @@
 // Tests for validate_agents.mjs — agent frontmatter linter.
 // Run: node --test --experimental-test-coverage plugins/ievo/scripts/tests/validate_agents.test.mjs
 
-import { describe, it } from "node:test";
+import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -19,6 +19,7 @@ import {
   validateAgent,
   validateAgentContent,
   main,
+  isCliEntry,
 } from "../validate_agents.mjs";
 
 describe("constants", () => {
@@ -266,7 +267,7 @@ describe("validateAgent (filesystem)", () => {
   });
 
   // Cleanup once after all tests in this suite
-  it("cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });
@@ -370,8 +371,37 @@ describe("main (CLI entry)", () => {
     assert.match(run.logs.join("\n"), /3-good\.md/);
   });
 
-  it("cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("isCliEntry", () => {
+  const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "validate_agents.mjs");
+  const scriptUrl = `file://${scriptPath}`;
+
+  it("returns true when argv[1] is the absolute script path", () => {
+    assert.equal(isCliEntry(scriptUrl, ["node", scriptPath]), true);
+  });
+
+  it("returns true when argv[1] is a relative path that resolves to the script", () => {
+    const cwdBefore = process.cwd();
+    process.chdir(dirname(scriptPath));
+    try {
+      assert.equal(isCliEntry(scriptUrl, ["node", "./validate_agents.mjs"]), true);
+    } finally {
+      process.chdir(cwdBefore);
+    }
+  });
+
+  it("returns false when argv[1] points to a different file", () => {
+    assert.equal(isCliEntry(scriptUrl, ["node", "/some/other/file.mjs"]), false);
+  });
+
+  it("returns false when argv[1] is undefined (covers `?? \"\"` fallback)", () => {
+    // Node populates argv[1] = undefined when launched via `node -e '...'` or REPL.
+    // The `?? ""` fallback resolves to cwd, which won't equal the script's absolute path.
+    assert.equal(isCliEntry(scriptUrl, ["node"]), false);
   });
 });
 
@@ -396,7 +426,7 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     assert.match(r.stdout, /model-vendor-locked/);
   });
 
-  it("spawn cleanup", () => {
+  after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });

@@ -8,3 +8,7 @@ node_modules/
 __pycache__/
 *.pyc
 *.pyo
+
+# Coverage artifacts (produced locally + by .github/workflows/coverage-gate.yml)
+coverage.lcov
+*.lcov

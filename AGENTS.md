@@ -102,16 +102,17 @@ ievo-ai/skills/
 - "It works locally" — must have a test
 - "Tested manually" — must have a test
 - "Trivial getter" — must have a test if it's used by other code
+- `it("cleanup", …)` / `it("setup", …)` blocks that only run `rmSync` / `mkdirSync` and contain no `assert.*` call — these are test-count padding. Use `after()` / `before()` from `node:test` for teardown / setup instead. The 100% rule is about real-coverage signal, not reported-pass-count signal; tests that don't assert against the SUT erode that signal.
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.0):**
-- ✅ `validate_agents.mjs` — 100 line / 100 func / 97.87 branch (51 tests). The 2.13% branch gap is the `process.argv[1] ?? ""` nullish-coalescing fallback in the CLI entry guard at line 193 — unreachable from `spawnSync`-based tests because Node always populates `argv[1]` when launching a script. Counted compliant: the rule's intent is "no untested code paths reachable from input"; this branch is reachable only from a hypothetical bootstrap where Node was invoked with no script path.
-- ✅ `discover.mjs` — 100 line / 100 func / 99.17 branch (85 tests). Same single uncovered branch as `validate_agents.mjs` above: the `process.argv[1] ?? ""` nullish-coalescing fallback in the CLI entry guard at line 402. Same compliant-with-rationale status — unreachable from spawn-launched tests by Node's own argv-population contract.
-- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.1**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos), no behavior changes in v0.6.0. Adding tests is tracked as a v0.6.1 must-do — new modifications to `scan_repo.mjs` between v0.6.0 and v0.6.1 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
+**Current compliance ledger (v0.6.1):**
+- ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
+- ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
+- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.2**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.2 must-do — new modifications to `scan_repo.mjs` between v0.6.1 and v0.6.2 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
 - ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
 
-This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.1, remove the line above and mark it ✅.
+This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.2, remove the line above and mark it ✅.
 
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
@@ -174,9 +175,10 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 
 ## Roadmap (high-level)
 
-- v0.5.x — security tightening, simplifications (current)
+- v0.5.x — security tightening, simplifications
 - v0.6.0 — `discover.mjs` (own skills.sh API integration, drop find-skills prereq), debug-on/off skills, 100% test coverage rule
-- v0.7.x — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
+- v0.6.1 (current) — CI coverage gate (`.github/workflows/coverage-gate.yml`), `isCliEntry` refactor closes the CLI-entry-guard branch gap → ledger carve-outs dropped
+- v0.7.0 (planned) — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
 - v1.0 — skills.sh publication + cross-project pattern curation
 
 See README.md for full roadmap and user-facing documentation.

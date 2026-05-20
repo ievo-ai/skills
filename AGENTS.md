@@ -76,6 +76,35 @@ ievo-ai/skills/
 
 **Validator**: run `node plugins/ievo/scripts/validate_agents.mjs` — checks every `plugins/ievo/agents/*.md` for forbidden model patterns. Fails CI / pre-commit on any violation. (Hook this into your workflow as `pre-commit`.)
 
+### Test coverage — 100% rule
+
+**Every Node script in `plugins/ievo/scripts/` must have 100% test coverage.** No exceptions.
+
+- Tests live in `plugins/ievo/scripts/tests/*.test.mjs`
+- Fixtures in `plugins/ievo/scripts/tests/fixtures/`
+- Use built-in `node:test` (stdlib — no jest/vitest dependency)
+- Run all tests + coverage: `node --test --experimental-test-coverage plugins/ievo/scripts/tests/`
+- CI must run tests on every PR; merge gated by 100% coverage + 0 failures
+
+**Why 100% and not "high"?**
+- Security-critical: these scripts ARE the security model (validate_agents enforces vendor neutrality, discover surfaces install candidates, scan_repo emits structural facts). Untested code in the security path is unacceptable.
+- Small surface: scripts are <700 lines each. 100% is reachable, not aspirational.
+- Refactor safety: agents (Claude/Codex/etc.) will modify these scripts. Full coverage = changes can't silently break behavior.
+
+**What counts as covered:**
+- Every exported function called by at least one test
+- Every conditional branch (`if`/`else`/`switch`/ternary) hit
+- Every CLI flag exercised
+- Every error path exercised (file not found, bad JSON, network failure, etc.)
+- Every YAML frontmatter edge case (no frontmatter, malformed, missing required fields)
+
+**What does NOT count:**
+- "It works locally" — must have a test
+- "Tested manually" — must have a test
+- "Trivial getter" — must have a test if it's used by other code
+
+If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
+
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block. No update needed there.
@@ -93,23 +122,23 @@ ievo-ai/skills/
 - **Antivirus deep scan** via `security-auditor` sub-agent: reads FULL content of every file in the candidate + all dependencies, uses current Sonnet family reasoning to detect threats (declared via `model: sonnet` alias for vendor neutrality — agentskills.io spec has no `model` field, this is Claude Code/Codex agent convention). Per-install only.
 - **Report-to-source flow** for RED verdicts: pre-filled GitHub issue body filed at source repo via `gh issue create`.
 
-## Pipeline (`/ievo:init`)
+## Pipeline (`/ievo:init`, v0.6.0+)
 
 ```
-find-skills (skills.sh)              ← user-side; prereq install required first
+discover.mjs (parallel skills.sh API queries) ← Node, zero prereq install
     ↓
-index-repos (parallel sub-agents)    ← scan_repo.mjs on each candidate repo
+index-repos (parallel sub-agents)              ← scan_repo.mjs on each candidate repo
     ↓
 categorical rank — top-5 per category
     ↓
-interview (per candidate)            ← AskUserQuestion
+interview (per candidate)                      ← AskUserQuestion
     ↓
-security-auditor (parallel sub-agents) ← Sonnet antivirus deep scan per selected item
+security-auditor (parallel sub-agents)         ← Sonnet senior-security-engineer deep scan
     ↓
-install (vendor or plugin)           ← gh api fetch + Write, OR settings.json edit
+install (vendor or plugin, project-scope)      ← Write tool (copy) + source SHA metadata
 ```
 
-Everything runs on the user's machine. No central trust gates. No community caches.
+Everything runs on the user's machine. No central trust gates. No community caches. No prereq installs (v0.6.0 dropped find-skills).
 
 ## What NOT to do
 
@@ -138,8 +167,8 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 ## Roadmap (high-level)
 
 - v0.5.x — security tightening, simplifications (current)
-- v0.6.x — `discover.mjs` (multi-source candidate discovery, drop find-skills prereq)
-- v0.7.x — cortex A/B validation gate for evolutions
+- v0.6.0 — `discover.mjs` (own skills.sh API integration, drop find-skills prereq), debug-on/off skills, 100% test coverage rule
+- v0.7.x — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
 - v1.0 — skills.sh publication + cross-project pattern curation
 
 See README.md for full roadmap and user-facing documentation.

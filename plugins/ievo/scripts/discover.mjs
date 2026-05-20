@@ -24,30 +24,31 @@
 //   node discover.mjs --limit 30 --concurrency 8
 
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const SCRIPT_VERSION = "0.6.0";
-const SKILLS_SH_API = "https://skills.sh/api/search";
-const DEFAULT_PER_QUERY_LIMIT = 10;
-const DEFAULT_TOTAL_LIMIT = 50;
-const DEFAULT_CONCURRENCY = 8;
+export const SCRIPT_VERSION = "0.6.0";
+export const SKILLS_SH_API = "https://skills.sh/api/search";
+export const DEFAULT_PER_QUERY_LIMIT = 10;
+export const DEFAULT_TOTAL_LIMIT = 50;
+export const DEFAULT_CONCURRENCY = 8;
 
 // Owner reputation boost for ranking (NOT a security signal).
 // Sourced from find-skills SKILL.md "trusted sources" guidance.
-const REPUTATION_BOOST_OWNERS = new Set([
+export const REPUTATION_BOOST_OWNERS = new Set([
   "vercel-labs", "anthropics", "microsoft", "ComposioHQ",
   "wshobson", "github",
 ]);
-const REPUTATION_BOOST_FACTOR = 1.5;
+export const REPUTATION_BOOST_FACTOR = 1.5;
 
 // Install-count quality tiers (from find-skills SKILL.md).
-function qualityTier(installs) {
+export function qualityTier(installs) {
   if (installs >= 1000) return "trusted";    // 1K+ preferred
   if (installs >= 100) return "neutral";     // 100-1K is fine
   return "low-confidence";                    // <100 caution
 }
 
 // Category → seed queries (from find-skills SKILL.md "Common Categories" table).
-const CATEGORY_QUERIES = {
+export const CATEGORY_QUERIES = {
   "web-development": ["react", "nextjs", "typescript", "tailwind"],
   "testing": ["testing", "jest", "playwright", "pytest", "vitest"],
   "devops": ["docker", "kubernetes", "ci-cd", "deployment"],
@@ -63,7 +64,7 @@ const CATEGORY_QUERIES = {
 };
 
 // Synonym fallback (from find-skills "Try alternative terms" tip).
-const SYNONYMS = {
+export const SYNONYMS = {
   "deploy": ["deployment", "ci-cd"],
   "format": ["formatting", "formatter"],
   "lint": ["linting", "linter"],
@@ -76,21 +77,27 @@ const SYNONYMS = {
 // Query generation
 // ---------------------------------------------------------------------------
 
-function buildQueries(stack) {
+export function buildQueries(stack) {
   const queries = new Set();
 
+  // Pre-filter all input arrays to non-empty strings (drop null/undefined/empty).
+  const languages = (stack.languages ?? []).filter((s) => typeof s === "string" && s.length > 0);
+  const deps = (stack.deps ?? []).filter((s) => typeof s === "string" && s.length > 0);
+  const categories = (stack.categories ?? []).filter((s) => typeof s === "string" && s.length > 0);
+  const frameworks = (stack.frameworks ?? []).filter((s) => typeof s === "string" && s.length > 0);
+
   // Layer 1 — language fundamentals (single-word, fuzzy mode in API)
-  for (const lang of stack.languages ?? []) {
+  for (const lang of languages) {
     queries.add(lang);
   }
 
   // Layer 2 — per-dependency (single-word, fuzzy)
-  for (const dep of stack.deps ?? []) {
+  for (const dep of deps) {
     queries.add(dep);
   }
 
   // Layer 3 — categories (single-word for breadth) + their seed queries
-  for (const cat of stack.categories ?? []) {
+  for (const cat of categories) {
     queries.add(cat);
     for (const seed of CATEGORY_QUERIES[cat] ?? []) {
       queries.add(seed);
@@ -98,15 +105,15 @@ function buildQueries(stack) {
   }
 
   // Layer 4 — frameworks (treat as deps if listed separately)
-  for (const fw of stack.frameworks ?? []) {
+  for (const fw of frameworks) {
     queries.add(fw);
   }
 
   // Layer 5 — stack-specific compound queries (multi-word, semantic mode)
-  const langSet = new Set((stack.languages ?? []).map((s) => s.toLowerCase()));
-  const depSet = new Set((stack.deps ?? []).map((s) => s.toLowerCase()));
-  const catSet = new Set((stack.categories ?? []).map((s) => s.toLowerCase()));
-  const fwSet = new Set((stack.frameworks ?? []).map((s) => s.toLowerCase()));
+  const langSet = new Set(languages.map((s) => s.toLowerCase()));
+  const depSet = new Set(deps.map((s) => s.toLowerCase()));
+  const catSet = new Set(categories.map((s) => s.toLowerCase()));
+  const fwSet = new Set(frameworks.map((s) => s.toLowerCase()));
 
   if (langSet.has("python") && catSet.has("testing")) queries.add("python testing");
   if (langSet.has("python") && fwSet.has("fastapi")) queries.add("fastapi python");
@@ -124,10 +131,10 @@ function buildQueries(stack) {
 // skills.sh API
 // ---------------------------------------------------------------------------
 
-async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LIMIT) {
+export async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LIMIT, fetchImpl = fetch) {
   const url = `${SKILLS_SH_API}?q=${encodeURIComponent(query)}&limit=${perQueryLimit}`;
   try {
-    const res = await fetch(url);
+    const res = await fetchImpl(url);
     if (!res.ok) return { query, results: [], error: `HTTP ${res.status}` };
     const data = await res.json();
     return { query, results: data.skills ?? [], searchType: data.searchType };
@@ -136,7 +143,7 @@ async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LIMIT) {
   }
 }
 
-async function mapWithConcurrency(items, fn, concurrency) {
+export async function mapWithConcurrency(items, fn, concurrency) {
   const results = new Array(items.length);
   let cursor = 0;
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
@@ -154,7 +161,7 @@ async function mapWithConcurrency(items, fn, concurrency) {
 // Dedup + rank
 // ---------------------------------------------------------------------------
 
-function rankCandidates(allResults, stack) {
+export function rankCandidates(allResults) {
   // Map by id (skill.id format: "owner/repo/skill-id")
   const byId = new Map();
   for (const { query, results } of allResults) {
@@ -203,7 +210,7 @@ function rankCandidates(allResults, stack) {
 // Main
 // ---------------------------------------------------------------------------
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = { stackFile: null, limit: DEFAULT_TOTAL_LIMIT, concurrency: DEFAULT_CONCURRENCY, perQuery: DEFAULT_PER_QUERY_LIMIT };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -215,52 +222,48 @@ function parseArgs(argv) {
   return args;
 }
 
-async function readStdin() {
+export async function readStdin(stdinStream = process.stdin) {
   const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
+  for await (const chunk of stdinStream) {
+    // process.stdin yields Buffer; Readable.from(["str"]) yields strings.
+    // Normalize both to Buffer so Buffer.concat works.
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk);
+  }
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-async function main() {
-  const args = parseArgs(process.argv);
-
-  let stack;
-  if (args.stackFile) {
-    stack = JSON.parse(readFileSync(args.stackFile, "utf-8"));
-  } else {
-    const stdinText = (await readStdin()).trim();
-    if (!stdinText) {
-      console.error("Error: provide stack via stdin JSON or --stack-file <path>");
-      process.exit(1);
-    }
-    stack = JSON.parse(stdinText);
-  }
+export async function runDiscover(stack, options = {}) {
+  const {
+    limit = DEFAULT_TOTAL_LIMIT,
+    concurrency = DEFAULT_CONCURRENCY,
+    perQuery = DEFAULT_PER_QUERY_LIMIT,
+    fetchImpl = fetch,
+  } = options;
 
   const startTime = Date.now();
   const queries = buildQueries(stack);
 
   if (queries.length === 0) {
-    console.log(JSON.stringify({
+    return {
       script_version: SCRIPT_VERSION,
       sources: [],
       candidates: [],
       error: "no queries derived from stack — provide languages/deps/categories/frameworks",
-    }, null, 2));
-    return;
+    };
   }
 
   const allResults = await mapWithConcurrency(
     queries,
-    (q) => searchSkillsSh(q, args.perQuery),
-    args.concurrency,
+    (q) => searchSkillsSh(q, perQuery, fetchImpl),
+    concurrency,
   );
 
   const totalResults = allResults.reduce((s, r) => s + r.results.length, 0);
   const errors = allResults.filter((r) => r.error).map((r) => ({ query: r.query, error: r.error }));
 
-  const ranked = rankCandidates(allResults, stack).slice(0, args.limit);
+  const ranked = rankCandidates(allResults).slice(0, limit);
 
-  const output = {
+  return {
     script_version: SCRIPT_VERSION,
     elapsed_ms: Date.now() - startTime,
     stack_input: stack,
@@ -274,11 +277,36 @@ async function main() {
     queries,
     candidates: ranked,
   };
-
-  console.log(JSON.stringify(output, null, 2));
 }
 
-main().catch((err) => {
-  console.error(`fatal: ${err.message}`);
-  process.exit(2);
-});
+export async function main(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
+  const args = parseArgs(argv);
+
+  let stack;
+  if (args.stackFile) {
+    stack = JSON.parse(readFileSync(args.stackFile, "utf-8"));
+  } else {
+    const stdinText = (await readStdin(stdinStream)).trim();
+    if (!stdinText) {
+      errLog("Error: provide stack via stdin JSON or --stack-file <path>");
+      return exit(1);
+    }
+    stack = JSON.parse(stdinText);
+  }
+
+  const output = await runDiscover(stack, {
+    limit: args.limit,
+    concurrency: args.concurrency,
+    perQuery: args.perQuery,
+  });
+  log(JSON.stringify(output, null, 2));
+  return exit(0);
+}
+
+// CLI entry — only run when invoked directly
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((err) => {
+    console.error(`fatal: ${err.message}`);
+    process.exit(2);
+  });
+}

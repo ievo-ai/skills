@@ -1,8 +1,8 @@
 ---
 name: init
-description: Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem, audit them for safety, install through an interactive interview. Composes three lower-level skills (find-skills, index-repos, security-check) into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks "set up iEvo here" / "find skills for this project".
+description: Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem (via own discover.mjs script, no prereq install), audit them for safety via senior-security-engineer review, install through an interactive interview. Composes three lower-level skills (index-repos, security-check) plus discover.mjs + repo-indexer + security-auditor sub-agents into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks "set up iEvo here" / "find skills for this project".
 license: MIT
-compatibility: Requires `find-skills` (vercel-labs/skills), `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). The skills inside the pipeline are cross-platform via agentskills.io; the init orchestrator itself is Claude Code/Codex-specific.
+compatibility: Requires `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). The skills inside the pipeline are cross-platform via agentskills.io; the init orchestrator itself is Claude Code/Codex-specific. v0.6.0+: no longer requires the find-skills prereq install — uses own discover.mjs script.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -22,27 +22,29 @@ metadata:
 
 Between every other step, **proceed immediately** to the next step. If you find yourself thinking "should I confirm with the user before doing X?" — the answer is NO. Just do it. Write to the log so the user can monitor via `tail -f`.
 
-Especially: between Step 5 (find-skills result) and Step 6 (index-repos) → **no pause, no confirmation, no summary checkpoint**. Just chain straight through.
+Especially: between Step 5 (discover.mjs result) and Step 6 (index-repos) → **no pause, no confirmation, no summary checkpoint**. Just chain straight through.
 
 ## Pipeline
 
-Set up iEvo in the current project. Pipeline:
+Set up iEvo in the current project. Pipeline (v0.6.0+):
 
 ```
-find-skills (skills.sh)
+discover.mjs (Node, parallel skills.sh API queries)
     ↓
-index-repos (parallel sub-agents, local scan)
+index-repos (parallel repo-indexer sub-agents, local scan)
     ↓
-match against stack + rank — top-N per category
+categorical rank — top-N per category
     ↓
-interview (per candidate)
+interview (per candidate, AskUserQuestion)
     ↓
-security-check (per selection — LLM agent)
+security-auditor (parallel sub-agents, antivirus deep scan)
     ↓
-install (vendor or plugin)
+install (vendor or plugin, project-scope, copy + source SHA metadata)
 ```
 
-**v0.5.0 — simplified architecture**: dropped community-index integration (was v0.4.0). All scanning happens on user's machine via parallel `repo-indexer` sub-agents (~30-60s for 8 cold-cache repos). Security audit happens per-install via LLM agent (security-check skill). No central pre-computed cache — each user's decision is independent and verifiable.
+**v0.6.0 — zero-prereq architecture**: dropped `find-skills` manual install. Discovery happens via own `discover.mjs` script (skills.sh API direct). All scanning, ranking, audit, and install decisions happen on user's machine. Independent and verifiable per-user, no central trust gates.
+
+**Install model** (Step 9): project-scope (`.claude/agents/`, `.claude/skills/`), **copy** files via Write tool (NOT symlink — robust against source moves). Source repo + commit SHA recorded in `.ievo/evolution/<scope>/<name>.md` frontmatter for upstream-update tracking via `/ievo:update`.
 
 ## Step 0: Print version banner (read from disk — never infer)
 
@@ -101,36 +103,13 @@ Plugin path in the log helps diagnose "which install dir is Claude Code loading 
 
 ## Step 1: Verify prerequisites
 
-Hard prereqs:
-- `find-skills` skill installed — check `.claude/skills/find-skills/SKILL.md` or `~/.claude/skills/find-skills/SKILL.md` or in any plugin's `skills/`
+Hard prereqs (v0.6.0+ — no more find-skills install):
 - `git` CLI — `which git`. Used for checkout-based indexing.
-- `gh` CLI — `which gh` and `gh auth status`. Used only by security-auditor (audit data from skills.sh) and uninstall (marker discovery).
-- `node` (≥18) — `node --version`. Used by `scan_repo.mjs` for repo scanning. Node ships with Claude Code, so this is normally always available — but if user has a damaged install, hard-fail.
+- `gh` CLI — `which gh` and `gh auth status`. Used by security-auditor (audit data from skills.sh) and uninstall (marker discovery).
+- `node` (≥18) — `node --version`. Used by `discover.mjs`, `scan_repo.mjs`, `validate_agents.mjs`. Node ships with Claude Code and Codex, so this is normally always available — but if user has a damaged install, hard-fail.
 - **Bash permissions** for the commands init will run (see below)
 
-If `find-skills` missing — **HARD STOP, do not auto-install**:
-
-```
-❌ find-skills is required but not installed.
-
-iEvo cannot auto-install find-skills because Claude Code's auto-mode classifier blocks
-`npx skills` as an untrusted network command. You must run it manually.
-
-Please run NOW in your shell (not via Claude Code):
-
-  npx skills add vercel-labs/skills --all --copy
-
-Then in Claude Code:
-  /reload-plugins
-
-After that, re-invoke /ievo:init. We'll resume from Step 1.
-```
-
-**Init MUST exit at this point.** Do NOT proceed to Step 2 or any later step. Do NOT attempt the install via Bash tool — the auto-classifier will block it, friction blocks the entire pipeline, and partial-install state breaks downstream steps. Better to stop cleanly and ask user to handle the one network call manually.
-
-Flag rationale:
-- `--all` — install all skills + agents from the package (shorthand for `--skill '*' --agent '*' -y`). vercel-labs/skills is a curated agentskills.io reference repo — pulling whole package is appropriate and future-proof
-- `--copy` — copy files instead of symlinking (robust against source repo moves; aligns with project-level scope convention)
+**v0.6.0 change**: dropped `find-skills` prereq. Discovery now happens via own Node script (`discover.mjs`) hitting `https://skills.sh/api/search` directly — no manual prereq install required.
 
 If `gh` missing or unauthenticated:
 ```
@@ -185,7 +164,7 @@ For `Add to ...` options: merge the four patterns into the existing `permissions
 
 For `Skip`: continue — but expect blocked commands during the run.
 
-Stop only on missing find-skills or gh prereqs. Permission setup is opt-in but strongly recommended.
+Stop only on missing gh / git / node prereqs. Permission setup is opt-in but strongly recommended.
 
 ## Step 2: Prepare project directories
 
@@ -196,7 +175,7 @@ Create if missing:
 - `.ievo/cache/index/`
 - `.claude/` — root for vendored items
 - `.claude/agents/` — for vendored agents
-- `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add` — that tool is only used as prereq installer for find-skills itself)
+- `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add`)
 - `.ievo/log/pending-reports/` — for security-issue reports that couldn't be filed live (gh auth missing, rate limit, repo issues disabled). User can file manually later from these saved bodies.
 
 Do NOT touch `CLAUDE.md` or `AGENTS.md` here.
@@ -224,7 +203,7 @@ EOF
 
 Remember `LOG_PATH` for all subsequent steps. Each step below has a **`Log:` instruction** — it means **append that section to `$LOG_PATH` immediately**, before proceeding to the next step.
 
-If a step takes a long time (e.g. `find-skills` or `index-repos` for big repos), the user can `tail -f $LOG_PATH` in another shell and see progress.
+If a step takes a long time (e.g. `discover.mjs` or `index-repos` for big repos), the user can `tail -f $LOG_PATH` in another shell and see progress.
 
 ## Step 3: Build installed inventory
 
@@ -332,49 +311,79 @@ If signals unclear → tag `<category>/ambiguous`, ask user in step 7a.
 
 Log resolution outcomes (section 4.5).
 
-## Step 5: Invoke find-skills
+## Step 5: Invoke `discover.mjs` for candidate discovery (v0.6.0+)
 
-Activate the `find-skills` skill with full context:
+Run our own discovery script (replaces `find-skills` prereq). It hits skills.sh API directly (`https://skills.sh/api/search`) — no manual prereq install, no `npx skills`, no auto-classifier friction.
 
-```
-Use the `find-skills` skill to discover skills relevant to this project.
+### Step 5a — Build stack input JSON
 
-PROJECT STACK
-<stack summary from step 4>
+From Steps 3 + 4 + 4.5 build:
 
-DIRECT DEPENDENCIES
-<deps list>
-
-RESOLVED CATEGORIES
-<list from step 4.5>
-
-ALREADY INSTALLED — DO NOT suggest these:
-Skills: <list from step 3>
-Agents: <list from step 3>
-Plugins: <list from step 3>
-
-INSTRUCTIONS
-1. Consolidate all queries into a SINGLE ranked list (no per-query top-N).
-2. Cover language fundamentals, testing, linting, build tools,
-   per-dep search (one entry per dep), domain-specific by signal,
-   security/compliance if sensitive.
-3. Dedup by <owner>/<repo>@<skill> and by skill name (highest install count wins).
-4. Drop anything whose name overlaps installed inventory.
-5. Return up to 12 candidates.
-
-For each return:
-- name in <owner>/<repo>@<skill> format
-- one-line description
-- install count
-- source repo URL
-- skills.sh URL
+```json
+{
+  "languages": ["python"],
+  "deps": ["pytest", "fastapi", "sqlalchemy"],
+  "categories": ["testing", "linting", "security", "frameworks", "databases"],
+  "frameworks": ["fastapi"]
+}
 ```
 
-Log prompt + response (section 5, 5b).
+Inputs come from:
+- `languages` — detected stack types (Step 4)
+- `deps` — direct top-level deps from manifests (Step 4)
+- `categories` — resolved category list (Step 4.5)
+- `frameworks` — major frameworks present (Step 4)
+
+### Step 5b — Invoke discover.mjs via Bash
+
+```bash
+echo '<stack-input-json>' | node "${CLAUDE_PLUGIN_ROOT}/scripts/discover.mjs" --limit 50 --concurrency 8
+```
+
+The script:
+1. Builds 15-30 queries from the stack (language fundamentals + per-dep + per-category + stack-specific compound)
+2. Parallel-fetches `https://skills.sh/api/search?q=<q>&limit=10` for each
+3. Deduplicates by skill `id`, computes `rank_score` (log10(installs) × reputation_boost × match_breadth_bonus)
+4. Returns JSON: `{sources, queries, candidates: [{id, name, source_repo, installs, quality_tier, matched_queries, rank_score}]}`
+
+Typical wall-clock: 3-6 seconds for a rich stack.
+
+### Step 5c — Filter against installed inventory
+
+From the discover.mjs output `candidates[]`, drop any candidate whose name matches the inventory from Step 3 (already-installed skills/agents/plugins). The script doesn't know the user's installed state; init applies that filter post-hoc.
+
+### Step 5d — Log section 5 + 5b
+
+```markdown
+## 5. Candidate discovery (discover.mjs)
+
+### Stack input
+```json
+<the stack JSON sent to discover.mjs>
+```
+
+### Sources
+- skills.sh API: <queries_executed> queries, <raw_results> results, <errors.length> errors
+- (future v0.7+: GitHub search for agent/plugin discovery)
+
+### Queries generated
+<comma-separated list>
+
+### Candidates after dedup + ranking (top <N>)
+| Rank | Name | Source repo | Installs | Quality | Matched queries | Score |
+|------|------|-------------|----------|---------|-----------------|-------|
+
+### Dropped — already installed (<N>)
+<list with reason "matches installed <type>: <name>">
+
+### Final discover output: <N> candidates
+```
+
+Pass `final_candidates[]` to Step 6.
 
 ## Step 6: Expand via index-repos (parallel local scan)
 
-Extract the **unique set of `<owner>/<repo>` values** from find-skills' output. Also include this small list of auto-available repos (not on skills.sh but always relevant):
+Extract the **unique set of `<owner>/<repo>` values** from discover.mjs' candidates (Step 5). Also include this small list of auto-available repos (not on skills.sh but always relevant):
 
 ```
 - anthropics/claude-plugins-official   (official, built-in to Claude Code)
@@ -423,7 +432,7 @@ Now your candidate list has three types: `skill` (install via vendor), `agent` (
 ## 6. Repo indexing + candidate expansion
 
 ### Repos considered (<N>)
-<for each repo: name, source (find-skills | auto-available), cache hit/miss>
+<for each repo: name, source (discover.mjs | auto-available), cache hit/miss>
 
 ### Per-repo expansion
 #### <owner>/<repo>
@@ -446,7 +455,7 @@ Filter and rank **per category** (not overall):
 
 ### Step 7a — Filter
 
-- **Drop candidates whose name conflicts with installed inventory** (already-installed check applies to expanded list, not just find-skills' direct returns).
+- **Drop candidates whose name conflicts with installed inventory** (already-installed check applies to expanded list, not just discover.mjs' direct returns).
 - **Match name + description against stack/deps**:
   - Direct keyword match (skill named "pytest" for Python project with pytest) → high score
   - Description mentions deps from step 4 → medium
@@ -840,7 +849,7 @@ Append a final closing section so post-mortem readers know the run ended cleanly
 - Status: COMPLETE
 ```
 
-**Why incremental writes matter:** if init crashes / hangs / user cancels at any step, the partial log up to that point is on disk. `tail -f .ievo/log/init-*.md` works during long-running steps (find-skills, index-repos). Post-mortem diagnosis works even on failed runs.
+**Why incremental writes matter:** if init crashes / hangs / user cancels at any step, the partial log up to that point is on disk. `tail -f .ievo/log/init-*.md` works during long-running steps (discover.mjs, index-repos). Post-mortem diagnosis works even on failed runs.
 
 ## Step 12: Final summary and reload reminder
 
@@ -883,8 +892,8 @@ If no skips, simpler prompt: "Init complete — share feedback?" → Skip defaul
 
 ## Rules
 
-- **Hard prereqs.** find-skills + gh CLI + git CLI all required. Don't proceed without them.
-- **Pipeline is sequential.** find-skills → index-repos (parallel) → match + categorical rank → interview → security-auditor (parallel) → install. Each step's output feeds the next.
+- **Hard prereqs.** gh CLI + git CLI + Node 18+ all required. Don't proceed without them.
+- **Pipeline is sequential.** discover.mjs → index-repos (parallel) → match + categorical rank → interview → security-auditor (parallel) → install. Each step's output feeds the next.
 - **Two install paths only.** Vendor (skills + agents) OR plugin (everything else). Never mix.
 - **Security check is gate, not advisor.** RED requires explicit force-install. Default flow respects audit results.
 - **Project-scope everything.** No `-g` flags. Settings.json edits are project-scope by file location. Team gets state via git.

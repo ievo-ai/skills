@@ -18,12 +18,13 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
-const REQUIRED_FIELDS = ["name", "description"];
+export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
+export const REQUIRED_FIELDS = ["name", "description"];
 
 // Patterns that indicate vendor-specific or version-pinned IDs
-const FORBIDDEN_MODEL_PATTERNS = [
+export const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^claude-/, why: "Anthropic-specific ID — locks to one vendor" },
   { pattern: /^gpt-/, why: "OpenAI-specific ID — locks to one vendor" },
   { pattern: /^gemini-/, why: "Google-specific ID — locks to one vendor" },
@@ -33,7 +34,7 @@ const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^\S+@\S+/, why: "Provider-namespaced model — vendor lock" },
 ];
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = { agentsDir: "plugins/ievo/agents", quiet: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -43,7 +44,7 @@ function parseArgs(argv) {
   return args;
 }
 
-function parseFrontmatter(content) {
+export function parseFrontmatter(content) {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return null;
   const fm = {};
@@ -60,7 +61,7 @@ function parseFrontmatter(content) {
   return fm;
 }
 
-function checkModelField(model) {
+export function checkModelField(model) {
   const violations = [];
   if (ALLOWED_MODELS.has(model)) return [];
 
@@ -84,8 +85,13 @@ function checkModelField(model) {
   return violations;
 }
 
-function validateAgent(filePath) {
+export function validateAgent(filePath) {
   const content = readFileSync(filePath, "utf-8");
+  return validateAgentContent(content);
+}
+
+// Pure-function form for testing without filesystem
+export function validateAgentContent(content) {
   const fm = parseFrontmatter(content);
   const violations = [];
 
@@ -111,23 +117,23 @@ function validateAgent(filePath) {
   return violations;
 }
 
-function main() {
-  const args = parseArgs(process.argv);
+export function main(argv = process.argv, exit = process.exit, log = console.log, errLog = console.error) {
+  const args = parseArgs(argv);
   const agentsDir = resolve(args.agentsDir);
 
   let entries;
   try {
     entries = readdirSync(agentsDir);
   } catch (err) {
-    console.error(`Error: cannot read agents directory '${agentsDir}': ${err.message}`);
-    process.exit(2);
+    errLog(`Error: cannot read agents directory '${agentsDir}': ${err.message}`);
+    return exit(2);
   }
 
   const agentFiles = entries.filter((f) => f.endsWith(".md")).map((f) => resolve(agentsDir, f));
 
   if (agentFiles.length === 0) {
-    console.error(`Error: no .md files found in '${agentsDir}'`);
-    process.exit(2);
+    errLog(`Error: no .md files found in '${agentsDir}'`);
+    return exit(2);
   }
 
   let totalViolations = 0;
@@ -139,25 +145,28 @@ function main() {
 
     if (violations.length === 0) {
       totalPassed++;
-      if (!args.quiet) console.log(`✓ ${rel}`);
+      if (!args.quiet) log(`✓ ${rel}`);
     } else {
       totalViolations += violations.length;
-      console.log(`✗ ${rel}`);
+      log(`✗ ${rel}`);
       for (const v of violations) {
-        console.log(`    [${v.severity}] ${v.rule}: ${v.message}`);
+        log(`    [${v.severity}] ${v.rule}: ${v.message}`);
       }
     }
   }
 
-  console.log();
-  console.log(`Summary: ${totalPassed} passed, ${totalViolations} violations across ${agentFiles.length} files`);
+  log("");
+  log(`Summary: ${totalPassed} passed, ${totalViolations} violations across ${agentFiles.length} files`);
 
   if (totalViolations > 0) {
-    console.log();
-    console.log("Fix: see AGENTS.md → 'Agent model frontmatter' for the rule and rationale.");
-    process.exit(1);
+    log("");
+    log("Fix: see AGENTS.md → 'Agent model frontmatter' for the rule and rationale.");
+    return exit(1);
   }
-  process.exit(0);
+  return exit(0);
 }
 
-main();
+// CLI entry — only run when invoked directly, not when imported for testing
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+  main();
+}

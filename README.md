@@ -16,24 +16,17 @@ iEvo is a **universal discovery + safety + evolution layer** on top of [skills.s
 ### Claude Code
 
 ```bash
-# 1. Install find-skills prerequisite (RUN IN YOUR SHELL — not via Claude Code)
-#    Claude Code's auto-classifier blocks `npx skills`, so this must be a manual step.
-npx skills add vercel-labs/skills --all --copy
-
-# 2. Install iEvo plugin
-#    These run inside Claude Code:
+# 1. Install iEvo plugin (zero prereqs — v0.6.0 dropped the find-skills install step)
 /plugin marketplace add ievo-ai/skills
 /plugin install ievo@ievo-skills
 /reload-plugins
 
-# 3. Initialize in your project
+# 2. Initialize in your project
 cd <your-project>
 /ievo:init
 ```
 
-**Flag rationale for step 1:**
-- `--all` — install all skills + agents from the package (shorthand for `--skill '*' --agent '*' -y`)
-- `--copy` — copy files instead of symlinking (robust against source repo moves)
+**v0.6.0**: discovery now happens via our own `discover.mjs` script hitting `https://skills.sh/api/search` directly — no more manual `npx skills add` step required.
 
 ### Codex (CLI / app / VS Code extension)
 
@@ -53,7 +46,7 @@ Codex support added in v0.3.3 — same plugin content, separate marketplace mani
 
 **Cross-platform skills inside the plugin** are fully portable via [agentskills.io](https://agentskills.io) spec. Slash commands and sub-agents work on Claude Code; Codex's own command/agent semantics may differ — refer to your platform's docs for exact behavior of the commands.
 
-`/ievo:init` will ask you to add Bash permissions for `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval. Note: `npx skills` permissions can't be granted via auto-classifier — the find-skills install MUST be done manually in your shell as shown in step 1 above.
+`/ievo:init` will ask you to add Bash permissions for `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval.
 
 That's it. Interactive interview, security checks, install. Then `/reload-plugins` to activate.
 
@@ -78,26 +71,26 @@ Without these, Claude Code's auto-mode classifier blocks each `npx skills` / `gh
 
 ## The pipeline
 
-`/ievo:init` composes 5 stages (v0.5.0+):
+`/ievo:init` composes 5 stages (v0.6.0+):
 
 ```
-find-skills (vercel-labs)
+discover.mjs (ours, parallel skills.sh API queries)
     ↓
 index-repos (ours, parallel repo-indexer sub-agents)
     ↓
 categorical rank — top-5 per category
     ↓
-security-auditor (parallel sub-agents, LLM audit)
+security-auditor (parallel sub-agents, antivirus deep scan)
     ↓
-install (vendor or plugin)
+install (project-scope vendor or plugin)
 ```
 
-1. **find-skills** queries skills.sh for skill candidates based on your project's stack.
-2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands that skills.sh didn't index. Uses shallow `git clone --depth=1` into `~/.ievo/checkouts/` (one network op per repo, then filesystem scan — no API rate limits). Sub-agents run in parallel — wall-clock = slowest repo (~30-60s).
+1. **discover.mjs** queries `https://skills.sh/api/search` in parallel — one request per language / dep / category / framework / stack-specific compound query. Heuristics inherited from find-skills SKILL.md (trusted owners reputation boost, install thresholds, category seed queries, synonym fallback) encoded directly in the script. Wall-clock ~3-6 seconds.
+2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands. Uses shallow `git clone --depth=1` into `~/.ievo/checkouts/` (one network op per repo, then filesystem scan — no API rate limits). Sub-agents run in parallel — wall-clock = slowest repo (~30-60s).
 3. **categorical rank** groups candidates by category (testing, linting, security, observability, etc.) and keeps top-5 per category instead of overall top-12. Every relevant category gets visibility.
-4. **security-auditor** sub-agents run in parallel — one per selected item. Each applies the `security-check` skill via `model: sonnet` alias (current Sonnet family — 4.6 today). Deep scan of full content + dependencies; threat detection by reasoning, not heuristics. Wall-clock ~10-15s for 5-7 items.
-5. **install** runs two paths:
-   - **Vendor** (skills + agents): `gh api fetch` → write to `.claude/<type>/` → inject overlay marker
+4. **security-auditor** sub-agents run in parallel — one per selected item. Each runs as a senior application security engineer with domain expertise (prompt injection, credential exfiltration, supply-chain compromise, hook abuse, indirection attacks). Reads FULL content of every file shipped with the item + all dependencies. Wall-clock ~10-15s for 5-7 items.
+5. **install** runs two paths (project-scope, copy + source SHA metadata):
+   - **Vendor** (skills + agents): `gh api fetch` → Write tool → `.claude/<type>/` → inject overlay marker → record source repo + commit SHA in `.ievo/evolution/<scope>/<name>.md` for `/ievo:update` to track upstream changes
    - **Plugin install** (anything with hooks/MCP/commands): edit `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins` for team-portable activation
 
 ## Commands & Skills
@@ -288,13 +281,14 @@ ievo-ai/skills/
 - **v0.4 (reverted):** Pre-built community-index integration. Replaced with simpler user-side architecture in v0.5.
 - **v0.5.0:** All-user-side architecture. Full Node migration. Categorical ranking. Parallel security-auditor sub-agents.
 - **v0.5.1:** `npx skills add --all --copy` flags; hard-stop on missing find-skills prereq.
-- **v0.5.2 (current):** Antivirus deep-scan security model. Dropped owner-based trust (TRUSTED_OWNERS), risk_tier heuristics, pattern-matching verdicts. Current Sonnet family reasoning over full content + all dependencies is the only trust signal (declared via vendor-neutral `model: sonnet` alias). Report-to-source flow — file pre-filled GitHub issue at source repo when RED detected.
+- **v0.5.2:** Antivirus deep-scan security model. Dropped owner-based trust (TRUSTED_OWNERS), risk_tier heuristics, pattern-matching verdicts. Current Sonnet family reasoning over full content + all dependencies is the only trust signal (declared via vendor-neutral `model: sonnet` alias). Report-to-source flow — file pre-filled GitHub issue at source repo when RED detected.
+- **v0.6.0 (current):** Drop find-skills prereq — own `discover.mjs` script hits skills.sh API directly with inherited heuristics. Zero-prereq install. New `debug-on` / `debug-off` skill pair for verbose session logging. 100% Node test coverage rule enforced via `validate_agents.mjs` + per-script test suites under `plugins/ievo/scripts/tests/`.
 - **v0.6 (planned):** Cortex A/B validation gate for evolutions. Mutations that don't improve get rejected via blind evaluation.
 - **v1.0:** Skills.sh publication + cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
 
 ## Acknowledgments
 
-- [find-skills](https://github.com/vercel-labs/skills) — vercel-labs's skill discovery (we use it as the bootstrap for our pipeline)
+- [find-skills](https://github.com/vercel-labs/skills) — vercel-labs's skill discovery. Through v0.5.x we used find-skills as bootstrap prereq; v0.6.0+ we ship our own [`discover.mjs`](plugins/ievo/scripts/discover.mjs) that hits the same skills.sh API directly, with heuristics inherited verbatim from find-skills SKILL.md (trusted owners, install thresholds, category queries, synonym fallback). Credit to vercel-labs for the original best practices.
 - [agentskills.io](https://agentskills.io) — the open standard for skills
 
 ## License

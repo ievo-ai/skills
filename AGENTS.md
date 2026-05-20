@@ -28,7 +28,10 @@ ievo-ai/skills/
     │   ├── uninstall.md
     │   └── update.md
     ├── scripts/                       # Node helpers (no LLM, no extra runtime)
-    │   └── scan_repo.mjs              # Deterministic repo scanner (Node, stdlib)
+    │   ├── discover.mjs               # skills.sh API discovery (parallel queries)
+    │   ├── scan_repo.mjs              # Deterministic repo scanner (Node, stdlib)
+    │   ├── validate_agents.mjs        # Vendor-neutral `model:` frontmatter validator
+    │   └── tests/                     # node:test suites + fixtures (100% coverage gate)
     └── skills/                        # agentskills.io-compliant — cross-platform
         ├── init/SKILL.md              # /ievo:init — orchestrator
         ├── evolution/SKILL.md         # /ievo:evolution — overlay capture
@@ -159,11 +162,21 @@ Everything runs on the user's machine. No central trust gates. No community cach
 
 ## Development
 
-This is mostly a documentation repo (markdown + small Node scripts). No build step, no tests yet (planned for v0.6+).
+Documentation repo + small Node scripts. No build step. Tests live in `plugins/ievo/scripts/tests/` (built-in `node:test`, stdlib only) and the 100% coverage rule on `REQUIRED` scripts is enforced by `.github/workflows/coverage-gate.yml` — see the ledger above for the current carve-out.
 
 ```bash
 # Local syntax check on Node scripts
 node --check plugins/ievo/scripts/scan_repo.mjs
+
+# Run all tests
+node --test plugins/ievo/scripts/tests/*.test.mjs
+
+# Run tests with coverage + gate check (mirrors CI)
+node --test --experimental-test-coverage \
+  --test-reporter=lcov --test-reporter-destination=coverage.lcov \
+  --test-reporter=spec --test-reporter-destination=stdout \
+  plugins/ievo/scripts/tests/*.test.mjs
+node .github/scripts/check-coverage.mjs coverage.lcov
 
 # Test scan_repo against a real repo
 node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
@@ -179,6 +192,7 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 - v0.6.0 — `discover.mjs` (own skills.sh API integration, drop find-skills prereq), debug-on/off skills, 100% test coverage rule
 - v0.6.1 — CI coverage gate (`.github/workflows/coverage-gate.yml`), `isCliEntry` refactor closes the CLI-entry-guard branch gap → ledger carve-outs dropped
 - v0.6.2 (current) — claude-review follow-ups: `pathToFileURL` in tests for Windows-correct file URLs; `parseLcov` keys by full SF path with explicit basename-collision detection
+- v0.6.3 (planned) — `scan_repo.mjs` tests land → ledger carve-out cleared, gate enforces 100/100/100 on all three scripts
 - v0.7.0 (planned) — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
 - v1.0 — skills.sh publication + cross-project pattern curation
 

@@ -32,12 +32,17 @@ const REQUIRED = new Set([
 // pinned target version for tests-to-land. Anything else under SCRIPTS_DIR
 // that is neither REQUIRED nor here triggers a "new untested script" failure.
 const CARVE_OUTS = new Map([
-  ["scan_repo.mjs", "tests pending — must land by v0.6.2 (see AGENTS.md ledger)"],
+  ["scan_repo.mjs", "tests pending — must land by v0.6.3 (see AGENTS.md ledger)"],
 ]);
 
 function parseLcov(text) {
   // lcov record: starts with "SF:<path>", ends with "end_of_record".
   // Inside: FNF/FNH (funcs), BRF/BRH (branches), LF/LH (lines).
+  //
+  // Stores records keyed by FULL SF path (not basename) so two scripts sharing
+  // a basename in different subdirs don't silently overwrite each other. The
+  // basename lookup happens at REQUIRED-resolution time in main(), where
+  // collisions become a loud error instead of a silent last-record-wins.
   const records = new Map();
   let current = null;
   for (const line of text.split(/\r?\n/)) {
@@ -45,7 +50,7 @@ function parseLcov(text) {
       current = { sf: line.slice(3), fnf: 0, fnh: 0, brf: 0, brh: 0, lf: 0, lh: 0 };
     } else if (line === "end_of_record") {
       if (current) {
-        records.set(basename(current.sf), current);
+        records.set(current.sf, current);
         current = null;
       }
     } else if (current) {
@@ -54,6 +59,24 @@ function parseLcov(text) {
     }
   }
   return records;
+}
+
+function findRequiredRecord(records, name) {
+  // Find lcov records whose source-file basename matches `name`. Returns:
+  //   { record: <r> } when exactly one match
+  //   { error: <string> } when zero or 2+ matches (collision is loud)
+  const matches = [...records.entries()].filter(([sf]) => basename(sf) === name);
+  if (matches.length === 0) {
+    return { error: `${name}: no coverage record in lcov — was the test file run?` };
+  }
+  if (matches.length > 1) {
+    const paths = matches.map(([sf]) => sf).join(", ");
+    // Note: REQUIRED holds basenames and `findRequiredRecord` matches by basename;
+    // suggesting "use the full path in REQUIRED" wouldn't work without a separate
+    // exact-path code path. Stick to the actionable remediation.
+    return { error: `${name}: basename collision in lcov — multiple records share this basename: ${paths}. Rename one of the scripts (e.g. ${name.replace(/\.mjs$/, "")}_<context>.mjs) so each REQUIRED basename resolves uniquely.` };
+  }
+  return { record: matches[0][1] };
 }
 
 function checkRecord(name, r) {
@@ -86,13 +109,16 @@ function main(argv) {
   const errors = [];
 
   // (1) Every REQUIRED script must be present in the lcov AND hit 100/100/100.
+  // Collisions on basename are loud errors, not silent last-wins.
+  const resolved = new Map();
   for (const name of REQUIRED) {
-    const r = records.get(name);
-    if (!r) {
-      errors.push(`${name}: no coverage record in lcov — was the test file run?`);
+    const result = findRequiredRecord(records, name);
+    if (result.error) {
+      errors.push(result.error);
       continue;
     }
-    errors.push(...checkRecord(name, r));
+    resolved.set(name, result.record);
+    errors.push(...checkRecord(name, result.record));
   }
 
   // (2) Every .mjs in SCRIPTS_DIR must be REQUIRED, in CARVE_OUTS, or fail.
@@ -124,7 +150,7 @@ function main(argv) {
 
   console.log("Coverage gate OK:");
   for (const name of REQUIRED) {
-    const r = records.get(name);
+    const r = resolved.get(name);
     console.log(`  ✓ ${name}: lines ${r.lh}/${r.lf}, branches ${r.brh}/${r.brf}, functions ${r.fnh}/${r.fnf} — 100/100/100`);
   }
 }

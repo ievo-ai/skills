@@ -108,13 +108,29 @@ Hard prereqs:
 - `node` (≥18) — `node --version`. Used by `scan_repo.mjs` for repo scanning. Node ships with Claude Code, so this is normally always available — but if user has a damaged install, hard-fail.
 - **Bash permissions** for the commands init will run (see below)
 
-If `find-skills` missing:
+If `find-skills` missing — **HARD STOP, do not auto-install**:
+
 ```
-Please run first:
-  npx skills add vercel-labs/skills --skill find-skills
+❌ find-skills is required but not installed.
+
+iEvo cannot auto-install find-skills because Claude Code's auto-mode classifier blocks
+`npx skills` as an untrusted network command. You must run it manually.
+
+Please run NOW in your shell (not via Claude Code):
+
+  npx skills add vercel-labs/skills --all --copy
+
+Then in Claude Code:
   /reload-plugins
-Then re-run /ievo:init.
+
+After that, re-invoke /ievo:init. We'll resume from Step 1.
 ```
+
+**Init MUST exit at this point.** Do NOT proceed to Step 2 or any later step. Do NOT attempt the install via Bash tool — the auto-classifier will block it, friction blocks the entire pipeline, and partial-install state breaks downstream steps. Better to stop cleanly and ask user to handle the one network call manually.
+
+Flag rationale:
+- `--all` — install all skills + agents from the package (shorthand for `--skill '*' --agent '*' -y`). vercel-labs/skills is a curated agentskills.io reference repo — pulling whole package is appropriate and future-proof
+- `--copy` — copy files instead of symlinking (robust against source repo moves; aligns with project-level scope convention)
 
 If `gh` missing or unauthenticated:
 ```
@@ -178,9 +194,9 @@ Create if missing:
 - `.ievo/evolution/skills/`
 - `.ievo/log/`
 - `.ievo/cache/index/`
-- `.claude/` — required for `npx skills add` symlink behavior
+- `.claude/` — root for vendored items
 - `.claude/agents/` — for vendored agents
-- `.claude/skills/` — for vendored skills
+- `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add` — that tool is only used as prereq installer for find-skills itself)
 
 Do NOT touch `CLAUDE.md` or `AGENTS.md` here.
 

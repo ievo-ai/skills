@@ -9,16 +9,24 @@ iEvo is a discovery + safety + evolution layer on top of [skills.sh](https://www
 ### Claude Code
 
 ```bash
-# 1. Install find-skills (prereq) and the iEvo plugin
-npx skills add vercel-labs/skills --skill find-skills
+# 1. Install find-skills prerequisite (RUN IN YOUR SHELL — not via Claude Code)
+#    Claude Code's auto-classifier blocks `npx skills`, so this must be a manual step.
+npx skills add vercel-labs/skills --all --copy
+
+# 2. Install iEvo plugin
+#    These run inside Claude Code:
 /plugin marketplace add ievo-ai/skills
 /plugin install ievo@ievo-skills
 /reload-plugins
 
-# 2. Initialize in your project
+# 3. Initialize in your project
 cd <your-project>
 /ievo:init
 ```
+
+**Flag rationale for step 1:**
+- `--all` — install all skills + agents from the package (shorthand for `--skill '*' --agent '*' -y`)
+- `--copy` — copy files instead of symlinking (robust against source repo moves)
 
 ### Codex (CLI / app / VS Code extension)
 
@@ -38,7 +46,7 @@ Codex support added in v0.3.3 — same plugin content, separate marketplace mani
 
 **Cross-platform skills inside the plugin** are fully portable via [agentskills.io](https://agentskills.io) spec. Slash commands and sub-agents work on Claude Code; Codex's own command/agent semantics may differ — refer to your platform's docs for exact behavior of the commands.
 
-`/ievo:init` will ask you to add Bash permissions for `npx skills` and `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval.
+`/ievo:init` will ask you to add Bash permissions for `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval. Note: `npx skills` permissions can't be granted via auto-classifier — the find-skills install MUST be done manually in your shell as shown in step 1 above.
 
 That's it. Interactive interview, security checks, install. Then `/reload-plugins` to activate.
 
@@ -63,18 +71,25 @@ Without these, Claude Code's auto-mode classifier blocks each `npx skills` / `gh
 
 ## The pipeline
 
-`/ievo:init` composes 4 stages:
+`/ievo:init` composes 5 stages (v0.5.0+):
 
 ```
-find-skills (vercel-labs)  →  index-repos (ours)  →  security-check (ours)  →  install
-   discovery                    enumerate full         per-item audit          two paths
-                                content per repo       with fallback
+find-skills (vercel-labs)
+    ↓
+index-repos (ours, parallel repo-indexer sub-agents)
+    ↓
+categorical rank — top-5 per category
+    ↓
+security-auditor (parallel sub-agents, LLM audit)
+    ↓
+install (vendor or plugin)
 ```
 
 1. **find-skills** queries skills.sh for skill candidates based on your project's stack.
-2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands that skills.sh didn't index. Uses shallow `git clone --depth=1` into `~/.ievo/checkouts/` (one network op per repo, then filesystem scan — no API rate limits).
-3. **security-check** audits each candidate the user selects — combines skills.sh's Snyk/Socket/Gen Agent Trust Hub audits with our own content scan (hooks, allowed-tools, prompts) and repo metadata.
-4. **install** runs two paths:
+2. **index-repos** scans the FULL content of every unique repo from step 1 — finds plugins, agents, hooks, commands that skills.sh didn't index. Uses shallow `git clone --depth=1` into `~/.ievo/checkouts/` (one network op per repo, then filesystem scan — no API rate limits). Sub-agents run in parallel — wall-clock = slowest repo (~30-60s).
+3. **categorical rank** groups candidates by category (testing, linting, security, observability, etc.) and keeps top-5 per category instead of overall top-12. Every relevant category gets visibility.
+4. **security-auditor** sub-agents run in parallel — one per selected item. Each applies the `security-check` skill (Sonnet 4.6): skills.sh Snyk/Socket/Trust Hub fetch + content scan (hooks, allowed-tools, prompt patterns) + repo metadata. Wall-clock ~10-15s for 5-7 items.
+5. **install** runs two paths:
    - **Vendor** (skills + agents): `gh api fetch` → write to `.claude/<type>/` → inject overlay marker
    - **Plugin install** (anything with hooks/MCP/commands): edit `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins` for team-portable activation
 
@@ -220,8 +235,12 @@ ievo-ai/skills/
     │   ├── feedback/SKILL.md       # /ievo:feedback — file GitHub issues
     │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo
     │   └── security-check/SKILL.md # /ievo:security-check — audit a candidate
-    └── agents/
-        └── evolution.md            # sub-agent dispatched by evolution skill
+    ├── agents/
+    │   ├── evolution.md            # sub-agent dispatched by evolution skill
+    │   ├── repo-indexer.md         # parallel dispatch — one per repo for indexing (Step 6)
+    │   └── security-auditor.md     # parallel dispatch — one per selected item for audit (Step 8)
+    └── scripts/
+        └── scan_repo.mjs           # deterministic repo scanner (Node, no LLM)
 ```
 
 ## Standards compliance
@@ -232,9 +251,12 @@ ievo-ai/skills/
 
 ## Roadmap
 
-- **v0.2 (this release):** Full pipeline (find-skills → index-repos → security-check → install). Overlay model for evolutions. Two install paths.
-- **v0.3:** Cortex A/B validation gate. Mutations that don't improve get rejected via blind evaluation.
-- **v1.0:** Cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
+- **v0.2:** Initial pipeline (find-skills → index-repos → security-check → install) + overlay model.
+- **v0.3:** Codex support, checkout-based indexing (no API rate limits), Python scanner.
+- **v0.4 (reverted):** Pre-built community-index integration. Replaced with simpler user-side architecture in v0.5.
+- **v0.5 (current):** All-user-side architecture. Full Node migration (no Python prereq). Categorical ranking (top-5 per category). Parallel security-auditor sub-agents. Independent and verifiable per user — no central trust gates.
+- **v0.6 (planned):** Cortex A/B validation gate for evolutions. Mutations that don't improve get rejected via blind evaluation.
+- **v1.0:** Skills.sh publication + cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
 
 ## Acknowledgments
 

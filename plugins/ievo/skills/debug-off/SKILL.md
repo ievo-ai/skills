@@ -40,13 +40,13 @@ Read `.ievo/debug.flag` and capture:
 
 ### 3. Remove the flag
 
-Use Bash:
+Use Bash with `rm -f` for idempotence:
 
 ```bash
-rm <project>/.ievo/debug.flag
+rm -f <project>/.ievo/debug.flag
 ```
 
-(Not the Write tool — there's no "delete" via Write. Bash `rm` of a specific named file is safe — narrow scope, no glob, no recursion.)
+(Not the Write tool — there's no "delete" via Write. Bash `rm -f` of a specific named file is safe: narrow scope, no glob, no recursion, no error if file already gone — handles the race between Step 1's existence check and this step.)
 
 ### 4. Find the active session directory
 

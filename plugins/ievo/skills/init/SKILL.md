@@ -134,7 +134,9 @@ Stop init on missing node. No graceful fallback — scan_repo.mjs is core to Ste
 
 ### Permission check (auto-mode classifier)
 
-Init will run network/CLI commands the auto-mode classifier may block: `npx skills`, `gh api`, `gh search`. Without pre-approval, each call hits a confirmation prompt — friction during the discovery phase.
+Init will run network/CLI commands the auto-mode classifier may block: `gh api`, `gh search`. Without pre-approval, each call hits a confirmation prompt — friction during the discovery phase.
+
+(v0.6.0 dropped `npx skills` permissions — discovery now happens via local `discover.mjs` script which is a normal `node` invocation, not blocked by the auto-classifier.)
 
 Recommended: ensure `.claude/settings.local.json` (per-user, gitignored) OR `.claude/settings.json` (team-shared, committed) contains:
 
@@ -142,8 +144,6 @@ Recommended: ensure `.claude/settings.local.json` (per-user, gitignored) OR `.cl
 {
   "permissions": {
     "allow": [
-      "Bash(npx skills*)",
-      "Bash(npx -y skills*)",
       "Bash(gh api*)",
       "Bash(gh search*)"
     ]
@@ -151,16 +151,16 @@ Recommended: ensure `.claude/settings.local.json` (per-user, gitignored) OR `.cl
 }
 ```
 
-**Check at init start:** read the project's settings files. If the four patterns above are NOT present, ask user via `AskUserQuestion`:
+**Check at init start:** read the project's settings files. If the two patterns above are NOT present, ask user via `AskUserQuestion`:
 
-- **Question:** `Init needs Bash permissions for npx skills + gh CLI. Add them?`
+- **Question:** `Init needs Bash permissions for gh CLI. Add them?`
 - **Header:** `Permissions`
 - **Options:**
   - `Add to .claude/settings.local.json (Recommended)` — description: `Per-user permission, gitignored. Only affects you on this machine.`
   - `Add to .claude/settings.json (team-shared)` — description: `Permission shared with team via git commit. Useful if everyone runs iEvo here.`
   - `Skip — I'll approve each command manually` — description: `Each blocked Bash call needs explicit Allow. Slower but no permission file changes.`
 
-For `Add to ...` options: merge the four patterns into the existing `permissions.allow` array. Do not overwrite other permissions. If file doesn't exist, create with minimal `{"permissions": {"allow": [...]}}`.
+For `Add to ...` options: merge the two patterns into the existing `permissions.allow` array. Do not overwrite other permissions. If file doesn't exist, create with minimal `{"permissions": {"allow": [...]}}`.
 
 For `Skip`: continue — but expect blocked commands during the run.
 
@@ -347,6 +347,21 @@ The script:
 4. Returns JSON: `{sources, queries, candidates: [{id, name, source_repo, installs, quality_tier, matched_queries, rank_score}]}`
 
 Typical wall-clock: 3-6 seconds for a rich stack.
+
+### Step 5b1 — Handle discover.mjs exit codes
+
+The script exits with distinct codes — branch on them:
+
+| Code | Meaning | What init must do |
+|------|---------|-------------------|
+| `0` | Success — all queries returned data | Proceed to Step 5c |
+| `0` + WARN on stderr | **Partial failure** — some queries failed, candidates still usable | Log the warning in section 5d, proceed but tell the user "discovery was partial (N/M queries failed)" in the summary |
+| `1` | No stack input on stdin AND no `--stack-file` | Should not happen — init always provides stack JSON. If it does, log and abort. |
+| `3` | Bad input — malformed JSON, missing file, invalid CLI args | Log and abort init (stack input is broken) |
+| `4` | **Total failure** — ALL queries failed (skills.sh down, network outage). `candidates: []` | Log + tell user "discovery failed — skills.sh unreachable". Ask via `AskUserQuestion`: continue with auto-available repos only OR abort? |
+| `5` | No queries derived from stack (empty input) | Log + abort init — stack detection (Step 4) produced nothing useful |
+
+Capture stderr separately from stdout: `node discover.mjs ... 2>discover.err >discover.out`. The structured JSON is on stdout; the WARN/FATAL messages are on stderr.
 
 ### Step 5c — Filter against installed inventory
 

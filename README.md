@@ -58,8 +58,6 @@ If you want to set permissions before running `/ievo:init`, add to `.claude/sett
 {
   "permissions": {
     "allow": [
-      "Bash(npx skills*)",
-      "Bash(npx -y skills*)",
       "Bash(gh api*)",
       "Bash(gh search*)"
     ]
@@ -67,11 +65,11 @@ If you want to set permissions before running `/ievo:init`, add to `.claude/sett
 }
 ```
 
-Without these, Claude Code's auto-mode classifier blocks each `npx skills` / `gh api` call as "untrusted network command" — works but with manual Allow prompts.
+Without these, Claude Code's auto-mode classifier blocks each `gh api` call as "untrusted network command" — works but with manual Allow prompts. (v0.6.0 dropped the previously-required `npx skills` permission since discovery now happens via local Node script.)
 
 ## The pipeline
 
-`/ievo:init` composes 5 stages (v0.6.0+):
+`/ievo:init` composes 6 stages (v0.6.0+):
 
 ```
 discover.mjs (ours, parallel skills.sh API queries)
@@ -79,6 +77,8 @@ discover.mjs (ours, parallel skills.sh API queries)
 index-repos (ours, parallel repo-indexer sub-agents)
     ↓
 categorical rank — top-5 per category
+    ↓
+interview (per candidate — AskUserQuestion)
     ↓
 security-auditor (parallel sub-agents, antivirus deep scan)
     ↓

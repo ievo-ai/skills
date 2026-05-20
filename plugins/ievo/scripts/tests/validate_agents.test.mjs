@@ -98,10 +98,29 @@ describe("parseFrontmatter", () => {
     assert.deepEqual(fm, { name: "foo", description: "bar" });
   });
 
-  it("ignores indented (continuation) lines", () => {
-    const fm = parseFrontmatter("---\ntools:\n  - Read\n  - Write\nname: foo\n---");
+  it("does NOT skip indented lines — security gate (post-review)", () => {
+    // Originally `if (/^\s+/.test(line)) continue;` would silently skip indented
+    // lines. An attacker could nest `model: claude-sonnet-4-6` under another key
+    // and bypass the validator. Now indented lines parse too — they still need
+    // a `key: value` form to register.
+    const fm = parseFrontmatter("---\nname: foo\ntools:\n  model: claude-sonnet-4-6\n---");
     assert.equal(fm.name, "foo");
-    assert.equal(fm.tools, undefined); // empty value, then indented children skipped
+    // The indented `model:` line is now picked up (key trimmed)
+    assert.equal(fm.model, "claude-sonnet-4-6");
+  });
+
+  it("handles CRLF line endings (Windows files) — security gate", () => {
+    // Original regex was \n-only; CRLF-encoded files would partially fail or
+    // skip lines. After fix: normalize CRLF→LF before parsing.
+    const fm = parseFrontmatter("---\r\nname: foo\r\nmodel: claude-sonnet-4-6\r\n---\r\nBody");
+    assert.equal(fm.name, "foo");
+    assert.equal(fm.model, "claude-sonnet-4-6");
+  });
+
+  it("handles CR-only line endings (old Mac files)", () => {
+    const fm = parseFrontmatter("---\rname: foo\rmodel: gpt-5\r---\rBody");
+    assert.equal(fm.name, "foo");
+    assert.equal(fm.model, "gpt-5");
   });
 
   it("ignores lines without colon", () => {
@@ -242,6 +261,10 @@ describe("validateAgent (filesystem)", () => {
     assert.equal(v[0].rule, "model-vendor-locked");
   });
 
+  it("throws on missing file (caller's main loop should catch)", () => {
+    assert.throws(() => validateAgent(join(tmpDir, "does-not-exist.md")), /ENOENT/);
+  });
+
   // Cleanup once after all tests in this suite
   it("cleanup", () => {
     rmSync(tmpDir, { recursive: true, force: true });
@@ -325,6 +348,26 @@ describe("main (CLI entry)", () => {
     main(["node", "validate_agents.mjs", failDir, "--quiet"], run.exit, run.log, run.errLog);
     assert.equal(run.exitCode, 1);
     assert.match(run.logs.join("\n"), /✗/);
+  });
+
+  it("continues past unreadable file — does NOT halt on first read error (CI gate correctness)", () => {
+    // EISDIR — a .md path that is actually a directory raises a per-file error
+    // but the loop must continue + count it as a violation, not crash the script.
+    const mixedDir = join(tmpDir, "mixed");
+    mkdirSync(mixedDir, { recursive: true });
+    // file 1: good agent
+    writeFileSync(join(mixedDir, "1-good.md"), "---\nname: good\ndescription: ok\n---", "utf-8");
+    // file 2: a directory named .md — readFileSync throws EISDIR
+    mkdirSync(join(mixedDir, "2-trap.md"), { recursive: true });
+    // file 3: another good agent
+    writeFileSync(join(mixedDir, "3-good.md"), "---\nname: also-good\ndescription: ok\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", mixedDir], run.exit, run.log, run.errLog);
+    // 1 pass + 1 unreadable + 1 pass = exit 1 (any violation = 1)
+    assert.equal(run.exitCode, 1);
+    assert.match(run.logs.join("\n"), /file-unreadable/);
+    // Critical: file 3 was still processed (loop didn't halt at file 2)
+    assert.match(run.logs.join("\n"), /3-good\.md/);
   });
 
   it("cleanup", () => {

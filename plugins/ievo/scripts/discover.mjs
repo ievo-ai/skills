@@ -13,7 +13,6 @@
 //   visibility, not safety.
 // - Install thresholds: 1K+ preferred, <100 caution flag. NOT auto-rejection.
 // - Category query mapping: testing → [testing, jest, playwright, pytest, ...]
-// - Synonym fallback: if "deploy" yields low results, retry with "deployment"
 //
 // Input: stack context as JSON on stdin OR via --stack-file <path>
 // Output: JSON to stdout — deduplicated ranked candidates
@@ -34,8 +33,10 @@ export const DEFAULT_CONCURRENCY = 8;
 
 // Owner reputation boost for ranking (NOT a security signal).
 // Sourced from find-skills SKILL.md "trusted sources" guidance.
+// Stored lowercase — GitHub owner slugs are case-insensitive, and skills.sh
+// API may emit either case. Compare via .toLowerCase() at lookup site.
 export const REPUTATION_BOOST_OWNERS = new Set([
-  "vercel-labs", "anthropics", "microsoft", "ComposioHQ",
+  "vercel-labs", "anthropics", "microsoft", "composiohq",
   "wshobson", "github",
 ]);
 export const REPUTATION_BOOST_FACTOR = 1.5;
@@ -61,16 +62,6 @@ export const CATEGORY_QUERIES = {
   "databases": ["database", "orm", "migration", "sql"],
   "security": ["security", "audit", "vulnerability"],
   "observability": ["logging", "tracing", "metrics", "opentelemetry"],
-};
-
-// Synonym fallback (from find-skills "Try alternative terms" tip).
-export const SYNONYMS = {
-  "deploy": ["deployment", "ci-cd"],
-  "format": ["formatting", "formatter"],
-  "lint": ["linting", "linter"],
-  "test": ["testing", "tests"],
-  "auth": ["authentication", "authorization"],
-  "perf": ["performance", "optimization"],
 };
 
 // ---------------------------------------------------------------------------
@@ -164,21 +155,34 @@ export async function mapWithConcurrency(items, fn, concurrency) {
 export function rankCandidates(allResults) {
   // Map by id (skill.id format: "owner/repo/skill-id")
   const byId = new Map();
+  let skippedNoId = 0;
+
   for (const { query, results } of allResults) {
     for (const skill of results) {
-      const id = skill.id;
-      if (!byId.has(id)) {
-        byId.set(id, {
+      // Skip entries without an id — they'd collide under `undefined` key
+      // and silently dedupe-collapse N candidates into one. Count for diagnostics.
+      if (!skill.id) {
+        skippedNoId++;
+        continue;
+      }
+
+      // Normalize installs to a finite number (API may omit or send non-number)
+      const installs = typeof skill.installs === "number" && Number.isFinite(skill.installs)
+        ? skill.installs
+        : 0;
+
+      if (!byId.has(skill.id)) {
+        byId.set(skill.id, {
           id: skill.id,
           name: skill.name,
           source_repo: skill.source,
-          installs: skill.installs,
-          quality_tier: qualityTier(skill.installs),
+          installs,
+          quality_tier: qualityTier(installs),
           matched_queries: new Set(),
           rank_score: 0,
         });
       }
-      const entry = byId.get(id);
+      const entry = byId.get(skill.id);
       entry.matched_queries.add(query);
     }
   }
@@ -186,10 +190,12 @@ export function rankCandidates(allResults) {
   // Compute rank_score for each candidate
   for (const entry of byId.values()) {
     // Base score = installs (log-scaled to avoid dominance by mega-popular skills)
+    // Math.max with 1 guards against log10(0) = -Infinity.
     const installScore = Math.log10(Math.max(entry.installs, 1));
 
     // Reputation boost (NOT a security shortcut — just visibility aid)
-    const owner = (entry.source_repo ?? "").split("/")[0];
+    // Case-insensitive: GitHub owner slugs aren't case-sensitive.
+    const owner = (entry.source_repo ?? "").split("/")[0].toLowerCase();
     const repBoost = REPUTATION_BOOST_OWNERS.has(owner) ? REPUTATION_BOOST_FACTOR : 1.0;
 
     // Query-match breadth bonus — matched by multiple queries = more relevant
@@ -203,21 +209,32 @@ export function rankCandidates(allResults) {
     entry.matched_queries = [...entry.matched_queries];
   }
 
-  return [...byId.values()].sort((a, b) => b.rank_score - a.rank_score);
+  const sorted = [...byId.values()].sort((a, b) => b.rank_score - a.rank_score);
+  // Attach diagnostic — non-enumerable so it doesn't appear in JSON unless explicit
+  Object.defineProperty(sorted, "skippedNoId", { value: skippedNoId, enumerable: false });
+  return sorted;
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
+function parsePositiveInt(value, flagName, fallback) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`${flagName} requires a positive integer, got '${value}' — falling back to ${fallback} would mask the input error`);
+  }
+  return n;
+}
+
 export function parseArgs(argv) {
   const args = { stackFile: null, limit: DEFAULT_TOTAL_LIMIT, concurrency: DEFAULT_CONCURRENCY, perQuery: DEFAULT_PER_QUERY_LIMIT };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--stack-file") args.stackFile = argv[++i];
-    else if (a === "--limit") args.limit = parseInt(argv[++i], 10);
-    else if (a === "--concurrency") args.concurrency = parseInt(argv[++i], 10);
-    else if (a === "--per-query") args.perQuery = parseInt(argv[++i], 10);
+    else if (a === "--limit") args.limit = parsePositiveInt(argv[++i], "--limit", DEFAULT_TOTAL_LIMIT);
+    else if (a === "--concurrency") args.concurrency = parsePositiveInt(argv[++i], "--concurrency", DEFAULT_CONCURRENCY);
+    else if (a === "--per-query") args.perQuery = parsePositiveInt(argv[++i], "--per-query", DEFAULT_PER_QUERY_LIMIT);
   }
   return args;
 }
@@ -280,18 +297,46 @@ export async function runDiscover(stack, options = {}) {
 }
 
 export async function main(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
-  const args = parseArgs(argv);
+  let args;
+  try {
+    args = parseArgs(argv);
+  } catch (err) {
+    errLog(`Error: ${err.message}`);
+    return exit(3);
+  }
 
   let stack;
+  let inputSource;
   if (args.stackFile) {
-    stack = JSON.parse(readFileSync(args.stackFile, "utf-8"));
+    inputSource = `--stack-file ${args.stackFile}`;
+    let raw;
+    try {
+      raw = readFileSync(args.stackFile, "utf-8");
+    } catch (err) {
+      errLog(`Error: cannot read stack file '${args.stackFile}': ${err.message}`);
+      return exit(3);
+    }
+    try {
+      stack = JSON.parse(raw);
+    } catch (err) {
+      errLog(`Error: invalid JSON in ${inputSource}: ${err.message}`);
+      errLog(`First 200 chars: ${raw.slice(0, 200)}`);
+      return exit(3);
+    }
   } else {
+    inputSource = "stdin";
     const stdinText = (await readStdin(stdinStream)).trim();
     if (!stdinText) {
       errLog("Error: provide stack via stdin JSON or --stack-file <path>");
       return exit(1);
     }
-    stack = JSON.parse(stdinText);
+    try {
+      stack = JSON.parse(stdinText);
+    } catch (err) {
+      errLog(`Error: invalid JSON in stdin: ${err.message}`);
+      errLog(`First 200 chars: ${stdinText.slice(0, 200)}`);
+      return exit(3);
+    }
   }
 
   const output = await runDiscover(stack, {
@@ -299,14 +344,46 @@ export async function main(argv = process.argv, stdinStream = process.stdin, log
     concurrency: args.concurrency,
     perQuery: args.perQuery,
   });
+
+  // Always print the JSON to stdout (callers parse it).
   log(JSON.stringify(output, null, 2));
+
+  // Surface discovery problems to stderr — init's Bash invocation captures
+  // stderr separately from stdout. Don't bury failures in JSON only.
+  const errorCount = output.sources?.[0]?.errors ?? 0;
+  const queryCount = output.sources?.[0]?.queries_executed ?? 0;
+  if (queryCount > 0 && errorCount === queryCount) {
+    // Total failure — all queries errored. Exit non-zero so init can branch.
+    errLog(`[discover.mjs] FATAL: all ${queryCount} skills.sh queries failed. Network down / API outage / DNS / TLS issue. Candidates list will be empty.`);
+    return exit(4);
+  }
+  if (errorCount > 0) {
+    // Partial failure — warn but continue. Candidates may still be useful.
+    const failedQueries = output.sources[0].error_details.map((e) => e.query).join(", ");
+    errLog(`[discover.mjs] WARN: ${errorCount}/${queryCount} skills.sh queries failed: ${failedQueries}`);
+  }
+  if (output.error) {
+    // Stack input issue (no queries derived) — communicate via exit code too
+    errLog(`[discover.mjs] WARN: ${output.error}`);
+    return exit(5);
+  }
+
   return exit(0);
+}
+
+export async function mainSafe(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
+  // Defensive wrapper — main() has internal try/catch around every known
+  // throwing path, but this catches anything future code might add without
+  // wrapping. Testable via mock exit/errLog.
+  try {
+    return await main(argv, stdinStream, log, errLog, exit);
+  } catch (err) {
+    errLog(`fatal: ${err.message}`);
+    return exit(2);
+  }
 }
 
 // CLI entry — only run when invoked directly
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  main().catch((err) => {
-    console.error(`fatal: ${err.message}`);
-    process.exit(2);
-  });
+  mainSafe();
 }

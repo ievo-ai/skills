@@ -19,7 +19,6 @@ import {
   REPUTATION_BOOST_OWNERS,
   REPUTATION_BOOST_FACTOR,
   CATEGORY_QUERIES,
-  SYNONYMS,
   qualityTier,
   buildQueries,
   searchSkillsSh,
@@ -29,6 +28,7 @@ import {
   readStdin,
   runDiscover,
   main,
+  mainSafe,
 } from "../discover.mjs";
 
 // ---------------------------------------------------------------------------
@@ -50,11 +50,12 @@ describe("constants", () => {
     assert.equal(DEFAULT_CONCURRENCY, 8);
   });
 
-  it("REPUTATION_BOOST_OWNERS contains expected names from find-skills SKILL.md", () => {
+  it("REPUTATION_BOOST_OWNERS contains expected names from find-skills SKILL.md (lowercase)", () => {
+    // Stored lowercase to enable case-insensitive matching at lookup site.
     assert.ok(REPUTATION_BOOST_OWNERS.has("vercel-labs"));
     assert.ok(REPUTATION_BOOST_OWNERS.has("anthropics"));
     assert.ok(REPUTATION_BOOST_OWNERS.has("microsoft"));
-    assert.ok(REPUTATION_BOOST_OWNERS.has("ComposioHQ"));
+    assert.ok(REPUTATION_BOOST_OWNERS.has("composiohq"));
     assert.ok(REPUTATION_BOOST_OWNERS.has("wshobson"));
     assert.ok(REPUTATION_BOOST_OWNERS.has("github"));
   });
@@ -70,10 +71,6 @@ describe("constants", () => {
     }
   });
 
-  it("SYNONYMS maps abbreviations to fuller terms", () => {
-    assert.deepEqual(SYNONYMS.deploy, ["deployment", "ci-cd"]);
-    assert.deepEqual(SYNONYMS.lint, ["linting", "linter"]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -328,6 +325,54 @@ describe("rankCandidates", () => {
     assert.equal(boosted.rank_score, normal.rank_score * REPUTATION_BOOST_FACTOR);
   });
 
+  it("applies reputation boost case-insensitively (GitHub owner slugs aren't case-sensitive)", () => {
+    // Skills.sh API may emit either case; we shouldn't silently de-rank.
+    const results = [
+      { query: "q1", results: [
+        { id: "Anthropics/x/skill", name: "uppercase", source: "Anthropics/x", installs: 1000 },
+        { id: "ANTHROPICS/y/skill", name: "shouty", source: "ANTHROPICS/y", installs: 1000 },
+        { id: "anthropics/z/skill", name: "lowercase", source: "anthropics/z", installs: 1000 },
+      ] },
+    ];
+    const ranked = rankCandidates(results);
+    for (const entry of ranked) {
+      // All three should have the boost (1.5× factor over base log10(1000)=3 = 4.5)
+      assert.equal(entry.rank_score, 3 * REPUTATION_BOOST_FACTOR);
+    }
+  });
+
+  it("skips candidates without `id` field (avoids Map collapse under undefined key)", () => {
+    const results = [
+      { query: "q1", results: [
+        { id: "x/y/has-id", name: "kept", source: "x/y", installs: 100 },
+        { name: "missing-id-1", source: "x/y", installs: 100 },  // no id
+        { name: "missing-id-2", source: "x/y", installs: 200 },  // no id
+      ] },
+    ];
+    const ranked = rankCandidates(results);
+    assert.equal(ranked.length, 1);
+    assert.equal(ranked[0].name, "kept");
+    assert.equal(ranked.skippedNoId, 2, "should count skipped no-id entries");
+  });
+
+  it("normalizes missing/non-number installs to 0 (avoids NaN rank_score)", () => {
+    const results = [
+      { query: "q1", results: [
+        { id: "x/y/a", name: "missing", source: "x/y" },  // no installs field
+        { id: "x/y/b", name: "string", source: "x/y", installs: "abc" },  // non-number
+        { id: "x/y/c", name: "null", source: "x/y", installs: null },
+        { id: "x/y/d", name: "valid", source: "x/y", installs: 1000 },
+      ] },
+    ];
+    const ranked = rankCandidates(results);
+    for (const entry of ranked) {
+      assert.ok(Number.isFinite(entry.rank_score), `${entry.name} rank_score should be finite, got ${entry.rank_score}`);
+      assert.ok(!Number.isNaN(entry.rank_score), `${entry.name} rank_score should not be NaN`);
+    }
+    // Sort order is deterministic: valid (1000) > others (0)
+    assert.equal(ranked[0].name, "valid");
+  });
+
   it("applies match-breadth bonus", () => {
     const results = [
       { query: "q1", results: [{ id: "x/y/single", name: "single", source: "x/y", installs: 1000 }] },
@@ -426,6 +471,22 @@ describe("parseArgs", () => {
     const a = parseArgs(["node", "discover.mjs", "--limit", "30", "--concurrency", "4"]);
     assert.equal(a.limit, 30);
     assert.equal(a.concurrency, 4);
+  });
+
+  it("throws on invalid --limit (NaN-like input)", () => {
+    assert.throws(() => parseArgs(["node", "discover.mjs", "--limit", "abc"]), /--limit requires/);
+  });
+
+  it("throws on zero --limit (would silently slice to 0)", () => {
+    assert.throws(() => parseArgs(["node", "discover.mjs", "--limit", "0"]), /--limit requires/);
+  });
+
+  it("throws on negative --concurrency", () => {
+    assert.throws(() => parseArgs(["node", "discover.mjs", "--concurrency", "-1"]), /--concurrency requires/);
+  });
+
+  it("throws on missing value after --per-query", () => {
+    assert.throws(() => parseArgs(["node", "discover.mjs", "--per-query"]), /--per-query requires/);
   });
 });
 
@@ -565,6 +626,105 @@ describe("main", () => {
     }
   });
 
+  it("exits 4 + FATAL stderr when ALL skills.sh queries fail (silent-failure fix)", async () => {
+    const run = makeRun();
+    const stream = Readable.from(['{"languages":["python"]}']);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new Error("network down"); };
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+      assert.equal(run.exitCode, 4);
+      assert.match(run.errs.join("\n"), /FATAL.*skills\.sh queries failed/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("exits 0 + WARN stderr on partial query failures (rest can still be useful)", async () => {
+    const run = makeRun();
+    // Multi-dim stack → many queries — fail one to test partial-failure path
+    const stream = Readable.from(['{"languages":["python","typescript"],"deps":["pytest","react"]}']);
+    const origFetch = globalThis.fetch;
+    // Fail only the literal "python" query (deterministic — not call-counter race)
+    globalThis.fetch = async (url) => {
+      const q = new URL(url).searchParams.get("q");
+      if (q === "python") throw new Error("transient");
+      return { ok: true, json: async () => ({ skills: [{ id: "a/b/c", name: "c", source: "a/b", installs: 100 }] }) };
+    };
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+      assert.equal(run.exitCode, 0);
+      assert.match(run.errs.join("\n"), /WARN.*1\/\d+.*skills\.sh queries failed/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("exits 5 when stack has no derivable queries", async () => {
+    const run = makeRun();
+    const stream = Readable.from(['{}']);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 5);
+    assert.match(run.errs.join("\n"), /no queries derived/);
+  });
+
+  it("exits 3 on invalid stdin JSON with source-aware error message", async () => {
+    const run = makeRun();
+    const stream = Readable.from(["{this is not json"]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), /invalid JSON in stdin/);
+    assert.match(run.errs.join("\n"), /First 200 chars/);
+  });
+
+  it("exits 3 on invalid --stack-file JSON with source-aware error", async () => {
+    const stackPath = join(tmpDir, "invalid.json");
+    writeFileSync(stackPath, "not json at all", "utf-8");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", stackPath], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), /invalid JSON in --stack-file/);
+  });
+
+  it("exits 3 on missing --stack-file", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", "/nope/missing.json"], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), /cannot read stack file/);
+  });
+
+  it("exits 3 on invalid CLI args (NaN limit)", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--limit", "abc"], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), /--limit requires/);
+  });
+
+  it("mainSafe catches unexpected throw and exits 2 with fatal", async () => {
+    const run = makeRun();
+    // Create a stdin stream that throws when iterated — simulates unhandled error path
+    const throwingStream = {
+      async *[Symbol.asyncIterator]() {
+        throw new Error("simulated unhandled error");
+      },
+    };
+    await mainSafe(["node", "discover.mjs"], throwingStream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 2);
+    assert.match(run.errs.join("\n"), /fatal:/);
+  });
+
+  it("mainSafe forwards successful runs unchanged", async () => {
+    const run = makeRun();
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
+    try {
+      await mainSafe(["node", "discover.mjs"], Readable.from(['{"languages":["go"]}']), run.log, run.errLog, run.exit);
+      assert.equal(run.exitCode, 0);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
   it("cleanup", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -579,16 +739,15 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
   const tmpDir = join(tmpdir(), `discover-spawn-test-${Date.now()}`);
   mkdirSync(tmpDir, { recursive: true });
 
-  it("runs as CLI with --stack-file, exits 0", () => {
+  it("runs as CLI with --stack-file containing empty stack, exits 5 (no queries derived)", () => {
     const stackPath = join(tmpDir, "stack.json");
-    // Empty stack → runDiscover returns early with error message but still exit 0 (output structured JSON)
     writeFileSync(stackPath, JSON.stringify({}), "utf-8");
     const r = spawnSync(process.execPath, [scriptPath, "--stack-file", stackPath], {
       encoding: "utf-8",
       timeout: 30000,
     });
-    // Empty stack produces structured response with `error` field but normal exit
-    assert.equal(r.status, 0);
+    // Empty stack → exit 5 (per new contract — let init branch on this)
+    assert.equal(r.status, 5);
     const output = JSON.parse(r.stdout);
     assert.match(output.error, /no queries derived/);
   });
@@ -603,14 +762,45 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     assert.match(r.stderr, /provide stack/);
   });
 
-  it("runs as CLI, exits 2 with 'fatal' on malformed JSON stdin (covers .catch in entry)", () => {
+  it("runs as CLI, exits 3 with source-aware error on malformed JSON stdin", () => {
     const r = spawnSync(process.execPath, [scriptPath], {
       encoding: "utf-8",
       input: "{not valid json",
       timeout: 30000,
     });
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /fatal/);
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /invalid JSON in stdin/);
+    assert.match(r.stderr, /First 200 chars/);
+  });
+
+  it("runs as CLI, exits 3 with source-aware error on malformed --stack-file", () => {
+    const stackPath = join(tmpDir, "bad.json");
+    writeFileSync(stackPath, "{not valid", "utf-8");
+    const r = spawnSync(process.execPath, [scriptPath, "--stack-file", stackPath], {
+      encoding: "utf-8",
+      timeout: 30000,
+    });
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /invalid JSON in --stack-file/);
+  });
+
+  it("runs as CLI, exits 3 on missing --stack-file", () => {
+    const r = spawnSync(process.execPath, [scriptPath, "--stack-file", "/nonexistent/path.json"], {
+      encoding: "utf-8",
+      timeout: 30000,
+    });
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /cannot read stack file/);
+  });
+
+  it("runs as CLI, exits 3 on invalid --limit", () => {
+    const r = spawnSync(process.execPath, [scriptPath, "--limit", "abc"], {
+      encoding: "utf-8",
+      input: '{"languages":["python"]}',
+      timeout: 30000,
+    });
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /--limit requires a positive integer/);
   });
 
   it("cleanup", () => {

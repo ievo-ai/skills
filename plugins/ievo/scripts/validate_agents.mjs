@@ -45,12 +45,20 @@ export function parseArgs(argv) {
 }
 
 export function parseFrontmatter(content) {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  // Normalize CRLF and CR line endings to LF before parsing.
+  // Original regex was \n-only — files with Windows line endings could bypass.
+  const normalized = content.replace(/\r\n?/g, "\n");
+  const match = normalized.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return null;
+
   const fm = {};
   for (const line of match[1].split("\n")) {
-    if (!line.trim() || line.startsWith("#")) continue;
-    if (/^\s+/.test(line)) continue;
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+
+    // SECURITY: scan indented lines too — original `if (/^\s+/.test(line)) continue;`
+    // would silently skip a `model:` field nested under another key, letting
+    // attackers bypass the validator with deceptively-structured YAML.
+    // We don't try to be a real YAML parser — we just won't ignore the line.
     const colonIdx = line.indexOf(":");
     if (colonIdx > 0) {
       const key = line.slice(0, colonIdx).trim();
@@ -141,7 +149,19 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
 
   for (const filePath of agentFiles) {
     const rel = relative(process.cwd(), filePath);
-    const violations = validateAgent(filePath);
+    let violations;
+    try {
+      violations = validateAgent(filePath);
+    } catch (err) {
+      // Per-file isolation: a single unreadable file (permission, EISDIR, symlink
+      // loop, etc.) must NOT halt the loop. Record as a violation so the file is
+      // counted in totals and surfaces in the summary, then continue.
+      violations = [{
+        severity: "error",
+        rule: "file-unreadable",
+        message: `Could not read agent file: ${err.message}`,
+      }];
+    }
 
     if (violations.length === 0) {
       totalPassed++;

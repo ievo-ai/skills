@@ -86,7 +86,7 @@ Logs going to: .ievo/log/debug/<session-id>/
 Flag: .ievo/debug.flag (commit to git to share session context with teammates)
 
 What gets logged from now on:
-- /ievo:init — full find-skills prompt + raw response, every Task tool dispatch with full prompt, every sub-agent return JSON, every gh api call, every Write/Read
+- /ievo:init — full discover.mjs stack JSON input + full raw output, every Task tool dispatch with full prompt, every sub-agent return JSON, every gh api call, every Write/Read
 - /ievo:evolution — full overlay diff, captured lesson + context
 - /ievo:security-check — full file contents scanned, full reasoning chain, all flag candidates evaluated
 - security-auditor sub-agents — entered fully, not just summary verdict

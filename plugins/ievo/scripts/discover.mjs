@@ -23,6 +23,7 @@
 //   node discover.mjs --limit 30 --concurrency 8
 
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const SCRIPT_VERSION = "0.6.0";
@@ -383,7 +384,10 @@ export async function mainSafe(argv = process.argv, stdinStream = process.stdin,
   }
 }
 
-// CLI entry — only run when invoked directly
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
+// CLI entry — only run when invoked directly.
+// Normalize both sides: process.argv[1] is often a relative path (`node plugins/ievo/scripts/discover.mjs`)
+// while import.meta.url is always absolute. Without resolve() the equality check silently fails
+// and main() never runs.
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
   mainSafe();
 }

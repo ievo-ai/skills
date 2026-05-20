@@ -369,7 +369,7 @@ From the discover.mjs output `candidates[]`, drop any candidate whose name match
 
 ### Step 5d — Log section 5 + 5b
 
-```markdown
+````markdown
 ## 5. Candidate discovery (discover.mjs)
 
 ### Stack input
@@ -392,7 +392,7 @@ From the discover.mjs output `candidates[]`, drop any candidate whose name match
 <list with reason "matches installed <type>: <name>">
 
 ### Final discover output: <N> candidates
-```
+````
 
 Pass `final_candidates[]` to Step 6.
 

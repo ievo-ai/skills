@@ -186,7 +186,10 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
   return exit(0);
 }
 
-// CLI entry — only run when invoked directly, not when imported for testing
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
+// CLI entry — only run when invoked directly, not when imported for testing.
+// Normalize both sides: process.argv[1] is often a relative path (`node plugins/ievo/scripts/validate_agents.mjs`)
+// while import.meta.url is always absolute. Without resolve() the equality check silently fails
+// and main() never runs.
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
   main();
 }

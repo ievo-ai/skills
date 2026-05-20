@@ -2,7 +2,7 @@
 name: debug-off
 description: Disable verbose / trace-level logging for the iEvo pipeline. Reverts to normal logging (concise `.ievo/log/init-*.md` only). Use when debugging is complete and user wants to stop accumulating large trace logs. Trigger words — "turn off debug", "stop verbose", "disable trace", "debug off", "выключи debug", "хватит логировать".
 license: MIT
-compatibility: Works on any agent platform that supports the agentskills.io standard. Inverse of `/ievo:debug-on`.
+compatibility: "Works on any agent platform that supports the agentskills.io standard. Inverse of `/ievo:debug-on`. The current implementation uses POSIX shell commands (`rm -f`, `ls`, `du`); on Windows hosts run via WSL or Git Bash, or fall back to the Write/Read tool equivalents documented inline."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -40,13 +40,25 @@ Read `.ievo/debug.flag` and capture:
 
 ### 3. Remove the flag
 
-Use Bash with `rm -f` for idempotence:
+POSIX hosts (macOS / Linux / WSL) — use Bash with `rm -f` for idempotence:
 
 ```bash
 rm -f <project>/.ievo/debug.flag
 ```
 
-(Not the Write tool — there's no "delete" via Write. Bash `rm -f` of a specific named file is safe: narrow scope, no glob, no recursion, no error if file already gone — handles the race between Step 1's existence check and this step.)
+Windows hosts (PowerShell, no POSIX shell):
+
+```powershell
+Remove-Item -ErrorAction SilentlyContinue '<project>\.ievo\debug.flag'
+```
+
+Cross-platform fallback via the Bash tool if Node is available:
+
+```bash
+node -e "try { require('fs').unlinkSync('<project>/.ievo/debug.flag') } catch (e) { if (e.code !== 'ENOENT') throw e }"
+```
+
+(No Write-tool equivalent — there's no "delete" operation in Write. The narrow-scope rm/Remove-Item/unlink targets a specific named file with no glob, no recursion, and is idempotent — handles the race between Step 1's existence check and this step.)
 
 ### 4. Find the active session directory
 
@@ -69,20 +81,20 @@ Logs preserved at: .ievo/log/debug/<session-id>/
 
 ### 6. Confirm to user
 
-Print:
+Print to user:
 
 ```
 🔬 iEvo debug mode DISABLED
 
 Session preserved at: .ievo/log/debug/<session-id>/
-Session contents:
-<output of `ls -la <project>/.ievo/log/debug/<session-id>/`>
+Session contents: <file count>, <total size>
 
-Total size: <output of `du -sh <session-dir>`>
+If filing a bug: archive that directory (e.g. `tar czf debug-<session-id>.tgz .ievo/log/debug/<session-id>/` on POSIX, `Compress-Archive` on Windows) and attach.
 
-If filing a bug: tar+share that directory.
 Re-enable: /ievo:debug-on
 ```
+
+For the file count + size, use whatever the host shell supports — `ls + du` on POSIX, `Get-ChildItem | Measure-Object` on Windows PowerShell, or Node `fs.readdirSync().length` + recursive walk if neither is available. The user-facing summary just needs a count and a size; the specific tooling is host-dependent.
 
 ## Rules
 

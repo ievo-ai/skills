@@ -105,6 +105,14 @@ ievo-ai/skills/
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
+**Current compliance ledger (v0.6.0):**
+- ✅ `validate_agents.mjs` — 100/100/100 (46 tests)
+- ✅ `discover.mjs` — 100/100/100 (~70 tests)
+- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.1**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos), no behavior changes in v0.6.0. Adding tests is tracked as a v0.6.1 must-do — new modifications to `scan_repo.mjs` between v0.6.0 and v0.6.1 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
+- ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
+
+This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.1, remove the line above and mark it ✅.
+
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block. No update needed there.

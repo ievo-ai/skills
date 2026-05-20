@@ -53,7 +53,7 @@ export function checkNestedFences(text) {
       if (tag !== "") {
         const outerLabel = outerTag || "<no-tag>";
         errors.push(
-          `line ${outerLine}: outer \`${"`".repeat(outerCount - 1)}${outerTag} fence is closed at line ${i + 1} by a tagged fence \`${"`".repeat(count - 1)}${tag}. The inner fence's tag becomes stray text and rendering breaks. Use ${outerCount + 1}+ backticks for the outer fence so nested ${count}-backtick fences stay as content.`,
+          `line ${outerLine}: outer \`${"`".repeat(outerCount - 1)}${outerLabel} fence is closed at line ${i + 1} by a tagged fence \`${"`".repeat(count - 1)}${tag}. The inner fence's tag becomes stray text and rendering breaks. Use ${outerCount + 1}+ backticks for the outer fence so nested ${count}-backtick fences stay as content.`,
         );
       }
       inside = false;

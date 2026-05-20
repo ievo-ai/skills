@@ -62,7 +62,7 @@ Collect these summary lines for the caller.
 
 ### 3. Force-refresh flag
 
-If caller specifies `force_refresh=true`, append `--force-refresh` to the Python command. Otherwise the script honors TTL cache (7 days).
+If caller specifies `force_refresh=true`, append `--force-refresh` to the Node command. Otherwise the script honors TTL cache (7 days).
 
 ### 4. Network failure handling
 
@@ -80,7 +80,7 @@ When invoked from `/ievo:init`, the caller dispatches `repo-indexer` sub-agents 
 
 ## Rules
 
-- **Use the script, never re-implement.** The Python scanner is the single source of truth. If you find yourself thinking "I'll just grep with awk here for speed" — STOP. Use the script. Drift between script-output and Claude-shell-output breaks the community-index trust model.
+- **Use the script, never re-implement.** The Node scanner is the single source of truth. If you find yourself thinking "I'll just grep with awk here for speed" — STOP. Use the script. Drift between script-output and Claude-shell-output breaks the community-index trust model.
 - **No LLM in indexing.** The whole point of this rewrite is removing rate-limit risk and ensuring deterministic output. Don't override the script's output with model-generated content.
 - **One repo per invocation.** Loop over multiple repos by repeating the Bash call. Each `scan_repo.mjs` invocation handles one repo.
 - **Output dir defaults to project's `.ievo/cache/index/`.** Pass explicit `--output-dir` if caller wants elsewhere (community-index GHA uses its own location).

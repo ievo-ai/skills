@@ -28,7 +28,7 @@ For each repo:
 3. Enumerate plugins / agents / skills / commands / hooks / MCP
 4. Parse YAML frontmatter for each item
 5. Compute risk signals (hooks events, allowed-tools, license, etc.)
-6. Compute risk_tier (trusted | neutral | caution) by rules
+6. Emit structural facts only — NO risk_tier (removed in v0.5.2). Risk verdicts come from `security-auditor` antivirus deep scan per selected item before install.
 7. Write `<owner>-<repo>.md` matching `ievo-ai/community-index/indices/_TEMPLATE.md` format
 8. Write `<owner>-<repo>.json` (manifest entry update for community-index)
 

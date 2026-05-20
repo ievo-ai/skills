@@ -2,7 +2,7 @@
 name: init
 description: Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem, audit them for safety, install through an interactive interview. Composes three lower-level skills (find-skills, index-repos, security-check) into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks "set up iEvo here" / "find skills for this project".
 license: MIT
-compatibility: Requires `find-skills` (vercel-labs/skills), `gh` CLI, `git` CLI, Node 18+ (bundled with Claude Code — guaranteed available), and network access.
+compatibility: Requires `find-skills` (vercel-labs/skills), `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). The skills inside the pipeline are cross-platform via agentskills.io; the init orchestrator itself is Claude Code/Codex-specific.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -197,6 +197,7 @@ Create if missing:
 - `.claude/` — root for vendored items
 - `.claude/agents/` — for vendored agents
 - `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add` — that tool is only used as prereq installer for find-skills itself)
+- `.ievo/log/pending-reports/` — for security-issue reports that couldn't be filed live (gh auth missing, rate limit, repo issues disabled). User can file manually later from these saved bodies.
 
 Do NOT touch `CLAUDE.md` or `AGENTS.md` here.
 
@@ -621,17 +622,88 @@ After all sub-agents return, group items by verdict:
 
 - **GREEN** → add to final install list. No user friction.
 - **YELLOW** → batch through one `AskUserQuestion` (multiSelect) showing top flag for each. User unchecks any they want to skip; checked items proceed to install.
-- **RED** → per-item `AskUserQuestion`:
+- **RED** → per-item `AskUserQuestion` with 4 options:
   ```
   Question: "<name> flagged HIGH RISK: <top 2 flags>. Decision?"
   Options:
     - "Try alternative: <next-ranked-same-category>" (if available)
     - "Force install anyway (I've reviewed the flags)"
     - "Skip this candidate"
+    - "Report to <owner>/<repo> (file security issue)"   ← v0.5.2
   ```
-  - If user picks alternative → recursively run Step 8 (single dispatch) on the alternative.
-  - If force-install → add to final list with `force=true` flag.
-  - If skip → remove from queue.
+  - If user picks **alternative** → recursively run Step 8 (single dispatch) on the alternative.
+  - If user picks **force-install** → add to final list with `force=true` flag.
+  - If user picks **skip** → remove from queue.
+  - If user picks **report** → go to Step 8b (report flow), then remove candidate from queue.
+
+### Step 8b — Report-to-source flow (when user picks "Report")
+
+The `security-auditor` sub-agent returned a `report_template` field in its JSON with `available: true`, pre-filled `title` and `body`. Walk the user through filing:
+
+#### 1. Preview
+
+Show the pre-filled issue to the user via `AskUserQuestion`:
+
+```
+Question: "Preview of issue to file at <owner>/<repo>:
+
+Title: <report_template.title>
+
+<body preview — first 30 lines of report_template.body>
+
+File this issue?"
+
+Options:
+  - "File it" — invokes `gh issue create` with the prefilled content
+  - "Edit body first" — opens preview in tmp file for user to edit, then re-asks
+  - "Cancel" — drops the report, candidate stays skipped
+```
+
+#### 2. File via `gh issue create`
+
+**CRITICAL**: write the body via the **Write tool**, NOT via `echo "..." > file`. The body may contain `$(...)`, backticks, or `${VAR}` patterns from cited malicious code excerpts — shell interpolation during `echo` would execute these. Write tool writes literal bytes.
+
+**Filename safety**: use ISO-8601 *basic* format (no colons) for the timestamp portion. Windows filesystems reject `:` in filenames, and the project dir may be on Windows / WSL / cross-platform-shared volume. Format: `YYYYMMDDTHHMMSSZ` (e.g. `20260520T075958Z`), NOT `2026-05-20T07:59:58Z`.
+
+```
+# Step A — Use Write tool (NOT Bash):
+#   file_path: <project>/.ievo/log/pending-reports/issue-body-<YYYYMMDDTHHMMSSZ>.md
+#   content:   <report_template.body>   (literal string, no expansion)
+
+# Step B — File the issue via gh, passing the body file:
+gh issue create --repo <owner>/<repo> \
+  --title <report_template.title> \
+  --body-file <project>/.ievo/log/pending-reports/issue-body-<YYYYMMDDTHHMMSSZ>.md
+```
+
+Quote the `--title` argument safely — single quotes or `--title="$TITLE"` with the title in an env var, never directly substituting via shell. If using gh's Bash flag, use single quotes: `--title 'literal title here'`.
+
+Capture the returned issue URL (e.g., `https://github.com/owner/repo/issues/N`).
+
+The pending-reports/ directory doubles as audit trail — even successful filings retain a local copy so user can re-read what was sent.
+
+#### 3. Show result
+
+```
+✓ Filed: <issue-url>
+
+Thanks for contributing to community security.
+```
+
+#### 4. Handle failures
+
+- `gh` not authenticated → show error, fall back to copying body to clipboard with manual instructions
+- API rate limit → save body to `<project>/.ievo/log/pending-reports/<owner>-<repo>-<timestamp>.md`, tell user to file manually later
+- Repo doesn't accept issues (Issues disabled) → save body, show repo URL, tell user to find alternative reporting channel
+
+In all failure modes: candidate stays removed from install queue (`skip` semantics).
+
+### Why offer Report
+
+- **Community defense**: maintainer notified within minutes of first user spotting the issue, not weeks later
+- **Crowd-sourced audit**: N independent users × M findings = collective security signal
+- **Accountability**: GitHub issues are public — pressure on maintainer to respond
+- **Low effort for user**: security-auditor already prepared the issue text, user just confirms
 
 ### Why parallel via sub-agents
 
@@ -642,23 +714,28 @@ After all sub-agents return, group items by verdict:
 
 **Log: append section 8 to `$LOG_PATH` NOW (do not defer)** — write verdicts as they arrive (in any order), then aggregate.
 
-### MANDATORY log content — section 8 (security audit)
+### MANDATORY log content — section 8 (security audit + reports)
 
 ```markdown
-## 8. Parallel security audit (security-auditor sub-agents)
+## 8. Antivirus security audit (security-auditor sub-agents)
 
 Dispatched: <N> agents in parallel
 Wall-clock: <T>s
-Model: claude-sonnet-4-6 (per security-auditor agent config)
+Model: sonnet (alias — host platform resolves to current Sonnet family; declared in security-auditor frontmatter)
+Total files scanned: <sum of files_scanned across agents>
+Total bytes scanned: <sum of total_bytes_scanned>
 
-### GREEN (<N>)
-| Item | Source repo | Auditor notes |
+### GREEN (<N>) — silent install
+| Item | Source repo | Files scanned | Auditor reasoning (first sentence) |
 
-### YELLOW (<M>)
-| Item | Top flag | User decision |
+### YELLOW (<M>) — install with awareness
+| Item | Top flag (severity/category/file) | User decision |
 
-### RED (<K>)
-| Item | Top 2 flags | Alternative suggested | User decision |
+### RED (<K>) — block-and-warn
+| Item | Top 2 flags | Alternative suggested | User decision (alt/force/skip/report) |
+
+### Reports filed (<P>)
+| Item | Repo | Issue URL | Filed at (ISO timestamp) |
 ```
 
 ## Step 9: Execute install

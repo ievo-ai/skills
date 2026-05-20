@@ -55,7 +55,7 @@ The script writes `<owner>-<repo>.md` (full structured index) and `<owner>-<repo
 
 It prints one-line summary to stdout:
 ```
-<owner>/<repo>: indexed (commit=<sha>) — N plugins, M agents, K skills, hooks: yes/no, risk: <tier>
+<owner>/<repo>: indexed (commit=<sha>) — N plugins, M agents, K skills, hooks: yes/no, mcp: yes/no
 ```
 
 Collect these summary lines for the caller.

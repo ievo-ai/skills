@@ -7,7 +7,7 @@ import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   ALLOWED_MODELS,
@@ -378,7 +378,9 @@ describe("main (CLI entry)", () => {
 
 describe("isCliEntry", () => {
   const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "validate_agents.mjs");
-  const scriptUrl = `file://${scriptPath}`;
+  // pathToFileURL produces a platform-correct file URL — on Windows `file://C:\…`
+  // (raw concatenation) is invalid, `file:///C:/…` (pathToFileURL output) is correct.
+  const scriptUrl = pathToFileURL(scriptPath).href;
 
   it("returns true when argv[1] is the absolute script path", () => {
     assert.equal(isCliEntry(scriptUrl, ["node", scriptPath]), true);

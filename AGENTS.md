@@ -106,13 +106,13 @@ ievo-ai/skills/
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.1):**
+**Current compliance ledger (v0.6.2):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
-- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.2**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.2 must-do — new modifications to `scan_repo.mjs` between v0.6.1 and v0.6.2 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
+- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.3**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.3 must-do — new modifications to `scan_repo.mjs` between v0.6.2 and v0.6.3 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
 - ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
 
-This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.2, remove the line above and mark it ✅.
+This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.3, remove the line above and mark it ✅.
 
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
@@ -177,7 +177,8 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 
 - v0.5.x — security tightening, simplifications
 - v0.6.0 — `discover.mjs` (own skills.sh API integration, drop find-skills prereq), debug-on/off skills, 100% test coverage rule
-- v0.6.1 (current) — CI coverage gate (`.github/workflows/coverage-gate.yml`), `isCliEntry` refactor closes the CLI-entry-guard branch gap → ledger carve-outs dropped
+- v0.6.1 — CI coverage gate (`.github/workflows/coverage-gate.yml`), `isCliEntry` refactor closes the CLI-entry-guard branch gap → ledger carve-outs dropped
+- v0.6.2 (current) — claude-review follow-ups: `pathToFileURL` in tests for Windows-correct file URLs; `parseLcov` keys by full SF path with explicit basename-collision detection
 - v0.7.0 (planned) — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
 - v1.0 — skills.sh publication + cross-project pattern curation
 

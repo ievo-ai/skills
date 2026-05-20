@@ -233,7 +233,7 @@ function requireValue(argv, i, flagName) {
   if (v === undefined) {
     throw new Error(`${flagName} requires a value, got end of arguments`);
   }
-  if (typeof v === "string" && v.startsWith("--")) {
+  if (v.startsWith("--")) {
     throw new Error(`${flagName} requires a value, got flag '${v}' — looks like the value was forgotten`);
   }
   return v;

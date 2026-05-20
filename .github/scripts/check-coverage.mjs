@@ -71,7 +71,10 @@ function findRequiredRecord(records, name) {
   }
   if (matches.length > 1) {
     const paths = matches.map(([sf]) => sf).join(", ");
-    return { error: `${name}: basename collision in lcov — multiple records share this basename: ${paths}. Rename one to disambiguate, or update REQUIRED to use the full path.` };
+    // Note: REQUIRED holds basenames and `findRequiredRecord` matches by basename;
+    // suggesting "use the full path in REQUIRED" wouldn't work without a separate
+    // exact-path code path. Stick to the actionable remediation.
+    return { error: `${name}: basename collision in lcov — multiple records share this basename: ${paths}. Rename one of the scripts (e.g. ${name.replace(/\.mjs$/, "")}_<context>.mjs) so each REQUIRED basename resolves uniquely.` };
   }
   return { record: matches[0][1] };
 }

@@ -301,26 +301,38 @@ Title format:
 - Question → `[question] <short summary>`
 - Flow B (rejections) → `[feedback/rejections] <stack name>: <N>/<M> skills declined`
 
-Run:
+**Write the body via the Write tool, NOT via `--body "..."` inline.** User-verbatim feedback may contain backticks, `$(...)`, or `${VAR}` patterns that shells interpolate if passed as an inline string argument. Write tool writes literal bytes; `--body-file` passes the file path without expansion. (Same pattern enforced in `init/SKILL.md` Step 8b — see the **CRITICAL** note there.)
+
+```
+# Step A — Write tool (NOT Bash):
+#   file_path: <project>/.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md
+#   content:   <body from step 4>   (literal string, no shell expansion)
+```
+
+Use ISO-8601 basic format for the timestamp (no colons — Windows-safe): `YYYYMMDDTHHMMSSZ`.
+
 ```bash
+# Step B — file the issue via gh, passing the body file:
 gh issue create \
   --repo ievo-ai/skills \
   --title "<title>" \
-  --body "<body from step 4>" \
+  --body-file <project>/.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md \
   --label "<bug|enhancement|idea|question>" \
   --label "feedback"
 ```
 
-For flow B add an extra label:
+For flow B add an extra label to Step B:
 ```bash
   --label "registry-quality"
 ```
+
+The `pending-reports/` directory doubles as an audit trail — the filed body is preserved locally even after successful submission.
 
 If `gh` is not installed or not authenticated:
 - Catch the error
 - Print the title and body to the user
 - Print: `gh CLI not available. Open https://github.com/ievo-ai/skills/issues/new and paste the above.`
-- Optionally: write the body to a temp file and tell the user the path
+- Write the body to `.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md` for the user to attach/paste manually
 
 ## Step 7: Report the result
 

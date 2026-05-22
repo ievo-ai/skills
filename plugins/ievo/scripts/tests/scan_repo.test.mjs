@@ -2,15 +2,19 @@
 // Run: node --test --experimental-test-coverage plugins/ievo/scripts/tests/scan_repo.test.mjs
 //
 // Phase plan (matches the v0.6.7 export refactor):
-//   B — pure-function tests (this file, top sections): truncate, isoNow,
-//       isoDate, parseArgs, parseFrontmatter, renderIndexMd, isCliEntry
+//   B — pure-function tests (top sections): truncate, isoNow, isoDate,
+//       parseArgs, parseFrontmatter, isDir/fileExists, detectLayout,
+//       list*Sorted, enumerateHooks, enumerateMcp, isCliEntry, constants.
 //   C — execImpl-injected tests for shell-calling functions:
 //       run, checkoutOrRefresh, getCommitSha, getLastCommitDate,
-//       getDefaultBranch, countRecentCommits
-//   D — integration: enumeratePlugins/Hooks/Mcp/Standalone* +
-//       detectLayout + listDirSorted/listFilesSorted, using real fs
-//       fixtures via mkdirSync/writeFileSync in tmp dirs.
-//   E — main() end-to-end with execImpl mock + tmp dirs.
+//       getDefaultBranch, countRecentCommits.
+//   D — integration: enumeratePlugins / enumerateOnePlugin /
+//       enumerateStandalone* + renderIndexMd + main() end-to-end,
+//       using real fs fixtures via mkdirSync/writeFileSync in tmp
+//       dirs and execImpl-mocked main.
+//   E — CLI subprocess (spawnSync) covering the module-load entry
+//       guard, plus gap-fill for nullish-coalescing and ternary
+//       false-paths to reach literal 100/100/100.
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
@@ -1045,7 +1049,7 @@ describe("main (end-to-end)", () => {
   const root = join(tmpdir(), `scan-repo-main-${Date.now()}`);
   mkdirSync(root, { recursive: true });
 
-  function captureRun(extraArgs) {
+  function captureRun() {
     const logs = [];
     const errs = [];
     let exitCode = null;

@@ -85,7 +85,7 @@ When invoked from `/ievo:init`, the caller dispatches `repo-indexer` sub-agents 
 - **One repo per invocation.** Loop over multiple repos by repeating the Bash call. Each `scan_repo.mjs` invocation handles one repo.
 - **Output dir defaults to project's `.ievo/cache/index/`.** Pass explicit `--output-dir` if caller wants elsewhere (community-index GHA uses its own location).
 - **Checkout dir is user-level.** Default `~/.ievo/checkouts/` shared across projects.
-- **Script version is `SCRIPT_VERSION` constant.** Bumped when the scanner output format changes. Stays in sync with plugin.json version (0.3.4+).
+- **Script version is `SCRIPT_VERSION` constant.** Bumped when the scanner output format changes. `scan_repo.mjs` tracks its own format version independently (not coupled to `plugin.json`). `discover.mjs` DOES keep its `SCRIPT_VERSION` in sync with `plugin.json` — enforced by the coupling test in `discover.test.mjs`.
 
 ## Why this architecture
 

@@ -102,6 +102,8 @@ install (project-scope vendor or plugin)
 | `/ievo:init` | Full pipeline: discover, audit, install |
 | `/ievo:evolution "<lesson>"` | Capture a lesson — append to overlay file. Never modifies agent/skill body. |
 | `/ievo:feedback` | Submit bug/idea/skip-reasons as GitHub issue |
+| `/ievo:debug-on` | Enable verbose / trace-level logging for the iEvo pipeline |
+| `/ievo:debug-off` | Disable verbose logging and finalize the debug session |
 | `/ievo:index-repos` | Standalone: enumerate a repo (callable on its own) |
 | `/ievo:security-check` | Standalone: audit a specific skill/agent/plugin |
 
@@ -257,6 +259,8 @@ ievo-ai/skills/
     │   ├── init/SKILL.md           # /ievo:init — orchestrator
     │   ├── evolution/SKILL.md      # /ievo:evolution — overlay capture
     │   ├── feedback/SKILL.md       # /ievo:feedback — file GitHub issues
+    │   ├── debug-on/SKILL.md       # /ievo:debug-on — enable verbose session logging
+    │   ├── debug-off/SKILL.md      # /ievo:debug-off — disable verbose session logging
     │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo
     │   └── security-check/SKILL.md # /ievo:security-check — audit a candidate
     ├── agents/
@@ -264,7 +268,10 @@ ievo-ai/skills/
     │   ├── repo-indexer.md         # parallel dispatch — one per repo for indexing (Step 6)
     │   └── security-auditor.md     # parallel dispatch — one per selected item for audit (Step 8)
     └── scripts/
-        └── scan_repo.mjs           # deterministic repo scanner (Node, no LLM)
+        ├── discover.mjs            # skills.sh API discovery (parallel queries)
+        ├── scan_repo.mjs           # deterministic repo scanner (Node, no LLM)
+        ├── validate_agents.mjs     # vendor-neutral model: frontmatter validator
+        └── tests/                  # node:test suites + fixtures (100% coverage gate)
 ```
 
 ## Standards compliance
@@ -286,7 +293,8 @@ ievo-ai/skills/
 - **v0.6.1:** CI coverage gate — `.github/workflows/coverage-gate.yml` enforces literal 100/100/100 on every PR. `isCliEntry` refactor in `discover.mjs` + `validate_agents.mjs` closes the CLI-entry-guard branch gap (extracted pure predicate is testable with any argv shape), eliminating the previously-documented carve-outs from the AGENTS.md compliance ledger.
 - **v0.6.2:** claude-review follow-ups landed: `pathToFileURL(scriptPath).href` in `isCliEntry` tests (Windows-correct file URLs; raw `file://${path}` fails on Windows because of the drive-letter colon and backslashes); `.github/scripts/check-coverage.mjs` `parseLcov` keys by full SF path with explicit basename-collision detection at REQUIRED resolution.
 - **v0.6.3:** Pre-commit hooks shipped — five validators in `.github/scripts/validators/` (nested code-fence nesting bug, CRLF in YAML frontmatter, machine-local path leakage, orphan placeholder leakage, and the existing agent frontmatter check) wired through both `.pre-commit-config.yaml` (local, via `uv tool install pre-commit`) and `.github/workflows/pre-commit-gate.yml` (server). Same scripts, single source of truth. AGENTS.md now codifies "wait for in-progress reviews before merging" as a rule binding to any agent working in the repo (promoted from per-session operator memory after v0.6.1 was merged prematurely).
-- **v0.6.4 (current):** Eva PR bundle — four small text fixes that Eva had filed as separate PRs against v0.6.2 baseline (#37–#40, all coverage-gated due to stale SCRIPT_VERSION coupling): stale `"Python"` → `"Node"` in `index-repos/SKILL.md` post-v0.4.0 cleanup; stale `risk: <tier>` → `mcp: yes/no` in `repo-indexer.md` + `index-repos/SKILL.md` stdout docs; universal-first compatibility wording in `evolution/SKILL.md`; vendor-neutral `Sonnet family` instead of pinned `Sonnet 4.6+` in `security-check/SKILL.md`. Plus a `/home/runner` whitelist in `machine-local-paths.mjs` to silence the CI-documentation false-positive surfaced by claude-review on PR #41.
+- **v0.6.4:** Eva PR bundle — four small text fixes that Eva had filed as separate PRs against v0.6.2 baseline (#37–#40, all coverage-gated due to stale SCRIPT_VERSION coupling): stale `"Python"` → `"Node"` in `index-repos/SKILL.md` post-v0.4.0 cleanup; stale `risk: <tier>` → `mcp: yes/no` in `repo-indexer.md` + `index-repos/SKILL.md` stdout docs; universal-first compatibility wording in `evolution/SKILL.md`; vendor-neutral `Sonnet family` instead of pinned `Sonnet 4.6+` in `security-check/SKILL.md`. Plus a `/home/runner` whitelist in `machine-local-paths.mjs` to silence the CI-documentation false-positive surfaced by claude-review on PR #41.
+- **v0.6.5 (current):** Second Eva PR bundle (#44, #45) — docs catch-up + a real security fix. AGENTS.md + README directory trees now list `debug-on/` and `debug-off/` skill directories (they shipped in v0.6.0 but were missed from the listings); README's `scripts/` listing extended with `discover.mjs`, `validate_agents.mjs`, and the `tests/` subdir (only `scan_repo.mjs` was visible); README skills table gained `/ievo:debug-on` and `/ievo:debug-off` rows. **Security:** `feedback/SKILL.md` Step 6 now writes the issue body via the Write tool and passes the file path to `gh issue create --body-file ...`, instead of inline `--body "<verbatim text>"` that could shell-interpolate `$(...)` / `${VAR}` / backticks in user feedback. Same pattern as `init/SKILL.md` Step 8b — `feedback` is brought into alignment.
 - **v0.7.0 (planned):** Cortex A/B validation gate for evolutions. Mutations that don't improve get rejected via blind evaluation.
 - **v1.0:** Skills.sh publication + cross-project pattern detection (curator). Lessons that recur across projects get promoted to "blessed" upstream evolutions.
 

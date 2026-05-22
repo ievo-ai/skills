@@ -36,6 +36,8 @@ ievo-ai/skills/
         ├── init/SKILL.md              # /ievo:init — orchestrator
         ├── evolution/SKILL.md         # /ievo:evolution — overlay capture
         ├── feedback/SKILL.md          # /ievo:feedback — file GitHub issues
+        ├── debug-on/SKILL.md          # /ievo:debug-on — enable verbose session logging
+        ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
         ├── index-repos/SKILL.md       # /ievo:index-repos — enumerate a repo
         └── security-check/SKILL.md    # /ievo:security-check — antivirus audit
 ```
@@ -109,13 +111,13 @@ ievo-ai/skills/
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.4):**
+**Current compliance ledger (v0.6.5):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
-- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.5**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.5 must-do — new modifications to `scan_repo.mjs` between v0.6.4 and v0.6.5 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
+- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.6**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.6 must-do — new modifications to `scan_repo.mjs` between v0.6.5 and v0.6.6 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
 - ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
 
-This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.5, remove the line above and mark it ✅.
+This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.6, remove the line above and mark it ✅.
 
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
@@ -221,8 +223,9 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 - v0.6.1 — CI coverage gate (`.github/workflows/coverage-gate.yml`), `isCliEntry` refactor closes the CLI-entry-guard branch gap → ledger carve-outs dropped
 - v0.6.2 — claude-review follow-ups: `pathToFileURL` in tests for Windows-correct file URLs; `parseLcov` keys by full SF path with explicit basename-collision detection
 - v0.6.3 — pre-commit hooks (5 validators: nested fences, machine-local paths, CRLF frontmatter, placeholder leakage, agent frontmatter) + `.github/workflows/pre-commit-gate.yml` server-side mirror; AGENTS.md "wait for in-progress reviews" rule promoted from operator memory; 2 pre-existing nested-fence bugs in `feedback/SKILL.md` fixed as the validator caught them
-- v0.6.4 (current) — Eva PR bundle (4 small text fixes that had been queued as PRs #37–#40 against the v0.6.2 baseline, all coverage-gated due to stale SCRIPT_VERSION coupling): stale "Python" → "Node" in `index-repos/SKILL.md`; stale `risk: <tier>` → `mcp: yes/no` in `repo-indexer.md` + `index-repos/SKILL.md` stdout-format docs; universal-first compatibility in `evolution/SKILL.md`; vendor-neutral "Sonnet family" instead of pinned "Sonnet 4.6+" in `security-check/SKILL.md`. Plus `/home/runner` whitelist in `machine-local-paths.mjs` (CI-doc false-positive from PR #41 claude-review).
-- v0.6.5 (planned) — `scan_repo.mjs` tests land → ledger carve-out cleared, gate enforces 100/100/100 on all three scripts
+- v0.6.4 — Eva PR bundle (4 small text fixes that had been queued as PRs #37–#40 against the v0.6.2 baseline, all coverage-gated due to stale SCRIPT_VERSION coupling): stale "Python" → "Node" in `index-repos/SKILL.md`; stale `risk: <tier>` → `mcp: yes/no` in `repo-indexer.md` + `index-repos/SKILL.md` stdout-format docs; universal-first compatibility in `evolution/SKILL.md`; vendor-neutral "Sonnet family" instead of pinned "Sonnet 4.6+" in `security-check/SKILL.md`. Plus `/home/runner` whitelist in `machine-local-paths.mjs` (CI-doc false-positive from PR #41 claude-review).
+- v0.6.5 (current) — second Eva PR bundle (#44 + #45): missing `debug-on` / `debug-off` entries added to AGENTS.md + README directory listings, scripts listing in README expanded with `discover.mjs` / `validate_agents.mjs` / `tests/`, `/ievo:debug-on` + `/ievo:debug-off` rows added to README skills table; **security fix**: `feedback/SKILL.md` Step 6 now writes the issue body via the Write tool + passes it to `gh` via `--body-file` instead of inline `--body "..."` — closes a shell-interpolation surface (user-verbatim feedback could contain backticks / `$(...)` / `${VAR}`). Pattern already enforced in `init/SKILL.md` Step 8b; this brings `feedback` into alignment.
+- v0.6.6 (planned) — `scan_repo.mjs` tests land → ledger carve-out cleared, gate enforces 100/100/100 on all three scripts
 - v0.7.0 (planned) — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
 - v1.0 — skills.sh publication + cross-project pattern curation
 

@@ -1,6 +1,6 @@
 ---
 description: Uninstall iEvo from the current project. Removes injected overlay markers (project-wide and per-agent/skill) after explicit user confirmation. Always preserves `.ievo/` directory.
-allowed-tools: Read, Edit, Glob, AskUserQuestion
+allowed-tools: Read, Edit, Glob, Bash, AskUserQuestion
 ---
 
 # Uninstall iEvo

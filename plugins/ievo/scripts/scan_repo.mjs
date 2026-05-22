@@ -440,7 +440,7 @@ export function renderIndexMd(data) {
   lines.push(`- **MCP servers total:** ${totalMcp}`);
   const broadBashSkills = [];
   for (const p of plugins) {
-    for (const s of p.skills ?? []) {
+    for (const s of p.skills) {
       if (s.broad_bash) broadBashSkills.push(`${p.name}/${s.name}`);
     }
   }

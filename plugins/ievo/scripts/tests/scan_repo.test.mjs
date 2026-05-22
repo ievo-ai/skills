@@ -14,7 +14,8 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, utimesSync, chmodSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -221,9 +222,24 @@ describe("parseFrontmatter", () => {
     assert.equal(fm.name, "x");
     assert.equal(fm.desc, "y");
   });
-  it("handles file read error gracefully (returns {})", () => {
-    // Pass a directory path; readFileSync throws EISDIR.
+  it("returns {} when fileExists check rejects a directory path", () => {
+    // Directories fail the fileExists() guard at the top, no read attempted.
     assert.deepEqual(parseFrontmatter(tmp), {});
+  });
+
+  it("returns {} when readFileSync throws (e.g. file unreadable post-check)", () => {
+    // POSIX-only: chmod 000 makes the file unreadable so readFileSync throws
+    // EACCES while statSync (used by fileExists) still says it's a file —
+    // this exercises the try/catch branch around readFileSync.
+    if (process.platform === "win32") return;
+    const f = join(tmp, "unreadable.md");
+    writeFileSync(f, "---\nname: x\n---\nbody\n", "utf-8");
+    chmodSync(f, 0o000);
+    try {
+      assert.deepEqual(parseFrontmatter(f), {});
+    } finally {
+      chmodSync(f, 0o644);
+    }
   });
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -638,4 +654,687 @@ describe("checkoutOrRefresh", () => {
 
   after(() => rmSync(root, { recursive: true, force: true }));
 });
+
+// ---------------------------------------------------------------------------
+// Phase D — integration tests via on-disk repo fixtures
+//
+// Build minimal "repo" trees in tmp dirs and assert what enumerate*
+// functions extract. No network, no git, no LLM.
+// ---------------------------------------------------------------------------
+
+// Builds a marketplace-style fixture used by multiple tests below.
+function buildMarketplaceFixture(root) {
+  // Plugin 1: full surface (agents + skills + commands + hooks + mcp)
+  const p1 = join(root, "plugins", "alpha");
+  mkdirSync(join(p1, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(p1, ".claude-plugin", "plugin.json"),
+    JSON.stringify({
+      name: "alpha",
+      description: "alpha plugin desc",
+      version: "1.0.0",
+      author: { name: "Alice" },
+      license: "MIT",
+    }),
+    "utf-8",
+  );
+
+  mkdirSync(join(p1, "agents"), { recursive: true });
+  writeFileSync(
+    join(p1, "agents", "watcher.md"),
+    "---\nname: watcher\nmodel: sonnet\ntools: Read, Bash\ndescription: watches things\n---\nbody\n",
+    "utf-8",
+  );
+
+  mkdirSync(join(p1, "skills", "doer"), { recursive: true });
+  mkdirSync(join(p1, "skills", "doer", "scripts"), { recursive: true });
+  writeFileSync(
+    join(p1, "skills", "doer", "SKILL.md"),
+    "---\nname: doer\ndescription: does stuff\nlicense: MIT\ncompatibility: any\nallowed-tools: Bash(*), Read\n---\nbody\n",
+    "utf-8",
+  );
+
+  mkdirSync(join(p1, "commands"), { recursive: true });
+  writeFileSync(
+    join(p1, "commands", "go.md"),
+    "---\nname: go\ndescription: dispatcher\n---\nbody\n",
+    "utf-8",
+  );
+
+  mkdirSync(join(p1, "hooks"), { recursive: true });
+  writeFileSync(
+    join(p1, "hooks", "hooks.json"),
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }],
+        UserPromptSubmit: [{ matcher: "*", hooks: [{ type: "command", command: "log" }] }],
+      },
+    }),
+    "utf-8",
+  );
+
+  writeFileSync(
+    join(p1, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: { srv: { url: "https://api.example.com" } },
+    }),
+    "utf-8",
+  );
+
+  // Plugin 2: minimal — only plugin.json
+  const p2 = join(root, "plugins", "bare");
+  mkdirSync(join(p2, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(p2, ".claude-plugin", "plugin.json"),
+    "{}",
+    "utf-8",
+  );
+
+  // Hidden dir and non-dir entry should be skipped
+  mkdirSync(join(root, "plugins", ".hidden"), { recursive: true });
+  writeFileSync(join(root, "plugins", "stray.md"), "not-a-plugin", "utf-8");
+}
+
+describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
+  const root = join(tmpdir(), `scan-repo-mp-${Date.now()}`);
+  buildMarketplaceFixture(root);
+
+  it("returns [] when plugins/ doesn't exist", () => {
+    const empty = join(tmpdir(), `scan-repo-no-plugins-${Date.now()}`);
+    mkdirSync(empty, { recursive: true });
+    assert.deepEqual(enumeratePlugins(empty), []);
+    rmSync(empty, { recursive: true, force: true });
+  });
+
+  it("enumerates two plugins (alpha + bare), skipping hidden + non-dir", () => {
+    const plugins = enumeratePlugins(root);
+    const names = plugins.map((p) => p.name).sort();
+    assert.deepEqual(names, ["alpha", "bare"]);
+  });
+
+  it("enumerates alpha with all sub-surfaces populated", () => {
+    const alpha = enumeratePlugins(root).find((p) => p.name === "alpha");
+    assert.equal(alpha.description, "alpha plugin desc");
+    assert.equal(alpha.version, "1.0.0");
+    assert.equal(alpha.author, "Alice");
+    assert.equal(alpha.license, "MIT");
+    assert.equal(alpha.path, "plugins/alpha/");
+    // agents
+    assert.equal(alpha.agents.length, 1);
+    assert.equal(alpha.agents[0].name, "watcher");
+    assert.equal(alpha.agents[0].model, "sonnet");
+    // skills
+    assert.equal(alpha.skills.length, 1);
+    assert.equal(alpha.skills[0].name, "doer");
+    assert.equal(alpha.skills[0].has_scripts, true);
+    assert.equal(alpha.skills[0].broad_bash, true); // allowed-tools has Bash(*)
+    // commands
+    assert.equal(alpha.commands.length, 1);
+    assert.equal(alpha.commands[0].name, "go");
+    // hooks + mcp
+    assert.equal(alpha.hooks.present, true);
+    assert.equal(alpha.hooks.has_pretooluse, true);
+    assert.equal(alpha.mcp.present, true);
+    assert.equal(alpha.mcp.servers[0].name, "srv");
+  });
+
+  it("bare plugin falls back to defaults when manifest is empty", () => {
+    const bare = enumeratePlugins(root).find((p) => p.name === "bare");
+    assert.equal(bare.version, "unset");
+    assert.equal(bare.author, "—");
+    assert.equal(bare.license, "—");
+    assert.equal(bare.agents.length, 0);
+    assert.equal(bare.skills.length, 0);
+    assert.equal(bare.commands.length, 0);
+  });
+
+  it("enumerateOnePlugin handles malformed plugin.json gracefully", () => {
+    const bad = join(root, "plugins", "broken");
+    mkdirSync(join(bad, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(bad, ".claude-plugin", "plugin.json"), "{not valid", "utf-8");
+    const r = enumerateOnePlugin(bad);
+    assert.equal(r.version, "unset");
+    assert.equal(r.author, "—");
+  });
+
+  it("enumerateOnePlugin handles missing plugin.json (no .claude-plugin/)", () => {
+    const bare = join(root, "plugins", "no-manifest");
+    mkdirSync(bare, { recursive: true });
+    const r = enumerateOnePlugin(bare);
+    assert.equal(r.version, "unset");
+    assert.equal(r.author, "—");
+  });
+
+  it("enumerateOnePlugin skips non-dir entries inside skills/", () => {
+    const p = join(root, "plugins", "skills-mixed");
+    mkdirSync(join(p, "skills", "real"), { recursive: true });
+    writeFileSync(join(p, "skills", "real", "SKILL.md"), "---\nname: real\n---\n", "utf-8");
+    writeFileSync(join(p, "skills", "notadir.txt"), "stray", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills.length, 1);
+    assert.equal(r.skills[0].name, "real");
+  });
+
+  it("enumerateOnePlugin skips skill directories without SKILL.md", () => {
+    const p = join(root, "plugins", "skill-incomplete");
+    mkdirSync(join(p, "skills", "missing-md"), { recursive: true });
+    writeFileSync(join(p, "skills", "missing-md", "scripts.mjs"), "// no SKILL.md\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills.length, 0);
+  });
+
+  it("enumerateOnePlugin: author falls back to '—' when manifest.author is not an object", () => {
+    const p = join(root, "plugins", "author-string");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(p, ".claude-plugin", "plugin.json"),
+      JSON.stringify({ name: "x", author: "Just a string" }),
+      "utf-8",
+    );
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.author, "—");
+  });
+
+  after(() => rmSync(root, { recursive: true, force: true }));
+});
+
+describe("enumerateStandaloneAgents / Skills / Commands", () => {
+  const root = join(tmpdir(), `scan-repo-standalone-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+
+  // Agents
+  mkdirSync(join(root, "agents"), { recursive: true });
+  writeFileSync(
+    join(root, "agents", "alpha.md"),
+    "---\nname: alpha-agent\nmodel: opus\ndescription: solo agent\n---\nbody\n",
+    "utf-8",
+  );
+
+  // Skills — direct SKILL.md
+  mkdirSync(join(root, "skills", "direct"), { recursive: true });
+  writeFileSync(
+    join(root, "skills", "direct", "SKILL.md"),
+    "---\nname: direct\ndescription: top-level skill\nlicense: MIT\n---\nbody\n",
+    "utf-8",
+  );
+  // Skills — nested-grouping style: skills/group/<name>/SKILL.md
+  mkdirSync(join(root, "skills", "group", "nested"), { recursive: true });
+  writeFileSync(
+    join(root, "skills", "group", "nested", "SKILL.md"),
+    "---\nname: nested\ndescription: nested skill\n---\nbody\n",
+    "utf-8",
+  );
+  // A skills/X dir with no SKILL.md and no nested SKILL.md sub-dirs → ignored
+  mkdirSync(join(root, "skills", "ignored"), { recursive: true });
+  writeFileSync(join(root, "skills", "ignored", "notes.md"), "no SKILL.md here", "utf-8");
+  // A non-dir entry inside skills/ → ignored
+  writeFileSync(join(root, "skills", "stray.txt"), "ignore me", "utf-8");
+
+  // Commands
+  mkdirSync(join(root, "commands"), { recursive: true });
+  writeFileSync(
+    join(root, "commands", "run.md"),
+    "---\nname: run\ndescription: top-level command\n---\nbody\n",
+    "utf-8",
+  );
+
+  it("enumerateStandaloneAgents finds agent .md files", () => {
+    const r = enumerateStandaloneAgents(root);
+    assert.equal(r.length, 1);
+    assert.equal(r[0].name, "alpha-agent");
+    assert.equal(r[0].model, "opus");
+    assert.equal(r[0].path, "agents/alpha.md");
+  });
+  it("enumerateStandaloneAgents returns [] when agents/ missing", () => {
+    const empty = join(tmpdir(), `scan-repo-no-agents-${Date.now()}`);
+    mkdirSync(empty, { recursive: true });
+    assert.deepEqual(enumerateStandaloneAgents(empty), []);
+    rmSync(empty, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills finds direct and nested skills", () => {
+    const r = enumerateStandaloneSkills(root);
+    const names = r.map((s) => s.name).sort();
+    assert.deepEqual(names, ["direct", "nested"]);
+    const direct = r.find((s) => s.name === "direct");
+    assert.equal(direct.path, "skills/direct/SKILL.md");
+    const nested = r.find((s) => s.name === "nested");
+    assert.equal(nested.path, "skills/group/nested/SKILL.md");
+  });
+  it("enumerateStandaloneSkills returns [] when skills/ missing", () => {
+    const empty = join(tmpdir(), `scan-repo-no-skills-${Date.now()}`);
+    mkdirSync(empty, { recursive: true });
+    assert.deepEqual(enumerateStandaloneSkills(empty), []);
+    rmSync(empty, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneCommands finds command .md files", () => {
+    const r = enumerateStandaloneCommands(root);
+    assert.equal(r.length, 1);
+    assert.equal(r[0].name, "run");
+    assert.equal(r[0].path, "commands/run.md");
+  });
+  it("enumerateStandaloneCommands returns [] when commands/ missing", () => {
+    const empty = join(tmpdir(), `scan-repo-no-cmds-${Date.now()}`);
+    mkdirSync(empty, { recursive: true });
+    assert.deepEqual(enumerateStandaloneCommands(empty), []);
+    rmSync(empty, { recursive: true, force: true });
+  });
+
+  after(() => rmSync(root, { recursive: true, force: true }));
+});
+
+// ---------------------------------------------------------------------------
+// renderIndexMd — exercise the full template against a realistic data shape
+// ---------------------------------------------------------------------------
+
+describe("renderIndexMd", () => {
+  const baseData = () => ({
+    owner_repo: "owner/repo",
+    scanned_at: "2026-05-22T10:00:00+00:00",
+    commit_sha: "abc1234",
+    default_branch: "main",
+    layout: "marketplace",
+    description: "an example repo",
+    license: "MIT",
+    stars: 42,
+    created: "2024-01-01",
+    last_commit_date: "2026-05-20",
+    recent_commits: { count: 7, from: "2026-04-22", to: "2026-05-22" },
+    plugins: [],
+    standalone_agents: [],
+    standalone_skills: [],
+    standalone_commands: [],
+  });
+
+  it("renders headers + metadata block + structural-signals block", () => {
+    const md = renderIndexMd(baseData());
+    assert.match(md, /# `owner\/repo` — community index/);
+    assert.match(md, /> Scanner: ievo-ai\/community-index-bot v\d+\.\d+\.\d+/);
+    assert.match(md, /> Scanned: 2026-05-22T10:00:00\+00:00/);
+    assert.match(md, /\*\*License:\*\* MIT/);
+    assert.match(md, /\*\*Stars:\*\* 42/);
+    assert.match(md, /\*\*Recent commits:\*\* 7 commits between 2026-04-22 and 2026-05-22/);
+    assert.match(md, /## Structural signals/);
+  });
+
+  it("substitutes 'missing' / 'unknown' for absent metadata", () => {
+    const d = baseData();
+    d.license = null;
+    d.stars = undefined;
+    d.created = "";
+    const md = renderIndexMd(d);
+    assert.match(md, /\*\*License:\*\* missing/);
+    assert.match(md, /\*\*Stars:\*\* unknown/);
+    assert.match(md, /\*\*Created:\*\* unknown/);
+  });
+
+  it("skips recent_commits line when count is undefined", () => {
+    const d = baseData();
+    d.recent_commits = {};
+    const md = renderIndexMd(d);
+    assert.doesNotMatch(md, /Recent commits:/);
+  });
+
+  it("includes plugins section with agents/skills/commands/hooks/mcp tables", () => {
+    const d = baseData();
+    d.plugins = [{
+      name: "alpha",
+      description: "alpha desc",
+      version: "1.0.0",
+      path: "plugins/alpha/",
+      author: "Alice",
+      license: "MIT",
+      agents: [{ name: "watcher", model: "sonnet", tools: "Read", description: "" }],
+      skills: [{
+        name: "doer", description: "", has_scripts: true, has_refs: false,
+        license: "MIT", compatibility: "any", broad_bash: true,
+      }],
+      commands: [{ name: "go", description: "" }],
+      hooks: {
+        present: true,
+        events: ["PreToolUse"],
+        entries: [{ event: "PreToolUse", matcher: "Bash", command: "echo pre" }],
+        has_pretooluse: true,
+        has_userpromptsubmit: false,
+      },
+      mcp: { present: true, servers: [{ name: "srv", endpoint: "https://example.com", is_local: false }] },
+    }];
+    const md = renderIndexMd(d);
+    assert.match(md, /## Plugins \(1\)/);
+    assert.match(md, /### alpha/);
+    assert.match(md, /\*\*Agents \(1\):\*\*/);
+    assert.match(md, /\| watcher \| sonnet \| Read \| — \|/);
+    assert.match(md, /\*\*Skills \(1\):\*\*/);
+    assert.match(md, /\| doer \| — \| yes \| MIT \| any \| yes \|/);
+    assert.match(md, /\*\*Commands \(1\):\*\*/);
+    assert.match(md, /\| go \| — \|/);
+    assert.match(md, /\*\*Hooks:\*\*/);
+    assert.match(md, /\*\*MCP servers:\*\*/);
+    // Aggregate signals line
+    assert.match(md, /PreToolUse: yes — alpha/);
+    assert.match(md, /Skills with broad allowed-tools:\*\* 1 — alpha\/doer/);
+  });
+
+  it("renders standalone_agents / standalone_skills / standalone_commands sections", () => {
+    const d = baseData();
+    d.standalone_agents = [{ name: "a1", model: "opus", tools: "—", description: "", path: "agents/a1.md" }];
+    d.standalone_skills = [{ name: "s1", description: "", license: "MIT", compatibility: "any", path: "skills/s1/SKILL.md" }];
+    d.standalone_commands = [{ name: "c1", description: "", path: "commands/c1.md" }];
+    const md = renderIndexMd(d);
+    assert.match(md, /## Standalone agents \(1\)/);
+    assert.match(md, /\| a1 \| opus \| — \| — \| `agents\/a1.md` \|/);
+    assert.match(md, /## Standalone skills \(1\)/);
+    assert.match(md, /## Standalone commands \(1\)/);
+  });
+
+  it("renders empty-PreToolUse / empty-UserPromptSubmit lines when no plugin has them", () => {
+    const md = renderIndexMd(baseData());
+    assert.match(md, /PreToolUse: no/);
+    assert.match(md, /UserPromptSubmit: no/);
+    assert.match(md, /MCP servers total:\*\* 0/);
+    assert.match(md, /Skills with broad allowed-tools:\*\* 0$/m);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// main — end-to-end with execImpl mock + tmp dirs
+// ---------------------------------------------------------------------------
+
+describe("main (end-to-end)", () => {
+  const root = join(tmpdir(), `scan-repo-main-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+
+  function captureRun(extraArgs) {
+    const logs = [];
+    const errs = [];
+    let exitCode = null;
+    const exit = (c) => { exitCode = c; };
+    const log = (m) => logs.push(m);
+    const errLog = (m) => errs.push(m);
+    return { logs, errs, exit, log, errLog, get exitCode() { return exitCode; } };
+  }
+
+  it("exits 1 when repo arg is missing", () => {
+    const r = captureRun();
+    main(["node", "scan_repo.mjs"], undefined, r.log, r.errLog, r.exit);
+    assert.equal(r.exitCode, 1);
+    assert.match(r.errs.join("\n"), /repo must be in <owner>\/<repo> format/);
+  });
+
+  it("exits 1 when repo arg has no slash", () => {
+    const r = captureRun();
+    main(["node", "scan_repo.mjs", "missing-slash"], undefined, r.log, r.errLog, r.exit);
+    assert.equal(r.exitCode, 1);
+  });
+
+  it("exits 2 when clone fails", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-clone-fail");
+    const coDir = join(root, "co-clone-fail");
+    const fake = makeFakeExec([{ throw: new Error("clone failed") }]);
+    main(
+      ["node", "scan_repo.mjs", "owner/missing", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 2);
+    assert.match(r.errs.join("\n"), /Failed to clone owner\/missing/);
+  });
+
+  it("happy path: builds .md + .json artifacts, exits 0", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-happy");
+    const coDir = join(root, "co-happy");
+    // Pre-populate the checkout to skip the clone path entirely.
+    const target = join(coDir, "owner-target");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    writeFileSync(join(target, "LICENSE"), "MIT", "utf-8");
+    // Marketplace fixture so plugins/standalones are populated.
+    buildMarketplaceFixture(target);
+
+    // Order: getCommitSha, getLastCommitDate, getDefaultBranch, countRecentCommits.
+    const fake = makeFakeExec([
+      { stdout: "deadbeef\n" },          // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },              // symbolic-ref
+      { stdout: "a\nb\n" },              // git log oneline → 2 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/target", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    // .md + .json artifacts present
+    assert.ok(fileExists(join(outDir, "owner-target.md")));
+    assert.ok(fileExists(join(outDir, "owner-target.json")));
+    // stdout summary
+    const summary = r.logs.join("\n");
+    assert.match(summary, /owner\/target: indexed \(commit=deadbeef\)/);
+    assert.match(summary, /hooks: yes/);
+    assert.match(summary, /mcp: yes/);
+  });
+
+  after(() => rmSync(root, { recursive: true, force: true }));
+});
+
+
+
+// ---------------------------------------------------------------------------
+// Phase E — CLI subprocess (covers the module-load entry guard at line 665)
+//
+// The `if (isCliEntry(...)) { main(); }` block only executes when the module
+// loads as the entry script. Importing it (as the tests above do) leaves
+// that block unexercised. spawnSync launches scan_repo.mjs as the entry
+// script so the guard's true branch is covered.
+// ---------------------------------------------------------------------------
+
+describe("CLI invocation (subprocess — covers entry guard)", () => {
+  const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "scan_repo.mjs");
+
+  it("runs as CLI, exits 1 when no repo arg given", () => {
+    const r = spawnSync(process.execPath, [scriptPath], { encoding: "utf-8", timeout: 30000 });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /repo must be in <owner>\/<repo> format/);
+  });
+
+  it("runs as CLI, exits 1 on malformed repo (no slash)", () => {
+    const r = spawnSync(process.execPath, [scriptPath, "no-slash"], { encoding: "utf-8", timeout: 30000 });
+    assert.equal(r.status, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap-fill — nullish-coalescing fallbacks + ternary false-paths that the
+// happy-path fixtures don't exercise.
+// ---------------------------------------------------------------------------
+
+describe("nullish/ternary fallbacks", () => {
+  const root = join(tmpdir(), `scan-repo-fallbacks-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+
+  it("enumerateOnePlugin: agent without name/model/tools frontmatter uses defaults", () => {
+    const p = join(root, "plugins", "p-no-fm-agent");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "{}", "utf-8");
+    mkdirSync(join(p, "agents"), { recursive: true });
+    // No frontmatter — name falls back to filename, model/tools to "—"
+    writeFileSync(join(p, "agents", "blank.md"), "no frontmatter here\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.agents[0].name, "blank");
+    assert.equal(r.agents[0].model, "—");
+    assert.equal(r.agents[0].tools, "—");
+  });
+
+  it("enumerateOnePlugin: skill without name in frontmatter uses dir name", () => {
+    const p = join(root, "plugins", "p-skill-noname");
+    mkdirSync(join(p, "skills", "named-by-dir"), { recursive: true });
+    writeFileSync(join(p, "skills", "named-by-dir", "SKILL.md"), "---\ndescription: no name field\n---\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills[0].name, "named-by-dir");
+  });
+
+  it("enumerateOnePlugin: manifest.author null falls back to '—'", () => {
+    const p = join(root, "plugins", "p-author-null");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), JSON.stringify({ author: null }), "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.author, "—");
+  });
+
+  it("enumerateOnePlugin: manifest.author object without .name → '—'", () => {
+    const p = join(root, "plugins", "p-author-no-name");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), JSON.stringify({ author: { url: "https://example.com" } }), "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.author, "—");
+  });
+
+  it("enumerateHooks: JSON without 'hooks' key returns present:true with empty arrays", () => {
+    const f = join(root, "hooks-empty.json");
+    writeFileSync(f, JSON.stringify({}), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.present, true);
+    assert.deepEqual(r.events, []);
+    assert.deepEqual(r.entries, []);
+  });
+
+  it("enumerateHooks: inner hook with neither command nor type → '—'", () => {
+    const f = join(root, "hooks-bare.json");
+    writeFileSync(f, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [{}] }] } }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries[0].command, "—");
+  });
+
+  it("enumerateMcp: server with neither url nor command → empty endpoint", () => {
+    const f = join(root, "mcp-bare.json");
+    writeFileSync(f, JSON.stringify({ mcpServers: { x: {} } }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.servers[0].endpoint, "");
+  });
+
+  it("enumerateStandaloneAgents: file without name in frontmatter uses filename", () => {
+    const root2 = join(root, "sa-noname");
+    mkdirSync(join(root2, "agents"), { recursive: true });
+    writeFileSync(join(root2, "agents", "filename.md"), "no frontmatter\n", "utf-8");
+    const r = enumerateStandaloneAgents(root2);
+    assert.equal(r[0].name, "filename");
+    assert.equal(r[0].model, "—");
+  });
+
+  it("enumerateStandaloneSkills: nested skill without name uses sub-dir name", () => {
+    const root2 = join(root, "ss-nested-noname");
+    mkdirSync(join(root2, "skills", "outer", "innerdir"), { recursive: true });
+    writeFileSync(join(root2, "skills", "outer", "innerdir", "SKILL.md"), "---\ndescription: x\n---\n", "utf-8");
+    const r = enumerateStandaloneSkills(root2);
+    assert.equal(r[0].name, "innerdir");
+    assert.equal(r[0].license, "—");
+  });
+
+  it("enumerateStandaloneSkills: direct skill without name uses skill-dir name", () => {
+    const root2 = join(root, "ss-direct-noname");
+    mkdirSync(join(root2, "skills", "skill-dir-name"), { recursive: true });
+    writeFileSync(join(root2, "skills", "skill-dir-name", "SKILL.md"), "---\ndescription: x\n---\n", "utf-8");
+    const r = enumerateStandaloneSkills(root2);
+    assert.equal(r[0].name, "skill-dir-name");
+  });
+
+  it("renderIndexMd: skill row with has_scripts=false / broad_bash=false renders 'no'", () => {
+    const md = renderIndexMd({
+      owner_repo: "o/r", scanned_at: "t", commit_sha: "s", default_branch: "main", layout: "marketplace",
+      description: "d", license: "MIT", stars: 1, created: "c", last_commit_date: "lc",
+      recent_commits: { count: 0, from: "f", to: "t" },
+      plugins: [{
+        name: "p", description: "", version: "1", path: "p/", author: "—", license: "—",
+        agents: [],
+        skills: [{ name: "n", description: "", has_scripts: false, has_refs: false, license: "—", compatibility: "any", broad_bash: false }],
+        commands: [],
+        hooks: { present: false, entries: [] },
+        mcp: { present: false, servers: [] },
+      }],
+      standalone_agents: [], standalone_skills: [], standalone_commands: [],
+    });
+    assert.match(md, /\| n \| — \| no \| — \| any \| no \|/);
+  });
+
+  it("renderIndexMd: MCP server with is_local=true renders 'yes'", () => {
+    const md = renderIndexMd({
+      owner_repo: "o/r", scanned_at: "t", commit_sha: "s", default_branch: "main", layout: "marketplace",
+      description: "", license: "", stars: 0, created: "", last_commit_date: "",
+      recent_commits: { count: 0, from: "f", to: "t" },
+      plugins: [{
+        name: "p", description: "", version: "1", path: "p/", author: "—", license: "—",
+        agents: [], skills: [], commands: [],
+        hooks: { present: false, entries: [] },
+        mcp: { present: true, servers: [{ name: "local", endpoint: "localhost:8080", is_local: true }] },
+      }],
+      standalone_agents: [], standalone_skills: [], standalone_commands: [],
+    });
+    assert.match(md, /\| local \| `localhost:8080` \| yes \|/);
+  });
+
+  it("renderIndexMd: hooks/mcp without entries/servers arrays — ?? 0 fallbacks fire", () => {
+    // Realistic call site (enumerateOnePlugin) always populates entries/servers,
+    // but the optional-chain ?? 0 fallbacks guard against future shape drift.
+    // Exercise them explicitly.
+    const md = renderIndexMd({
+      owner_repo: "o/r", scanned_at: "t", commit_sha: "s", default_branch: "main", layout: "marketplace",
+      description: "", license: "", stars: 0, created: "", last_commit_date: "",
+      recent_commits: { count: 0, from: "f", to: "t" },
+      plugins: [{
+        name: "p", description: "", version: "1", path: "p/", author: "—", license: "—",
+        agents: [], skills: [], commands: [],
+        hooks: { present: false }, // no entries → ?? 0 path
+        mcp: { present: false },   // no servers → ?? 0 path
+      }],
+      standalone_agents: [], standalone_skills: [], standalone_commands: [],
+    });
+    assert.match(md, /Hooks total:\*\* 0 across/);
+    assert.match(md, /MCP servers total:\*\* 0/);
+  });
+
+  it("renderIndexMd: data.recent_commits undefined → no Recent commits line", () => {
+    const md = renderIndexMd({
+      owner_repo: "o/r", scanned_at: "t", commit_sha: "s", default_branch: "main", layout: "marketplace",
+      description: "", license: "", stars: 0, created: "", last_commit_date: "",
+      // recent_commits intentionally absent → `?? {}` fallback
+      plugins: [], standalone_agents: [], standalone_skills: [], standalone_commands: [],
+    });
+    assert.doesNotMatch(md, /Recent commits:/);
+  });
+
+  it("main: writes license:null when no LICENSE/LICENSE.md/LICENSE.txt exists, summary shows hooks:no, mcp:no", () => {
+    const outDir = join(root, "main-no-license-out");
+    const coDir = join(root, "main-no-license-co");
+    const target = join(coDir, "owner-nolic");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // No LICENSE file. No plugins/, no skills/, no agents/.
+    const logs = [];
+    const errs = [];
+    let code = null;
+    const fake = makeFakeExec([
+      { stdout: "cafe1\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/nolic", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, (m) => logs.push(m), (m) => errs.push(m), (c) => { code = c; },
+    );
+    assert.equal(code, 0, `errs: ${errs.join("\n")}`);
+    // The .json manifest should have license null (verifies licenseFileExists=false branch).
+    const manifest = JSON.parse(readFileSync(join(outDir, "owner-nolic.json"), "utf-8"));
+    assert.equal(manifest.has_hooks, false);
+    assert.equal(manifest.has_mcp, false);
+    // Summary line shows "hooks: no, mcp: no" (covers ternary false branches)
+    const summary = logs.join("\n");
+    assert.match(summary, /hooks: no/);
+    assert.match(summary, /mcp: no/);
+  });
+
+  after(() => rmSync(root, { recursive: true, force: true }));
+});
+
 

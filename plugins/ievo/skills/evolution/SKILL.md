@@ -213,6 +213,16 @@ Pick one from this list (or write a short custom string if none fits):
 
 If unclear from the conversation, default to `user-observed mistake` or `user-defined convention` based on lesson tone.
 
+## Step 5.5: Signal file for lifecycle hooks
+
+After the overlay append in Step 4 succeeds, write `.ievo/hooks/evolution-captured` (create the directory if absent). The body is a single line: the ISO-8601 timestamp of the capture. This file is the trigger for any `PostToolUse` hook configured via `/ievo:hooks-setup` matching `Write(.ievo/hooks/evolution-captured)`.
+
+Use the Write tool (NOT Bash) so the matcher fires:
+- `file_path`: `<project>/.ievo/hooks/evolution-captured`
+- `content`: `<ISO-8601 UTC timestamp of this capture>`
+
+Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
+
 ## Step 6: Report
 
 Output a short summary to the user:

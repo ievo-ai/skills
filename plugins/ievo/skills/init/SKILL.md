@@ -886,6 +886,16 @@ Append a final closing section so post-mortem readers know the run ended cleanly
 
 **Why incremental writes matter:** if init crashes / hangs / user cancels at any step, the partial log up to that point is on disk. `tail -f .ievo/log/init-*.md` works during long-running steps (discover.mjs, index-repos). Post-mortem diagnosis works even on failed runs.
 
+## Step 11.5: Signal file for lifecycle hooks
+
+Write `.ievo/hooks/init-complete` (create the directory if absent). The body of the file is a single line: the ISO-8601 timestamp of pipeline completion. The file is the trigger for any `PostToolUse` hook configured via `/ievo:hooks-setup` matching `Write(.ievo/hooks/init-complete)` — without this step, the configured hook never fires.
+
+Use the Write tool (NOT Bash) so the matcher in the user's settings.json fires:
+- `file_path`: `<project>/.ievo/hooks/init-complete`
+- `content`: `<ISO-8601 UTC timestamp of this run>`
+
+If the user hasn't run `/ievo:hooks-setup`, the file is still written — it's a one-line marker, costs nothing, and unblocks the hook configuration if added later. Don't gate this step on whether hooks are configured.
+
 ## Step 12: Final summary and reload reminder
 
 Print to user:

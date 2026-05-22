@@ -66,6 +66,7 @@ Use the `security-check` skill from the ievo plugin (loaded via the host agent p
 - **Step 3**: Threat pattern analysis — use Sonnet's reasoning (not regex) to detect prompt injection, credential exfiltration, suspicious network, time bombs, encoded payloads, broad bash, hook abuse, runtime download, social engineering, tool model bypass
 - **Step 4**: Build verdict from analysis (GREEN/YELLOW/RED) — based on what code actually does, not structural facts alone
 - **Step 5**: Build structured output with report_template (populated for RED only)
+- **Step 6 (only if `verdict == "RED"`)**: write `.ievo/hooks/security-red` using the Write tool (NOT Bash) so the matcher in any user-configured `Write(.ievo/hooks/security-red)` `PostToolUse` hook fires. Body: single ISO-8601 UTC timestamp line. Skip the write on GREEN/YELLOW — only RED triggers the lifecycle notification per the `/ievo:hooks-setup` skill contract.
 
 **Do not shortcut by owner reputation.** Famous accounts get compromised; verdict comes only from content scan.
 

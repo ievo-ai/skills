@@ -50,7 +50,7 @@ Options (single-select):
 - "none"              — no notification; only log to .ievo/log/hooks/events.log
 ```
 
-If "custom-script" → follow-up `AskUserQuestion` for the absolute path. Validate the path exists + is executable (`test -x "$path"`); re-prompt or fall back to "none" on failure.
+If "custom-script" → follow-up `AskUserQuestion` for the absolute path. Validate it's a **regular file** AND executable (`test -f "$path" && test -x "$path"` — `test -x` alone returns true for executable directories, which would pass validation but fail at hook fire time); re-prompt or fall back to "none" on failure.
 
 If "terminal-sequence" → follow-up `AskUserQuestion` for the terminal family:
 
@@ -116,7 +116,7 @@ Per-preference `<seq-printf>` content (replace `<msg>` with the per-event messag
 | `terminal-sequence` (iTerm2) | `\u001b]9;<msg>\u0007` (OSC 9 — iTerm2 system notification) |
 | `terminal-sequence` (WezTerm) | `\u001b]777;notify;iEvo;<msg>\u0007` (OSC 777 — WezTerm notify) |
 | `terminal-sequence` (other) | `\u0007` (falls back to bell) |
-| `custom-script` | keep the `mkdir -p` + `echo >> events.log` portion; replace the `printf '{"terminalSequence":...}'` tail with `exec <user-path> "<event>"` so the audit-log guarantee from Rules is preserved (final form: `["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) <msg>\" >> .ievo/log/hooks/events.log && exec <user-path> <event>"]`). The script receives the event identifier as its first positional argument and is responsible for its own notification UX. |
+| `custom-script` | keep the `mkdir -p` + `echo >> events.log` portion; replace the `printf '{"terminalSequence":...}'` tail with `exec "$1" "$2"` and pass the user path + event as POSITIONAL `sh -c` arguments (never interpolate raw into the shell string — paths with spaces / single quotes / `$()` would break or inject). Final form: `["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) <msg>\" >> .ievo/log/hooks/events.log && exec \"$1\" \"$2\"", "_", "<user-path>", "<event>"]` — `_` is the conventional `$0` placeholder, `$1` = user path, `$2` = event identifier. The script receives the event identifier as its first positional argument and is responsible for its own notification UX. |
 | `none` | omit the `printf ...` portion; keep only `mkdir -p` + `echo >> .log` |
 
 
@@ -134,7 +134,7 @@ Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing com
 Display the final merged config (the entries being added, not the whole file) and ask:
 
 ```
-The following hook entries will be added to <project|global>/.claude/settings.json:
+The following hook entries will be added to <.claude/settings.json | ~/.claude/settings.json — substitute the actual path from Step 3 scope>:
 
 [display new entries]
 

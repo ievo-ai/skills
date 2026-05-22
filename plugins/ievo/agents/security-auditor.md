@@ -5,6 +5,7 @@ model: sonnet
 tools:
   - Bash
   - Read
+  - Write
   - WebFetch
   - Glob
   - Grep

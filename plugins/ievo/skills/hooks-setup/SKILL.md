@@ -47,7 +47,7 @@ Options (single-select):
 - "terminal-bell"     — ring the terminal bell (universal; works in every terminal)
 - "terminal-sequence" — desktop notification via terminalSequence (requires iTerm2 / WezTerm / similar; v2.1.141+ Claude Code)
 - "custom-script"     — run a custom script (you provide the absolute path)
-- "none"              — no notification; only log to .ievo/log/hooks/<timestamp>.log
+- "none"              — no notification; only log to .ievo/log/hooks/events.log
 ```
 
 If "custom-script" → follow-up `AskUserQuestion` for the absolute path. Validate the path exists + is executable (`test -x "$path"`); re-prompt or fall back to "none" on failure.
@@ -116,7 +116,7 @@ Per-preference `<seq-printf>` content (replace `<msg>` with the per-event messag
 | `terminal-sequence` (iTerm2) | `\u001b]9;<msg>\u0007` (OSC 9 — iTerm2 system notification) |
 | `terminal-sequence` (WezTerm) | `\u001b]777;notify;iEvo;<msg>\u0007` (OSC 777 — WezTerm notify) |
 | `terminal-sequence` (other) | `\u0007` (falls back to bell) |
-| `custom-script` | omit the `printf '{"terminalSequence":...}'` portion entirely; replace `args` with `[user-path, "<event>"]` — the script receives the event identifier as its first positional argument and is responsible for its own notification UX |
+| `custom-script` | keep the `mkdir -p` + `echo >> events.log` portion; replace the `printf '{"terminalSequence":...}'` tail with `exec <user-path> "<event>"` so the audit-log guarantee from Rules is preserved (final form: `["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) <msg>\" >> .ievo/log/hooks/events.log && exec <user-path> <event>"]`). The script receives the event identifier as its first positional argument and is responsible for its own notification UX. |
 | `none` | omit the `printf ...` portion; keep only `mkdir -p` + `echo >> .log` |
 
 
@@ -159,7 +159,7 @@ Hooks fire on these signal-file writes:
   .ievo/hooks/init-complete       → after /ievo:init finishes
   .ievo/hooks/security-red        → after security-auditor returns RED
   .ievo/hooks/evolution-captured  → after /ievo:evolution writes an overlay
-Logs accumulate at .ievo/log/hooks/<ISO-timestamp>.log.
+Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f` / `grep` it).
 ```
 
 ## Rules

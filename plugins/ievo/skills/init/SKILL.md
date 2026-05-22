@@ -895,7 +895,7 @@ Append a final closing section so post-mortem readers know the run ended cleanly
 Write `.ievo/hooks/init-complete` (create the directory if absent). The body of the file is a single line: the ISO-8601 timestamp of pipeline completion. The file is the trigger for any `PostToolUse` hook configured via `/ievo:hooks-setup` matching `Write(.ievo/hooks/init-complete)` — without this step, the configured hook never fires.
 
 Use the Write tool (NOT Bash) so the matcher in the user's settings.json fires:
-- `file_path`: `<project>/.ievo/hooks/init-complete`
+- `file_path`: `.ievo/hooks/init-complete` (relative — the `PostToolUse` matcher `Write(.ievo/hooks/init-complete)` only fires on this exact form; never prefix `<project>/` or use an absolute path)
 - `content`: `<ISO-8601 UTC timestamp of this run>`
 
 If the user hasn't run `/ievo:hooks-setup`, the file is still written — it's a one-line marker, costs nothing, and unblocks the hook configuration if added later. Don't gate this step on whether hooks are configured.

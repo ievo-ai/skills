@@ -26,13 +26,14 @@ const SCRIPTS_DIR = "plugins/ievo/scripts";
 const REQUIRED = new Set([
   "discover.mjs",
   "validate_agents.mjs",
+  "scan_repo.mjs",
 ]);
 
 // Carve-outs: pre-existing scripts grandfathered against the rule with a
 // pinned target version for tests-to-land. Anything else under SCRIPTS_DIR
 // that is neither REQUIRED nor here triggers a "new untested script" failure.
 const CARVE_OUTS = new Map([
-  ["scan_repo.mjs", "tests pending — must land by v0.6.7 (HARD STOP — 5th roll, see AGENTS.md ledger)"],
+  // scan_repo.mjs tests landed in v0.6.7 — carve-out removed.
 ]);
 
 function parseLcov(text) {

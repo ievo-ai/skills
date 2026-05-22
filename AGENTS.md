@@ -111,13 +111,11 @@ ievo-ai/skills/
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.6):**
+**Current compliance ledger (v0.6.7):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
-- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.7** (5th roll). Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.7 must-do. The deadline has now been rolled five times (v0.6.2 → v0.6.3 → v0.6.4 → v0.6.5 → v0.6.6 → v0.6.7, this bundle being the 5th roll), because each intervening release has been carrying small fix bundles instead of the test work. **v0.6.7 is the hard stop** — the next bundle must either include scan_repo tests OR be deferred until they land. New modifications to `scan_repo.mjs` between v0.6.6 and v0.6.7 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
+- ✅ `scan_repo.mjs` — 100 / 100 / 100. Tests landed in v0.6.7 (`scan_repo.test.mjs`). Script refactored to export all functions + `isCliEntry` guard + `defaultUrlFn` named export for testability. `check-coverage.mjs` carve-out removed.
 - ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
-
-This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.7, remove the line above and mark it ✅.
 
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
@@ -225,8 +223,8 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 - v0.6.3 — pre-commit hooks (5 validators: nested fences, machine-local paths, CRLF frontmatter, placeholder leakage, agent frontmatter) + `.github/workflows/pre-commit-gate.yml` server-side mirror; AGENTS.md "wait for in-progress reviews" rule promoted from operator memory; 2 pre-existing nested-fence bugs in `feedback/SKILL.md` fixed as the validator caught them
 - v0.6.4 — Eva PR bundle (4 small text fixes that had been queued as PRs #37–#40 against the v0.6.2 baseline, all coverage-gated due to stale SCRIPT_VERSION coupling): stale "Python" → "Node" in `index-repos/SKILL.md`; stale `risk: <tier>` → `mcp: yes/no` in `repo-indexer.md` + `index-repos/SKILL.md` stdout-format docs; universal-first compatibility in `evolution/SKILL.md`; vendor-neutral "Sonnet family" instead of pinned "Sonnet 4.6+" in `security-check/SKILL.md`. Plus `/home/runner` whitelist in `machine-local-paths.mjs` (CI-doc false-positive from PR #41 claude-review).
 - v0.6.5 — second Eva PR bundle (#44 + #45): missing `debug-on` / `debug-off` entries added to AGENTS.md + README directory listings, scripts listing in README expanded with `discover.mjs` / `validate_agents.mjs` / `tests/`, `/ievo:debug-on` + `/ievo:debug-off` rows added to README skills table; **security fix**: `feedback/SKILL.md` Step 6 now writes the issue body via the Write tool + passes it to `gh` via `--body-file` instead of inline `--body "..."` — closes a shell-interpolation surface (user-verbatim feedback could contain backticks / `$(...)` / `${VAR}`). Pattern already enforced in `init/SKILL.md` Step 8b; this brings `feedback` into alignment.
-- v0.6.6 (current) — third Eva PR bundle (#47 + #48): `index-repos/SKILL.md` rule clarified — `scan_repo.mjs` tracks its own format-version independently of `plugin.json` (currently `1.1.0`, inherited from community-index-bot lineage); only `discover.mjs` is coupled to `plugin.json` and that coupling is enforced by `discover.test.mjs`. Plus `commands/uninstall.md` `allowed-tools` line now includes `Bash` — the Step 1 `grep -l` calls previously triggered manual-approval prompts.
-- v0.6.7 (planned, HARD STOP) — `scan_repo.mjs` tests MUST land. Carve-out has been rolled 5 times now; the next bundle either includes the tests or is deferred until they're written.
+- v0.6.6 — third Eva PR bundle (#47 + #48): `index-repos/SKILL.md` rule clarified — `scan_repo.mjs` tracks its own format-version independently of `plugin.json` (currently `1.1.0`, inherited from community-index-bot lineage); only `discover.mjs` is coupled to `plugin.json` and that coupling is enforced by `discover.test.mjs`. Plus `commands/uninstall.md` `allowed-tools` line now includes `Bash` — the Step 1 `grep -l` calls previously triggered manual-approval prompts.
+- v0.6.7 (current) — `scan_repo.mjs` 100% test coverage: 133 tests, `scan_repo.test.mjs`, exports + `isCliEntry` + `defaultUrlFn` refactor, `check-coverage.mjs` carve-out removed. Fulfils the HARD STOP commitment (5th roll).
 - v0.7.0 (planned) — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
 - v1.0 — skills.sh publication + cross-project pattern curation
 

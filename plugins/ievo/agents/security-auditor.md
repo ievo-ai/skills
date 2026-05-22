@@ -10,7 +10,8 @@ tools:
   - Grep
 ---
 
-> ⚠️ **Operator note — `CLAUDE_CODE_SUBAGENT_MODEL` precedence.** Per [Claude Code's subagent docs](https://code.claude.com/docs/en/sub-agents), model resolution order is: (1) `CLAUDE_CODE_SUBAGENT_MODEL` env var if set, (2) per-invocation model parameter, (3) agent frontmatter `model:`, (4) main-conversation model. **The env var overrides the `model: sonnet` declared above.** If an operator sets `CLAUDE_CODE_SUBAGENT_MODEL` to any Haiku-tier value (`haiku`, or a pinned `claude-haiku-...` ID), this agent's threat-detection quality silently degrades — `security-check/SKILL.md` explicitly states "Haiku is insufficient (misses indirection attacks)." Guard against this by leaving the env var unset (frontmatter wins) or setting it to `sonnet`/`opus`. The env var first appears in Claude Code release notes at v2.1.146 (May 2026); it may have been added earlier without changelog mention.
+> [!WARNING]
+> **Operator note — `CLAUDE_CODE_SUBAGENT_MODEL` precedence.** Per [Claude Code's subagent docs](https://code.claude.com/docs/en/sub-agents), model resolution order is: (1) `CLAUDE_CODE_SUBAGENT_MODEL` env var if set, (2) per-invocation model parameter, (3) agent frontmatter `model:`, (4) main-conversation model. **The env var overrides the `model: sonnet` declared above.** If an operator sets `CLAUDE_CODE_SUBAGENT_MODEL` to any Haiku-tier value (`haiku`, or a pinned `claude-haiku-...` ID), this agent's threat-detection quality silently degrades — `security-check/SKILL.md` explicitly states "Haiku is insufficient (misses indirection attacks)." Guard against this by leaving the env var unset (frontmatter wins) or setting it to `sonnet`/`opus`. The env var first appears in Claude Code release notes at v2.1.146 (May 2026); it may have been added earlier without changelog mention.
 
 # Security Auditor — senior application security engineer
 

@@ -168,7 +168,7 @@ Stop only on missing gh / git / node prereqs. Permission setup is opt-in but str
 
 ## Step 1.5: Codex environment pre-flight (Codex platform only)
 
-If the host platform is Codex (detect via `$CODEX_CLI` env var, or the `codex` binary being on PATH via `command -v codex`), run `codex doctor` and check the exit code. `codex doctor` shipped in Codex `rust-v0.131.0` (May 18 2026) as a first-class diagnostic across runtime, auth, terminal, network, config, and local state.
+If the host platform is Codex (detect via `$CODEX_CLI` env var ONLY — do NOT key off `command -v codex` because a Claude Code user may have the Codex CLI installed alongside, which would false-trigger this step on a non-Codex run), run `codex doctor` and check the exit code. `codex doctor` shipped in Codex `rust-v0.131.0` (May 18 2026) as a first-class diagnostic across runtime, auth, terminal, network, config, and local state.
 
 ```bash
 codex doctor

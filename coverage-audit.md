@@ -8,7 +8,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 
 | User intent | Skill / Command / Agent | Script | Status | Notes |
 |---|---|---|---|---|
-| Set up iEvo in a new project | `/ievo:init` | `discover.mjs`, `scan_repo.mjs`, `validate_agents.mjs` | covered | 6-stage pipeline: discover → index → categorical rank → interview → security-auditor → install |
+| Set up iEvo in a new project | `/ievo:init` | `discover.mjs`, `scan_repo.mjs` | covered | 6-stage pipeline: discover → index → categorical rank → interview → security-auditor → install. `validate_agents.mjs` is NOT invoked by init — it runs via CI gate + pre-commit only; see "Validate agent frontmatter" row below. |
 | Discover relevant skills/agents from skills.sh | (used by `/ievo:init`) | `discover.mjs` | covered | Parallel API queries with reputation boost + install thresholds inherited from find-skills SKILL.md |
 | Index a single GitHub repo for plugin/agent/skill enumeration | `/ievo:index-repos` | `scan_repo.mjs` | covered | Standalone; also dispatched in parallel by `/ievo:init` per discovered repo |
 | Audit a specific skill/agent/plugin for safety | `/ievo:security-check` | — (LLM body in `security-check/SKILL.md` + `security-auditor` agent) | covered | Senior-security-engineer threat model; GREEN/YELLOW/RED verdict + cited evidence; Sonnet-tier reasoning required |

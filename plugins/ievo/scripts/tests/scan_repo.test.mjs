@@ -14,7 +14,7 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -474,3 +474,168 @@ describe("isCliEntry", () => {
     assert.equal(isCliEntry(scriptUrl, ["node"]), false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase C — execImpl-injected tests for shell-calling functions
+//
+// We supply a fake execImpl(cmd, args, opts) that records calls and
+// returns scripted output, instead of running real git. Same pattern as
+// fetchImpl in discover.mjs.
+// ---------------------------------------------------------------------------
+
+function makeFakeExec(responses) {
+  // responses: Array of { args: <string[]|RegExp>, stdout?: string, throw?: Error }
+  // Match cmd+args against the recorded list in order; throws on no-match.
+  const calls = [];
+  let i = 0;
+  function fake(cmd, args, opts) {
+    calls.push({ cmd, args, opts });
+    const r = responses[i++];
+    if (!r) throw new Error(`fake exec: no response scripted for ${cmd} ${args.join(" ")}`);
+    if (r.throw) throw r.throw;
+    return r.stdout ?? "";
+  }
+  fake.calls = calls;
+  return fake;
+}
+
+describe("run", () => {
+  it("returns trimmed stdout on success", () => {
+    const fake = makeFakeExec([{ stdout: "  hello\n" }]);
+    assert.equal(run("echo", ["hi"], { execImpl: fake }), "hello");
+    assert.equal(fake.calls.length, 1);
+    assert.equal(fake.calls[0].cmd, "echo");
+  });
+  it("rethrows when check is true (default)", () => {
+    const err = Object.assign(new Error("boom"), { stdout: "partial" });
+    const fake = makeFakeExec([{ throw: err }]);
+    assert.throws(() => run("git", ["bad"], { execImpl: fake }), /boom/);
+  });
+  it("returns trimmed partial stdout when check is false and command throws", () => {
+    const err = Object.assign(new Error("nonzero"), { stdout: " partial-output \n" });
+    const fake = makeFakeExec([{ throw: err }]);
+    assert.equal(run("git", ["log"], { check: false, execImpl: fake }), "partial-output");
+  });
+  it("returns empty string when check is false and error has no stdout", () => {
+    const fake = makeFakeExec([{ throw: new Error("no stdout") }]);
+    assert.equal(run("git", ["x"], { check: false, execImpl: fake }), "");
+  });
+  it("passes cwd through to execImpl opts", () => {
+    const fake = makeFakeExec([{ stdout: "ok" }]);
+    run("git", ["status"], { cwd: "/tmp/somewhere", execImpl: fake });
+    assert.equal(fake.calls[0].opts.cwd, "/tmp/somewhere");
+  });
+});
+
+describe("getCommitSha / getLastCommitDate / getDefaultBranch", () => {
+  it("getCommitSha returns trimmed sha", () => {
+    const fake = makeFakeExec([{ stdout: "abc1234\n" }]);
+    assert.equal(getCommitSha("/repo", fake), "abc1234");
+    assert.deepEqual(fake.calls[0].args, ["rev-parse", "--short", "HEAD"]);
+  });
+  it("getLastCommitDate slices the ISO date out of git log", () => {
+    const fake = makeFakeExec([{ stdout: "2026-05-22T10:30:00+00:00" }]);
+    assert.equal(getLastCommitDate("/repo", fake), "2026-05-22");
+  });
+  it("getDefaultBranch returns symbolic-ref output", () => {
+    const fake = makeFakeExec([{ stdout: "main" }]);
+    assert.equal(getDefaultBranch("/repo", fake), "main");
+  });
+  it("getDefaultBranch falls back to 'main' on detached HEAD / error", () => {
+    const fake = makeFakeExec([{ throw: new Error("ref is not a symbolic ref") }]);
+    assert.equal(getDefaultBranch("/repo", fake), "main");
+  });
+});
+
+describe("countRecentCommits", () => {
+  it("counts non-empty lines in git log oneline output", () => {
+    const fake = makeFakeExec([{ stdout: "abc commit one\ndef commit two\n123 commit three\n" }]);
+    assert.equal(countRecentCommits("/repo", "2026-05-01", fake), 3);
+    assert.match(fake.calls[0].args.join(" "), /--since=2026-05-01/);
+  });
+  it("returns 0 for empty output", () => {
+    const fake = makeFakeExec([{ stdout: "" }]);
+    assert.equal(countRecentCommits("/repo", "2026-05-01", fake), 0);
+  });
+  it("skips blank lines when counting", () => {
+    const fake = makeFakeExec([{ stdout: "a\n\n  \nb\n" }]);
+    assert.equal(countRecentCommits("/repo", "2026-05-01", fake), 2);
+  });
+  it("returns 0 when git log fails (check:false in run)", () => {
+    const fake = makeFakeExec([{ throw: new Error("git error") }]);
+    assert.equal(countRecentCommits("/repo", "2026-05-01", fake), 0);
+  });
+});
+
+describe("checkoutOrRefresh", () => {
+  const root = join(tmpdir(), `scan-repo-checkout-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+
+  it("clones into a fresh checkout dir when target doesn't exist", () => {
+    const co = join(root, "fresh");
+    const fake = makeFakeExec([{ stdout: "" }]); // git clone
+    const target = checkoutOrRefresh("owner/repo", co, false, fake);
+    assert.equal(target, join(co, "owner-repo"));
+    // The clone call URL is the GitHub https form
+    const args = fake.calls[0].args;
+    assert.equal(args[0], "clone");
+    assert.ok(args.includes("https://github.com/owner/repo.git"));
+  });
+
+  it("uses cached target without git ops when checkout is fresh", () => {
+    const co = join(root, "cached");
+    // Set up a "checkout" that looks like a recent git repo
+    const target = join(co, "owner-repo");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    const fake = makeFakeExec([]); // no calls should be made
+    const result = checkoutOrRefresh("owner/repo", co, false, fake);
+    assert.equal(result, target);
+    assert.equal(fake.calls.length, 0);
+  });
+
+  it("refreshes (fetch + reset) when force=true even if cached", () => {
+    const co = join(root, "forced");
+    const target = join(co, "owner-repo");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    const fake = makeFakeExec([{ stdout: "" }, { stdout: "" }]); // fetch + reset
+    const result = checkoutOrRefresh("owner/repo", co, true, fake);
+    assert.equal(result, target);
+    assert.equal(fake.calls.length, 2);
+    assert.equal(fake.calls[0].args[0], "fetch");
+    assert.equal(fake.calls[1].args[0], "reset");
+  });
+
+  it("refreshes when checkout is older than TTL and force=false", () => {
+    const co = join(root, "stale");
+    const target = join(co, "owner-repo");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    const headFile = join(target, ".git", "HEAD");
+    writeFileSync(headFile, "ref: refs/heads/main\n", "utf-8");
+    // Backdate HEAD mtime past TTL_SECONDS so the cache check rejects it.
+    const past = (Date.now() - (TTL_SECONDS + 60) * 1000) / 1000;
+    utimesSync(headFile, past, past);
+    const fake = makeFakeExec([{ stdout: "" }, { stdout: "" }]); // fetch + reset
+    const result = checkoutOrRefresh("owner/repo", co, false, fake);
+    assert.equal(result, target);
+    assert.equal(fake.calls.length, 2, "fetch + reset should both fire");
+  });
+
+  it("returns target even if fetch/reset fails (uses stale cache)", () => {
+    const co = join(root, "fetch-fail");
+    const target = join(co, "owner-repo");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    const headFile = join(target, ".git", "HEAD");
+    writeFileSync(headFile, "ref: refs/heads/main\n", "utf-8");
+    const past = (Date.now() - (TTL_SECONDS + 60) * 1000) / 1000;
+    utimesSync(headFile, past, past);
+    // fetch throws; the catch block returns target without retrying.
+    const fake = makeFakeExec([{ throw: new Error("network down") }]);
+    const result = checkoutOrRefresh("owner/repo", co, false, fake);
+    assert.equal(result, target);
+  });
+
+  after(() => rmSync(root, { recursive: true, force: true }));
+});
+

@@ -13,6 +13,8 @@
 //   - Placeholder syntax: `/Users/<name>/`, `/home/$USER/`, `~/path` — the
 //     concrete-username pattern requires a literal identifier after the
 //     prefix, not `<…>`, `$…`, `~`.
+//   - GitHub Actions runner home `/home/runner/...` — recurring legitimate
+//     mention in CI documentation; whitelisted by name.
 //   - Lines containing the literal marker `machine-local-ok` — explicit
 //     opt-out for legitimate documentation examples.
 //
@@ -39,6 +41,12 @@ const PATTERNS = [
 ];
 const ALLOWLIST_MARKER = "machine-local-ok";
 
+// Known-good system home directories that legitimately appear in CI / system
+// documentation. Matched against the captured path (case-insensitive).
+const WHITELISTED_HOMES = new Set([
+  "/home/runner",  // GitHub Actions runner
+]);
+
 export function checkMachineLocalPaths(text) {
   const lines = text.split(/\r?\n/);
   const errors = [];
@@ -48,7 +56,9 @@ export function checkMachineLocalPaths(text) {
     const hits = new Set();
     for (const re of PATTERNS) {
       for (const match of line.matchAll(re)) {
-        hits.add(match[1]);
+        if (!WHITELISTED_HOMES.has(match[1].toLowerCase())) {
+          hits.add(match[1]);
+        }
       }
     }
     for (const hit of hits) {

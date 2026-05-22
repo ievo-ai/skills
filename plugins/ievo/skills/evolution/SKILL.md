@@ -2,7 +2,7 @@
 name: evolution
 description: Capture a lesson and add it to the appropriate evolution overlay — a per-agent file, per-skill file, or project-wide rules file. Use when the user identifies a behavior to improve, a mistake to prevent, a project convention, a team role, a tech-stack constraint, or any pattern worth persisting beyond the current session. Appends to `.ievo/evolution/<scope>/<name>.md` (overlay file). The agent/skill body is never modified — overlays are read at dispatch time via a one-time marker injection.
 license: MIT
-compatibility: Designed for Claude Code with the iEvo plugin; usable on any agentskills.io-compatible platform with reduced functionality (no sub-agent isolation).
+compatibility: Works on any agentskills.io-compatible platform. Sub-agent isolation (Task tool dispatch) is available on Claude Code and Codex with the iEvo plugin; other platforms execute steps inline.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

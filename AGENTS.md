@@ -109,13 +109,13 @@ ievo-ai/skills/
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.3):**
+**Current compliance ledger (v0.6.4):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
-- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.4**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.4 must-do — new modifications to `scan_repo.mjs` between v0.6.3 and v0.6.4 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
+- ⏳ `scan_repo.mjs` — **tests pending, exception until v0.6.5**. Existing battle-tested code (validated byte-identical against the prior Python implementation on 10 community repos). Adding tests is tracked as a v0.6.5 must-do — new modifications to `scan_repo.mjs` between v0.6.4 and v0.6.5 require accompanying tests by the modifying PR (the rule applies; only the pre-existing baseline is grandfathered).
 - ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
 
-This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.4, remove the line above and mark it ✅.
+This carve-out is the only one. When `scan_repo.mjs` gains tests in v0.6.5, remove the line above and mark it ✅.
 
 ### Version bumping
 - **Every PR bumps version** in BOTH `plugins/ievo/.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (in the latter: `metadata.version` + `plugins[0].version`)
@@ -220,8 +220,9 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 - v0.6.0 — `discover.mjs` (own skills.sh API integration, drop find-skills prereq), debug-on/off skills, 100% test coverage rule
 - v0.6.1 — CI coverage gate (`.github/workflows/coverage-gate.yml`), `isCliEntry` refactor closes the CLI-entry-guard branch gap → ledger carve-outs dropped
 - v0.6.2 — claude-review follow-ups: `pathToFileURL` in tests for Windows-correct file URLs; `parseLcov` keys by full SF path with explicit basename-collision detection
-- v0.6.3 (current) — pre-commit hooks (5 validators: nested fences, machine-local paths, CRLF frontmatter, placeholder leakage, agent frontmatter) + `.github/workflows/pre-commit-gate.yml` server-side mirror; AGENTS.md "wait for in-progress reviews" rule promoted from operator memory; 2 pre-existing nested-fence bugs in `feedback/SKILL.md` fixed as the validator caught them
-- v0.6.4 (planned) — `scan_repo.mjs` tests land → ledger carve-out cleared, gate enforces 100/100/100 on all three scripts
+- v0.6.3 — pre-commit hooks (5 validators: nested fences, machine-local paths, CRLF frontmatter, placeholder leakage, agent frontmatter) + `.github/workflows/pre-commit-gate.yml` server-side mirror; AGENTS.md "wait for in-progress reviews" rule promoted from operator memory; 2 pre-existing nested-fence bugs in `feedback/SKILL.md` fixed as the validator caught them
+- v0.6.4 (current) — Eva PR bundle (4 small text fixes that had been queued as PRs #37–#40 against the v0.6.2 baseline, all coverage-gated due to stale SCRIPT_VERSION coupling): stale "Python" → "Node" in `index-repos/SKILL.md`; stale `risk: <tier>` → `mcp: yes/no` in `repo-indexer.md` + `index-repos/SKILL.md` stdout-format docs; universal-first compatibility in `evolution/SKILL.md`; vendor-neutral "Sonnet family" instead of pinned "Sonnet 4.6+" in `security-check/SKILL.md`. Plus `/home/runner` whitelist in `machine-local-paths.mjs` (CI-doc false-positive from PR #41 claude-review).
+- v0.6.5 (planned) — `scan_repo.mjs` tests land → ledger carve-out cleared, gate enforces 100/100/100 on all three scripts
 - v0.7.0 (planned) — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs for agent-only/plugin-only repos
 - v1.0 — skills.sh publication + cross-project pattern curation
 

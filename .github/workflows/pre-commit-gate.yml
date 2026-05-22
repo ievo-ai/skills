@@ -1,0 +1,36 @@
+name: Pre-commit Gate
+
+# Server-side enforcement of .pre-commit-config.yaml. The same validator
+# scripts in .github/scripts/validators/ run locally via `pre-commit run`
+# and here via `pre-commit run --all-files`. Single source of truth in
+# the config; this workflow is the can't-bypass-with-no-verify safety net.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pre-commit-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js (validator runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python (pre-commit runtime)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3.0.1

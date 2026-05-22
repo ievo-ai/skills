@@ -32,7 +32,7 @@ const REQUIRED = new Set([
 // pinned target version for tests-to-land. Anything else under SCRIPTS_DIR
 // that is neither REQUIRED nor here triggers a "new untested script" failure.
 const CARVE_OUTS = new Map([
-  ["scan_repo.mjs", "tests pending — must land by v0.6.3 (see AGENTS.md ledger)"],
+  ["scan_repo.mjs", "tests pending — must land by v0.6.4 (see AGENTS.md ledger)"],
 ]);
 
 function parseLcov(text) {

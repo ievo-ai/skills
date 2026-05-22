@@ -1,0 +1,55 @@
+# pre-commit hooks for ievo-ai/skills.
+#
+# Local enforcement layer mirroring .github/workflows/pre-commit-gate.yml —
+# both call the SAME validator scripts in .github/scripts/validators/. The
+# workflow is the hard gate (can't be bypassed); pre-commit is the fast
+# feedback loop on the author's machine.
+#
+# Install (one-time per clone, uv-based — matches the iEvo toolchain):
+#   uv tool install pre-commit  # or: pipx / pip install pre-commit, brew install pre-commit
+#   pre-commit install          # wires .git/hooks/pre-commit
+#
+# Run manually against all files:
+#   pre-commit run --all-files
+#
+# Bypass (use sparingly; the GHA workflow will still gate):
+#   git commit --no-verify
+#
+# See AGENTS.md § "PR workflow conventions" for the why.
+
+repos:
+  - repo: local
+    hooks:
+      - id: validate-agents
+        name: Agent frontmatter (vendor-neutral models, required fields)
+        entry: node plugins/ievo/scripts/validate_agents.mjs plugins/ievo/agents
+        language: system
+        files: ^plugins/ievo/agents/.*\.md$
+        pass_filenames: false
+
+      - id: nested-fences
+        name: Markdown nested-fence detection (closes-outer bug)
+        entry: node .github/scripts/validators/nested-fences.mjs
+        language: system
+        files: \.md$
+
+      - id: crlf-frontmatter
+        name: CRLF in YAML frontmatter (validator-bypass surface)
+        entry: node .github/scripts/validators/crlf-frontmatter.mjs
+        language: system
+        files: \.md$
+
+      - id: machine-local-paths
+        name: Machine-local path leakage (/Users/<name>/, /home/<name>/, C:\Users\)
+        entry: node .github/scripts/validators/machine-local-paths.mjs
+        language: system
+        # Text-ish files: docs, configs, sources. Excludes binaries/lockfiles
+        # which would be noisy and rarely contain user paths.
+        files: \.(md|mjs|js|ts|py|sh|yaml|yml|json|txt)$
+        exclude: ^(package-lock\.json|coverage\.lcov)$
+
+      - id: placeholder-leakage
+        name: Orphan TODO/FIXME/XXX/HACK without ticket reference
+        entry: node .github/scripts/validators/placeholder-leakage.mjs
+        language: system
+        files: \.(md|mjs|js|ts|py|sh)$

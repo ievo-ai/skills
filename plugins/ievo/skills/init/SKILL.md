@@ -166,6 +166,26 @@ For `Skip`: continue — but expect blocked commands during the run.
 
 Stop only on missing gh / git / node prereqs. Permission setup is opt-in but strongly recommended.
 
+## Step 1.5: Codex environment pre-flight (Codex platform only)
+
+If the host platform is Codex (detect via `$CODEX_CLI` env var, or the `codex` binary being on PATH via `command -v codex`), run `codex doctor` and check the exit code. `codex doctor` shipped in Codex `rust-v0.131.0` (May 18 2026) as a first-class diagnostic across runtime, auth, terminal, network, config, and local state.
+
+```bash
+codex doctor
+```
+
+- **Exit 0** → environment healthy, continue to Step 2.
+- **Non-zero exit** → surface the doctor output to the user and halt. Show this message:
+
+  ```
+  Codex environment is unhealthy (see `codex doctor` output above).
+  Fix the reported issues and re-run `/ievo:init`.
+  ```
+
+  Common fixes: re-login to Codex (`codex login`), regenerate auth (`codex auth refresh`), update Codex CLI to the latest release.
+
+On Claude Code: skip this step entirely (no equivalent built-in diagnostic command yet — May 2026). The Step 1 prereq checks above cover the same surface (git / gh / node). Update this skill when Claude Code ships an equivalent.
+
 ## Step 2: Prepare project directories
 
 Create if missing:

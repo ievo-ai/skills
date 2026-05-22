@@ -56,6 +56,11 @@ export function checkNestedFences(text) {
           `line ${outerLine}: outer \`${"`".repeat(outerCount - 1)}${outerLabel} fence is closed at line ${i + 1} by a tagged fence \`${"`".repeat(count - 1)}${tag}. The inner fence's tag becomes stray text and rendering breaks. Use ${outerCount + 1}+ backticks for the outer fence so nested ${count}-backtick fences stay as content.`,
         );
       }
+      // After flagging, the scanner exits the outer fence and continues at top
+      // level. CommonMark agrees: same-or-more-backticks closes the outer, so
+      // the next fence we see opens a fresh block. Note: secondary errors in
+      // the same file after this point may be cascaded artefacts of the first
+      // bad nesting — fix the first one and re-run for a clean report.
       inside = false;
     }
     // count < outerCount → inner content, not a close (legitimate nesting).

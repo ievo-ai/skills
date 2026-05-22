@@ -26,31 +26,59 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-export function checkCrlfFrontmatter(text) {
-  // Operate on raw bytes (no \r normalisation) so we see CRLF directly.
-  // Find frontmatter bounds: the file must start with `---\n` or `---\r\n`.
-  if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) {
-    return []; // no frontmatter → nothing to check
+// Split text into { content, ending } records. Recognises three line endings
+// distinctly: "CRLF" (\r\n), "CR" (bare \r, legacy Mac OS), "LF" (\n). The
+// last line gets ending "" if the file has no trailing newline.
+function splitLines(text) {
+  const lines = [];
+  let buf = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\r") {
+      if (text[i + 1] === "\n") {
+        lines.push({ content: buf, ending: "CRLF" });
+        i++;
+      } else {
+        lines.push({ content: buf, ending: "CR" });
+      }
+      buf = "";
+    } else if (c === "\n") {
+      lines.push({ content: buf, ending: "LF" });
+      buf = "";
+    } else {
+      buf += c;
+    }
   }
-  // Find the closing `---` (on its own line, after the opening).
-  // Split on \n only (preserve \r for inspection). First line is `---`.
-  const lines = text.split("\n");
+  if (buf.length > 0) lines.push({ content: buf, ending: "" });
+  return lines;
+}
+
+export function checkCrlfFrontmatter(text) {
+  // Accept any file that starts with the three-dash opener, regardless of
+  // which line-ending follows. The old `startsWith("---\n")` check missed
+  // CR-only files entirely: `---\r…` matched neither `---\n` nor `---\r\n`
+  // and the validator silently returned [] — bypass of the exact surface
+  // this validator was built to close.
+  if (!text.startsWith("---") || (text[3] !== "\n" && text[3] !== "\r")) {
+    return [];
+  }
+  const lines = splitLines(text);
   let closeIdx = -1;
   for (let i = 1; i < lines.length; i++) {
-    const stripped = lines[i].replace(/\r$/, "");
-    if (stripped === "---") {
+    if (lines[i].content === "---") {
       closeIdx = i;
       break;
     }
   }
   if (closeIdx < 0) {
-    return ["frontmatter: opens with --- but no closing --- found"];
+    return ["line 1: frontmatter opens with '---' but no closing '---' was found"];
   }
   const errors = [];
-  // Inspect lines 0..closeIdx (the frontmatter block, both fences inclusive).
   for (let i = 0; i <= closeIdx; i++) {
-    if (lines[i].endsWith("\r")) {
+    if (lines[i].ending === "CRLF") {
       errors.push(`line ${i + 1}: CRLF (\\r\\n) line ending in frontmatter — re-save the file as LF-only. Windows authors: in VSCode use the bottom-right CRLF→LF toggle; in git, .gitattributes 'text eol=lf' enforces conversion on commit.`);
+    } else if (lines[i].ending === "CR") {
+      errors.push(`line ${i + 1}: bare CR (\\r) line ending in frontmatter — legacy Mac OS line ending. Re-save the file as LF-only.`);
     }
   }
   return errors;

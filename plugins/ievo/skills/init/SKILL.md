@@ -857,15 +857,17 @@ Per existing convention: if any install step fails, report and continue with the
 Project `.gitignore` should ignore:
 - `.ievo/log/` — diagnostic logs (local-only)
 - `.ievo/cache/` — repo indices (re-derivable)
+- `.ievo/hooks/` — ephemeral one-line signal-file timestamps written by Step 11.5 / evolution Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state)
 
 But NOT ignore (must be committed for team portability):
 - `.ievo/evolution/` — overlay files (project-owned evolution data)
 
-Check project's `.gitignore`. If it doesn't already cover `.ievo/log/` and `.ievo/cache/`, append:
+Check project's `.gitignore`. If it doesn't already cover `.ievo/log/`, `.ievo/cache/`, and `.ievo/hooks/`, append:
 ```
 # iEvo local-only artifacts
 .ievo/log/
 .ievo/cache/
+.ievo/hooks/
 ```
 
 If no `.gitignore` exists, do not create one — note in summary.

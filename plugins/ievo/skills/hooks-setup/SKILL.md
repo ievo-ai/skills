@@ -2,6 +2,12 @@
 name: hooks-setup
 description: Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, and evolution captured. Writes hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks "notify me when ievo finishes", "add hooks for ievo", "set up ievo notifications", or "configure ievo lifecycle hooks". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal.
 license: MIT
+allowed-tools:
+  - Read
+  - Edit
+  - Write
+  - AskUserQuestion
+  - Bash(test*)
 compatibility: Claude Code v2.1.139+ for the `args: string[]` exec-form hook field; v2.1.141+ for the `terminalSequence` notification field. Codex's hook schema may differ — run on Codex only if its settings.json honors the same fields. Other agentskills.io-compatible hosts: works only if they support the Claude Code hook schema for settings.json.
 metadata:
   author: ievo-ai
@@ -73,7 +79,9 @@ If the file exists and contains invalid JSON, halt with: "Existing settings.json
 
 For each event the user selected in Step 1, construct one `PostToolUse` hook entry that matches on `Write(.ievo/hooks/<event>)`. The matcher is the Write tool call writing to the iEvo-specific signal-file path; this is precise and portable (no broad-Bash-matcher false positives).
 
-Template per event (replace `<event>` with `init-complete` / `security-red` / `evolution-captured`):
+**Important:** per [Claude Code's hooks reference](https://code.claude.com/docs/en/hooks), the `terminalSequence` field belongs in the **hook command's JSON output (stdout)**, NOT as a static field in `settings.json`. The hook command emits `{"terminalSequence": "<escape>"}` to stdout; Claude Code reads stdout, parses the JSON, and emits the sequence through its own terminal write path (hooks run without a controlling terminal, so direct `/dev/tty` writes fail). Restricted to OSC `0`/`1`/`2`/`9`/`99`/`777` and BEL — values outside the allowlist are silently ignored.
+
+Template per event (replace `<event>` with `init-complete` / `security-red` / `evolution-captured`; `<msg>` with the per-event string from the table below; `<seq-printf>` with the per-preference printf format from the second table):
 
 ````json
 {
@@ -81,16 +89,18 @@ Template per event (replace `<event>` with `init-complete` / `security-red` / `e
   "hooks": [
     {
       "type": "command",
-      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo '<msg>' >> .ievo/log/hooks/$(date -u +%Y%m%dT%H%M%SZ).log"],
-      "terminalSequence": "<seq>"
+      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo '<msg>' >> .ievo/log/hooks/$(date -u +%Y%m%dT%H%M%SZ).log && printf '{\"terminalSequence\":\"<seq-printf>\"}'"]
     }
   ]
 }
 ````
 
-Note the `mkdir -p .ievo/log/hooks &&` prefix in `args` — the bare `>>` redirect would fail on first fire if the directory doesn't exist; `mkdir -p` is idempotent and creates the parent dirs as needed.
+The `args` pipeline does three things on every fire:
+1. `mkdir -p .ievo/log/hooks` — idempotent, creates parent dirs if missing
+2. `echo '<msg>' >> .log` — append timestamped audit entry
+3. `printf '{"terminalSequence":"..."}'` — emit JSON to stdout so Claude Code reads it and fires the notification
 
-Per-event message:
+Per-event message (substitute for `<msg>`):
 
 | Event | Message |
 |-------|---------|
@@ -98,16 +108,17 @@ Per-event message:
 | `security-red` | `iEvo: security RED verdict — check .ievo/security/` |
 | `evolution-captured` | `iEvo: evolution overlay captured` |
 
-`terminalSequence` field: Claude Code emits the string as-is to the terminal, so the JSON value must be a **complete** escape sequence including the leading ESC (``) and the trailing BEL (``) terminator on OSC variants. JSON-encode them as `\u001b` (ESC) and `\u0007` (BEL).
+Per-preference `<seq-printf>` content (replace `<msg>` with the per-event message; escape characters are JSON-encoded inside the printf format so they round-trip through `sh -c` → `printf` → JSON parser):
 
-| Notification preference | `terminalSequence` JSON value |
-|-------------------------|--------------------------------|
-| `terminal-bell` | `"\u0007"` (BEL — rings the terminal bell on every host) |
-| `terminal-sequence` (iTerm2) | `"\u001b]9;<msg>\u0007"` |
-| `terminal-sequence` (WezTerm) | `"\u001b]777;notify;iEvo;<msg>\u0007"` |
-| `terminal-sequence` (other) | falls back to `"\u0007"` (bell only) |
-| `custom-script` | omit `terminalSequence`; `args` becomes `[user-path, "<event>"]` so the script receives the event identifier as its first positional argument |
-| `none` | omit `terminalSequence`; keep the log-append-only `args` |
+| Notification preference | `<seq-printf>` |
+|-------------------------|-----------------|
+| `terminal-bell` | `\u0007` (BEL — rings the terminal bell on every host) |
+| `terminal-sequence` (iTerm2) | `\u001b]9;<msg>\u0007` (OSC 9 — iTerm2 system notification) |
+| `terminal-sequence` (WezTerm) | `\u001b]777;notify;iEvo;<msg>\u0007` (OSC 777 — WezTerm notify) |
+| `terminal-sequence` (other) | `\u0007` (falls back to bell) |
+| `custom-script` | omit the `printf '{"terminalSequence":...}'` portion entirely; replace `args` with `[user-path, "<event>"]` — the script receives the event identifier as its first positional argument and is responsible for its own notification UX |
+| `none` | omit the `printf ...` portion; keep only `mkdir -p` + `echo >> .log` |
+
 
 ## Step 6: Merge entries into settings.json
 
@@ -136,7 +147,7 @@ Existing hooks preserved. Proceed?
 
 Use the Write tool with the merged content. The `mkdir -p .ievo/log/hooks &&` prefix in the hook `args` handles directory creation lazily on first fire — no separate Step-8 dir-creation needed (and the Write tool can't create empty directories anyway).
 
-For **project scope** with hooks at `.claude/settings.json`, also append `.ievo/log/hooks/` to `.gitignore` (after a user-confirm `AskUserQuestion`) — without it, every team member sees `.log` files in `git status` after each pipeline run. Signal files at `.ievo/hooks/*` are one-line markers; whether to commit them or also gitignore is a project decision worth a follow-up question.
+**Gitignore note**: `/ievo:init` Step 10 already adds both `.ievo/log/` and `.ievo/hooks/` to `.gitignore`. If init was run before hooks-setup (the typical install path), no further gitignore action is needed. If hooks-setup runs in a project that never ran init (unusual but possible if hooks-setup is invoked standalone), check whether `.ievo/log/` and `.ievo/hooks/` are already listed in `.gitignore`; if either is missing, prompt the user via `AskUserQuestion` whether to append the missing entries. Skip the prompt entirely if both are already there.
 
 Print a final confirmation:
 

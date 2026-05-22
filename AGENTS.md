@@ -37,6 +37,8 @@ ievo-ai/skills/
         ├── evolution/SKILL.md         # /ievo:evolution — overlay capture
         ├── feedback/SKILL.md          # /ievo:feedback — file GitHub issues
         ├── index-repos/SKILL.md       # /ievo:index-repos — enumerate a repo
+        ├── debug-on/SKILL.md          # /ievo:debug-on — enable verbose session logging
+        ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
         └── security-check/SKILL.md    # /ievo:security-check — antivirus audit
 ```
 

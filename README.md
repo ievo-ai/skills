@@ -104,6 +104,8 @@ install (project-scope vendor or plugin)
 | `/ievo:feedback` | Submit bug/idea/skip-reasons as GitHub issue |
 | `/ievo:index-repos` | Standalone: enumerate a repo (callable on its own) |
 | `/ievo:security-check` | Standalone: audit a specific skill/agent/plugin |
+| `/ievo:debug-on` | Enable verbose / trace-level logging for the iEvo pipeline |
+| `/ievo:debug-off` | Disable verbose logging and finalize the debug session |
 
 ### Commands (strictly explicit, Claude Code-specific)
 
@@ -258,13 +260,18 @@ ievo-ai/skills/
     │   ├── evolution/SKILL.md      # /ievo:evolution — overlay capture
     │   ├── feedback/SKILL.md       # /ievo:feedback — file GitHub issues
     │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo
+    │   ├── debug-on/SKILL.md       # /ievo:debug-on — enable verbose session logging
+    │   ├── debug-off/SKILL.md      # /ievo:debug-off — disable verbose session logging
     │   └── security-check/SKILL.md # /ievo:security-check — audit a candidate
     ├── agents/
     │   ├── evolution.md            # sub-agent dispatched by evolution skill
     │   ├── repo-indexer.md         # parallel dispatch — one per repo for indexing (Step 6)
     │   └── security-auditor.md     # parallel dispatch — one per selected item for audit (Step 8)
     └── scripts/
-        └── scan_repo.mjs           # deterministic repo scanner (Node, no LLM)
+        ├── discover.mjs            # skills.sh API discovery (parallel queries)
+        ├── scan_repo.mjs           # deterministic repo scanner (Node, no LLM)
+        ├── validate_agents.mjs     # vendor-neutral model: frontmatter validator
+        └── tests/                  # node:test suites + fixtures (100% coverage gate)
 ```
 
 ## Standards compliance

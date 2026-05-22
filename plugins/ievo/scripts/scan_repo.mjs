@@ -18,22 +18,28 @@
 //   - `ievo-ai/community-index` GHA workflow (centralized indexing)
 //
 // Both call sites get identical output. Single source of truth for the algorithm.
+//
+// `SCRIPT_VERSION` here is the SCANNER FORMAT-VERSION (inherited from
+// community-index-bot lineage) — intentionally NOT coupled to plugin.json.
+// Bumped when the scanner output format changes. See AGENTS.md.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const SCRIPT_VERSION = "1.1.0";
-const TTL_SECONDS = 7 * 24 * 3600;
+export const SCRIPT_VERSION = "1.1.0";
+export const TTL_SECONDS = 7 * 24 * 3600;
+export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
 // ---------------------------------------------------------------------------
 // git ops
 // ---------------------------------------------------------------------------
 
-function run(cmd, args, { cwd = undefined, check = true } = {}) {
+export function run(cmd, args, { cwd = undefined, check = true, execImpl = execFileSync } = {}) {
   try {
-    const out = execFileSync(cmd, args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+    const out = execImpl(cmd, args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
     return out.trim();
   } catch (err) {
     if (check) throw err;
@@ -41,7 +47,7 @@ function run(cmd, args, { cwd = undefined, check = true } = {}) {
   }
 }
 
-function isDir(p) {
+export function isDir(p) {
   try {
     return statSync(p).isDirectory();
   } catch {
@@ -49,7 +55,7 @@ function isDir(p) {
   }
 }
 
-function fileExists(p) {
+export function fileExists(p) {
   try {
     return statSync(p).isFile();
   } catch {
@@ -57,7 +63,7 @@ function fileExists(p) {
   }
 }
 
-function checkoutOrRefresh(ownerRepo, checkoutDir, force) {
+export function checkoutOrRefresh(ownerRepo, checkoutDir, force, execImpl = execFileSync) {
   const safeName = ownerRepo.replace("/", "-");
   const target = join(checkoutDir, safeName);
 
@@ -68,37 +74,37 @@ function checkoutOrRefresh(ownerRepo, checkoutDir, force) {
       if (age < TTL_SECONDS) return target;
     }
     try {
-      run("git", ["fetch", "--depth=1"], { cwd: target });
-      run("git", ["reset", "--hard", "origin/HEAD"], { cwd: target });
+      run("git", ["fetch", "--depth=1"], { cwd: target, execImpl });
+      run("git", ["reset", "--hard", "origin/HEAD"], { cwd: target, execImpl });
     } catch {
       return target;
     }
   } else {
     mkdirSync(checkoutDir, { recursive: true });
     const url = `https://github.com/${ownerRepo}.git`;
-    run("git", ["clone", "--depth=1", url, target]);
+    run("git", ["clone", "--depth=1", url, target], { execImpl });
   }
   return target;
 }
 
-function getCommitSha(repo) {
-  return run("git", ["rev-parse", "--short", "HEAD"], { cwd: repo });
+export function getCommitSha(repo, execImpl = execFileSync) {
+  return run("git", ["rev-parse", "--short", "HEAD"], { cwd: repo, execImpl });
 }
 
-function getLastCommitDate(repo) {
-  return run("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: repo }).slice(0, 10);
+export function getLastCommitDate(repo, execImpl = execFileSync) {
+  return run("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: repo, execImpl }).slice(0, 10);
 }
 
-function getDefaultBranch(repo) {
+export function getDefaultBranch(repo, execImpl = execFileSync) {
   try {
-    return run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: repo });
+    return run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: repo, execImpl });
   } catch {
     return "main";
   }
 }
 
-function countRecentCommits(repo, sinceDate) {
-  const output = run("git", ["log", `--since=${sinceDate}`, "--oneline"], { cwd: repo, check: false });
+export function countRecentCommits(repo, sinceDate, execImpl = execFileSync) {
+  const output = run("git", ["log", `--since=${sinceDate}`, "--oneline"], { cwd: repo, check: false, execImpl });
   return output.split("\n").filter((l) => l.trim()).length;
 }
 
@@ -106,9 +112,7 @@ function countRecentCommits(repo, sinceDate) {
 // frontmatter
 // ---------------------------------------------------------------------------
 
-const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
-
-function parseFrontmatter(filePath) {
+export function parseFrontmatter(filePath) {
   if (!fileExists(filePath)) return {};
   let content;
   try {
@@ -139,7 +143,7 @@ function parseFrontmatter(filePath) {
   return fm;
 }
 
-function truncate(text, limit) {
+export function truncate(text, limit) {
   if (!text) return "";
   text = text.replace(/\s+/g, " ").trim();
   // Match Python's len() which counts Unicode code points, not UTF-16 units.
@@ -153,7 +157,7 @@ function truncate(text, limit) {
 // layout detection + enumeration
 // ---------------------------------------------------------------------------
 
-function detectLayout(repo) {
+export function detectLayout(repo) {
   const hasPlugins = isDir(join(repo, "plugins"));
   const hasAgents = isDir(join(repo, "agents"));
   const hasSkills = isDir(join(repo, "skills"));
@@ -167,16 +171,16 @@ function detectLayout(repo) {
   return "other";
 }
 
-function listDirSorted(dir) {
+export function listDirSorted(dir) {
   if (!isDir(dir)) return [];
   return readdirSync(dir).sort();
 }
 
-function listFilesSorted(dir, ext) {
+export function listFilesSorted(dir, ext) {
   return listDirSorted(dir).filter((n) => n.endsWith(ext));
 }
 
-function enumeratePlugins(repo) {
+export function enumeratePlugins(repo) {
   const pluginsDir = join(repo, "plugins");
   if (!isDir(pluginsDir)) return [];
   const plugins = [];
@@ -189,7 +193,7 @@ function enumeratePlugins(repo) {
   return plugins;
 }
 
-function enumerateOnePlugin(pluginPath) {
+export function enumerateOnePlugin(pluginPath) {
   const name = pluginPath.split("/").pop();
   const manifestPath = join(pluginPath, ".claude-plugin", "plugin.json");
   let manifest = {};
@@ -266,7 +270,7 @@ function enumerateOnePlugin(pluginPath) {
   };
 }
 
-function enumerateHooks(hooksJsonPath) {
+export function enumerateHooks(hooksJsonPath) {
   if (!fileExists(hooksJsonPath)) return { present: false, events: [], entries: [] };
   let data;
   try {
@@ -301,7 +305,7 @@ function enumerateHooks(hooksJsonPath) {
   };
 }
 
-function enumerateMcp(mcpJsonPath) {
+export function enumerateMcp(mcpJsonPath) {
   if (!fileExists(mcpJsonPath)) return { present: false, servers: [] };
   let data;
   try {
@@ -322,7 +326,7 @@ function enumerateMcp(mcpJsonPath) {
   return { present: true, servers };
 }
 
-function enumerateStandaloneAgents(repo) {
+export function enumerateStandaloneAgents(repo) {
   const agentsDir = join(repo, "agents");
   if (!isDir(agentsDir)) return [];
   const out = [];
@@ -339,7 +343,7 @@ function enumerateStandaloneAgents(repo) {
   return out;
 }
 
-function enumerateStandaloneSkills(repo) {
+export function enumerateStandaloneSkills(repo) {
   const skillsDir = join(repo, "skills");
   if (!isDir(skillsDir)) return [];
   const out = [];
@@ -375,7 +379,7 @@ function enumerateStandaloneSkills(repo) {
   return out;
 }
 
-function enumerateStandaloneCommands(repo) {
+export function enumerateStandaloneCommands(repo) {
   const commandsDir = join(repo, "commands");
   if (!isDir(commandsDir)) return [];
   const out = [];
@@ -398,7 +402,7 @@ function enumerateStandaloneCommands(repo) {
 // security-auditor agent (LLM antivirus deep scan) per item before install.
 // ---------------------------------------------------------------------------
 
-function renderIndexMd(data) {
+export function renderIndexMd(data) {
   const lines = [];
   const ownerRepo = data.owner_repo;
   lines.push(`# \`${ownerRepo}\` — community index`);
@@ -550,19 +554,19 @@ function renderIndexMd(data) {
 // main
 // ---------------------------------------------------------------------------
 
-function isoNow() {
+export function isoNow() {
   // Match Python's datetime.now(timezone.utc).isoformat(timespec="seconds")
   // → "2026-05-19T15:09:55+00:00"
   return new Date().toISOString().replace(/\.\d+Z$/, "+00:00");
 }
 
-function isoDate(daysAgo = 0) {
+export function isoDate(daysAgo = 0) {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - daysAgo);
   return d.toISOString().slice(0, 10);
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = { repo: null, outputDir: ".", checkoutDir: join(homedir(), ".ievo", "checkouts"), force: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -574,35 +578,34 @@ function parseArgs(argv) {
   return args;
 }
 
-function main() {
-  const args = parseArgs(process.argv);
+export function main(argv = process.argv, execImpl = execFileSync, log = console.log, errLog = console.error, exit = process.exit) {
+  const args = parseArgs(argv);
   if (!args.repo || !args.repo.includes("/")) {
-    console.error(`Error: repo must be in <owner>/<repo> format, got '${args.repo ?? ""}'`);
-    process.exit(1);
+    errLog(`Error: repo must be in <owner>/<repo> format, got '${args.repo ?? ""}'`);
+    return exit(1);
   }
 
-  const [owner, name] = args.repo.split("/", 2);
   const outputDir = resolve(args.outputDir);
   mkdirSync(outputDir, { recursive: true });
   const checkoutDir = resolve(args.checkoutDir);
 
   let repo;
   try {
-    repo = checkoutOrRefresh(args.repo, checkoutDir, args.force);
+    repo = checkoutOrRefresh(args.repo, checkoutDir, args.force, execImpl);
   } catch (err) {
-    console.error(`Failed to clone ${args.repo}: ${err.message}`);
-    process.exit(2);
+    errLog(`Failed to clone ${args.repo}: ${err.message}`);
+    return exit(2);
   }
 
-  const commitSha = getCommitSha(repo);
-  const lastCommit = getLastCommitDate(repo);
-  const defaultBranch = getDefaultBranch(repo);
+  const commitSha = getCommitSha(repo, execImpl);
+  const lastCommit = getLastCommitDate(repo, execImpl);
+  const defaultBranch = getDefaultBranch(repo, execImpl);
   const layout = detectLayout(repo);
 
   const scannedAt = isoNow();
   const thirtyDaysAgo = isoDate(30);
   const today = isoDate(0);
-  const recentCount = countRecentCommits(repo, thirtyDaysAgo);
+  const recentCount = countRecentCommits(repo, thirtyDaysAgo, execImpl);
 
   const plugins = enumeratePlugins(repo);
   const standaloneAgents = enumerateStandaloneAgents(repo);
@@ -646,10 +649,18 @@ function main() {
   };
   writeFileSync(join(outputDir, `${safeName}.json`), JSON.stringify(manifestEntry, null, 2), "utf-8");
 
-  console.log(
+  log(
     `${args.repo}: indexed (commit=${commitSha}) — ${plugins.length} plugins, ` +
     `${totalAgents} agents, ${totalSkills} skills, hooks: ${hasHooks ? "yes" : "no"}, mcp: ${hasMcp ? "yes" : "no"}`,
   );
+
+  return exit(0);
 }
 
-main();
+export function isCliEntry(metaUrl, argv) {
+  return fileURLToPath(metaUrl) === resolve(argv[1] ?? "");
+}
+
+if (isCliEntry(import.meta.url, process.argv)) {
+  main();
+}

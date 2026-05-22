@@ -14,7 +14,7 @@ Configure Claude Code lifecycle hooks that fire on iEvo pipeline events — so y
 
 Uses two Claude Code hook features (verified against [v2.1.139](https://github.com/anthropics/claude-code/releases/tag/v2.1.139) + [v2.1.141](https://github.com/anthropics/claude-code/releases/tag/v2.1.141) release notes):
 
-- **Exec-form `args: string[]`** (v2.1.139+): spawns the command directly without a shell — eliminates the shell-quoting injection surface when path placeholders get interpolated.
+- **Exec-form `args: string[]`** (v2.1.139+): spawns the command directly without a shell at the *outer* invocation — eliminates the shell-quoting injection surface when paths get interpolated into the matcher → args chain. (We still use `sh -c "..."` *inside* `args` for the `date`/`mkdir`/`echo` pipeline — that's intentional, and there's no user-controlled input in the inner shell string.)
 - **`terminalSequence`** field on hook JSON output (v2.1.141+): emits desktop notifications, window titles, and bells without requiring a controlling terminal.
 
 Hooks trigger on **signal files** that iEvo writes at well-known paths under `.ievo/hooks/`. Init, evolution, and the security-auditor agent each write their respective signal file as a final step (added in v0.6.9 alongside this skill); this skill configures the matching `PostToolUse` `Write(...)` hooks.
@@ -81,14 +81,16 @@ Template per event (replace `<event>` with `init-complete` / `security-red` / `e
   "hooks": [
     {
       "type": "command",
-      "args": ["sh", "-c", "echo '<msg>' >> .ievo/log/hooks/$(date -u +%Y%m%dT%H%M%SZ).log"],
+      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo '<msg>' >> .ievo/log/hooks/$(date -u +%Y%m%dT%H%M%SZ).log"],
       "terminalSequence": "<seq>"
     }
   ]
 }
 ````
 
-Per-event message and per-preference `terminalSequence` payload:
+Note the `mkdir -p .ievo/log/hooks &&` prefix in `args` — the bare `>>` redirect would fail on first fire if the directory doesn't exist; `mkdir -p` is idempotent and creates the parent dirs as needed.
+
+Per-event message:
 
 | Event | Message |
 |-------|---------|
@@ -96,13 +98,15 @@ Per-event message and per-preference `terminalSequence` payload:
 | `security-red` | `iEvo: security RED verdict — check .ievo/security/` |
 | `evolution-captured` | `iEvo: evolution overlay captured` |
 
-| Notification preference | `terminalSequence` value (substitute `<msg>` from table above) |
-|-------------------------|----------------------------------------------------------------|
-| `terminal-bell` | `\a` (literal bell character) |
-| `terminal-sequence` (iTerm2) | `]9;<msg>` |
-| `terminal-sequence` (WezTerm) | `]777;notify;iEvo;<msg>` |
-| `terminal-sequence` (other) | falls back to `\a` (terminal-bell) |
-| `custom-script` | omit `terminalSequence`; replace `args` with `[user-path]` |
+`terminalSequence` field: Claude Code emits the string as-is to the terminal, so the JSON value must be a **complete** escape sequence including the leading ESC (``) and the trailing BEL (``) terminator on OSC variants. JSON-encode them as `\u001b` (ESC) and `\u0007` (BEL).
+
+| Notification preference | `terminalSequence` JSON value |
+|-------------------------|--------------------------------|
+| `terminal-bell` | `"\u0007"` (BEL — rings the terminal bell on every host) |
+| `terminal-sequence` (iTerm2) | `"\u001b]9;<msg>\u0007"` |
+| `terminal-sequence` (WezTerm) | `"\u001b]777;notify;iEvo;<msg>\u0007"` |
+| `terminal-sequence` (other) | falls back to `"\u0007"` (bell only) |
+| `custom-script` | omit `terminalSequence`; `args` becomes `[user-path, "<event>"]` so the script receives the event identifier as its first positional argument |
 | `none` | omit `terminalSequence`; keep the log-append-only `args` |
 
 ## Step 6: Merge entries into settings.json
@@ -111,7 +115,7 @@ Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing com
 
 1. Read current settings.json (from Step 4, or `{}` if absent).
 2. Ensure `hooks.PostToolUse` exists as an array; create if missing.
-3. For each new hook entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Re-run with `--force` to overwrite (not yet implemented; edit settings.json manually if needed)."
+3. For each new hook entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it."
 4. Append the new entries to `hooks.PostToolUse`.
 
 ## Step 7: Confirm with the user
@@ -130,7 +134,9 @@ Existing hooks preserved. Proceed?
 
 ## Step 8: Write the updated settings.json
 
-Use the Write tool with the merged content. After write, create the `.ievo/log/hooks/` directory if it doesn't exist (so the `sh -c "... >> ..."` log-append doesn't fail on first hook fire).
+Use the Write tool with the merged content. The `mkdir -p .ievo/log/hooks &&` prefix in the hook `args` handles directory creation lazily on first fire — no separate Step-8 dir-creation needed (and the Write tool can't create empty directories anyway).
+
+For **project scope** with hooks at `.claude/settings.json`, also append `.ievo/log/hooks/` to `.gitignore` (after a user-confirm `AskUserQuestion`) — without it, every team member sees `.log` files in `git status` after each pipeline run. Signal files at `.ievo/hooks/*` are one-line markers; whether to commit them or also gitignore is a project decision worth a follow-up question.
 
 Print a final confirmation:
 
@@ -152,9 +158,9 @@ Logs accumulate at .ievo/log/hooks/<ISO-timestamp>.log.
 
 ## See also
 
-- `init/SKILL.md` Step 13 — writes `.ievo/hooks/init-complete` at the end of the pipeline.
-- `evolution/SKILL.md` Step 5 — writes `.ievo/hooks/evolution-captured` after the overlay append.
-- `security-auditor.md` agent body — writes `.ievo/hooks/security-red` after returning a RED verdict.
+- `init/SKILL.md` **Step 11.5** — writes `.ievo/hooks/init-complete` at the end of the pipeline.
+- `evolution/SKILL.md` **Step 5.5** — writes `.ievo/hooks/evolution-captured` after the overlay append.
+- `security-auditor.md` agent body **Step 6** — writes `.ievo/hooks/security-red` after returning a RED verdict.
 
 ## References
 

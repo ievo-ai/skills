@@ -89,7 +89,7 @@ Template per event (replace `<event>` with `init-complete` / `security-red` / `e
   "hooks": [
     {
       "type": "command",
-      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo '<msg>' >> .ievo/log/hooks/$(date -u +%Y%m%dT%H%M%SZ).log && printf '{\"terminalSequence\":\"<seq-printf>\"}'"]
+      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) <msg>\" >> .ievo/log/hooks/events.log && printf '{\"terminalSequence\":\"<seq-printf>\"}'"]
     }
   ]
 }
@@ -97,7 +97,7 @@ Template per event (replace `<event>` with `init-complete` / `security-red` / `e
 
 The `args` pipeline does three things on every fire:
 1. `mkdir -p .ievo/log/hooks` — idempotent, creates parent dirs if missing
-2. `echo '<msg>' >> .log` — append timestamped audit entry
+2. `echo "<ISO-8601 timestamp> <msg>" >> .ievo/log/hooks/events.log` — append timestamped audit entry to a single rotating log file (one per project, NOT per-fire — easier to `tail -f` / `grep`)
 3. `printf '{"terminalSequence":"..."}'` — emit JSON to stdout so Claude Code reads it and fires the notification
 
 Per-event message (substitute for `<msg>`):
@@ -143,9 +143,11 @@ Existing hooks preserved. Proceed?
 - "no"   — abort; nothing written
 ```
 
-## Step 8: Write the updated settings.json
+## Step 8: Apply the merged settings.json
 
-Use the Write tool with the merged content. The `mkdir -p .ievo/log/hooks &&` prefix in the hook `args` handles directory creation lazily on first fire — no separate Step-8 dir-creation needed (and the Write tool can't create empty directories anyway).
+If the file existed in Step 4: use the **Edit** tool to apply the new hook entries — preserves existing comments, key order, and unrelated entries (Claude Code's settings.json parser is tolerant of comments). Step 6's "Read + Edit" guidance applies here for consistency.
+
+If the file did NOT exist in Step 4: use the **Write** tool to create it (Edit requires the file to exist first). The `mkdir -p .ievo/log/hooks &&` prefix in the hook `args` handles directory creation lazily on first fire — no separate Step-8 dir-creation needed (Write tool would create parent dirs anyway, but the hook itself runs without a guaranteed cwd context).
 
 **Gitignore note**: `/ievo:init` Step 10 already adds both `.ievo/log/` and `.ievo/hooks/` to `.gitignore`. If init was run before hooks-setup (the typical install path), no further gitignore action is needed. If hooks-setup runs in a project that never ran init (unusual but possible if hooks-setup is invoked standalone), check whether `.ievo/log/` and `.ievo/hooks/` are already listed in `.gitignore`; if either is missing, prompt the user via `AskUserQuestion` whether to append the missing entries. Skip the prompt entirely if both are already there.
 

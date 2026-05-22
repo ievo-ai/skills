@@ -192,7 +192,9 @@ Create if missing:
 - `.ievo/evolution/agents/`
 - `.ievo/evolution/skills/`
 - `.ievo/log/`
+- `.ievo/log/hooks/` — append-only audit log for lifecycle hook fires (events.log appended by every hook configured via `/ievo:hooks-setup`)
 - `.ievo/cache/index/`
+- `.ievo/hooks/` — signal-file directory for lifecycle hooks; Step 11.5 writes `init-complete` here, evolution/SKILL.md Step 5.5 writes `evolution-captured`, security-auditor.md Step 6 writes `security-red` (RED-only). Created defensively even if `/ievo:hooks-setup` hasn't been run yet
 - `.claude/` — root for vendored items
 - `.claude/agents/` — for vendored agents
 - `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add`)

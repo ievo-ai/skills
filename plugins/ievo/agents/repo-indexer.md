@@ -43,7 +43,7 @@ The script handles ALL the work internally:
 
 The script prints exactly one line:
 ```
-<owner>/<repo>: indexed (commit=<sha>) — N plugins, M agents, K skills, hooks: yes/no, risk: <tier>
+<owner>/<repo>: indexed (commit=<sha>) — N plugins, M agents, K skills, hooks: yes/no, mcp: yes/no
 ```
 
 Return this line verbatim as your only response. No commentary, no markdown.

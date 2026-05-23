@@ -119,6 +119,12 @@ Group by scope. Suggested format:
 ### skills/ (<N> overlays)
 - `evolution.md` — "Marker injection must be idempotent" (last modified: 2026-05-21)
 
+### Other (<N> file(s) — unexpected paths)
+- `.ievo/evolution/notes.md` — "Project context notes" (last modified: 2026-05-20)
+  _(unexpected location — not a standard iEvo overlay scope; iEvo never dispatches off these. Listed so the operator can decide whether to move it under a recognised scope or remove it.)_
+
+(Omit the entire "Other" section if no unexpected paths were classified in Step 2 — empty scopes for Project / agents / skills get `(none)`, but a completely empty Other category should be hidden rather than displayed as "0 unexpected paths".)
+
 ---
 
 To add an overlay → `/ievo:evolution "<lesson>"`.

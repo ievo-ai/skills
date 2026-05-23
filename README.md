@@ -105,7 +105,7 @@ install (project-scope vendor or plugin)
 | `/ievo:debug-on` | Enable verbose / trace-level logging for the iEvo pipeline |
 | `/ievo:debug-off` | Disable verbose logging and finalize the debug session |
 | `/ievo:hooks-setup` | Configure Claude Code lifecycle hooks for iEvo pipeline events (init complete, security RED, evolution captured) |
-| `/ievo:overlay-status` | List active evolution overlays in this project, grouped by scope (Kernel / agents / skills / project) with last-modified dates |
+| `/ievo:overlay-status` | List active evolution overlays in this project, grouped by scope (Project / agents / skills) with last-modified dates |
 | `/ievo:index-repos` | Standalone: enumerate a repo (callable on its own) |
 | `/ievo:security-check` | Standalone: audit a specific skill/agent/plugin |
 

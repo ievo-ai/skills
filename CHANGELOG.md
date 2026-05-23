@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.6.16
+
+Closes #65 with new `issue-handler.yml` workflow: when a new GitHub issue opens, Claude (Opus) performs deep research and either closes the issue with explanation or implements a fix/feature PR with full test coverage. After PR creation, monitors `claude-code-review` and iterates on feedback (max 3 rounds) until green; never auto-merges (human must merge).
+
+Safety rails: bot-loop prevention via `endsWith('[bot]')` (catches the App's own bot login generically, not just `github-actions[bot]`), scope lock (agent prompt confines edits to `plugins/ievo/`), GitHub App token from org secrets `APP_ID` + `APP_PRIVATE_KEY` (so PRs trigger downstream workflows — `GITHUB_TOKEN` would silently skip them). Privilege ceiling: only `contents: write` + `issues: write` + `pull-requests: write`; deliberately NO `secrets: read`, NO `id-token: write` (`create-github-app-token@v1` signs a JWT with the private key directly — no OIDC exchange needed; granting id-token would mint arbitrary OIDC tokens for external services for no benefit).
+
+Originally filed against the v0.6.12 baseline as PR #66; rebased onto v0.6.15 main and bumped to v0.6.16 (v0.6.14 slot was overtaken by v0.6.15 landing first via PR #70). 5 rounds of claude-review feedback applied — security: indirect-prompt-injection accepted-risk documented with mitigation enumeration, `Bash` in `--allowedTools` justified (no structured-tool equivalent for git ops), token passed via step-level `env:` not JSON-interpolated `settings:`; correctness: poll-loop case-normalized via `ascii_upcase`, `gh pr create` URL parsed into `$PR_NUMBER`, `MAX_WAIT=600` ×3 budget fits inside the 60-min job wall clock, `last.state` over `.[0].state` for rerun safety, exhaustion comment posted to BOTH issue + PR threads, sticky-comment endpoint correctly used.
+
 ## v0.6.15
 
 Operational hygiene: extracted shipped-version history out of `AGENTS.md` into this `CHANGELOG.md`. Rationale — `AGENTS.md` is a contract for AI agents working on the repo and should describe *current* conventions; the chronological history is reference material that grows unbounded and dilutes the convention surface. Added a convention rule in `AGENTS.md` § Key conventions that all future shipped-version entries go here, not in `AGENTS.md`. The forward roadmap (v0.7.0 / v1.0) stays in `AGENTS.md` § Roadmap because it's a contract about what's coming, not a record of what shipped.

@@ -1,0 +1,318 @@
+# Issue Handler — deep research → close or implement → review loop
+#
+# When a new issue opens in ievo-ai/skills, Claude (Opus, max effort)
+# performs deep research on the codebase, then either:
+#   (a) closes the issue with an explanation, or
+#   (b) creates a real PR with implementation + tests, then iterates
+#       on claude-code-review feedback until the review is green.
+#
+# Auth: generates a GitHub App token from org secrets APP_ID +
+# APP_PRIVATE_KEY (not default GITHUB_TOKEN) so that PRs created by
+# this workflow trigger downstream workflows (claude-code-review.yml,
+# coverage-gate.yml, pre-commit-gate.yml).
+#
+# Security: untrusted issue title/body never reach run: blocks directly.
+# Claude receives them via gh issue view inside the agent subprocess,
+# never via GHA template interpolation into shell.
+#
+# Safety:
+#   - Never auto-merges — PR sits for human review + merge
+#   - Bot loop prevention — ignores issues from bots
+#   - Max 3 fix attempts on review feedback before giving up
+#   - Scope: only touches plugins/ievo/, never workflows or root config
+#
+# Tracked as ievo-ai/skills#65.
+
+name: "Issue Handler"
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: issue-handler-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  handle-issue:
+    name: "Deep Research → Implement"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    # Bot loop prevention: skip issues from bots and pre-triaged issues
+    if: >
+      github.event.issue.user.login != 'github-actions[bot]' &&
+      github.event.issue.user.login != 'ievo-eva' &&
+      !contains(github.event.issue.labels.*.name, 'wontfix') &&
+      !contains(github.event.issue.labels.*.name, 'duplicate')
+
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run Issue Handler
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          show_full_output: true
+          max_turns: 80
+          claude_args: |
+            --model opus
+            --allowedTools "Bash,Edit,Read,Write,Glob,Grep,WebFetch,WebSearch"
+          settings: |
+            {
+              "env": {
+                "GH_TOKEN": "${{ steps.app-token.outputs.token }}",
+                "ISSUE_NUMBER": "${{ github.event.issue.number }}",
+                "REPO": "${{ github.repository }}"
+              }
+            }
+          prompt: |
+            You are an autonomous issue handler for the ievo-ai/skills repo.
+            Your job: deep research on issue #${{ github.event.issue.number }},
+            then either close it with an explanation or implement a fix/feature
+            with a real PR that passes all CI checks.
+
+            IMPORTANT: Use Opus-level depth and thoroughness. Max effort.
+
+            ## Phase 1 — Load Context
+
+            Read in order (stop when you have enough):
+            1. AGENTS.md — project conventions, test rules, version bumping, branch naming
+            2. The issue:
+                 gh issue view "$ISSUE_NUMBER" --repo "$REPO" \
+                   --json title,body,author,labels,createdAt
+            3. Relevant source files in plugins/ievo/ based on the issue topic
+            4. Existing tests in plugins/ievo/scripts/tests/
+            5. Recent PRs for context:
+                 gh pr list --repo "$REPO" --state merged --limit 10 \
+                   --json number,title,headRefName
+
+            ## Phase 2 — Deep Research
+
+            Thoroughly investigate the issue:
+            - Read ALL relevant source files, not just the ones mentioned
+            - Trace code paths end-to-end
+            - Check git history for related changes:
+                 git log --oneline -20
+            - Search for related patterns:
+                 grep -r "<relevant terms>" plugins/ievo/
+            - Understand the full impact of any proposed change
+
+            ## Phase 3 — Triage Decision
+
+            Decide ONE of:
+
+            ### Option A: Close (not actionable)
+            If the issue is: duplicate, out of scope, already fixed, invalid,
+            or fundamentally misguided — close with a detailed comment explaining
+            WHY. Write the comment to /tmp/close-comment.md, then:
+
+              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+                --body-file /tmp/close-comment.md
+              gh issue close "$ISSUE_NUMBER" --repo "$REPO" \
+                --reason "not planned"
+
+            Then STOP. Do not proceed to Phase 4.
+
+            ### Option B: Implement
+            If the issue is actionable — proceed to Phase 4.
+
+            Post a comment acknowledging you're working on it:
+              echo "Working on implementation. Will create a PR shortly." | \
+                gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+
+            ## Phase 4 — Implementation
+
+            ### 4a. Determine version bump
+
+            Read current version from plugins/ievo/.claude-plugin/plugin.json.
+            Decide bump level:
+            - patch (x.y.Z) for bug fixes
+            - minor (x.Y.0) for new features/skills
+            - major (X.0.0) for breaking changes (rare)
+
+            ### 4b. Create feature branch
+
+            Branch naming per AGENTS.md:
+              git checkout -b feat/v<new_version>-<short-desc>
+            or:
+              git checkout -b fix/v<new_version>-<short-desc>
+
+            ### 4c. Implement the change
+
+            Follow ALL conventions from AGENTS.md:
+            - Scripts: Node.js .mjs, stdlib only, ESM
+            - Agent model frontmatter: family aliases only (sonnet/opus/haiku/inherit)
+            - Skills: agentskills.io spec compliant
+            - No Python, no external dependencies
+
+            ### 4d. Write/update tests
+
+            100% test coverage is MANDATORY (AGENTS.md rule, enforced by CI).
+            - Tests in plugins/ievo/scripts/tests/*.test.mjs
+            - Use built-in node:test (no jest/vitest)
+            - Every exported function, every branch, every error path
+            - Run tests locally to verify:
+                node --test --experimental-test-coverage \
+                  --test-reporter=lcov --test-reporter-destination=coverage.lcov \
+                  --test-reporter=spec --test-reporter-destination=stdout \
+                  plugins/ievo/scripts/tests/*.test.mjs
+                node .github/scripts/check-coverage.mjs coverage.lcov
+
+            ### 4e. Run pre-commit validators locally
+
+              node .github/scripts/validators/nested-fences.mjs <changed files>
+              node .github/scripts/validators/crlf-frontmatter.mjs <changed files>
+              node .github/scripts/validators/machine-local-paths.mjs <changed files>
+              node .github/scripts/validators/placeholder-leakage.mjs <changed files>
+              node .github/scripts/validators/utf8-validate.mjs <changed files>
+              # If agent .md files changed:
+              node plugins/ievo/scripts/validate_agents.mjs
+
+            ### 4f. Version bump
+
+            Bump version in BOTH files (AGENTS.md rule):
+            1. plugins/ievo/.claude-plugin/plugin.json → "version" field
+            2. .claude-plugin/marketplace.json → "metadata.version" AND
+               "plugins[0].version" fields
+
+            ### 4g. Commit
+
+            Use descriptive commit messages. Footer MUST include:
+              Co-Authored-By: iEVO <noreply@ievo.ai>
+
+            Stage only the files you changed (no git add -A):
+              git add <specific files>
+              git commit -m "<type>: <description>
+
+              Closes #$ISSUE_NUMBER
+
+              Co-Authored-By: iEVO <noreply@ievo.ai>"
+
+            ### 4h. Push and create PR
+
+              git push origin HEAD -u
+
+            Create PR (real, not draft). Use --body-file for safety:
+
+              cat > /tmp/pr-body.md << 'PREOF'
+              ## Summary
+              <1-3 bullet points explaining the change>
+
+              ## Issue
+              Closes #<issue number>
+
+              ## Test plan
+              - [ ] All tests pass with 100% coverage
+              - [ ] Pre-commit validators pass
+              - [ ] Version bumped in both manifests
+
+              ---
+              Automated by Issue Handler workflow.
+              PREOF
+
+              gh pr create --repo "$REPO" \
+                --title "<type>: <short description>" \
+                --body-file /tmp/pr-body.md \
+                --head "$(git branch --show-current)"
+
+            ## Phase 5 — Review Loop
+
+            After creating the PR, wait for claude-code-review to run and
+            iterate on its feedback. Max 3 fix iterations.
+
+            ATTEMPT=0
+            MAX_ATTEMPTS=3
+
+            Loop:
+              1. Get the PR number from the gh pr create output
+              2. Wait for checks to complete (poll every 60s, max 15 min):
+                   while true; do
+                     STATUS=$(gh pr checks <PR_NUMBER> --repo "$REPO" \
+                       --json name,state --jq \
+                       '[.[] | select(.name | test("claude.*review"; "i"))] | .[0].state // "PENDING"')
+                     if [ "$STATUS" = "SUCCESS" ] || [ "$STATUS" = "FAILURE" ]; then
+                       break
+                     fi
+                     sleep 60
+                   done
+
+              3. If all checks pass → done! Post success comment and exit.
+
+              4. If claude-code-review has findings:
+                   - Read the review comments:
+                       gh pr view <PR_NUMBER> --repo "$REPO" --json reviews,comments
+                       gh api repos/$REPO/pulls/<PR_NUMBER>/comments \
+                         --jq '.[] | {path, body, line}'
+                   - Address EACH finding:
+                       * Read the specific file and line
+                       * Understand the reviewer's concern
+                       * Fix the issue
+                       * Re-run tests + validators locally
+                   - Commit the fixes:
+                       git add <fixed files>
+                       git commit -m "fix: address review feedback (attempt $ATTEMPT)
+
+                       Co-Authored-By: iEVO <noreply@ievo.ai>"
+                       git push
+                   - Increment ATTEMPT
+                   - If ATTEMPT >= MAX_ATTEMPTS, post comment and stop:
+                       echo "Reached max fix attempts ($MAX_ATTEMPTS). Leaving PR open for human review." | \
+                         gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+                   - Otherwise, go back to step 2
+
+            ## Phase 6 — Completion
+
+            When the PR is green (all checks pass):
+
+              cat > /tmp/done-comment.md << 'DONEEOF'
+              Implementation complete. PR #<number> is ready for human review and merge.
+
+              **Checks status:**
+              - Coverage Gate: 100% maintained
+              - Pre-commit Gate: all validators pass
+              - Claude Code Review: addressed
+
+              This PR will NOT be auto-merged. A human must review and merge.
+              DONEEOF
+
+              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+                --body-file /tmp/done-comment.md
+
+            ## Safety Rules (non-negotiable)
+
+            - NEVER auto-merge the PR. Human must review and merge.
+            - NEVER modify files outside plugins/ievo/ unless the issue
+              explicitly requires it (e.g., adding a validator to .github/scripts/).
+            - NEVER modify workflow files (.github/workflows/*.yml).
+            - NEVER lower test coverage below 100%.
+            - NEVER skip the version bump.
+            - If you're unsure about something, post a comment on the issue
+              asking for clarification instead of guessing.
+            - Merge strategy: merge commit, never squash (AGENTS.md rule).
+            - Do not create issues in other repos.
+            - If the issue mentions a tool/library behavior, verify via docs
+              before implementing.

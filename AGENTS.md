@@ -122,7 +122,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.15):**
+**Current compliance ledger (v0.6.16):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -145,6 +145,12 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - Feature branches: `feat/v<x.y.z>-<description>` or `fix/v<x.y.z>-<description>`
 - Commit footer: `Co-Authored-By: iEVO <noreply@ievo.ai>` (NOT the default Claude/Anthropic footer)
 - Merge strategy: merge commit (`--merge --delete-branch`), never squash
+
+### Issue handler — autonomous issue-to-PR pipeline
+
+`issue-handler.yml` triggers on every new issue. Claude (Opus, max effort) does deep research, then either closes the issue with explanation or implements a fix/feature PR with full test coverage. After creating the PR, it monitors `claude-code-review` and iterates on feedback (max 3 attempts) until the review is green. Never auto-merges — human must review and merge.
+
+Uses GitHub App token (org secrets `APP_ID` + `APP_PRIVATE_KEY`) so that PRs trigger downstream workflows. See skills#65 for the full design.
 
 ### PR workflow — wait for in-progress reviews before merging
 

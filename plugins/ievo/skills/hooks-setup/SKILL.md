@@ -1,6 +1,6 @@
 ---
 name: hooks-setup
-description: Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, and evolution captured. Writes hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks "notify me when ievo finishes", "add hooks for ievo", "set up ievo notifications", or "configure ievo lifecycle hooks". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal.
+description: Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, evolution captured, and (optional) all-background-agents-complete via a Stop hook. Writes PostToolUse and Stop hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks "notify me when ievo finishes", "add hooks for ievo", "set up ievo notifications", "tell me when background agents are done", or "configure ievo lifecycle hooks". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal. The optional Stop hook for background-complete requires v2.1.145+ for the `background_tasks` and `session_crons` fields in the Stop hook input.
 license: MIT
 allowed-tools:
   - Read
@@ -8,7 +8,7 @@ allowed-tools:
   - Write
   - AskUserQuestion
   - Bash(test*)
-compatibility: Claude Code v2.1.139+ for the `args: string[]` exec-form hook field; v2.1.141+ for the `terminalSequence` notification field. Codex's hook schema may differ — run on Codex only if its settings.json honors the same fields. Other agentskills.io-compatible hosts: works only if they support the Claude Code hook schema for settings.json.
+compatibility: Claude Code v2.1.139+ for the `args: string[]` exec-form hook field; v2.1.141+ for the `terminalSequence` notification field; v2.1.145+ for the optional Stop hook's `background_tasks` / `session_crons` fields (on older versions the Stop hook still installs but fires on every stop instead of only when background work is clear). Codex's hook schema may differ — run on Codex only if its settings.json honors the same fields. Other agentskills.io-compatible hosts: works only if they support the Claude Code hook schema for settings.json.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -37,7 +37,7 @@ Options (multi-select):
 - "evolution-captured"  — when /ievo:evolution captures a lesson overlay
 ```
 
-If user picks nothing, exit with: "No events selected — no hooks configured. Re-run `/ievo:hooks-setup` to pick events later."
+If user picks nothing, do NOT exit yet — Step 5.5 below offers an independent Stop hook flow. Only exit at the end of Step 5.5 if both Step 1 and Step 5.5 produced zero hook entries.
 
 ## Step 2: Ask for notification preference
 
@@ -120,14 +120,97 @@ Per-preference `<seq-printf>` content (replace `<msg>` with the per-event messag
 | `none` | omit the `printf ...` portion; keep only `mkdir -p` + `echo >> .log` |
 
 
+## Step 5.5: Optional — Stop hook for "all background agents complete"
+
+**Different mechanism** from Steps 1–5. The signal-file hooks above are *write-side* `PostToolUse` matchers that fire when a Write call lands on a known path. The Stop hook is a *read-side* hook: Claude Code pipes a JSON object to the hook's stdin every time the main session is about to stop, and the hook decides whether to fire a notification. Claude Code v2.1.145+ ([release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.145)) added `background_tasks` and `session_crons` fields to that JSON — the hook fires its notification only when both are empty, i.e. when all parallel subagents (e.g. `security-auditor` / `repo-indexer` dispatched by `/ievo:init`) have actually finished.
+
+### Step 5.5.1: Ask whether to configure
+
+```
+Configure background-agents-complete notification (read-side Stop hook)?
+- "yes"  — write .ievo/hooks/scripts/on-stop.sh + register Stop hook entry
+- "no"   — skip (you can re-run /ievo:hooks-setup later)
+```
+
+If "no" → skip to Step 6 (with whatever signal-file entries Step 5 built; if Step 5 also produced zero entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later.").
+
+### Step 5.5.2: Ask for notification command
+
+```
+Which notification to fire when all background agents complete?
+- "macos"   — osascript -e 'display notification "..." with title "iEvo"' (macOS only; fires a real desktop notification independent of TTY)
+- "linux"   — notify-send "iEvo" "..." (requires libnotify; freedesktop.org notification spec)
+- "bell"    — printf '' (terminal BEL fallback; reliability depends on the terminal's handling of hook-process stdout)
+- "custom"  — user-provided shell command (validated with test -x as in Step 2's custom-script path)
+```
+
+### Step 5.5.3: Write the Stop hook script
+
+Use the Write tool to create `.ievo/hooks/scripts/on-stop.sh` (Write tool creates parent dirs). The body is parameterised on the Step 5.5.2 choice — substitute `<notify-cmd>` with one of:
+
+| Choice | `<notify-cmd>` |
+|--------|----------------|
+| `macos`  | `osascript -e 'display notification "iEvo: all background agents complete" with title "iEvo"'` |
+| `linux`  | `notify-send "iEvo" "all background agents complete"` |
+| `bell`   | `printf ''` |
+| `custom` | `exec "$USER_NOTIFY_CMD"` (where `$USER_NOTIFY_CMD` is the validated path from 5.5.2) |
+
+Script template:
+
+```bash
+#!/bin/sh
+# iEvo Stop hook — fires a notification only when all background work is done.
+# stdin: JSON from Claude Code (v2.1.145+ includes background_tasks + session_crons).
+# Exit 0 always — this hook is informational, never blocks the turn. A blocking
+# Stop hook is force-released after CLAUDE_CODE_STOP_HOOK_BLOCK_CAP consecutive
+# blocks (default 8, v2.1.143+); iEvo's hook never blocks at all.
+
+set -e
+mkdir -p .ievo/log/hooks
+
+input=$(cat)
+# jq is a hard dependency of `gh`, which iEvo already requires; fall back to 0 if jq absent.
+bg=$(printf '%s' "$input" | jq '.background_tasks | length' 2>/dev/null || echo 0)
+cron=$(printf '%s' "$input" | jq '.session_crons | length' 2>/dev/null || echo 0)
+
+printf '%s stop-hook bg=%s cron=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bg" "$cron" \
+  >> .ievo/log/hooks/events.log
+
+if [ "$bg" = "0" ] && [ "$cron" = "0" ]; then
+  <notify-cmd> || true
+fi
+
+exit 0
+```
+
+Then make it executable. Use Bash: `chmod +x .ievo/hooks/scripts/on-stop.sh`.
+
+**Field availability:** On Claude Code <v2.1.145, `background_tasks` and `session_crons` are absent from the stdin JSON. `jq` then returns `null | length`, the script falls back to `echo 0` via `||`, both counts become 0, and the notification fires on every Stop. Warn the user if `claude --version` (run via Bash in Step 5.5.3) returns a version below 2.1.145 — they can still install the hook, but it will fire on every stop instead of "all background agents done".
+
+### Step 5.5.4: Build the Stop hook entry
+
+For Step 6's merge stage, build this entry (to be added to `hooks.Stop[]`):
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["bash", ".ievo/hooks/scripts/on-stop.sh"]
+    }
+  ]
+}
+```
+
+Stop hook entries don't have a `matcher` field — Claude Code calls every Stop hook on every stop, the script itself decides whether to act. Dedup at merge time by checking whether an existing entry has the same `args` array.
+
 ## Step 6: Merge entries into settings.json
 
 Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing comments and key order on Claude Code's tolerant JSON parser). Pseudo-procedure:
 
 1. Read current settings.json (from Step 4, or `{}` if absent).
-2. Ensure `hooks.PostToolUse` exists as an array; create if missing.
-3. For each new hook entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it."
-4. Append the new entries to `hooks.PostToolUse`.
+2. For signal-file entries (Step 5): ensure `hooks.PostToolUse` exists as an array; create if missing. For each new entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append.
+3. For the Stop hook entry (Step 5.5, if Step 5.5.1 = "yes"): ensure `hooks.Stop` exists as an array; create if missing. Stop hook entries have no `matcher`, so dedup by comparing the inner `hooks[0].args` array — if an existing entry's args matches `["bash", ".ievo/hooks/scripts/on-stop.sh"]`, skip with "Stop hook already configured; skipping." Otherwise append.
 
 ## Step 7: Confirm with the user
 
@@ -155,10 +238,14 @@ Print a final confirmation:
 
 ```
 ✓ Configured <N> iEvo hook(s) at <path>.
-Hooks fire on these signal-file writes:
+Hooks fire on these signal-file writes (PostToolUse):
   .ievo/hooks/init-complete       → after /ievo:init finishes
   .ievo/hooks/security-red        → after security-auditor returns RED
   .ievo/hooks/evolution-captured  → after /ievo:evolution writes an overlay
+[If Step 5.5 configured:]
+Stop hook (read-side, .ievo/hooks/scripts/on-stop.sh):
+  fires once per session-stop, ONLY when background_tasks=0 AND session_crons=0
+  (i.e. all parallel subagents from /ievo:init are done; requires Claude Code v2.1.145+)
 Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f` / `grep` it).
 ```
 
@@ -168,6 +255,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - **Project scope is recommended** for team-shared signal (the same hooks fire for everyone on the team after pulling). Global scope is for personal-machine-wide preferences.
 - **Logs go to `.ievo/log/hooks/`** even when `none` is selected as the notification — silent operation, but the audit trail is still available.
 - **Signal files are written by other iEvo skills** (init, evolution, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
+- **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
 
 ## See also
 
@@ -179,4 +267,6 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 
 - [Claude Code v2.1.139 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.139) — `args: string[]` exec-form hook field
 - [Claude Code v2.1.141 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.141) — `terminalSequence` desktop-notification field
+- [Claude Code v2.1.143 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.143) — `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` env var (default 8) for blocking Stop hooks
+- [Claude Code v2.1.145 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.145) — Stop + SubagentStop hook input gains `background_tasks` and `session_crons` fields
 - Signal-file trigger pattern (`PostToolUse` + `Write(<path>)` matcher) is portable across any host that matches Write-tool calls to a path pattern

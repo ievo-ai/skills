@@ -1,6 +1,6 @@
 {
   "name": "ievo",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "description": "iEvo — self-evolving plugin for AI coding agents (Claude Code, Codex). Universal via the agentskills.io standard. Capture lessons, patch local agents and skills, replay logs on upstream updates. Antivirus-style security audit before install.",
   "author": {
     "name": "Denys Rotnov"

@@ -155,7 +155,7 @@ Use the Write tool to create `.ievo/hooks/scripts/on-stop.sh` (Write tool create
 | `macos`  | `osascript -e 'display notification "iEvo: all background agents complete" with title "iEvo"'` |
 | `linux`  | `notify-send "iEvo" "all background agents complete"` |
 | `bell`   | `printf '\a'` |
-| `custom` | `exec "<validated-path>"` — **write-time placeholder**: substitute `<validated-path>` with the actual absolute path the user supplied + validated in Step 5.5.2 (e.g. `exec "$HOME/bin/notify-ievo"` or any other absolute path the user owns). The path is embedded as a string literal in the generated `.ievo/hooks/scripts/on-stop.sh` at write time; do NOT leave a `$VAR` reference here — the script has no `USER_NOTIFY_CMD=...` assignment, so a runtime variable would be unset and the notification would silently never fire (saved only by the `|| true` guard). |
+| `custom` | `"<validated-path>"` — **write-time placeholder**: substitute `<validated-path>` with the actual absolute path the user supplied + validated in Step 5.5.2 (e.g. `"$HOME/bin/notify-ievo"` or any other absolute path the user owns). The path is embedded as a string literal in the generated `.ievo/hooks/scripts/on-stop.sh` at write time; do NOT leave a `$VAR` reference here — the script has no `USER_NOTIFY_CMD=...` assignment, so a runtime variable would be unset and the notification would silently never fire (saved only by the trailing `|| true`). **Do NOT use `exec`** — `exec` replaces the shell process when the target succeeds, so the `exit 0` at the bottom of the script would never run and the Stop hook would exit with whatever code the custom command returned (a non-zero return would then count against `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`). The other three options (`osascript`, `notify-send`, `printf '\a'`) fork-and-wait so they reach `exit 0` naturally; `custom` must do the same — invoke the user's command as a normal foreground call (e.g. `"<validated-path>" || true`), let it return, then the script's own `exit 0` runs. |
 
 Script template:
 
@@ -203,7 +203,7 @@ For Step 6's merge stage, build this entry (to be added to `hooks.Stop[]`):
   "hooks": [
     {
       "type": "command",
-      "args": ["bash", ".ievo/hooks/scripts/on-stop.sh"]
+      "args": ["sh", ".ievo/hooks/scripts/on-stop.sh"]
     }
   ]
 }
@@ -217,7 +217,7 @@ Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing com
 
 1. Read current settings.json (from Step 4, or `{}` if absent).
 2. For signal-file entries (Step 5): ensure `hooks.PostToolUse` exists as an array; create if missing. For each new entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append.
-3. For the Stop hook entry (Step 5.5, if Step 5.5.1 = "yes"): ensure `hooks.Stop` exists as an array; create if missing. Stop hook entries have no `matcher`, so dedup by comparing the inner `hooks[0].args` array — if an existing entry's args matches `["bash", ".ievo/hooks/scripts/on-stop.sh"]`, skip with "Stop hook already configured; skipping." Otherwise append.
+3. For the Stop hook entry (Step 5.5, if Step 5.5.1 = "yes"): ensure `hooks.Stop` exists as an array; create if missing. Stop hook entries have no `matcher`, so dedup by comparing the inner `hooks[0].args` array — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-stop.sh"]`, skip with "Stop hook already configured; skipping." Otherwise append.
 
 ## Step 7: Confirm with the user
 
@@ -263,6 +263,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - **Logs go to `.ievo/log/hooks/`** even when `none` is selected as the notification — silent operation, but the audit trail is still available.
 - **Signal files are written by other iEvo skills** (init, evolution, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
 - **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
+- **Stop hook script is local, not team-shared.** Notification commands are OS- and preference-specific (macOS osascript vs Linux notify-send vs custom path), so `.ievo/hooks/scripts/on-stop.sh` is intentionally written under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10). The Stop hook entry in `settings.json` is project-scope-tracked, but the script it references is not — when a team member pulls a project that uses the Stop hook, Claude Code will log a hook-launch error if their `.ievo/hooks/scripts/on-stop.sh` is absent. The error is cosmetic (Stop hook is non-blocking by design; the missing-script `sh` exit is also non-blocking on session flow). To activate the hook locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copy of the script.
 
 ## See also
 

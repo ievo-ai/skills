@@ -155,7 +155,7 @@ Use the Write tool to create `.ievo/hooks/scripts/on-stop.sh` (Write tool create
 | `macos`  | `osascript -e 'display notification "iEvo: all background agents complete" with title "iEvo"'` |
 | `linux`  | `notify-send "iEvo" "all background agents complete"` |
 | `bell`   | `printf '\a'` |
-| `custom` | `exec "<validated-path>"` — **write-time placeholder**: substitute `<validated-path>` with the actual absolute path the user supplied + validated in Step 5.5.2 (e.g. `exec "/Users/alice/bin/notify-ievo"`). The path is embedded as a string literal in the generated `.ievo/hooks/scripts/on-stop.sh` at write time; do NOT leave a `$VAR` reference here — the script has no `USER_NOTIFY_CMD=...` assignment, so a runtime variable would be unset and the notification would silently never fire (saved only by the `|| true` guard). |
+| `custom` | `exec "<validated-path>"` — **write-time placeholder**: substitute `<validated-path>` with the actual absolute path the user supplied + validated in Step 5.5.2 (e.g. `exec "$HOME/bin/notify-ievo"` or any other absolute path the user owns). The path is embedded as a string literal in the generated `.ievo/hooks/scripts/on-stop.sh` at write time; do NOT leave a `$VAR` reference here — the script has no `USER_NOTIFY_CMD=...` assignment, so a runtime variable would be unset and the notification would silently never fire (saved only by the `|| true` guard). |
 
 Script template:
 

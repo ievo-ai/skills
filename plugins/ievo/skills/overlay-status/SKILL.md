@@ -103,8 +103,10 @@ stat -f "%Sm%t%N" -t "%Y-%m-%d" .ievo/evolution/project.md .ievo/evolution/agent
 **GNU coreutils `stat` (Linux):**
 
 ```sh
-stat -c "%y%t%n" .ievo/evolution/project.md .ievo/evolution/agents/*.md .ievo/evolution/skills/*.md 2>/dev/null | awk -F'\t' '{split($1,t," "); print t[1] "\t" $2}'
+stat --printf "%y\t%n\n" .ievo/evolution/project.md .ievo/evolution/agents/*.md .ievo/evolution/skills/*.md 2>/dev/null | awk -F'\t' '{split($1,t," "); print t[1] "\t" $2}'
 ```
+
+**Why `--printf` and not `-c` on Linux:** GNU `stat`'s format specifiers DIFFER from BSD `stat`'s. In BSD `stat -f` the `%t` specifier is a literal tab (used in the macOS command above) — but in GNU `stat -c` `%t` is the **major device type in hex** (outputs `0` for regular files; nothing like a tab). To get a real tab on GNU, use `--printf` (which interprets `\t` and `\n` as their C-escape characters per the coreutils manual) combined with the literal `\t` escape in the format string. `--printf` is GNU-only — it stays inside this branch, with the macOS / BSD branch above using `-f "%Sm%t%N"` correctly.
 
 Glob expansion of `.ievo/evolution/agents/*.md` returns the literal pattern if the directory is missing or empty; `2>/dev/null` suppresses the resulting "No such file" errors. Parse the surviving `YYYY-MM-DD<TAB><path>` pairs (split on `\t`, not `|` — pipe is a valid character in POSIX filenames so a path like `agents/foo|bar.md` would silently truncate under `|` splitting; tab cannot appear in a sane overlay filename).
 

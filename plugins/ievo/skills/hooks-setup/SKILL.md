@@ -143,7 +143,7 @@ Which notification to fire when all background agents complete?
 - "macos"   — osascript -e 'display notification "..." with title "iEvo"' (macOS only; fires a real desktop notification independent of TTY)
 - "linux"   — notify-send "iEvo" "..." (requires libnotify; freedesktop.org notification spec)
 - "bell"    — printf '\a' (terminal BEL fallback; reliability depends on the terminal's handling of hook-process stdout)
-- "custom"  — user-provided shell command (validated with test -x as in Step 2's custom-script path)
+- "custom"  — user-provided shell command (validated the same way as Step 2's custom-script path: `test -f "$path" && test -x "$path"` — regular file AND executable; `test -x` alone accepts directories which would exec-fail at hook fire time)
 ```
 
 ### Step 5.5.3: Write the Stop hook script
@@ -155,7 +155,7 @@ Use the Write tool to create `.ievo/hooks/scripts/on-stop.sh` (Write tool create
 | `macos`  | `osascript -e 'display notification "iEvo: all background agents complete" with title "iEvo"'` |
 | `linux`  | `notify-send "iEvo" "all background agents complete"` |
 | `bell`   | `printf '\a'` |
-| `custom` | `exec "$USER_NOTIFY_CMD"` (where `$USER_NOTIFY_CMD` is the validated path from 5.5.2) |
+| `custom` | `exec "<validated-path>"` — **write-time placeholder**: substitute `<validated-path>` with the actual absolute path the user supplied + validated in Step 5.5.2 (e.g. `exec "/Users/alice/bin/notify-ievo"`). The path is embedded as a string literal in the generated `.ievo/hooks/scripts/on-stop.sh` at write time; do NOT leave a `$VAR` reference here — the script has no `USER_NOTIFY_CMD=...` assignment, so a runtime variable would be unset and the notification would silently never fire (saved only by the `|| true` guard). |
 
 Script template:
 
@@ -192,7 +192,7 @@ exit 0
 
 Then make it executable. Use Bash: `chmod +x .ievo/hooks/scripts/on-stop.sh`.
 
-**Field availability:** On Claude Code <v2.1.145, `background_tasks` and `session_crons` are absent from the stdin JSON. `jq` then returns `null | length`, the script falls back to `echo 0` via `||`, both counts become 0, and the notification fires on every Stop. Warn the user if `claude --version` (run via Bash in Step 5.5.3) returns a version below 2.1.145 — they can still install the hook, but it will fire on every stop instead of "all background agents done".
+**Field availability:** On Claude Code <v2.1.145, `background_tasks` and `session_crons` are absent from the stdin JSON. `jq '.background_tasks | length'` returns `0` directly in that case (jq's `null | length` evaluates to `0` with exit code `0` — the `|| echo 0` guard does NOT fire on missing fields; it only fires when `jq` itself is unavailable or the input is unparseable JSON). Both counts become 0, so the notification fires on every Stop. Warn the user if `claude --version` (run via Bash in Step 5.5.3) returns a version below 2.1.145 — they can still install the hook, but it will fire on every stop instead of "all background agents done".
 
 ### Step 5.5.4: Build the Stop hook entry
 

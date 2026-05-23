@@ -97,16 +97,16 @@ The Glob tool does not return mtime directly. To get last-modified per file, use
 **BSD `stat` (macOS):**
 
 ```sh
-stat -f "%Sm|%N" -t "%Y-%m-%d" .ievo/evolution/project.md .ievo/evolution/agents/*.md .ievo/evolution/skills/*.md 2>/dev/null
+stat -f "%Sm%t%N" -t "%Y-%m-%d" .ievo/evolution/project.md .ievo/evolution/agents/*.md .ievo/evolution/skills/*.md 2>/dev/null
 ```
 
 **GNU coreutils `stat` (Linux):**
 
 ```sh
-stat -c "%y|%n" .ievo/evolution/project.md .ievo/evolution/agents/*.md .ievo/evolution/skills/*.md 2>/dev/null | awk -F'|' '{split($1,t," "); print t[1] "|" $2}'
+stat -c "%y%t%n" .ievo/evolution/project.md .ievo/evolution/agents/*.md .ievo/evolution/skills/*.md 2>/dev/null | awk -F'\t' '{split($1,t," "); print t[1] "\t" $2}'
 ```
 
-Glob expansion of `.ievo/evolution/agents/*.md` returns the literal pattern if the directory is missing or empty; `2>/dev/null` suppresses the resulting "No such file" errors. Parse the surviving `YYYY-MM-DD|<path>` pairs.
+Glob expansion of `.ievo/evolution/agents/*.md` returns the literal pattern if the directory is missing or empty; `2>/dev/null` suppresses the resulting "No such file" errors. Parse the surviving `YYYY-MM-DD<TAB><path>` pairs (split on `\t`, not `|` — pipe is a valid character in POSIX filenames so a path like `agents/foo|bar.md` would silently truncate under `|` splitting; tab cannot appear in a sane overlay filename).
 
 **Windows host without POSIX shell:** `stat` is unavailable. Omit the date column and emit a footer note: *"Last-modified dates require POSIX `stat`; run via WSL / Git Bash to see them."* Steps 1–3 and Step 5 still produce a useful listing.
 

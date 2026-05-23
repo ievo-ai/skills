@@ -8,6 +8,8 @@ allowed-tools:
   - Write
   - AskUserQuestion
   - Bash(test*)
+  - Bash(chmod*)
+  - Bash(claude*)
 compatibility: Claude Code v2.1.139+ for the `args: string[]` exec-form hook field; v2.1.141+ for the `terminalSequence` notification field; v2.1.145+ for the optional Stop hook's `background_tasks` / `session_crons` fields (on older versions the Stop hook still installs but fires on every stop instead of only when background work is clear). Codex's hook schema may differ — run on Codex only if its settings.json honors the same fields. Other agentskills.io-compatible hosts: works only if they support the Claude Code hook schema for settings.json.
 metadata:
   author: ievo-ai
@@ -140,7 +142,7 @@ If "no" → skip to Step 6 (with whatever signal-file entries Step 5 built; if S
 Which notification to fire when all background agents complete?
 - "macos"   — osascript -e 'display notification "..." with title "iEvo"' (macOS only; fires a real desktop notification independent of TTY)
 - "linux"   — notify-send "iEvo" "..." (requires libnotify; freedesktop.org notification spec)
-- "bell"    — printf '' (terminal BEL fallback; reliability depends on the terminal's handling of hook-process stdout)
+- "bell"    — printf '\a' (terminal BEL fallback; reliability depends on the terminal's handling of hook-process stdout)
 - "custom"  — user-provided shell command (validated with test -x as in Step 2's custom-script path)
 ```
 
@@ -152,7 +154,7 @@ Use the Write tool to create `.ievo/hooks/scripts/on-stop.sh` (Write tool create
 |--------|----------------|
 | `macos`  | `osascript -e 'display notification "iEvo: all background agents complete" with title "iEvo"'` |
 | `linux`  | `notify-send "iEvo" "all background agents complete"` |
-| `bell`   | `printf ''` |
+| `bell`   | `printf '\a'` |
 | `custom` | `exec "$USER_NOTIFY_CMD"` (where `$USER_NOTIFY_CMD` is the validated path from 5.5.2) |
 
 Script template:
@@ -164,9 +166,14 @@ Script template:
 # Exit 0 always — this hook is informational, never blocks the turn. A blocking
 # Stop hook is force-released after CLAUDE_CODE_STOP_HOOK_BLOCK_CAP consecutive
 # blocks (default 8, v2.1.143+); iEvo's hook never blocks at all.
+#
+# Note: NO `set -e` — that would turn any per-line failure (full disk, EACCES
+# on project root, jq absent, etc.) into a non-zero exit, contradicting the
+# non-blocking guarantee. Each line that can fail is individually guarded
+# with `|| true` or `2>/dev/null || ...` so the final `exit 0` is reachable
+# always.
 
-set -e
-mkdir -p .ievo/log/hooks
+mkdir -p .ievo/log/hooks 2>/dev/null || true
 
 input=$(cat)
 # jq is a hard dependency of `gh`, which iEvo already requires; fall back to 0 if jq absent.
@@ -174,7 +181,7 @@ bg=$(printf '%s' "$input" | jq '.background_tasks | length' 2>/dev/null || echo 
 cron=$(printf '%s' "$input" | jq '.session_crons | length' 2>/dev/null || echo 0)
 
 printf '%s stop-hook bg=%s cron=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bg" "$cron" \
-  >> .ievo/log/hooks/events.log
+  >> .ievo/log/hooks/events.log 2>/dev/null || true
 
 if [ "$bg" = "0" ] && [ "$cron" = "0" ]; then
   <notify-cmd> || true

@@ -105,7 +105,7 @@ Per-event message (substitute for `<msg>`):
 | Event | Message |
 |-------|---------|
 | `init-complete` | `iEvo: /ievo:init pipeline complete` |
-| `security-red` | `iEvo: security RED verdict — check .ievo/security/` |
+| `security-red` | `iEvo: security RED verdict — see .ievo/log/init-*.md §8` |
 | `evolution-captured` | `iEvo: evolution overlay captured` |
 
 Per-preference `<seq-printf>` content (replace `<msg>` with the per-event message; escape characters are JSON-encoded inside the printf format so they round-trip through `sh -c` → `printf` → JSON parser):

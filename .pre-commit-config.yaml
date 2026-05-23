@@ -53,3 +53,13 @@ repos:
         entry: node .github/scripts/validators/placeholder-leakage.mjs
         language: system
         files: \.(md|mjs|js|ts|py|sh)$
+
+      - id: utf8-validate
+        name: UTF-8 byte integrity (Codex skill-load compatibility, rust-v0.133.0+)
+        entry: node .github/scripts/validators/utf8-validate.mjs
+        language: system
+        # Text files iEvo ships: docs, skills, agents, scripts. Excludes binaries
+        # / lockfiles. .md + .mjs cover the Codex skill-load surface explicitly;
+        # the rest is defence-in-depth.
+        files: \.(md|mjs|js|ts|py|sh|yaml|yml|json|txt)$
+        exclude: ^(package-lock\.json|coverage\.lcov)$

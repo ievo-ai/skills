@@ -6,6 +6,8 @@ allowed-tools:
   - Read
   - Glob
   - Bash(stat*)
+  - Bash(uname*)
+  - Bash(date*)
 compatibility: Works on any agent platform that supports the agentskills.io standard. Pure Read + Glob for enumeration; Bash (`stat`) for last-modified dates on POSIX hosts. Gracefully degraded on Windows hosts without POSIX shell — dates are omitted with an explicit footer note. Output is plain markdown so it renders correctly in every supported runner.
 metadata:
   author: ievo-ai
@@ -94,6 +96,14 @@ Strip surrounding whitespace; collapse internal whitespace to single spaces; tru
 
 The Glob tool does not return mtime directly. To get last-modified per file, use Bash with a single `stat` call covering all overlay paths.
 
+**Detect OS first** so the right `stat` branch is chosen:
+
+```sh
+uname -s
+```
+
+`Darwin` → use the BSD branch below. `Linux` → use the GNU branch. Any other value → attempt the GNU branch first (most POSIX-like systems ship GNU coreutils); on failure, fall to the Windows-no-POSIX-shell path described at the end of this step.
+
 **BSD `stat` (macOS):**
 
 ```sh
@@ -150,7 +160,13 @@ To inspect a specific overlay → `cat .ievo/evolution/<scope>/<name>.md` (or `.
 
 ### 6. (Optional) Stale-overlay note
 
-If any overlay's last-modified date is more than 180 days ago, add a footer line:
+Compare against today's date — if not already known in session context, obtain it via:
+
+```sh
+date -u +%Y-%m-%d
+```
+
+If any overlay's last-modified date is more than 180 days before today, add a footer line:
 
 ```
 ⚠ <N> overlay(s) untouched in 180+ days — consider running `/ievo:evolution`

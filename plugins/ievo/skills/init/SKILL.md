@@ -192,7 +192,9 @@ Create if missing:
 - `.ievo/evolution/agents/`
 - `.ievo/evolution/skills/`
 - `.ievo/log/`
+- `.ievo/log/hooks/` — append-only audit log for lifecycle hook fires (events.log appended by every hook configured via `/ievo:hooks-setup`)
 - `.ievo/cache/index/`
+- `.ievo/hooks/` — signal-file directory for lifecycle hooks; Step 11.5 writes `init-complete` here, evolution/SKILL.md Step 5.5 writes `evolution-captured`, security-auditor.md Step 6 writes `security-red` (RED-only). Created defensively even if `/ievo:hooks-setup` hasn't been run yet
 - `.claude/` — root for vendored items
 - `.claude/agents/` — for vendored agents
 - `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add`)
@@ -857,15 +859,17 @@ Per existing convention: if any install step fails, report and continue with the
 Project `.gitignore` should ignore:
 - `.ievo/log/` — diagnostic logs (local-only)
 - `.ievo/cache/` — repo indices (re-derivable)
+- `.ievo/hooks/` — ephemeral one-line signal-file timestamps written by Step 11.5 / evolution Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state)
 
 But NOT ignore (must be committed for team portability):
 - `.ievo/evolution/` — overlay files (project-owned evolution data)
 
-Check project's `.gitignore`. If it doesn't already cover `.ievo/log/` and `.ievo/cache/`, append:
+Check project's `.gitignore`. If it doesn't already cover `.ievo/log/`, `.ievo/cache/`, and `.ievo/hooks/`, append:
 ```
 # iEvo local-only artifacts
 .ievo/log/
 .ievo/cache/
+.ievo/hooks/
 ```
 
 If no `.gitignore` exists, do not create one — note in summary.
@@ -885,6 +889,16 @@ Append a final closing section so post-mortem readers know the run ended cleanly
 ```
 
 **Why incremental writes matter:** if init crashes / hangs / user cancels at any step, the partial log up to that point is on disk. `tail -f .ievo/log/init-*.md` works during long-running steps (discover.mjs, index-repos). Post-mortem diagnosis works even on failed runs.
+
+## Step 11.5: Signal file for lifecycle hooks
+
+Write `.ievo/hooks/init-complete` (create the directory if absent). The body of the file is a single line: the ISO-8601 timestamp of pipeline completion. The file is the trigger for any `PostToolUse` hook configured via `/ievo:hooks-setup` matching `Write(.ievo/hooks/init-complete)` — without this step, the configured hook never fires.
+
+Use the Write tool (NOT Bash) so the matcher in the user's settings.json fires:
+- `file_path`: `.ievo/hooks/init-complete` (relative — the `PostToolUse` matcher `Write(.ievo/hooks/init-complete)` only fires on this exact form; never prefix `<project>/` or use an absolute path)
+- `content`: `<ISO-8601 UTC timestamp of this run>`
+
+If the user hasn't run `/ievo:hooks-setup`, the file is still written — it's a one-line marker, costs nothing, and unblocks the hook configuration if added later. Don't gate this step on whether hooks are configured.
 
 ## Step 12: Final summary and reload reminder
 

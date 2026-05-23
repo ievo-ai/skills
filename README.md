@@ -277,6 +277,7 @@ ievo-ai/skills/
     │   ├── debug-on/SKILL.md       # /ievo:debug-on — enable verbose session logging
     │   ├── debug-off/SKILL.md      # /ievo:debug-off — disable verbose session logging
     │   ├── hooks-setup/SKILL.md    # /ievo:hooks-setup — configure lifecycle hooks
+    │   ├── overlay-status/SKILL.md # /ievo:overlay-status — list active evolution overlays
     │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo
     │   └── security-check/SKILL.md # /ievo:security-check — audit a candidate
     ├── agents/

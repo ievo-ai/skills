@@ -29,7 +29,14 @@ The legibility principle: *what the agent cannot inspect through approved tools 
 
 ### 1. Enumerate overlay files
 
-Use the Glob tool with pattern `.ievo/evolution/**/*.md`. Glob returns an empty array if the directory doesn't exist or contains no `.md` files — no need for a separate existence check. Glob is the only existence-detection path; do NOT use a sentinel file (no skill in iEvo guarantees any specific file's presence — `evolution/SKILL.md` only writes per-scope overlay files as needed).
+Use TWO Glob calls so the flat `project.md` is enumerated reliably across glob implementations:
+
+1. `.ievo/evolution/*.md` — matches files at the evolution root (notably `project.md`).
+2. `.ievo/evolution/**/*.md` — matches everything recursively.
+
+Union the two result sets and dedupe by path. Why two calls: on Claude Code (npm `glob` v10) the `**` matches zero or more path segments, so `**/*.md` alone matches `project.md`. But on other agentskills.io-compatible hosts (older minimatch / shell-glob / Python `pathlib`) `**` typically requires at least one intervening directory segment, and `project.md` would be silently excluded. The Project scope would then render `(none)` even when a real project overlay exists. The two-call union is the simplest portable form.
+
+Glob returns an empty array if the directory doesn't exist or contains no `.md` files — no need for a separate existence check. Glob is the only existence-detection path; do NOT use a sentinel file (no skill in iEvo guarantees any specific file's presence — `evolution/SKILL.md` only writes per-scope overlay files as needed).
 
 Expected layout (defined by `evolution/SKILL.md` Step 4):
 
@@ -76,9 +83,10 @@ Unexpected paths (e.g. a user-authored file at `.ievo/evolution/notes.md`) fall 
 For each enumerated file, use the Read tool and pull the summary by this precedence:
 
 1. **YAML frontmatter `description:` field** — if present and non-empty, use it.
-2. **First Markdown heading** (`# ` or `## ` line) below the frontmatter — strip the `#`s, use the text.
-3. **First non-blank, non-frontmatter, non-heading line** — use up to its first 120 characters.
-4. **Fallback** — emit `(empty overlay)` if none of the above produces text.
+2. **First `##`-level subsection title** when the file's first `# ` heading matches the boilerplate pattern `# <name> — Evolution Overlay` — strip the `##`, use the title. `/ievo:evolution` (defined in `evolution/SKILL.md` Step 4) writes overlays whose first heading is always this boilerplate (e.g. `# coder — Evolution Overlay`); the meaningful content lives in `## YYYY-MM-DD — <short title>` subsections immediately below. Falling through to "first heading" would render every evolution overlay as `"coder — Evolution Overlay"` regardless of content, defeating this skill's purpose. So when boilerplate is detected, skip it and report the most recent (typically the first) `## ` subsection's text — that's the actual lesson title.
+3. **First Markdown heading** (`# ` or `## ` line) below the frontmatter — strip the `#`s, use the text. (For non-evolution-overlay user files that don't match the boilerplate pattern.)
+4. **First non-blank, non-frontmatter, non-heading line** — use up to its first 120 characters.
+5. **Fallback** — emit `(empty overlay)` if none of the above produces text.
 
 Strip surrounding whitespace; collapse internal whitespace to single spaces; truncate at 120 chars with `…` if longer. On corrupted frontmatter (YAML parse error) emit `(unparsable frontmatter)` and continue with the next file — never modify the file in response.
 

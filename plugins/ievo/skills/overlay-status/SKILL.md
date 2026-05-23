@@ -120,10 +120,8 @@ Group by scope. Suggested format:
 - `evolution.md` — "Marker injection must be idempotent" (last modified: 2026-05-21)
 
 ### Other (<N> file(s) — unexpected paths)
-- `.ievo/evolution/notes.md` — "Project context notes" (last modified: 2026-05-20)
+- `notes.md` — "Project context notes" *(unexpected location; mtime not captured)*
   _(unexpected location — not a standard iEvo overlay scope; iEvo never dispatches off these. Listed so the operator can decide whether to move it under a recognised scope or remove it.)_
-
-(Omit the entire "Other" section if no unexpected paths were classified in Step 2 — empty scopes for Project / agents / skills get `(none)`, but a completely empty Other category should be hidden rather than displayed as "0 unexpected paths".)
 
 ---
 
@@ -131,6 +129,10 @@ To add an overlay → `/ievo:evolution "<lesson>"`.
 To remove an overlay → delete the file under `.ievo/evolution/`.
 To inspect a specific overlay → `cat .ievo/evolution/<scope>/<name>.md` (or `.ievo/evolution/project.md` for project scope).
 ```
+
+**Omit the "Other" section entirely when empty.** Empty Project / agents / skills scopes still render with `(none)` (explicit zero conveys "I checked, nothing's there"), but a fully-empty Other category should be hidden rather than printed as "0 unexpected paths" — its absence is the legible signal.
+
+**"Other" scope has no mtime column.** Step 4's `stat` invocation only covers the three canonical paths (`project.md`, `agents/*.md`, `skills/*.md`). Files classified as Other won't appear in stat's output, so their "last modified" date is unavailable from a single batched call. Don't pad with a fake date — omit the date for those rows (use the `*(unexpected location; mtime not captured)*` annotation as shown above) and keep Step 4's stat call simple. If the operator needs mtime for an Other file they can `stat <path>` it manually.
 
 **Scope ordering:** Project first (broadest blast radius), then agents/, then skills/. Empty scopes still appear with `(none)` instead of being hidden — explicit zero is more legible than absent, and conveys "I checked, nothing's there".
 

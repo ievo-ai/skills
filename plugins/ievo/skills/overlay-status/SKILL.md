@@ -8,7 +8,7 @@ allowed-tools:
   - Bash(stat*)
   - Bash(uname*)
   - Bash(date*)
-compatibility: Works on any agent platform that supports the agentskills.io standard. Pure Read + Glob for enumeration; Bash (`stat`) for last-modified dates on POSIX hosts. Gracefully degraded on Windows hosts without POSIX shell — dates are omitted with an explicit footer note. Output is plain markdown so it renders correctly in every supported runner.
+compatibility: Works on any agent platform that supports the agentskills.io standard. Pure Read + Glob for enumeration; Bash (`stat`, `uname`, `date`) for last-modified-date capture, OS-branch routing, and today-date comparison — all on POSIX hosts. Gracefully degraded on Windows hosts without POSIX shell: the `uname` detection falls through to the Windows fallback path, dates are omitted with an explicit footer note, and the listing still renders from Read + Glob alone. Output is plain markdown so it renders correctly in every supported runner.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -183,7 +183,7 @@ This step is best-effort; skip it if mtime is unavailable (Step 4 Windows-fallba
 - **Project scope is a FLAT file**, not a directory. The path is `.ievo/evolution/project.md` — do NOT glob `.ievo/evolution/project/*.md` (no such subdirectory exists).
 - **Use Glob for existence detection**, not a sentinel file. No iEvo skill guarantees the presence of any specific file under `.ievo/evolution/` — only that overlays are written there when `/ievo:evolution` is invoked.
 - **Empty scopes show `(none)`** — don't hide them. The point is legibility; explicit zero conveys "I checked, nothing's there".
-- **Bash is used only for `stat`**, never for reading file contents or modifying anything. The `allowed-tools` frontmatter declares `Bash(stat*)` for exactly this — no broader Bash surface.
+- **Bash is used only for mtime lookup and OS/date detection** (`stat` for last-modified per file, `uname -s` for OS-branch routing in Step 4, `date -u +%Y-%m-%d` for the today-date comparison in Step 6 if not already in session context). Never for reading file contents or modifying anything. The `allowed-tools` frontmatter declares `Bash(stat*)`, `Bash(uname*)`, and `Bash(date*)` for exactly these three uses — no broader Bash surface.
 
 ## See also
 

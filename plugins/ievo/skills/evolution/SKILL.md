@@ -253,3 +253,8 @@ Output a short summary to the user:
 | Conflict detection | Hard (need diff against past) | Easy (compare overlay sections) |
 
 The overlay file is also a self-contained record: anyone reading `<name>.md` sees the full history with dates and triggers. Useful for curator (L2) to detect cross-project patterns.
+
+## See also
+
+- `overlay-status/SKILL.md` — `/ievo:overlay-status` lists every overlay this skill has built up in the current project, grouped by scope (Project / agents / skills) with last-modified dates and one-line summaries. Use it after a `/ievo:evolution` capture to confirm the new lesson landed where you expected, or at session start to see what rules are already active.
+- `hooks-setup/SKILL.md` — `/ievo:hooks-setup` configures a Claude Code hook that fires when the signal file `.ievo/hooks/evolution-captured` is written by Step 5.5 above (lets you get a desktop notification on every capture).

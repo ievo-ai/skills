@@ -1,5 +1,7 @@
 # iEvo — Self-Evolving Plugin for AI Coding Agents
 
+> ⚠️ **Alpha** — iEvo is in active early development (current line: `v0.6.x`). The pipeline works end-to-end and individual skills are tested, but APIs, file layouts, and behaviour can change between minor versions. Pin to a specific `marketplace.json` version if you need stability. v1.0 will be the first stable release.
+
 > Discover relevant skills + agents for your project, audit them via senior-security-engineer review (deep content scan + threat modeling, no owner-based trust shortcuts), install with project-scope portability. Capture lessons as overlays that survive upstream updates. Works on Claude Code, Codex, and any platform that supports the [agentskills.io](https://agentskills.io) standard.
 
 iEvo is a **universal discovery + safety + evolution layer** on top of [skills.sh](https://www.skills.sh) and the multi-platform agent skills ecosystem.
@@ -105,6 +107,7 @@ install (project-scope vendor or plugin)
 | `/ievo:debug-on` | Enable verbose / trace-level logging for the iEvo pipeline |
 | `/ievo:debug-off` | Disable verbose logging and finalize the debug session |
 | `/ievo:hooks-setup` | Configure Claude Code lifecycle hooks for iEvo pipeline events (init complete, security RED, evolution captured) |
+| `/ievo:overlay-status` | List active evolution overlays in this project, grouped by scope (Project / agents / skills) with last-modified dates |
 | `/ievo:index-repos` | Standalone: enumerate a repo (callable on its own) |
 | `/ievo:security-check` | Standalone: audit a specific skill/agent/plugin |
 
@@ -276,6 +279,7 @@ ievo-ai/skills/
     │   ├── debug-on/SKILL.md       # /ievo:debug-on — enable verbose session logging
     │   ├── debug-off/SKILL.md      # /ievo:debug-off — disable verbose session logging
     │   ├── hooks-setup/SKILL.md    # /ievo:hooks-setup — configure lifecycle hooks
+    │   ├── overlay-status/SKILL.md # /ievo:overlay-status — list active evolution overlays
     │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo
     │   └── security-check/SKILL.md # /ievo:security-check — audit a candidate
     ├── agents/

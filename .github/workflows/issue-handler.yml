@@ -83,7 +83,11 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           show_full_output: true
-          max_turns: 80
+          # max_turns intentionally NOT set — full cycle (Phase 1 context load +
+          # Phase 2 deep research + Phase 4 implement + tests + validators +
+          # Phase 5 review loop ×3) can easily exceed any hand-picked cap on a
+          # non-trivial feature, producing an incomplete PR with no completion
+          # signal. The job's `timeout-minutes: 60` is the real wall clock.
           # ACCEPTED RISK — Bash is in --allowedTools because git operations
           # (checkout / commit / push / running the test suite) happen inside
           # the agent's session and have no structured-tool equivalent. The

@@ -51,11 +51,20 @@ permissions:
   issues: write         # post acknowledgment / completion / exhaustion comments
   pull-requests: write  # create PRs, comment on them, read review state
   actions: read         # Phase 5 polls `gh pr checks` which needs read on Actions runs
-  # NOTE: id-token write deliberately omitted — actions/create-github-app-token@v1
-  # signs a JWT with the App private key directly, no OIDC exchange. Granting
-  # id-token would mint arbitrary OIDC tokens for external services (AWS/GCP
-  # federation), which is a non-trivial privilege-escalation surface for no
-  # benefit here.
+  id-token: write       # REQUIRED by anthropics/claude-code-action@v1's internal
+                        # OIDC token exchange — without this, the action fails
+                        # at startup with `Unable to get ACTIONS_ID_TOKEN_REQUEST_URL`.
+                        # Earlier rounds of this PR omitted it on the assumption
+                        # that `actions/create-github-app-token@v1` (the only
+                        # explicit OIDC consumer in the workflow) doesn't need
+                        # it — that's true for create-github-app-token but NOT
+                        # for claude-code-action itself, which uses its own
+                        # OIDC flow internally. Verified live on issue #72:
+                        # run 26360211550 failed with the exact error above
+                        # before id-token was restored. The privilege is bounded
+                        # to this workflow's `permissions:` block (not org-wide),
+                        # so the OIDC tokens it mints are only valid for this
+                        # workflow run's audience — narrow attack surface.
 
 concurrency:
   group: issue-handler-${{ github.event.issue.number }}

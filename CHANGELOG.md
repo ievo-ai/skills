@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.6.17
+
+Hotfix on v0.6.16's `issue-handler.yml`: restored `id-token: write` to the workflow's permissions block. The earlier rounds had stripped it on the assumption that `actions/create-github-app-token@v1` (the only OIDC-named consumer in the workflow source) doesn't need it — which is true for that action, but NOT for `anthropics/claude-code-action@v1` itself, which runs its own OIDC token exchange internally as part of startup. The first live test run on issue #72 failed immediately with `Unable to get ACTIONS_ID_TOKEN_REQUEST_URL` before any agent code executed. Added a detailed comment block documenting the requirement + linking to the failed run so a future maintainer doesn't repeat the strip-on-assumption mistake.
+
 ## v0.6.16
 
 Closes #65 with new `issue-handler.yml` workflow: when a new GitHub issue opens, Claude (Opus) performs deep research and either closes the issue with explanation or implements a fix/feature PR with full test coverage. After PR creation, monitors `claude-code-review` and iterates on feedback (max 3 rounds) until green; never auto-merges (human must merge).

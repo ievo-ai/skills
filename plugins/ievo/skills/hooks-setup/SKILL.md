@@ -10,7 +10,7 @@ allowed-tools:
   - Bash(test*)
   - Bash(chmod*)
   - Bash(claude*)
-compatibility: Claude Code v2.1.139+ for the `args: string[]` exec-form hook field; v2.1.141+ for the `terminalSequence` notification field; v2.1.145+ for the optional Stop hook's `background_tasks` / `session_crons` fields (on older versions the Stop hook still installs but fires on every stop instead of only when background work is clear). Codex's hook schema may differ — run on Codex only if its settings.json honors the same fields. Other agentskills.io-compatible hosts: works only if they support the Claude Code hook schema for settings.json.
+compatibility: Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

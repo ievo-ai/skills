@@ -97,9 +97,26 @@ jobs:
 
       - name: Run Issue Handler
         uses: anthropics/claude-code-action@v1
+        env:
+          # Pass App token + issue context via step-level env, NOT via template
+          # interpolation into the `settings:` JSON below. `create-github-app-token@v1`
+          # currently outputs `ghs_XXX` (alphanumeric + underscore, JSON-safe) but
+          # any future token format change introducing `"` or `\` would silently
+          # produce malformed JSON and an opaque action parse error rather than a
+          # clear auth failure. Step-level env is the action's documented channel
+          # and removes the invariant dependency on token character set.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          show_full_output: true
+          # show_full_output: false (default — was `true`, dropped per round-4
+          # review S2). The App token from `create-github-app-token@v1` is
+          # auto-masked in Actions logs by GitHub's secret-scanner, but Claude
+          # debug commands (`env`, `printenv`, verbose git output) could surface
+          # other context unnecessarily. The job-level Actions log is the right
+          # place to dig if a run needs diagnosis; flip back to true temporarily
+          # if needed.
           # max_turns intentionally NOT set — full cycle (Phase 1 context load +
           # Phase 2 deep research + Phase 4 implement + tests + validators +
           # Phase 5 review loop ×3) can easily exceed any hand-picked cap on a
@@ -123,14 +140,6 @@ jobs:
           claude_args: |
             --model opus
             --allowedTools "Bash,Edit,Read,Write,Glob,Grep,WebFetch,WebSearch"
-          settings: |
-            {
-              "env": {
-                "GH_TOKEN": "${{ steps.app-token.outputs.token }}",
-                "ISSUE_NUMBER": "${{ github.event.issue.number }}",
-                "REPO": "${{ github.repository }}"
-              }
-            }
           prompt: |
             You are an autonomous issue handler for the ievo-ai/skills repo.
             Your job: deep research on issue #${{ github.event.issue.number }},
@@ -307,12 +316,21 @@ jobs:
                  Poll every 60s with an ENFORCED 15-minute outer timeout
                  (don't trust the job's 60-minute wall clock — that's a backstop,
                  not a per-poll bound):
-                   MAX_WAIT=900   # 15 min
+                   # MAX_WAIT=600 (10 min) — claude-code-review typically
+                   # completes in 2-5 min. 3 attempts × 10 min poll = 30 min
+                   # leaves ~30 min in the 60-min job wall clock for Phase 1-4
+                   # implementation work; 3 × 15 min would have blown the
+                   # budget on the third iteration with no diagnostic.
+                   MAX_WAIT=600
                    waited=0
                    while [ "$waited" -lt "$MAX_WAIT" ]; do
+                     # `last` not `.[0]` — if `gh pr checks` ever returns
+                     # multiple claude.*review entries (e.g. a rerun creates
+                     # a second), the most-recently-appended one is the
+                     # authoritative state, not the first in the response.
                      STATUS=$(gh pr checks "$PR_NUMBER" --repo "$REPO" \
                        --json name,state --jq \
-                       '[.[] | select(.name | test("claude.*review"; "i"))] | .[0].state // "pending" | ascii_upcase')
+                       '[.[] | select(.name | test("claude.*review"; "i"))] | last.state // "pending" | ascii_upcase')
                      [ "$STATUS" = "PENDING" ] || break
                      sleep 60
                      waited=$((waited + 60))
@@ -370,8 +388,12 @@ jobs:
 
             When the PR is green (all checks pass):
 
-              cat > /tmp/done-comment.md << 'DONEEOF'
-              Implementation complete. PR #<number> is ready for human review and merge.
+              # Unquoted heredoc — $PR_NUMBER expands to the actual PR number
+              # (captured in Phase 4 from `gh pr create` URL). Single-quoted
+              # 'DONEEOF' would have blocked expansion → the comment would
+              # literally read "PR #<number>" instead of "PR #123".
+              cat > /tmp/done-comment.md << DONEEOF
+              Implementation complete. PR #$PR_NUMBER is ready for human review and merge.
 
               **Checks status:**
               - Coverage Gate: 100% maintained

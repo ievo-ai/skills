@@ -364,33 +364,41 @@ jobs:
                   # version). Auto-resolve by re-running Phase 4f's
                   # version-pick query against the post-rebase main state:
                   echo "Conflicts detected — auto-resolving version files"
-                  # Re-query latest main version (it just moved)
-                  NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" \
-                    --jq '.content' | base64 -d | jq -r '.version')
-                  # Bump to NEW_MAIN_VER + 0.0.1 (or +0.0.2 if you suspect
-                  # another sibling is also bumping right now). Write the
-                  # 4 version files + AGENTS.md ledger header + CHANGELOG.md
-                  # to the new version. Then:
-                  git add .claude-plugin/marketplace.json \
-                          plugins/ievo/.claude-plugin/plugin.json \
-                          plugins/ievo/scripts/discover.mjs \
-                          AGENTS.md CHANGELOG.md
-                  # If any non-version file is also conflicted (unexpected),
-                  # abort the rebase + post a diagnostic comment to the issue
-                  # asking for operator help — DO NOT attempt to resolve
-                  # arbitrary code conflicts autonomously:
+
+                  # Step 1: FIRST, abort early on ANY non-version conflict —
+                  # the handler is not allowed to autonomously resolve arbitrary
+                  # code conflicts. This check runs BEFORE any write so that an
+                  # operator-needed escalation doesn't leave partial state.
                   if git diff --name-only --diff-filter=U | grep -v -E '^(\.claude-plugin/marketplace\.json|plugins/ievo/\.claude-plugin/plugin\.json|plugins/ievo/scripts/discover\.mjs|AGENTS\.md|CHANGELOG\.md)$' | grep -q .; then
                     git rebase --abort
                     echo "Unexpected non-version conflict — escalating to issue thread"
                     gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<ESC
               Rebase against latest main produced conflicts in non-version files. The handler
               auto-resolves version-bump conflicts only — other conflicts need operator review.
-              Branch: $(git branch --show-current)
-              Conflicted files (excluding version files):
-              $(git diff --name-only --diff-filter=U)
               ESC
                     exit 1
                   fi
+
+                  # Step 2: Re-query latest main version (it just moved during
+                  # our run) and compute the next free slot.
+                  NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" \
+                    --jq '.content' | base64 -d | jq -r '.version')
+
+                  # Step 3: WRITE the 4 version files + AGENTS.md ledger header
+                  # + CHANGELOG.md (re-do the Phase 4f / 4f.5 outputs against the
+                  # newly-picked version). This re-writes conflict markers with
+                  # clean post-rebase content.
+
+                  # Step 4: AFTER writing, stage all the resolved files:
+                  git add .claude-plugin/marketplace.json \
+                          plugins/ievo/.claude-plugin/plugin.json \
+                          plugins/ievo/scripts/discover.mjs \
+                          AGENTS.md CHANGELOG.md
+
+                  # Step 5: continue the rebase with the resolved files.
+                  # (No sanity-recheck for non-version conflicts here — they
+                  # were caught in Step 1 before any write happened, so
+                  # nothing in Steps 2-4 could have introduced one.)
                   GIT_EDITOR=true git rebase --continue
                 fi
                 REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
@@ -444,8 +452,10 @@ jobs:
             After creating the PR, wait for claude-code-review to run and
             iterate on its feedback. Max 3 fix iterations.
 
-            ATTEMPT=0
+            ATTEMPT=0                       # real-finding fix attempts
             MAX_ATTEMPTS=3
+            STRUCTURAL_ATTEMPT=0             # action-side flake retriggers (separate budget)
+            STRUCTURAL_MAX=3
 
             Loop:
               1. The PR number is in $PR_NUMBER (extracted at the end of Phase 4
@@ -501,7 +511,20 @@ jobs:
 
                      # Known structural patterns (don't count as a real fix attempt):
                      if echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
-                       echo "Structural claude-review failure — retrigger via close+reopen"
+                       STRUCTURAL_ATTEMPT=$((STRUCTURAL_ATTEMPT + 1))
+                       # Cap structural retriggers separately from real-finding fixes
+                       # — if OIDC / credentials / allowed-bots are permanently broken,
+                       # we'd otherwise loop close+reopen until the job's 60-min
+                       # wall-clock killed us silently. STRUCTURAL_MAX=3 should be
+                       # initialized to 0 alongside ATTEMPT at the top of Phase 5.
+                       if [ "$STRUCTURAL_ATTEMPT" -ge "${STRUCTURAL_MAX:-3}" ]; then
+                         echo "Structural failures persist after $STRUCTURAL_ATTEMPT retriggers — escalating"
+                         MSG="Structural CI failures persisted across $STRUCTURAL_ATTEMPT retriggers on PR #$PR_NUMBER. This is likely a permanent action-side problem (missing org secret, revoked token, claude-code-action regression). Manual operator review needed."
+                         echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+                         echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+                         exit 1
+                       fi
+                       echo "Structural claude-review failure ($STRUCTURAL_ATTEMPT/$STRUCTURAL_MAX) — retrigger via close+reopen"
                        gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
                        sleep 5
                        gh pr reopen "$PR_NUMBER" --repo "$REPO"
@@ -520,7 +543,7 @@ jobs:
 
                      MERGE_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
                        --json mergeStateStatus --jq .mergeStateStatus)
-                     if [ "$MERGE_STATE" = "DIRTY" ] || [ "$MERGE_STATE" = "CONFLICTING" ]; then
+                     if [ "$MERGE_STATE" = "DIRTY" ]; then
                        echo "PR is conflicting against main — rebase via the Phase 4h loop"
                        # Re-run the Phase 4h rebase loop (fetch + rebase + auto-resolve
                        # version files + force-push). After successful rebase, goto step 2.

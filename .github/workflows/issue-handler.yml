@@ -11,9 +11,26 @@
 # this workflow trigger downstream workflows (claude-code-review.yml,
 # coverage-gate.yml, pre-commit-gate.yml).
 #
-# Security: untrusted issue title/body never reach run: blocks directly.
-# Claude receives them via gh issue view inside the agent subprocess,
-# never via GHA template interpolation into shell.
+# Security:
+#   - GHA shell injection: closed. Untrusted issue title/body NEVER reach
+#     run: blocks via template interpolation. Claude receives them via
+#     `gh issue view` inside the agent subprocess.
+#   - Indirect prompt injection (tool-output channel): partially mitigated.
+#     The raw issue body still reaches Claude as tool output and could in
+#     principle redirect agent behaviour ("ignore previous instructions, …").
+#     Scope-lock prompt rules (never modify outside plugins/ievo/, never
+#     touch workflow files) are prompt-only — not technically enforced
+#     because Bash is in --allowedTools (needed for git ops + tests; no
+#     structured-tool equivalent yet). Real defences against injection:
+#       (1) Privilege ceiling: only `contents: write` + `issues: write` +
+#           `pull-requests: write`. NO secrets: read, NO id-token: write.
+#       (2) No auto-merge — human gate on every PR.
+#       (3) Bot-loop block (`endsWith('[bot]')`) prevents the App from
+#           triggering itself if a Phase 3A bug ever opens an issue.
+#       (4) Per-issue concurrency scope prevents the same issue spawning
+#           parallel handlers.
+#     When `claude-code-action` ships per-pattern Bash disallowlists or a
+#     `--network-isolated` flag, tighten further.
 #
 # Safety:
 #   - Never auto-merges — PR sits for human review + merge
@@ -259,10 +276,16 @@ jobs:
               Automated by Issue Handler workflow.
               PREOF
 
-              gh pr create --repo "$REPO" \
+              # `gh pr create` writes the PR URL to stdout, NOT the bare number.
+              # Capture and extract the number — every gh subcommand in Phase 5
+              # below (`gh pr checks <N>`, `gh pr view <N>`, `gh pr comment <N>`)
+              # needs the number, not the URL.
+              PR_URL=$(gh pr create --repo "$REPO" \
                 --title "<type>: <short description>" \
                 --body-file /tmp/pr-body.md \
-                --head "$(git branch --show-current)"
+                --head "$(git branch --show-current)")
+              PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+              echo "Created PR #$PR_NUMBER ($PR_URL)"
 
             ## Phase 5 — Review Loop
 
@@ -273,19 +296,23 @@ jobs:
             MAX_ATTEMPTS=3
 
             Loop:
-              1. Get the PR number from the gh pr create output
+              1. The PR number is in $PR_NUMBER (extracted at the end of Phase 4
+                 from the `gh pr create` URL). Use it for all gh subcommands.
               2. Wait for checks to complete. `gh pr checks --json state` returns
-                 gh-CLI state values: PENDING (queued or actively running), PASS,
-                 FAIL, SKIPPING, CANCELLED, TIMEOUT, NEUTRAL. PENDING = keep
-                 waiting; everything else = terminal. Poll every 60s with an
-                 ENFORCED 15-minute outer timeout (don't trust the job's
-                 60-minute wall clock — that's a backstop, not a per-poll bound):
+                 **lowercase** state strings: "pending" (queued OR running),
+                 "pass", "fail", "skipping", "cancelled", "timeout", "neutral".
+                 Normalize to uppercase via `| ascii_upcase` so the shell
+                 comparison is unambiguous (mixed-case bugs silently break the
+                 loop). PENDING = keep waiting; everything else = terminal.
+                 Poll every 60s with an ENFORCED 15-minute outer timeout
+                 (don't trust the job's 60-minute wall clock — that's a backstop,
+                 not a per-poll bound):
                    MAX_WAIT=900   # 15 min
                    waited=0
                    while [ "$waited" -lt "$MAX_WAIT" ]; do
-                     STATUS=$(gh pr checks <PR_NUMBER> --repo "$REPO" \
+                     STATUS=$(gh pr checks "$PR_NUMBER" --repo "$REPO" \
                        --json name,state --jq \
-                       '[.[] | select(.name | test("claude.*review"; "i"))] | .[0].state // "PENDING"')
+                       '[.[] | select(.name | test("claude.*review"; "i"))] | .[0].state // "pending" | ascii_upcase')
                      [ "$STATUS" = "PENDING" ] || break
                      sleep 60
                      waited=$((waited + 60))
@@ -303,10 +330,18 @@ jobs:
               3. If all checks pass → done! Post success comment and exit.
 
               4. If claude-code-review has findings:
-                   - Read the review comments:
-                       gh pr view <PR_NUMBER> --repo "$REPO" --json reviews,comments
-                       gh api repos/$REPO/pulls/<PR_NUMBER>/comments \
-                         --jq '.[] | {path, body, line}'
+                   - Read the review comments. `claude-code-action` uses
+                     `use_sticky_comment: true` which posts a single sticky
+                     issue-comment, not inline review diff-comments. Read both
+                     channels (sticky covers ~all cases; the `pulls/.../comments`
+                     endpoint is for inline diff-anchored review comments,
+                     populated only when an upstream reviewer chooses that mode):
+                       # Sticky comment + any review summaries — covers claude-code-action
+                       gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,comments
+                       # Inline diff-comments (sticky-mode reviewer leaves this empty
+                       # but a manual/human reviewer might post here)
+                       gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+                         --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | .body'
                    - Address EACH finding:
                        * Read the specific file and line
                        * Understand the reviewer's concern
@@ -319,9 +354,16 @@ jobs:
                        Co-Authored-By: iEVO <noreply@ievo.ai>"
                        git push
                    - Increment ATTEMPT
-                   - If ATTEMPT >= MAX_ATTEMPTS, post comment and stop:
-                       echo "Reached max fix attempts ($MAX_ATTEMPTS). Leaving PR open for human review." | \
-                         gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+                   - If ATTEMPT >= MAX_ATTEMPTS, post the exhaustion summary
+                     to BOTH the original issue thread AND the PR thread so
+                     a reviewer landing on the PR sees the loop gave up
+                     (otherwise the PR looks silently abandoned with no
+                     indication that review attempts were exhausted):
+                       MSG="Reached max fix attempts ($MAX_ATTEMPTS). Leaving PR #$PR_NUMBER open for human review.
+                       Latest claude-review findings remain in the PR thread above; manual triage needed."
+                       echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+                       echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+                       break
                    - Otherwise, go back to step 2
 
             ## Phase 6 — Completion

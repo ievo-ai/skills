@@ -126,6 +126,9 @@ jobs:
       # The prompt lives in .github/prompts/issue-handler.md and uses
       # $ISSUE_NUMBER / $REPO (set as step-level env below) instead
       # of ${{ }} expressions. Multiline env var via heredoc delimiter.
+      # CONSTRAINT: issue-handler.md must never contain the literal
+      # string "PROMPT_DELIMITER_EOF" on a line by itself — that is
+      # the heredoc delimiter for the env var assignment below.
       - name: Load handler prompt
         run: |
           {

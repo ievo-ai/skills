@@ -165,7 +165,7 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 
 `issue-handler.yml` triggers on every new issue. Claude (Opus, max effort) does deep research, then either closes the issue with explanation or implements a fix/feature PR with full test coverage. After creating the PR, it monitors `claude-code-review` and iterates on feedback (max 3 attempts) until the review is green. Never auto-merges — human must review and merge.
 
-Uses GitHub App token (org secrets `APP_ID` + `APP_PRIVATE_KEY`) so that PRs trigger downstream workflows. See skills#65 for the full design.
+Uses a GitHub App token (org-level App credentials) so that PRs trigger downstream workflows. See skills#65 for the full design.
 
 ### PR workflow — wait for in-progress reviews before merging
 

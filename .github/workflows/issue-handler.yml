@@ -47,14 +47,15 @@ on:
     types: [opened]
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  actions: read
+  contents: write       # push branches + create commits during fix loop
+  issues: write         # post acknowledgment / completion / exhaustion comments
+  pull-requests: write  # create PRs, comment on them, read review state
+  actions: read         # Phase 5 polls `gh pr checks` which needs read on Actions runs
   # NOTE: id-token write deliberately omitted — actions/create-github-app-token@v1
-  # signs a JWT with APP_PRIVATE_KEY directly, no OIDC exchange. Granting id-token
-  # would mint arbitrary OIDC tokens for external services (AWS/GCP federation),
-  # which is a non-trivial privilege-escalation surface for no benefit here.
+  # signs a JWT with the App private key directly, no OIDC exchange. Granting
+  # id-token would mint arbitrary OIDC tokens for external services (AWS/GCP
+  # federation), which is a non-trivial privilege-escalation surface for no
+  # benefit here.
 
 concurrency:
   group: issue-handler-${{ github.event.issue.number }}
@@ -69,12 +70,17 @@ jobs:
     # Bot loop prevention: skip issues from ANY bot account (catches the
     # workflow's own App bot if it ever opens an issue via its installation
     # token — exact-match against github-actions[bot] would miss that) plus
-    # the upstream Eva account and pre-triaged labels.
+    # the upstream Eva account. NOTE: label filters (wontfix / duplicate)
+    # are NOT included here — the `opened` webhook fires before labels are
+    # applied by the web UI, so any label check on this event evaluates as
+    # "no labels yet" for human-opened issues and gives false safety. The
+    # real guards are the bot-login filter + the `cancel-in-progress: false`
+    # concurrency scope + the no-auto-merge invariant. If a maintainer
+    # genuinely needs to abort a run on a labelled issue, they can close
+    # the issue or close the resulting PR — both stop the loop.
     if: >
       !endsWith(github.event.issue.user.login, '[bot]') &&
-      github.event.issue.user.login != 'ievo-eva' &&
-      !contains(github.event.issue.labels.*.name, 'wontfix') &&
-      !contains(github.event.issue.labels.*.name, 'duplicate')
+      github.event.issue.user.login != 'ievo-eva'
 
     steps:
       - name: Generate GitHub App token

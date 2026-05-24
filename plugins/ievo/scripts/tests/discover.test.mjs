@@ -634,6 +634,33 @@ describe("main", () => {
     assert.equal(run.logs[0], SCRIPT_VERSION);
   });
 
+  it("--help prints usage and exits 0 (short-circuits before stdin/parseArgs)", async () => {
+    const run = makeRun();
+    const neverReadStream = Readable.from([]);
+    await main(["node", "discover.mjs", "--help"], neverReadStream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 0);
+    assert.equal(run.logs.length, 1);
+    assert.match(run.logs[0], /discover\.mjs/);
+    assert.match(run.logs[0], /--stack-file/);
+    assert.match(run.logs[0], /--version/);
+    assert.match(run.logs[0], /--help/);
+    assert.equal(run.errs.length, 0);
+  });
+
+  it("--help works even with other flags present", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", "noexist.json", "--help"], Readable.from([]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 0);
+    assert.match(run.logs[0], /discover\.mjs/);
+  });
+
+  it("--version takes precedence over --help when both present", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--version", "--help"], Readable.from([]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 0);
+    assert.equal(run.logs[0], SCRIPT_VERSION);
+  });
+
   it("exits 1 when no stdin and no --stack-file", async () => {
     const run = makeRun();
     const emptyStream = Readable.from([""]);
@@ -831,6 +858,19 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     });
     assert.equal(r.status, 0);
     assert.equal(r.stdout.trim(), SCRIPT_VERSION);
+    assert.equal(r.stderr, "");
+  });
+
+  it("--help prints usage and exits 0", () => {
+    const r = spawnSync(process.execPath, [scriptPath, "--help"], {
+      encoding: "utf-8",
+      timeout: 30000,
+    });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /discover\.mjs/);
+    assert.match(r.stdout, /--stack-file/);
+    assert.match(r.stdout, /--version/);
+    assert.match(r.stdout, /--help/);
     assert.equal(r.stderr, "");
   });
 

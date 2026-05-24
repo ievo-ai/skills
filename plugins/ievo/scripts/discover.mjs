@@ -26,7 +26,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SCRIPT_VERSION = "0.6.19";
+export const SCRIPT_VERSION = "0.6.20";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
@@ -309,6 +309,11 @@ export async function runDiscover(stack, options = {}) {
 }
 
 export async function main(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
+  if (argv.includes("--version")) {
+    log(SCRIPT_VERSION);
+    return exit(0);
+  }
+
   let args;
   try {
     args = parseArgs(argv);

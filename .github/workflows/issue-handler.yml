@@ -284,7 +284,7 @@ jobs:
               # features/skills; never pick a number that's currently in flight
               # on an open PR — check open PRs and skip any version they claim):
               IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
-                --json title,body --jq '.[] | (.title + " " + .body) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
+                --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
                 | sort -u)
               # Pick the smallest version > CURRENT_MAIN_VER that's not in IN_FLIGHT_VERS.
               # Implement in shell with awk/jq or Node one-liner. If you can't compute
@@ -506,7 +506,15 @@ jobs:
                      # Fetch the latest claude-review run's log
                      RUN_ID=$(gh run list --repo "$REPO" --branch \
                        "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq .headRefName)" \
-                       --workflow "Claude Code Review" --limit 1 --json databaseId --jq '.[0].databaseId')
+                       --workflow "Claude Code Review" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                     if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+                       # No run found yet — race against workflow dispatch.
+                       # Sleep + restart poll loop without consuming a fix-attempt
+                       # (treat as transient; the next poll iteration should see it).
+                       echo "No claude-review run found yet — waiting for dispatch"
+                       sleep 30
+                       continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
+                     fi
                      LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
 
                      # Known structural patterns (don't count as a real fix attempt):
@@ -526,11 +534,15 @@ jobs:
                        fi
                        echo "Structural claude-review failure ($STRUCTURAL_ATTEMPT/$STRUCTURAL_MAX) — retrigger via close+reopen"
                        gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
-                       sleep 5
+                       # sleep 15 — 5s was occasionally too short under load /
+                       # during GitHub incidents; the close state needs to
+                       # propagate before the API accepts reopen (otherwise 422
+                       # "PR is already open"). Costs nothing on the happy path.
+                       sleep 15
                        gh pr reopen "$PR_NUMBER" --repo "$REPO"
                        # Restart the poll loop WITHOUT incrementing ATTEMPT —
                        # nothing was wrong with our code, the workflow infra hiccupped
-                       goto step 2
+                       continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
                      fi
 
                      # Real review failure — proceed to step 4 (fix loop)
@@ -545,12 +557,19 @@ jobs:
                        --json mergeStateStatus --jq .mergeStateStatus)
                      if [ "$MERGE_STATE" = "DIRTY" ]; then
                        echo "PR is conflicting against main — rebase via the Phase 4h loop"
-                       # Re-run the Phase 4h rebase loop (fetch + rebase + auto-resolve
-                       # version files + force-push). After successful rebase, goto step 2.
-                       # If rebase escalates (non-version conflict), exit with that
-                       # diagnostic already posted by Phase 4h.
-                       <re-execute Phase 4h rebase-loop>
-                       goto step 2
+                       # Re-execute the EXACT shell block shown in Phase 4h above
+                       # (the `while [ "$REBASE_ATTEMPT" -lt "$REBASE_MAX" ]; do`
+                       # loop with all five numbered steps inside the conflict
+                       # branch). It already encapsulates fetch → rebase → auto-
+                       # resolve version files → continue → push --force-with-lease,
+                       # and escalates via `exit 1` on non-version conflicts.
+                       # Restart REBASE_ATTEMPT=0 before re-running so the full
+                       # 3-attempt budget is fresh for THIS recovery.
+                       REBASE_ATTEMPT=0
+                       # (re-run the Phase 4h while-loop body here — pseudo-code
+                       # marker, NOT a literal goto; Claude reads this and
+                       # re-executes the shell shown above)
+                       continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
                      fi
                      # Otherwise genuinely timed out — diagnostic + exit.
 

@@ -74,6 +74,26 @@ CI coverage gate (`.github/workflows/coverage-gate.yml`), `isCliEntry` refactor 
 
 `discover.mjs` (own skills.sh API integration, drop find-skills prereq), debug-on / debug-off skills, 100% test coverage rule.
 
-## v0.5.x
+## v0.5.2
 
-Security tightening, simplifications. (Pre-discover.mjs era.)
+Antivirus deep-scan security model. Dropped owner-based trust (`TRUSTED_OWNERS`), risk_tier heuristics, pattern-matching verdicts. Current Sonnet-family reasoning over full content + all dependencies is the only trust signal (declared via vendor-neutral `model: sonnet` alias). Report-to-source flow — file a pre-filled GitHub issue at the source repo when a RED verdict is detected.
+
+## v0.5.1
+
+`npx skills add --all --copy` flags; hard-stop on missing find-skills prereq.
+
+## v0.5.0
+
+All-user-side architecture. Full Node migration. Categorical ranking. Parallel security-auditor sub-agents.
+
+## v0.4 (reverted)
+
+Pre-built community-index integration. Replaced with a simpler user-side architecture in v0.5.
+
+## v0.3
+
+Codex support, checkout-based indexing (no API rate limits), Python scanner.
+
+## v0.2
+
+Initial pipeline (find-skills → index-repos → security-check → install) + overlay model.

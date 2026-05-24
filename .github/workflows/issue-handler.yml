@@ -131,6 +131,10 @@ jobs:
       # the heredoc delimiter for the env var assignment below.
       - name: Load handler prompt
         run: |
+          if grep -qxF 'PROMPT_DELIMITER_EOF' .github/prompts/issue-handler.md; then
+            echo "::error::issue-handler.md contains the heredoc delimiter on its own line"
+            exit 1
+          fi
           {
             echo "HANDLER_PROMPT<<PROMPT_DELIMITER_EOF"
             cat .github/prompts/issue-handler.md
@@ -141,6 +145,10 @@ jobs:
       - name: Run Issue Handler
         uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
         env:
+          # Step-level env, NOT template interpolation into JSON.
+          # create-github-app-token currently outputs ghs_XXX (JSON-safe)
+          # but any future token format change introducing " or \ would
+          # silently produce malformed JSON if interpolated directly.
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}

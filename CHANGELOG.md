@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.6.19
+
+Hotfix companion to v0.6.16/v0.6.17: enable `claude[bot]` PRs to pass through `claude-code-review.yml`. The issue-handler workflow (v0.6.16) opens PRs as the `claude[bot]` App actor; `claude-code-action` defaults to rejecting bot actors with "Workflow initiated by non-human actor" before the review runs. Phase 5 of the handler's review-loop could never get a verdict to iterate on — first observed on PR #75 (the v0.6.18 handler-generated PR for issue #74), workflow run 26360560927. Added `allowed_bots: 'claude[bot]'` to `claude-code-review.yml` — narrow allowlist (not `'*'`) preserves the gate against arbitrary other bots while letting the org App through. Detailed comment block in the workflow points future maintainers at the failed run + the issue-handler dependency, so a `git blame` walk surfaces the rationale.
+
+(v0.6.18 itself is the auto-generated `--version` flag from PR #75, still pending merge as of this entry. Once that merges, the chain v0.6.17 → v0.6.18 → v0.6.19 will be contiguous.)
+
 ## v0.6.17
 
 Hotfix on v0.6.16's `issue-handler.yml`: restored `id-token: write` to the workflow's permissions block. The earlier rounds had stripped it on the assumption that `actions/create-github-app-token@v1` (the only OIDC-named consumer in the workflow source) doesn't need it — which is true for that action, but NOT for `anthropics/claude-code-action@v1` itself, which runs its own OIDC token exchange internally as part of startup. The first live test run on issue #72 failed immediately with `Unable to get ACTIONS_ID_TOKEN_REQUEST_URL` before any agent code executed. Added a detailed comment block documenting the requirement + linking to the failed run so a future maintainer doesn't repeat the strip-on-assumption mistake.

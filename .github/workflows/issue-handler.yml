@@ -291,7 +291,7 @@ jobs:
               # `sort` so the slot-pick is correct at higher patch numbers.
               IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
                 --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
-                | sort -u)
+                | sort -t. -k1,1n -k2,2n -k3,3n -u)
               # Pick the smallest version > CURRENT_MAIN_VER that's not in IN_FLIGHT_VERS.
               # Implement in shell with awk/jq or Node one-liner. If you can't compute
               # reliably, pick CURRENT_MAIN_VER + 0.0.2 (skip one to avoid race) and
@@ -394,7 +394,7 @@ jobs:
                     --jq '.content' | base64 -d | jq -r '.version')
                   IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
                     --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
-                    | sort -u)
+                    | sort -t. -k1,1n -k2,2n -k3,3n -u)
                   # Compute next-free-slot from NEW_MAIN_VER + IN_FLIGHT_VERS
                   # using NUMERIC comparison (see lexicographic-sort warning
                   # in Phase 4f). Skip any version <= NEW_MAIN_VER OR in
@@ -659,7 +659,7 @@ jobs:
                            # too — recovery from a race is exactly when another
                            # sibling may have claimed the next slot.
                            NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" --jq '.content' | base64 -d | jq -r '.version')
-                           IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' | sort -u)
+                           IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' | sort -t. -k1,1n -k2,2n -k3,3n -u)
                            # ...pick next free slot from NEW_MAIN_VER + IN_FLIGHT_VERS (numeric compare)...
                            # ...write the 4 version files + AGENTS.md ledger + CHANGELOG.md to next-available version...
                            git add .claude-plugin/marketplace.json plugins/ievo/.claude-plugin/plugin.json plugins/ievo/scripts/discover.mjs AGENTS.md CHANGELOG.md

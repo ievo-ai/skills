@@ -402,13 +402,44 @@ jobs:
                           AGENTS.md CHANGELOG.md
 
                   # Step 5: continue the rebase with the resolved files.
-                  # (No sanity-recheck for non-version conflicts here — they
-                  # were caught in Step 1 before any write happened, so
-                  # nothing in Steps 2-4 could have introduced one.)
-                  GIT_EDITOR=: git rebase --continue  # `:` is the null POSIX no-op (more conventional than `true` for suppressing the interactive editor)
+                  # CHECK EXIT — if --continue fails (residual conflict marker,
+                  # post-rebase hook rejection, etc.), we'd leave the tree in
+                  # a mid-rebase state and the next loop iteration would error
+                  # with "You have a rebase in progress". Abort + escalate.
+                  if ! GIT_EDITOR=: git rebase --continue; then
+                    git rebase --abort
+                    echo "git rebase --continue failed after auto-resolve — escalating"
+                    gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<ESC
+              The handler resolved version-file conflicts cleanly but
+              \`git rebase --continue\` still failed (residual conflict marker,
+              post-rebase hook rejection, or test failure in pre-commit). Tree
+              left in pre-rebase state. Operator review needed.
+              Branch: $(git branch --show-current)
+              ESC
+                    exit 1
+                  fi
                 fi
                 REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
               done
+
+              # POST-LOOP guard: if main moved AGAIN during our 3-attempt
+              # window (sustained burst of sibling PRs), $BEHIND from the
+              # last `git fetch` may still be non-zero. Re-fetch + verify
+              # before pushing — otherwise we'd push a stale branch into
+              # a guaranteed DIRTY PR.
+              git fetch origin main
+              FINAL_BEHIND=$(git rev-list --count HEAD..origin/main)
+              if [ "$FINAL_BEHIND" != "0" ]; then
+                echo "After $REBASE_MAX rebase attempts main is still $FINAL_BEHIND commits ahead — escalating"
+                gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<ESC
+              Sustained sibling-PR burst — main moved $FINAL_BEHIND commits ahead
+              of the handler's branch even after $REBASE_MAX rebase attempts.
+              Branch left un-pushed to avoid creating a guaranteed-DIRTY PR.
+              Operator can rebase manually once the burst settles.
+              Branch: $(git branch --show-current)
+              ESC
+                exit 1
+              fi
 
               # Re-run tests + pre-commit AFTER the final rebase — main may
               # have changed something that interacts with our edit:
@@ -536,15 +567,26 @@ jobs:
                        LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log 2>&1)
                      fi
 
-                     # Known structural patterns (don't count as a real fix attempt):
-                     if echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
+                     # Treat as structural if either:
+                     #   (a) the log matches a known startup-failure pattern, OR
+                     #   (b) the conclusion itself indicates non-FAIL termination
+                     #       (SKIPPING/CANCELLED/TIMEOUT/NEUTRAL — these are
+                     #       infra states, not code findings; falling through to
+                     #       the fix-loop would waste a real-finding budget on
+                     #       a phantom finding).
+                     IS_STRUCTURAL_STATUS=$(case "$STATUS" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
+                     if [ "$IS_STRUCTURAL_STATUS" = "yes" ] || echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
                        STRUCTURAL_ATTEMPT=$((STRUCTURAL_ATTEMPT + 1))
                        # Cap structural retriggers separately from real-finding fixes
                        # — if OIDC / credentials / allowed-bots are permanently broken,
                        # we'd otherwise loop close+reopen until the job's 60-min
                        # wall-clock killed us silently. STRUCTURAL_MAX=3 should be
                        # initialized to 0 alongside ATTEMPT at the top of Phase 5.
-                       if [ "$STRUCTURAL_ATTEMPT" -ge "${STRUCTURAL_MAX:-3}" ]; then
+                       # `-gt` (not `-ge`): with STRUCTURAL_MAX=3, escalate
+                       # AFTER the 3rd retrigger (attempts 1, 2, 3 all
+                       # retrigger; attempt 4 → escalate). Off-by-one fix
+                       # vs the round-3 `-ge` which escalated after only 2.
+                       if [ "$STRUCTURAL_ATTEMPT" -gt "${STRUCTURAL_MAX:-3}" ]; then
                          echo "Structural failures persist after $STRUCTURAL_ATTEMPT retriggers — escalating"
                          MSG="Structural CI failures persisted across $STRUCTURAL_ATTEMPT retriggers on PR #$PR_NUMBER. This is likely a permanent action-side problem (missing org secret, revoked token, claude-code-action regression). Manual operator review needed."
                          echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
@@ -567,34 +609,72 @@ jobs:
                      # Real review failure — proceed to step 4 (fix loop)
 
               2.6. PENDING-routing — if no checks fired after MAX_WAIT, the
-                   PR may be DIRTY (CONFLICTING vs main; GitHub Actions skips
-                   `pull_request` events on PRs that can't merge cleanly).
-                   This is exactly the race PR #75 hit when main moved
-                   underneath while the handler was running. Check + recover:
+                   PR may be DIRTY (vs main; GitHub Actions skips `pull_request`
+                   events on PRs that can't merge cleanly). This is exactly
+                   the race PR #75 hit when main moved underneath while the
+                   handler was running. Check + recover:
 
                      MERGE_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
                        --json mergeStateStatus --jq .mergeStateStatus)
                      if [ "$MERGE_STATE" = "DIRTY" ]; then
-                       echo "PR is conflicting against main — rebase via the Phase 4h loop"
-                       # Re-execute the EXACT shell block shown in Phase 4h above
-                       # (the `while [ "$REBASE_ATTEMPT" -lt "$REBASE_MAX" ]; do`
-                       # loop with all five numbered steps inside the conflict
-                       # branch). It already encapsulates fetch → rebase → auto-
-                       # resolve version files → continue → push --force-with-lease,
-                       # and escalates via `exit 1` on non-version conflicts.
-                       # Restart REBASE_ATTEMPT=0 before re-running so the full
-                       # 3-attempt budget is fresh for THIS recovery.
+                       echo "PR is DIRTY against main — re-running FULL Phase 4h block (rebase + push)"
+                       # CRITICAL: must inline the FULL Phase 4h sequence here,
+                       # NOT a goto. A bare `continue` would restart the Phase 5
+                       # poll loop without re-pushing → PR stays DIRTY → next
+                       # poll detects DIRTY → infinite loop.
+                       # The block below is a verbatim copy of Phase 4h's
+                       # rebase loop + post-loop guard + tests + push. Keep in
+                       # sync if Phase 4h changes (or refactor both into a
+                       # shared shell function — but inline copy is safer
+                       # against pseudo-code mis-interpretation by the agent).
                        REBASE_ATTEMPT=0
-                       # Pseudo-code marker: re-execute the FULL Phase 4h block
-                       # — the `while` loop AND the post-loop test re-run AND
-                       # the `git push --force-with-lease`. Re-executing only
-                       # the while-loop body would rebase WITHOUT pushing, the
-                       # PR would remain DIRTY, the next poll iteration would
-                       # detect DIRTY again and loop here forever. The push is
-                       # what actually clears the DIRTY state on origin.
-                       continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
+                       REBASE_MAX=3
+                       while [ "$REBASE_ATTEMPT" -lt "$REBASE_MAX" ]; do
+                         git fetch origin main
+                         BEHIND=$(git rev-list --count HEAD..origin/main)
+                         [ "$BEHIND" = "0" ] && break
+                         MERGE_BASE=$(git merge-base HEAD origin/main)
+                         if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
+                           :  # clean rebase, no resolve needed
+                         else
+                           # Check for non-version conflicts first (abort early)
+                           if git diff --name-only --diff-filter=U | \
+                                grep -v -E '^(\.claude-plugin/marketplace\.json|plugins/ievo/\.claude-plugin/plugin\.json|plugins/ievo/scripts/discover\.mjs|AGENTS\.md|CHANGELOG\.md)$' | grep -q .; then
+                             git rebase --abort
+                             gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase produced non-version conflict — operator review needed."
+                             exit 1
+                           fi
+                           # Re-pick version from new main, re-write files (re-run Phase 4f + 4f.5 outputs)
+                           NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" --jq '.content' | base64 -d | jq -r '.version')
+                           # ...write the 4 version files + AGENTS.md ledger + CHANGELOG.md to next-available version...
+                           git add .claude-plugin/marketplace.json plugins/ievo/.claude-plugin/plugin.json plugins/ievo/scripts/discover.mjs AGENTS.md CHANGELOG.md
+                           if ! GIT_EDITOR=: git rebase --continue; then
+                             git rebase --abort
+                             gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase --continue failed after auto-resolve — operator review needed."
+                             exit 1
+                           fi
+                         fi
+                         REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
+                       done
+                       # Post-loop guard
+                       git fetch origin main
+                       FINAL_BEHIND=$(git rev-list --count HEAD..origin/main)
+                       if [ "$FINAL_BEHIND" != "0" ]; then
+                         gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase exhausted $REBASE_MAX attempts; main still $FINAL_BEHIND ahead. Operator review needed."
+                         gh pr comment "$PR_NUMBER" --repo "$REPO" --body "Recovery rebase exhausted attempts — handler aborted to avoid pushing a stale branch."
+                         exit 1
+                       fi
+                       # Re-run tests + push
+                       node --test plugins/ievo/scripts/tests/*.test.mjs
+                       pre-commit run --all-files || pre-commit run --all-files
+                       git push --force-with-lease origin HEAD
+                       continue  # restart Phase 5 poll loop from step 2 — push cleared DIRTY, fresh CI should now fire
                      fi
-                     # Otherwise genuinely timed out — diagnostic + exit.
+                     # Otherwise genuinely timed out at MAX_WAIT — diagnostic + exit.
+                     MSG="claude-code-review timed out after MAX_WAIT=${MAX_WAIT}s on PR #$PR_NUMBER (issue #$ISSUE_NUMBER). Mergeable state: $MERGE_STATE (not DIRTY). Likely an action-side infrastructure issue. Manual operator review needed."
+                     echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+                     echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+                     exit 1
 
               3. If all checks pass → done! Post success comment and exit.
 

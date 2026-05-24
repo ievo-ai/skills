@@ -284,14 +284,19 @@ jobs:
 
               git push origin HEAD -u
 
-            Create PR (real, not draft). Use --body-file for safety:
+            Create PR (real, not draft). Use --body-file for safety.
 
-              cat > /tmp/pr-body.md << 'PREOF'
+            Unquoted heredoc — $ISSUE_NUMBER expands to the actual number
+            (mirrors the Phase 6 DONEEOF pattern). Single-quoted 'PREOF'
+            would block expansion and require model-dependent substitution
+            of `<issue number>`, fragile when LLM context is full:
+
+              cat > /tmp/pr-body.md << PREOF
               ## Summary
               <1-3 bullet points explaining the change>
 
               ## Issue
-              Closes #<issue number>
+              Closes #$ISSUE_NUMBER
 
               ## Test plan
               - [ ] All tests pass with 100% coverage
@@ -355,7 +360,7 @@ jobs:
                  Then branch on $STATUS for next-step routing —
                    PASS    → step 3 (success path)
                    FAIL    → step 4 (fix loop)
-                   PENDING → timed out at 15 min — diagnostic comment + exit
+                   PENDING → timed out at 10 min — diagnostic comment + exit
                    any other (SKIPPING/CANCELLED/TIMEOUT/NEUTRAL) → diagnostic
                                                                     comment + exit
                                                                     (workflow-side
@@ -373,8 +378,13 @@ jobs:
                      populated only when an upstream reviewer chooses that mode):
                        # Sticky comment + any review summaries — covers claude-code-action
                        gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,comments
-                       # Inline diff-comments (sticky-mode reviewer leaves this empty
-                       # but a manual/human reviewer might post here)
+                       # Top-level PR thread comments (the `issues/<N>/comments`
+                       # endpoint serves the PR thread for issue-numbered PRs —
+                       # that's where claude-code-action's sticky comment lives,
+                       # so filter for `claude*[bot]` author to read the review
+                       # body. The literal `pulls/<N>/comments` endpoint is for
+                       # inline diff-anchored review comments, which sticky-mode
+                       # doesn't use; not read here.
                        gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
                          --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | .body'
                    - Address EACH finding:

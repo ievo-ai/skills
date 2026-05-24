@@ -84,6 +84,21 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           show_full_output: true
           max_turns: 80
+          # ACCEPTED RISK — Bash is in --allowedTools because git operations
+          # (checkout / commit / push / running the test suite) happen inside
+          # the agent's session and have no structured-tool equivalent. The
+          # scope-lock rules in the agent prompt below ("NEVER modify files
+          # outside plugins/ievo/", "NEVER touch workflow files") are prompt-
+          # only and not technically enforced — a crafted issue body could in
+          # principle prompt-inject around them. Risk mitigations layered in:
+          # (1) only triggers on `pull-requests: write` + `contents: write`,
+          # no `secrets: read` or `id-token: write` (privilege ceiling);
+          # (2) bot-loop prevention `endsWith('[bot]')` blocks the workflow's
+          # own App from triggering itself; (3) `cancel-in-progress: false`
+          # scoped per-issue prevents the same issue spawning parallel runs;
+          # (4) human review required before merge — no auto-merge ever.
+          # If/when claude-code-action ships per-pattern Bash disallowlists or
+          # a --network-isolated flag, tighten this further.
           claude_args: |
             --model opus
             --allowedTools "Bash,Edit,Read,Write,Glob,Grep,WebFetch,WebSearch"
@@ -255,24 +270,31 @@ jobs:
 
             Loop:
               1. Get the PR number from the gh pr create output
-              2. Wait for checks to complete (poll every 60s, max 15 min). Treat
-                 ANY non-in-progress state as terminal — `gh pr checks` can return
-                 SUCCESS / FAILURE / CANCELLED / TIMED_OUT / SKIPPED / STALE among
-                 others; breaking only on SUCCESS|FAILURE would loop to the job's
-                 60-minute timeout on a cancelled/skipped review with no diagnostic:
-                   while true; do
+              2. Wait for checks to complete. `gh pr checks --json state` returns
+                 gh-CLI state values: PENDING (queued or actively running), PASS,
+                 FAIL, SKIPPING, CANCELLED, TIMEOUT, NEUTRAL. PENDING = keep
+                 waiting; everything else = terminal. Poll every 60s with an
+                 ENFORCED 15-minute outer timeout (don't trust the job's
+                 60-minute wall clock — that's a backstop, not a per-poll bound):
+                   MAX_WAIT=900   # 15 min
+                   waited=0
+                   while [ "$waited" -lt "$MAX_WAIT" ]; do
                      STATUS=$(gh pr checks <PR_NUMBER> --repo "$REPO" \
                        --json name,state --jq \
                        '[.[] | select(.name | test("claude.*review"; "i"))] | .[0].state // "PENDING"')
-                     case "$STATUS" in
-                       PENDING|QUEUED|IN_PROGRESS|WAITING) sleep 60 ;;
-                       *) break ;;
-                     esac
+                     [ "$STATUS" = "PENDING" ] || break
+                     sleep 60
+                     waited=$((waited + 60))
                    done
-                 Then branch on $STATUS for next-step routing — SUCCESS → step 3;
-                 FAILURE → step 4 (fix loop); other terminal states → report
-                 diagnostic comment and exit (no fix attempt — workflow side issue,
-                 not a code finding).
+                 Then branch on $STATUS for next-step routing —
+                   PASS    → step 3 (success path)
+                   FAIL    → step 4 (fix loop)
+                   PENDING → timed out at 15 min — diagnostic comment + exit
+                   any other (SKIPPING/CANCELLED/TIMEOUT/NEUTRAL) → diagnostic
+                                                                    comment + exit
+                                                                    (workflow-side
+                                                                    issue, not a
+                                                                    code finding)
 
               3. If all checks pass → done! Post success comment and exit.
 

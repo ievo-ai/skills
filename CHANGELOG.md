@@ -12,8 +12,6 @@ Operational hygiene: extracted shipped-version history out of `AGENTS.md` into t
 
 Reconciled the older `AGENTS.md` § Version bumping section (which said "touch two files") with the new four-file checklist so both rule blocks agree. Updated `README.md` § Roadmap to point at `CHANGELOG.md` for shipped-version history (it had frozen at `v0.6.9 (current)`) and aligned the v0.7.0 scope wording between `AGENTS.md` and `README.md`.
 
-**Note on the v0.6.14 gap:** PR #66 (issue-handler workflow) was in-flight as v0.6.14 when this PR was drafted. To honour the convention this PR establishes ("CHANGELOG.md only records *shipped* versions"), no v0.6.14 entry is recorded here — it will be added by PR #66's own merge once it lands (using whatever version number it actually ships as).
-
 ## v0.6.13
 
 Spec compliance fix: `hooks-setup/SKILL.md` `compatibility` field trimmed from 537 chars to 412 chars — now within the agentskills.io spec limit of 500 chars (`compatibility: ≤500` explicitly documented in the spec May 2026). Caught by Eva audit run 26354909799. Closes the gap surfaced in ievo-ai/skills#68 (validate_skills.mjs proposal, filed same run).

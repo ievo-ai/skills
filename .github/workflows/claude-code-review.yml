@@ -36,6 +36,16 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Allow review on PRs created by the claude[bot] App actor.
+          # The issue-handler workflow (issue-handler.yml, v0.6.16) opens
+          # PRs as claude[bot] via the org App token; without this allowlist,
+          # claude-code-action refuses with "Workflow initiated by non-human
+          # actor: claude (type: Bot)" and the handler's Phase 5 review loop
+          # never gets a verdict to iterate on. We restrict to the named bot
+          # (not '*') to keep the gate against arbitrary other bot actors.
+          # First observed at workflow run 26360560927 on PR #75 (v0.6.18
+          # handler-generated PR).
+          allowed_bots: 'claude[bot]'
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'

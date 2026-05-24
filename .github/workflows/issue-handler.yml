@@ -385,10 +385,20 @@ jobs:
                     exit 1
                   fi
 
-                  # Step 2: Re-query latest main version (it just moved during
-                  # our run) and compute the next free slot.
+                  # Step 2: Re-query latest main version AND in-flight PR set
+                  # — we're in conflict resolution because main moved, which
+                  # is also the most likely moment a SECOND sibling PR has
+                  # claimed the next-version slot. Re-scanning IN_FLIGHT_VERS
+                  # is essential to avoid re-racing into a slot already taken.
                   NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" \
                     --jq '.content' | base64 -d | jq -r '.version')
+                  IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
+                    --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
+                    | sort -u)
+                  # Compute next-free-slot from NEW_MAIN_VER + IN_FLIGHT_VERS
+                  # using NUMERIC comparison (see lexicographic-sort warning
+                  # in Phase 4f). Skip any version <= NEW_MAIN_VER OR in
+                  # IN_FLIGHT_VERS; pick the smallest remaining patch.
 
                   # Step 3: WRITE the 4 version files + AGENTS.md ledger header
                   # + CHANGELOG.md (re-do the Phase 4f / 4f.5 outputs against the
@@ -586,7 +596,7 @@ jobs:
                        # AFTER the 3rd retrigger (attempts 1, 2, 3 all
                        # retrigger; attempt 4 → escalate). Off-by-one fix
                        # vs the round-3 `-ge` which escalated after only 2.
-                       if [ "$STRUCTURAL_ATTEMPT" -gt "${STRUCTURAL_MAX:-3}" ]; then
+                       if [ "$STRUCTURAL_ATTEMPT" -gt "$STRUCTURAL_MAX" ]; then  # STRUCTURAL_MAX initialised at Phase 5 entry; no fallback needed
                          echo "Structural failures persist after $STRUCTURAL_ATTEMPT retriggers — escalating"
                          MSG="Structural CI failures persisted across $STRUCTURAL_ATTEMPT retriggers on PR #$PR_NUMBER. This is likely a permanent action-side problem (missing org secret, revoked token, claude-code-action regression). Manual operator review needed."
                          echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
@@ -644,8 +654,13 @@ jobs:
                              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase produced non-version conflict — operator review needed."
                              exit 1
                            fi
-                           # Re-pick version from new main, re-write files (re-run Phase 4f + 4f.5 outputs)
+                           # Re-pick version from new main + in-flight PRs (re-run
+                           # Phase 4f + 4f.5 outputs). MUST re-scan IN_FLIGHT_VERS
+                           # too — recovery from a race is exactly when another
+                           # sibling may have claimed the next slot.
                            NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" --jq '.content' | base64 -d | jq -r '.version')
+                           IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' | sort -u)
+                           # ...pick next free slot from NEW_MAIN_VER + IN_FLIGHT_VERS (numeric compare)...
                            # ...write the 4 version files + AGENTS.md ledger + CHANGELOG.md to next-available version...
                            git add .claude-plugin/marketplace.json plugins/ievo/.claude-plugin/plugin.json plugins/ievo/scripts/discover.mjs AGENTS.md CHANGELOG.md
                            if ! GIT_EDITOR=: git rebase --continue; then

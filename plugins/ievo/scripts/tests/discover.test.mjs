@@ -617,6 +617,23 @@ describe("main", () => {
     };
   }
 
+  it("--version prints SCRIPT_VERSION and exits 0 (short-circuits before stdin/parseArgs)", async () => {
+    const run = makeRun();
+    const neverReadStream = Readable.from([]);
+    await main(["node", "discover.mjs", "--version"], neverReadStream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 0);
+    assert.equal(run.logs.length, 1);
+    assert.equal(run.logs[0], SCRIPT_VERSION);
+    assert.equal(run.errs.length, 0);
+  });
+
+  it("--version works even with other flags present", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", "noexist.json", "--version"], Readable.from([]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 0);
+    assert.equal(run.logs[0], SCRIPT_VERSION);
+  });
+
   it("exits 1 when no stdin and no --stack-file", async () => {
     const run = makeRun();
     const emptyStream = Readable.from([""]);
@@ -806,6 +823,16 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
   const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "discover.mjs");
   const tmpDir = join(tmpdir(), `discover-spawn-test-${Date.now()}`);
   mkdirSync(tmpDir, { recursive: true });
+
+  it("--version prints bare version and exits 0", () => {
+    const r = spawnSync(process.execPath, [scriptPath, "--version"], {
+      encoding: "utf-8",
+      timeout: 30000,
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), SCRIPT_VERSION);
+    assert.equal(r.stderr, "");
+  });
 
   it("runs as CLI with --stack-file containing empty stack, exits 5 (no queries derived)", () => {
     const stackPath = join(tmpDir, "stack.json");

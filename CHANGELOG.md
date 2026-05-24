@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.6.21
+
+Hardening pass on the v0.6.16 `issue-handler.yml` workflow — closes the autonomy gaps surfaced by the v0.6.20 cycle (PR #75 needed three human interventions: hotfix-restore-id-token v0.6.17, hotfix-allowlist-bot v0.6.19, manual rebase from v0.6.18 → v0.6.20 when main moved underneath). Phase 4f now queries main's *current* version at push time (not branch time) + scans open PRs for in-flight version claims to pick the next free slot atomically. Phase 4f.5 is new — mandatory CHANGELOG.md entry per the convention. Phase 4h now wraps push in a rebase loop (up to 3 attempts): if main moved while Phase 1-4 ran, auto-rebase + auto-resolve version-file conflicts only (escalates to issue thread on any non-version conflict — won't blindly resolve code conflicts). Phase 5 gains a 2.5 step that grep's the claude-review run log for known structural failure patterns (Bad credentials, Workflow validation failed, non-human actor, OIDC fetch fail, App token exchange fail) and auto-retriggers via close+reopen without counting the round against the 3-attempt budget. Phase 5 also gains a 2.6 step that detects DIRTY/CONFLICTING PRs (no CI fires on those — GitHub Actions skips `pull_request` events when the PR can't merge cleanly) and re-runs the Phase 4h rebase loop to recover. Net result: future handler runs should be able to ship a clean PR end-to-end on their own across the realistic edge cases (parallel PRs, main moves, action-side flakes) instead of stalling silently and waiting for a human.
+
 ## v0.6.20
 
 `discover.mjs` gains a `--version` flag that prints `SCRIPT_VERSION` and exits 0 (short-circuits before stdin/parseArgs so it works even without `--stack-file`). Useful for operators verifying which version of the script ships with their installed plugin — common need when debugging stale-version-coupling failures.

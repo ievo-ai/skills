@@ -272,18 +272,50 @@ jobs:
               # If agent .md files changed:
               node plugins/ievo/scripts/validate_agents.mjs
 
-            ### 4f. Version bump
+            ### 4f. Version bump (atomic against latest main, NOT branch-time main)
 
-            Bump version in ALL FOUR places per AGENTS.md § Version bumping —
-            the coupling assertion in discover.test.mjs enforces this on
-            coverage-gate, missing the discover.mjs SCRIPT_VERSION bump
-            burns a fix-round for a trivial preventable miss:
+            Pick the version by querying main's CURRENT state at this moment,
+            NOT the version that was on main when this job started. Another
+            issue-handler run or human PR may have landed since. Race-safe:
+
+              CURRENT_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" \
+                --jq '.content' | base64 -d | jq -r '.version')
+              # Next patch slot (semver patch bump for fixes, minor for new
+              # features/skills; never pick a number that's currently in flight
+              # on an open PR — check open PRs and skip any version they claim):
+              IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
+                --json title,body --jq '.[] | (.title + " " + .body) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
+                | sort -u)
+              # Pick the smallest version > CURRENT_MAIN_VER that's not in IN_FLIGHT_VERS.
+              # Implement in shell with awk/jq or Node one-liner. If you can't compute
+              # reliably, pick CURRENT_MAIN_VER + 0.0.2 (skip one to avoid race) and
+              # leave a note in the PR body that the version was conservatively bumped.
+
+            Bump THE FOUR FILES per AGENTS.md § Version bumping — coupling
+            assertion in discover.test.mjs enforces it on coverage-gate;
+            missing the discover.mjs SCRIPT_VERSION bump burns a fix-round
+            for a trivial miss:
             1. .claude-plugin/marketplace.json → "metadata.version"
             2. .claude-plugin/marketplace.json → "plugins[0].version"
             3. plugins/ievo/.claude-plugin/plugin.json → "version"
             4. plugins/ievo/scripts/discover.mjs → export const SCRIPT_VERSION
             Also bump the "Current compliance ledger (vX.Y.Z)" header in
             AGENTS.md to match.
+
+            ### 4f.5. CHANGELOG.md entry (required, mirrors AGENTS.md convention)
+
+            Per AGENTS.md § Changelog — every shipped version MUST have an
+            entry in CHANGELOG.md at the repo root. Reverse-chronological;
+            insert ABOVE the previous-current entry:
+
+              # Read the current top of CHANGELOG.md to find the insertion point:
+              head -20 CHANGELOG.md
+
+              # Then prepend a new "## v<new_version>" section before the previous
+              # top entry. One paragraph (or short bullet list) describing what
+              # changed and why; reference Closes #$ISSUE_NUMBER. Use generic
+              # language per AGENTS.md § Public-repo content safety — no secret
+              # names, no internal endpoints, no infra attack-vector hints.
 
             ### 4g. Commit
 
@@ -298,9 +330,80 @@ jobs:
 
               Co-Authored-By: iEVO <noreply@ievo.ai>"
 
-            ### 4h. Push and create PR
+            ### 4h. Pre-push freshness check + rebase loop, THEN create PR
 
-              git push origin HEAD -u
+            Before pushing, verify our branch is still ahead of main.
+            Main may have moved while Phase 1-4 ran (another issue-handler
+            run, a human merge, a hotfix). Pushing a stale branch creates
+            a CONFLICTING PR — and CONFLICTING PRs get NO CI checks fired
+            (GitHub Actions skips `pull_request` events on PRs that can't
+            merge cleanly), so the Phase 5 review loop dies silently.
+            Rebase loop with up to 3 attempts (covers near-simultaneous
+            sibling pushes):
+
+              REBASE_ATTEMPT=0
+              REBASE_MAX=3
+              while [ "$REBASE_ATTEMPT" -lt "$REBASE_MAX" ]; do
+                git fetch origin main
+                BEHIND=$(git rev-list --count HEAD..origin/main)
+                if [ "$BEHIND" = "0" ]; then
+                  break   # branch is fresh, nothing to rebase
+                fi
+                echo "Main moved by $BEHIND commits — rebasing (attempt $((REBASE_ATTEMPT+1))/$REBASE_MAX)"
+
+                # `--onto origin/main <merge-base>` replays only our unique
+                # commits on the latest main tip. Conflict-likely files: the
+                # 4 version files + AGENTS.md ledger header + CHANGELOG.md
+                # (all touched in Phase 4f / 4f.5).
+                MERGE_BASE=$(git merge-base HEAD origin/main)
+                if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
+                  echo "Rebase succeeded clean"
+                else
+                  # Conflicts. The only EXPECTED conflict surface is version
+                  # files (race against a sibling PR that bumped the same
+                  # version). Auto-resolve by re-running Phase 4f's
+                  # version-pick query against the post-rebase main state:
+                  echo "Conflicts detected — auto-resolving version files"
+                  # Re-query latest main version (it just moved)
+                  NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" \
+                    --jq '.content' | base64 -d | jq -r '.version')
+                  # Bump to NEW_MAIN_VER + 0.0.1 (or +0.0.2 if you suspect
+                  # another sibling is also bumping right now). Write the
+                  # 4 version files + AGENTS.md ledger header + CHANGELOG.md
+                  # to the new version. Then:
+                  git add .claude-plugin/marketplace.json \
+                          plugins/ievo/.claude-plugin/plugin.json \
+                          plugins/ievo/scripts/discover.mjs \
+                          AGENTS.md CHANGELOG.md
+                  # If any non-version file is also conflicted (unexpected),
+                  # abort the rebase + post a diagnostic comment to the issue
+                  # asking for operator help — DO NOT attempt to resolve
+                  # arbitrary code conflicts autonomously:
+                  if git diff --name-only --diff-filter=U | grep -v -E '^(\.claude-plugin/marketplace\.json|plugins/ievo/\.claude-plugin/plugin\.json|plugins/ievo/scripts/discover\.mjs|AGENTS\.md|CHANGELOG\.md)$' | grep -q .; then
+                    git rebase --abort
+                    echo "Unexpected non-version conflict — escalating to issue thread"
+                    gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<ESC
+              Rebase against latest main produced conflicts in non-version files. The handler
+              auto-resolves version-bump conflicts only — other conflicts need operator review.
+              Branch: $(git branch --show-current)
+              Conflicted files (excluding version files):
+              $(git diff --name-only --diff-filter=U)
+              ESC
+                    exit 1
+                  fi
+                  GIT_EDITOR=true git rebase --continue
+                fi
+                REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
+              done
+
+              # Re-run tests + pre-commit AFTER the final rebase — main may
+              # have changed something that interacts with our edit:
+              node --test plugins/ievo/scripts/tests/*.test.mjs
+              pre-commit run --all-files || pre-commit run --all-files  # 2nd run picks up auto-fixes
+
+              # Push (force-with-lease since rebase rewrote local history;
+              # safe on a topic branch nobody else pushes to):
+              git push --force-with-lease origin HEAD -u
 
             Create PR (real, not draft). Use --body-file for safety.
 
@@ -377,13 +480,56 @@ jobs:
                    done
                  Then branch on $STATUS for next-step routing —
                    PASS    → step 3 (success path)
-                   FAIL    → step 4 (fix loop)
-                   PENDING → timed out at 10 min — diagnostic comment + exit
-                   any other (SKIPPING/CANCELLED/TIMEOUT/NEUTRAL) → diagnostic
-                                                                    comment + exit
-                                                                    (workflow-side
-                                                                    issue, not a
-                                                                    code finding)
+                   FAIL    → step 2.5 (distinguish structural vs real BEFORE fixing)
+                   PENDING → step 2.6 (check mergeable: if DIRTY, rebase + retry;
+                                       otherwise timed out — diagnostic + exit)
+                   any other (SKIPPING/CANCELLED/TIMEOUT/NEUTRAL) → step 2.5
+                                       (treat as structural; may auto-recover)
+
+              2.5. Distinguish STRUCTURAL claude-review failures from REAL
+                   code findings BEFORE consuming a fix-attempt. Several known
+                   failure modes are action-side bugs / GitHub Actions flakes,
+                   NOT findings on our code, and the correct recovery is
+                   retrigger (close+reopen the PR), NOT iterate on phantom
+                   findings:
+
+                     # Fetch the latest claude-review run's log
+                     RUN_ID=$(gh run list --repo "$REPO" --branch \
+                       "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq .headRefName)" \
+                       --workflow "Claude Code Review" --limit 1 --json databaseId --jq '.[0].databaseId')
+                     LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
+
+                     # Known structural patterns (don't count as a real fix attempt):
+                     if echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
+                       echo "Structural claude-review failure — retrigger via close+reopen"
+                       gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
+                       sleep 5
+                       gh pr reopen "$PR_NUMBER" --repo "$REPO"
+                       # Restart the poll loop WITHOUT incrementing ATTEMPT —
+                       # nothing was wrong with our code, the workflow infra hiccupped
+                       goto step 2
+                     fi
+
+                     # Real review failure — proceed to step 4 (fix loop)
+
+              2.6. PENDING-routing — if no checks fired after MAX_WAIT, the
+                   PR may be DIRTY (CONFLICTING vs main; GitHub Actions skips
+                   `pull_request` events on PRs that can't merge cleanly).
+                   This is exactly the race PR #75 hit when main moved
+                   underneath while the handler was running. Check + recover:
+
+                     MERGE_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+                       --json mergeStateStatus --jq .mergeStateStatus)
+                     if [ "$MERGE_STATE" = "DIRTY" ] || [ "$MERGE_STATE" = "CONFLICTING" ]; then
+                       echo "PR is conflicting against main — rebase via the Phase 4h loop"
+                       # Re-run the Phase 4h rebase loop (fetch + rebase + auto-resolve
+                       # version files + force-push). After successful rebase, goto step 2.
+                       # If rebase escalates (non-version conflict), exit with that
+                       # diagnostic already posted by Phase 4h.
+                       <re-execute Phase 4h rebase-loop>
+                       goto step 2
+                     fi
+                     # Otherwise genuinely timed out — diagnostic + exit.
 
               3. If all checks pass → done! Post success comment and exit.
 

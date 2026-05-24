@@ -10,9 +10,9 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 Operational hygiene: extracted shipped-version history out of `AGENTS.md` into this `CHANGELOG.md`. Rationale — `AGENTS.md` is a contract for AI agents working on the repo and should describe *current* conventions; the chronological history is reference material that grows unbounded and dilutes the convention surface. Added a convention rule in `AGENTS.md` § Key conventions that all future shipped-version entries go here, not in `AGENTS.md`. The forward roadmap (v0.7.0 / v1.0) stays in `AGENTS.md` § Roadmap because it's a contract about what's coming, not a record of what shipped.
 
-## v0.6.14
+Reconciled the older `AGENTS.md` § Version bumping section (which said "touch two files") with the new four-file checklist so both rule blocks agree. Updated `README.md` § Roadmap to point at `CHANGELOG.md` for shipped-version history (it had frozen at `v0.6.9 (current)`) and aligned the v0.7.0 scope wording between `AGENTS.md` and `README.md`.
 
-Closes #65 with new `issue-handler.yml` workflow: when a new GitHub issue opens, Claude (Opus, max effort) performs deep research and either closes the issue with explanation or implements a fix/feature PR with full test coverage. After PR creation, monitors `claude-code-review` and iterates on feedback (max 3 rounds) until green; never auto-merges (human must merge). Safety rails: bot-loop prevention (ignores `github-actions[bot]` + `ievo-eva`), scope lock (only `plugins/ievo/`), GitHub App token (org secrets `APP_ID` + `APP_PRIVATE_KEY`) so downstream workflows fire. Originally filed against the v0.6.12 baseline as PR #66; rebased onto v0.6.13 main and bumped to v0.6.14 for the chain.
+**Note on the v0.6.14 gap:** PR #66 (issue-handler workflow) was in-flight as v0.6.14 when this PR was drafted. To honour the convention this PR establishes ("CHANGELOG.md only records *shipped* versions"), no v0.6.14 entry is recorded here — it will be added by PR #66's own merge once it lands (using whatever version number it actually ships as).
 
 ## v0.6.13
 

@@ -23,7 +23,13 @@
 #     because Bash is in --allowedTools (needed for git ops + tests; no
 #     structured-tool equivalent yet). Real defences against injection:
 #       (1) Privilege ceiling: only `contents: write` + `issues: write` +
-#           `pull-requests: write`. NO secrets: read, NO id-token: write.
+#           `pull-requests: write` + `actions: read`, plus `id-token: write`
+#           which claude-code-action requires for its internal OIDC startup
+#           (v0.6.16 stripped it on a wrong assumption, v0.6.17 restored it —
+#           see the per-permission comment in the `permissions:` block).
+#           NO `secrets: read` — agent has no path to read other secrets;
+#           the id-token tokens it mints are workflow-run-scoped, not
+#           credentials for external services.
 #       (2) No auto-merge — human gate on every PR.
 #       (3) Bot-loop block (`endsWith('[bot]')`) prevents the App from
 #           triggering itself if a Phase 3A bug ever opens an issue.
@@ -149,8 +155,11 @@ jobs:
           # outside plugins/ievo/", "NEVER touch workflow files") are prompt-
           # only and not technically enforced — a crafted issue body could in
           # principle prompt-inject around them. Risk mitigations layered in:
-          # (1) only triggers on `pull-requests: write` + `contents: write`,
-          # no `secrets: read` or `id-token: write` (privilege ceiling);
+          # (1) privilege ceiling — `contents/issues/pull-requests: write` +
+          # `actions: read` for poll; `id-token: write` is present because
+          # claude-code-action's startup OIDC needs it (v0.6.17 restored
+          # after v0.6.16 broke startup by stripping it). NO `secrets: read`,
+          # so the agent can't read other org secrets through this workflow;
           # (2) bot-loop prevention `endsWith('[bot]')` blocks the workflow's
           # own App from triggering itself; (3) `cancel-in-progress: false`
           # scoped per-issue prevents the same issue spawning parallel runs;

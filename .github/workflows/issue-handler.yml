@@ -83,26 +83,31 @@ jobs:
       github.event.issue.user.login != 'ievo-eva'
 
     steps:
+      # All actions pinned to commit SHA (not floating tags) — public repo
+      # with `contents: write` + App private key handling = supply-chain
+      # attack surface if any major-version tag is force-moved. Comment
+      # next to each pin = the version it represents at pin time; bump
+      # SHA + comment together when updating.
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "20"
 
       - name: Run Issue Handler
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
         env:
           # Pass App token + issue context via step-level env, NOT via template
           # interpolation into the `settings:` JSON below. `create-github-app-token@v1`
@@ -251,10 +256,16 @@ jobs:
 
             ### 4f. Version bump
 
-            Bump version in BOTH files (AGENTS.md rule):
-            1. plugins/ievo/.claude-plugin/plugin.json → "version" field
-            2. .claude-plugin/marketplace.json → "metadata.version" AND
-               "plugins[0].version" fields
+            Bump version in ALL FOUR places per AGENTS.md § Version bumping —
+            the coupling assertion in discover.test.mjs enforces this on
+            coverage-gate, missing the discover.mjs SCRIPT_VERSION bump
+            burns a fix-round for a trivial preventable miss:
+            1. .claude-plugin/marketplace.json → "metadata.version"
+            2. .claude-plugin/marketplace.json → "plugins[0].version"
+            3. plugins/ievo/.claude-plugin/plugin.json → "version"
+            4. plugins/ievo/scripts/discover.mjs → export const SCRIPT_VERSION
+            Also bump the "Current compliance ledger (vX.Y.Z)" header in
+            AGENTS.md to match.
 
             ### 4g. Commit
 
@@ -285,7 +296,7 @@ jobs:
               ## Test plan
               - [ ] All tests pass with 100% coverage
               - [ ] Pre-commit validators pass
-              - [ ] Version bumped in both manifests
+              - [ ] Version bumped in all 4 files per AGENTS.md (marketplace.json ×2 + plugin.json + discover.mjs SCRIPT_VERSION)
 
               ---
               Automated by Issue Handler workflow.
@@ -319,7 +330,7 @@ jobs:
                  Normalize to uppercase via `| ascii_upcase` so the shell
                  comparison is unambiguous (mixed-case bugs silently break the
                  loop). PENDING = keep waiting; everything else = terminal.
-                 Poll every 60s with an ENFORCED 15-minute outer timeout
+                 Poll every 60s with an ENFORCED 10-minute outer timeout
                  (don't trust the job's 60-minute wall clock — that's a backstop,
                  not a per-poll bound):
                    # MAX_WAIT=600 (10 min) — claude-code-review typically

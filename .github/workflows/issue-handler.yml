@@ -283,6 +283,12 @@ jobs:
               # Next patch slot (semver patch bump for fixes, minor for new
               # features/skills; never pick a number that's currently in flight
               # on an open PR — check open PRs and skip any version they claim):
+              # NOTE: `sort -u` is LEXICOGRAPHIC, not numeric. Fine today
+              # (all patches < 10) but `0.6.9` would sort AFTER `0.6.10` once
+              # we cross patch 10. When picking the "next free slot" below,
+              # use NUMERIC comparison (e.g. `sort -t. -k1,1n -k2,2n -k3,3n`,
+              # awk numeric compare, or a Node/jq one-liner) rather than naive
+              # `sort` so the slot-pick is correct at higher patch numbers.
               IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
                 --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
                 | sort -u)
@@ -399,7 +405,7 @@ jobs:
                   # (No sanity-recheck for non-version conflicts here — they
                   # were caught in Step 1 before any write happened, so
                   # nothing in Steps 2-4 could have introduced one.)
-                  GIT_EDITOR=true git rebase --continue
+                  GIT_EDITOR=: git rebase --continue  # `:` is the null POSIX no-op (more conventional than `true` for suppressing the interactive editor)
                 fi
                 REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
               done
@@ -515,7 +521,20 @@ jobs:
                        sleep 30
                        continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
                      fi
+                     # `--log-failed` only returns logs from job steps recorded
+                     # as failed — but several of the structural patterns we
+                     # need to detect (Workflow validation failed, OIDC fetch
+                     # fail, App token exchange fail) happen at runner
+                     # BOOTSTRAP / workflow STARTUP, before any step is
+                     # recorded. In that case `--log-failed` returns empty,
+                     # grep misses everything, and the handler mis-classifies
+                     # a structural fail as a real finding (consuming a fix-
+                     # attempt budget on phantom feedback). Fall back to full
+                     # `--log` when `--log-failed` is empty:
                      LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
+                     if [ -z "$(echo "$LOG" | tr -d '[:space:]')" ]; then
+                       LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log 2>&1)
+                     fi
 
                      # Known structural patterns (don't count as a real fix attempt):
                      if echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
@@ -566,9 +585,13 @@ jobs:
                        # Restart REBASE_ATTEMPT=0 before re-running so the full
                        # 3-attempt budget is fresh for THIS recovery.
                        REBASE_ATTEMPT=0
-                       # (re-run the Phase 4h while-loop body here — pseudo-code
-                       # marker, NOT a literal goto; Claude reads this and
-                       # re-executes the shell shown above)
+                       # Pseudo-code marker: re-execute the FULL Phase 4h block
+                       # — the `while` loop AND the post-loop test re-run AND
+                       # the `git push --force-with-lease`. Re-executing only
+                       # the while-loop body would rebase WITHOUT pushing, the
+                       # PR would remain DIRTY, the next poll iteration would
+                       # detect DIRTY again and loop here forever. The push is
+                       # what actually clears the DIRTY state on origin.
                        continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
                      fi
                      # Otherwise genuinely timed out — diagnostic + exit.

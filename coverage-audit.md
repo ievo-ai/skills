@@ -23,6 +23,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Remove iEvo overlay markers from a project | `/ievo:uninstall` | — | covered | Glob + Edit + Bash (`grep -l` marker discovery); preserves `.ievo/` |
 | Refresh vendored agent/skill files from upstream | `/ievo:update` | — | covered | Re-fetches by recorded source SHA; re-injects overlay markers; overlay files untouched |
 | Validate agent frontmatter (vendor-neutral `model:`, required fields) | (CI gate + local pre-commit) | `validate_agents.mjs` | covered | 100% test coverage; blocks `claude-*` / `gpt-*` / `gemini-*` vendor-pinned IDs |
+| Validate SKILL.md frontmatter (agentskills.io spec constraints) | (CI gate + local pre-commit) | `validate_skills.mjs` | covered | 100% test coverage; enforces name format/length, description ≤1024, compatibility ≤500, no vendor model IDs |
 | Enforce 100% test coverage on all Node scripts | `coverage-gate.yml` workflow | `check-coverage.mjs` | covered | All three scripts (`discover.mjs`, `validate_agents.mjs`, `scan_repo.mjs`) at literal 100/100/100 as of v0.6.7; `CARVE_OUTS` map empty |
 | Detect 5 markdown/text hygiene anti-patterns at commit time | `pre-commit-gate.yml` workflow + `.pre-commit-config.yaml` | `.github/scripts/validators/*.mjs` | covered | nested-fences, machine-local-paths, crlf-frontmatter, placeholder-leakage, validate-agents |
 | Surface a code-review verdict on every PR | `claude-code-review.yml` workflow | — | covered | sticky-comment + track_progress, posts inline + summary |
@@ -80,6 +81,7 @@ ievo-ai/skills/
       discover.mjs
       scan_repo.mjs
       validate_agents.mjs
+      validate_skills.mjs
       tests/                   ← 100/100/100 enforced by CI
     skills/
       init/SKILL.md

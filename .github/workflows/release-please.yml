@@ -3,7 +3,7 @@
 # On every push to main, release-please analyzes commit messages:
 #   feat: → minor bump (0.6.x → 0.7.0)
 #   fix:  → patch bump (0.6.24 → 0.6.25)
-#   feat!: or BREAKING CHANGE: → major bump
+#   feat!: or BREAKING CHANGE: → major bump (pre-1.0: minor, per bump-minor-pre-major)
 #
 # It creates/updates a persistent Release PR that accumulates changes.
 # Merging the Release PR triggers the actual release (tag + bump in
@@ -21,6 +21,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
 
 jobs:
   release-please:

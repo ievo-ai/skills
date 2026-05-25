@@ -54,13 +54,13 @@ Post a comment acknowledging you're working on it:
 
 ## Phase 4 — Implementation
 
-### 4a. Determine version bump
+### 4a. Choose conventional commit prefix
 
-Read current version from plugins/ievo/.claude-plugin/plugin.json.
-Decide bump level:
-- patch (x.y.Z) for bug fixes
-- minor (x.Y.0) for new features/skills
-- major (X.0.0) for breaking changes (rare)
+release-please derives the version bump from commit prefixes:
+- fix: → patch bump (0.6.24 → 0.6.25)
+- feat: → minor bump (0.6.x → 0.7.0)
+- feat!: or BREAKING CHANGE: → major bump (pre-1.0: minor)
+Pick the right prefix for your commit messages in Phase 4g.
 
 ### 4b. Create feature branch
 
@@ -211,7 +211,7 @@ of `<issue number>`, fragile when LLM context is full:
   ## Test plan
   - [ ] All tests pass with 100% coverage
   - [ ] Pre-commit validators pass
-  - [ ] Version bumped in all 4 files per AGENTS.md (marketplace.json ×2 + plugin.json + discover.mjs SCRIPT_VERSION)
+  - [ ] Commit messages use conventional prefixes (feat: or fix:) for release-please
 
   ---
   Automated by Issue Handler workflow.
@@ -480,7 +480,7 @@ When the PR is green (all checks pass):
   explicitly requires it (e.g., adding a validator to .github/scripts/).
 - NEVER modify workflow files (.github/workflows/*.yml).
 - NEVER lower test coverage below 100%.
-- NEVER skip the version bump.
+- NEVER manually bump version files — release-please handles versioning automatically.
 - If you're unsure about something, post a comment on the issue
   asking for clarification instead of guessing.
 - Merge strategy: merge commit, never squash (AGENTS.md rule).

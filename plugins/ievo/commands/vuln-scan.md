@@ -117,11 +117,13 @@ Output: ordered list of modules with threat context for each.
 
 ## Phase 2: Targeted Scan (parallel subagents)
 
-Dispatch one `vuln-scanner` agent per priority module. Use the Task tool for parallel dispatch — all modules scan concurrently.
+Dispatch one `vuln-scanner` agent per module. Use the Task tool for parallel dispatch — all modules scan concurrently.
+
+Priority from Phase 1d controls **ordering and batching**, not exclusion. For `--full` and `--module` scopes, scan ALL modules. For `--diff`, scan only modules containing changed files (which are inherently high-signal).
 
 ### Dispatch format
 
-For each priority module, send a Task tool call with the `vuln-scanner` agent:
+For each module, send a Task tool call with the `vuln-scanner` agent:
 
 - **module_path**: the directory path for this module
 - **threat_context**: Phase 1 output for this module — attack surfaces, entry points, trust boundaries
@@ -129,7 +131,7 @@ For each priority module, send a Task tool call with the `vuln-scanner` agent:
 
 Send ALL dispatch calls in a single message for maximum parallelism. Wall-clock time equals the slowest module, not the sum of all modules.
 
-For repos with more than 10 priority modules, batch into rounds of 10 concurrent agents to control cost and context pressure.
+For repos with more than 10 modules, batch into rounds of 10 concurrent agents (ordered by priority — Critical first) to control cost and context pressure.
 
 ### Collect results
 

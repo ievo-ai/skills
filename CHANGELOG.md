@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.6.24
+
+Add `effort:` frontmatter field to all 9 SKILL.md files, enabling Claude Code's status-bar effort display (fixed in v2.1.149). Values: `max` for init (full 6-stage pipeline), `high` for security-check (deep reasoning scan), `medium` for index-repos (repo filesystem scan), `low` for the remaining 6 skills (hooks-setup, overlay-status, evolution, feedback, debug-on, debug-off). Frontmatter-only change — no skill body content or script logic modified. Closes #83.
+
 ## v0.6.23
 
 `discover.mjs` gains a `--help` flag that prints brief usage text and exits 0. Parsed before other argv (works without `--stack-file` or stdin), mirroring the v0.6.20 `--version` flag pattern. Useful for operators who need a quick reference of available flags and input modes without reading source. Closes #81.

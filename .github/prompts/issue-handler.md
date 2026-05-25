@@ -477,8 +477,9 @@ When the PR is green (all checks pass):
 
 - NEVER auto-merge the PR. Human must review and merge.
 - NEVER modify files outside plugins/ievo/ unless the issue
-  explicitly requires it (e.g., adding a validator to .github/scripts/).
-- NEVER modify workflow files (.github/workflows/*.yml).
+  explicitly requires it (e.g., adding a validator to .github/scripts/,
+  or a workflow to .github/workflows/). The issue-handler workflow
+  already gates on org membership — only org members can trigger this.
 - NEVER lower test coverage below 100%.
 - NEVER manually bump version files — release-please handles versioning automatically.
 - If you're unsure about something, post a comment on the issue

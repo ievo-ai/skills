@@ -110,13 +110,33 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      - name: Check org membership
+        id: org-check
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          ORG="ievo-ai"
+          STATUS=$(gh api "orgs/$ORG/members/$ISSUE_AUTHOR" --silent 2>&1 && echo "member" || echo "not-member")
+          if [ "$STATUS" != "member" ]; then
+            echo "Issue author $ISSUE_AUTHOR is not an org member — skipping"
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+              -f body="Issue handler only processes issues from org members. Author \`$ISSUE_AUTHOR\` is not a member of \`$ORG\`." 2>/dev/null || true
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Issue author $ISSUE_AUTHOR is an org member — proceeding"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.org-check.outputs.skip != 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Setup Node.js
+        if: steps.org-check.outputs.skip != 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "20"
@@ -130,6 +150,7 @@ jobs:
       # string "PROMPT_DELIMITER_EOF" on a line by itself — that is
       # the heredoc delimiter for the env var assignment below.
       - name: Load handler prompt
+        if: steps.org-check.outputs.skip != 'true'
         run: |
           if grep -qxF 'PROMPT_DELIMITER_EOF' .github/prompts/issue-handler.md; then
             echo "::error::issue-handler.md contains the heredoc delimiter on its own line"
@@ -143,6 +164,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Run Issue Handler
+        if: steps.org-check.outputs.skip != 'true'
         uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
         env:
           # Step-level env, NOT template interpolation into JSON.

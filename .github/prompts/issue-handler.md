@@ -277,9 +277,13 @@ Convert the draft PR to ready-for-review. This triggers the
 `ready_for_review` event on `claude-code-review.yml`, starting
 the review that Phase 5 polls for:
 
-  if ! gh pr ready "$PR_NUMBER" --repo "$REPO"; then
-    gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "gh pr ready failed for PR #$PR_NUMBER — manual promotion needed."
-    exit 1
+  # Idempotent: skip if already promoted (handler retry after crash post-promotion)
+  PR_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json isDraft --jq '.isDraft')
+  if [ "$PR_DRAFT" = "true" ]; then
+    if ! gh pr ready "$PR_NUMBER" --repo "$REPO"; then
+      gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "gh pr ready failed for PR #$PR_NUMBER — manual promotion needed."
+      exit 1
+    fi
   fi
 
 Wait for claude-code-review to run and iterate on its feedback.

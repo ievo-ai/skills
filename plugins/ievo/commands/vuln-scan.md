@@ -1,6 +1,6 @@
 ---
 description: AI-powered source code vulnerability scanner inspired by Project Glasswing. Three-phase approach — threat model, targeted scan via parallel subagents, exploit-chain validation. Default scope is git diff (changed files vs base branch). Complements security-check (marketplace supply-chain audit) with actual codebase vulnerability detection. Use when the user runs /ievo:vuln-scan, asks to scan for vulnerabilities, or says "security scan my code".
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion, Task
 ---
 
 # Vuln Scan — Glasswing-inspired source code vulnerability scanner
@@ -29,7 +29,8 @@ If no flag is provided, default to `--diff`.
 **--diff** (default):
 
 ```bash
-git diff --name-only "$(git merge-base HEAD main)"..HEAD
+BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+git diff --name-only "$(git merge-base HEAD "origin/$BASE_BRANCH")"..HEAD
 ```
 
 If no diff exists (clean branch), inform the user and suggest `--module` or `--full` instead.
@@ -112,9 +113,9 @@ Dispatch one `vuln-scanner` agent per priority module. Use the Task tool for par
 
 For each priority module, send a Task tool call with the `vuln-scanner` agent:
 
-- **Module**: the directory path for this module
-- **Threat context**: Phase 1 output for this module — attack surfaces, entry points, trust boundaries
-- **Scope metadata**: diff/PR/full indicator plus base branch info
+- **module_path**: the directory path for this module
+- **threat_context**: Phase 1 output for this module — attack surfaces, entry points, trust boundaries
+- **scope_metadata**: diff/PR/full indicator plus base branch info
 
 Send ALL dispatch calls in a single message for maximum parallelism. Wall-clock time equals the slowest module, not the sum of all modules.
 

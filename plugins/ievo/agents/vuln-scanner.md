@@ -70,8 +70,8 @@ Schema (per vuln-scan skill Step 5):
       "recommendation": "<specific fix>"
     }
   ],
-  "scan_complete": true,
-  "notes": "<any caveats>"
+  "scan_complete": "<true|false>",
+  "notes": "<any caveats — if scan_complete is false, explain what was missed>"
 }
 ```
 
@@ -106,4 +106,4 @@ Always return structured output — the orchestrator needs parseable JSON even o
 - **Parallel dispatch**: the orchestrator launches N scans at once via Task tool. Wall-clock = slowest module, not sum.
 - **Context isolation**: full source code reads (potentially many KB per module) stay in this agent's scope, don't pollute the orchestrator's log buffer.
 - **Clean structured output**: orchestrator parses one JSON verdict per agent.
-- **Reasoning depth**: `model: sonnet` alias ensures adequate reasoning for exploit-chain validation. Haiku misses multi-step attack chains.
+- **Reasoning depth**: `model: sonnet` alias ensures adequate reasoning for exploit-chain validation. Haiku misses multi-step attack chains. **Warning**: `CLAUDE_CODE_SUBAGENT_MODEL` env var overrides frontmatter — if set to haiku, scans degrade silently. Leave unset or set to sonnet/opus.

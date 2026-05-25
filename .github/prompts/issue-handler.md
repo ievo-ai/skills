@@ -76,15 +76,19 @@ open a draft PR immediately. This gives operators real-time
 visibility into implementation progress — the draft PR shows
 commits as they land, and the diff updates live.
 
-  # This empty commit is scaffolding — it will appear in main's history
-  # (merge strategy is merge commit, never squash). chore: prefix means
-  # release-please ignores it.
-  git commit --allow-empty -m "chore: begin implementation for #$ISSUE_NUMBER"
-  git push -u origin HEAD
+  # Idempotency: if a PR already exists for this branch (handler retry
+  # after crash/timeout), reuse it instead of creating a duplicate.
+  EXISTING_PR=$(gh pr view --repo "$REPO" --json number --jq .number 2>/dev/null || true)
+  if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+    PR_NUMBER="$EXISTING_PR"
+    echo "Reusing existing PR #$PR_NUMBER"
+  else
+    # Scaffolding commit — lands in main's history (merge commit strategy,
+    # never squash). chore: prefix means release-please ignores it.
+    git commit --allow-empty -m "chore: begin implementation for #$ISSUE_NUMBER"
+    git push -u origin HEAD
 
-Unquoted heredoc — $ISSUE_NUMBER expands to the actual number:
-
-  cat > /tmp/draft-pr-body.md << DRAFTEOF
+    cat > /tmp/draft-pr-body.md << DRAFTEOF
   ## Status
   Implementation in progress — this is a draft PR created by the
   issue handler for visibility. Commits will appear here as
@@ -97,18 +101,17 @@ Unquoted heredoc — $ISSUE_NUMBER expands to the actual number:
   Automated by Issue Handler workflow.
   DRAFTEOF
 
-  # Capture the PR number — needed by Phase 4h (body update),
-  # Phase 5 (ready conversion + review loop), and Phase 6.
-  PR_URL=$(gh pr create --repo "$REPO" --draft \
-    --title "WIP: <short description> (#$ISSUE_NUMBER)" \
-    --body-file /tmp/draft-pr-body.md \
-    --head "$(git branch --show-current)") || true
-  PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-  if [ -z "$PR_NUMBER" ]; then
-    gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Failed to create draft PR. Branch: $(git branch --show-current)"
-    exit 1
+    PR_URL=$(gh pr create --repo "$REPO" --draft \
+      --title "WIP: <short description> (#$ISSUE_NUMBER)" \
+      --body-file /tmp/draft-pr-body.md \
+      --head "$(git branch --show-current)")
+    PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+    if [ -z "$PR_NUMBER" ]; then
+      gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Failed to create draft PR. Branch: $(git branch --show-current)"
+      exit 1
+    fi
+    echo "Created draft PR #$PR_NUMBER ($PR_URL)"
   fi
-  echo "Created draft PR #$PR_NUMBER ($PR_URL)"
 
 ### 4c. Implement the change
 
@@ -237,7 +240,7 @@ sibling pushes):
 
   # Push (force-with-lease since rebase rewrote local history;
   # safe on a topic branch nobody else pushes to):
-  git push --force-with-lease origin HEAD -u
+  git push --force-with-lease origin HEAD
 
 Update the draft PR title and body to final versions. The draft
 was created in Phase 4b.5 with a placeholder body — now replace

@@ -104,6 +104,7 @@ Schema per finding:
 {
   "file": "<relative path>",
   "line": <line number>,
+  "function": "<function or method name>",
   "category": "<taxonomy category from Step 3 table>",
   "cwe": "<CWE-NNN>",
   "title": "<short summary, under 80 chars>",

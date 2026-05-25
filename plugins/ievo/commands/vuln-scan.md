@@ -1,6 +1,6 @@
 ---
 description: AI-powered source code vulnerability scanner inspired by Project Glasswing. Three-phase approach — threat model, targeted scan via parallel subagents, exploit-chain validation. Default scope is git diff (changed files vs base branch). Complements security-check (marketplace supply-chain audit) with actual codebase vulnerability detection. Use when the user runs /ievo:vuln-scan, asks to scan for vulnerabilities, or says "security scan my code".
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion, Task
+allowed-tools: Read, Bash, Glob, Grep, AskUserQuestion, Task
 ---
 
 # Vuln Scan — Glasswing-inspired source code vulnerability scanner
@@ -129,6 +129,8 @@ For each priority module, send a Task tool call with the `vuln-scanner` agent:
 
 Send ALL dispatch calls in a single message for maximum parallelism. Wall-clock time equals the slowest module, not the sum of all modules.
 
+For repos with more than 10 priority modules, batch into rounds of 10 concurrent agents to control cost and context pressure.
+
 ### Collect results
 
 Each vuln-scanner agent returns a JSON object with:
@@ -169,7 +171,7 @@ After cross-module validation, recalibrate confidence:
 - Findings refuted by cross-module evidence — drop
 - Findings with no cross-module preconditions (self-contained within one module) — pass through unchanged at their Phase 2 confidence level
 
-## Step 4: Present results
+## Phase 4: Present results
 
 ### Summary banner
 

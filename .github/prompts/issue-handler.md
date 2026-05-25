@@ -76,7 +76,10 @@ open a draft PR immediately. This gives operators real-time
 visibility into implementation progress — the draft PR shows
 commits as they land, and the diff updates live.
 
-  git commit --allow-empty -m "wip: begin implementation for #$ISSUE_NUMBER"
+  # This empty commit is scaffolding — it will appear in main's history
+  # (merge strategy is merge commit, never squash). chore: prefix means
+  # release-please ignores it.
+  git commit --allow-empty -m "chore: begin implementation for #$ISSUE_NUMBER"
   git push -u origin HEAD
 
 Unquoted heredoc — $ISSUE_NUMBER expands to the actual number:
@@ -99,8 +102,12 @@ Unquoted heredoc — $ISSUE_NUMBER expands to the actual number:
   PR_URL=$(gh pr create --repo "$REPO" --draft \
     --title "WIP: <short description> (#$ISSUE_NUMBER)" \
     --body-file /tmp/draft-pr-body.md \
-    --head "$(git branch --show-current)")
+    --head "$(git branch --show-current)") || true
   PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+  if [ -z "$PR_NUMBER" ]; then
+    gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Failed to create draft PR. Branch: $(git branch --show-current)"
+    exit 1
+  fi
   echo "Created draft PR #$PR_NUMBER ($PR_URL)"
 
 ### 4c. Implement the change

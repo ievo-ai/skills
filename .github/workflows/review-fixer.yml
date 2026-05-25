@@ -1,0 +1,149 @@
+# Review Fixer — auto-fix claude-review findings on handler-authored PRs
+#
+# Triggers when Claude Code Review completes. If the reviewed PR was
+# created by the issue-handler (author = claude[bot]) and the review
+# posted findings, this workflow checks out the PR branch, runs Claude
+# to fix the findings, and pushes. The push re-triggers claude-review,
+# which re-triggers this workflow if findings remain — up to 3 rounds.
+#
+# Human-authored PRs are skipped — humans fix their own review feedback.
+# release-please PRs (ievo-eva[bot]) are also skipped — those are
+# mechanical version bumps that don't need code fixes.
+#
+# Loop prevention: each fix commit includes [review-fix-N] in its
+# message. The workflow counts these markers in the branch history
+# and stops after 3. This prevents infinite review→fix→review cycles.
+#
+# Safety:
+#   - Max 3 fix attempts
+#   - Never auto-merges — human must review and merge
+#   - Scope-locked to plugins/ievo/ (same as issue-handler)
+#   - Uses GitHub App token for pushes (triggers downstream CI)
+
+name: "Review Fixer"
+
+on:
+  workflow_run:
+    workflows: ["Claude Code Review"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: review-fixer-${{ github.event.workflow_run.pull_requests[0].number || 'none' }}
+  cancel-in-progress: false
+
+jobs:
+  fix-review:
+    name: "Auto-fix Review Findings"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.pull_requests[0].number > 0
+
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Check if PR needs auto-fixing
+        id: check
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          AUTHOR=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json author --jq '.author.login')
+          echo "PR #$PR_NUMBER author: $AUTHOR"
+
+          if [ "$AUTHOR" != "app/claude" ] && [ "$AUTHOR" != "claude[bot]" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping — not a handler-authored PR"
+            exit 0
+          fi
+
+          BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq '.headRefName')
+          FIX_COUNT=$(gh api "repos/$REPO/commits?sha=$BRANCH&per_page=20" \
+            --jq '[.[] | select(.commit.message | test("\\[review-fix-"))] | length')
+          echo "Fix attempts so far: $FIX_COUNT"
+
+          if [ "$FIX_COUNT" -ge 5 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            gh pr comment "$PR_NUMBER" --repo "$REPO" \
+              --body "Review fixer exhausted 3 fix attempts. Remaining findings need manual review."
+            exit 0
+          fi
+
+          REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
+
+          if echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge|verdict.*correct'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Review is clean — no findings to fix"
+            exit 0
+          fi
+
+          if [ -z "$REVIEW_BODY" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No review comment found"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "fix_number=$((FIX_COUNT + 1))" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR branch
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ steps.check.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "20"
+
+      - name: Load fixer prompt
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          if grep -qxF 'FIXER_PROMPT_EOF' .github/prompts/review-fixer.md 2>/dev/null; then
+            echo "::error::review-fixer.md contains the heredoc delimiter"
+            exit 1
+          fi
+          {
+            echo "FIXER_PROMPT<<FIXER_PROMPT_EOF"
+            cat .github/prompts/review-fixer.md
+            echo ""
+            echo "FIXER_PROMPT_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Fix review findings
+        if: steps.check.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          REPO: ${{ github.repository }}
+          FIX_NUMBER: ${{ steps.check.outputs.fix_number }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model sonnet
+            --allowedTools "Bash,Edit,Read,Write,Glob,Grep"
+          prompt: ${{ env.FIXER_PROMPT }}

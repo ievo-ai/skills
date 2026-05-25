@@ -65,9 +65,9 @@ Decide bump level:
 ### 4b. Create feature branch
 
 Branch naming per AGENTS.md:
-  git checkout -b feat/v<new_version>-<short-desc>
+  git checkout -b feat/<short-desc>
 or:
-  git checkout -b fix/v<new_version>-<short-desc>
+  git checkout -b fix/<short-desc>
 
 ### 4c. Implement the change
 

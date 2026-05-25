@@ -1,11 +1,11 @@
 ---
-description: AI-powered source code vulnerability scanner inspired by Project Glasswing. Three-phase approach — threat model, targeted scan via parallel subagents, exploit-chain validation. Default scope is git diff (changed files vs base branch). Complements security-check (marketplace supply-chain audit) with actual codebase vulnerability detection. Use when the user runs /ievo:vuln-scan, asks to scan for vulnerabilities, or says "security scan my code".
+description: AI-powered source code vulnerability scanner inspired by Project Glasswing. Four-phase approach — threat model, targeted scan via parallel subagents, exploit-chain validation. Default scope is git diff (changed files vs base branch). Complements security-check (marketplace supply-chain audit) with actual codebase vulnerability detection. Use when the user runs /ievo:vuln-scan, asks to scan for vulnerabilities, or says "security scan my code".
 allowed-tools: Read, Bash, Glob, Grep, AskUserQuestion, Task
 ---
 
 # Vuln Scan — Glasswing-inspired source code vulnerability scanner
 
-Three-phase AI-powered vulnerability scan of your source code. Complements `/ievo:security-check` (which audits third-party marketplace items) with actual **codebase** vulnerability detection.
+Four-phase AI-powered vulnerability scan of your source code. Complements `/ievo:security-check` (which audits third-party marketplace items) with actual **codebase** vulnerability detection.
 
 **What this is NOT:** a replacement for semgrep/snyk/bandit (those are fast, cheap, CI tools). NOT pattern matching with an LLM wrapper. NOT brute-force "scan everything."
 

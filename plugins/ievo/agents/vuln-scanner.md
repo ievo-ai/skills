@@ -56,6 +56,7 @@ Schema (per vuln-scan skill Step 5):
     {
       "file": "<relative path>",
       "line": <line number>,
+      "function": "<function or method name>",
       "category": "<taxonomy category>",
       "cwe": "<CWE-NNN>",
       "title": "<short summary>",
@@ -75,7 +76,7 @@ Schema (per vuln-scan skill Step 5):
     }
   ],
   "scan_complete": <true|false>,
-  "notes": "<any caveats — if scan_complete is false, explain what was missed>"
+  "notes": "<any caveats — e.g. binary files skipped, files too large for context>"
 }
 ```
 

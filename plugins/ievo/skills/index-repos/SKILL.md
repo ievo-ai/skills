@@ -2,6 +2,7 @@
 name: index-repos
 description: Enumerate the full content of one or more GitHub repos that host Claude Code skills, agents, and plugins. Thin wrapper around `scripts/scan_repo.mjs` (deterministic Node scanner — no LLM required). Returns structured markdown indices per repo. Use when expanding a small set of candidate skills into the full breadth of what their host repos offer.
 license: MIT
+effort: medium
 compatibility: Requires `git` CLI + Node.js 18+ (ships with Claude Code — guaranteed available). Same script is used by ievo-ai/community-index GHA — single source of truth.
 metadata:
   author: ievo-ai

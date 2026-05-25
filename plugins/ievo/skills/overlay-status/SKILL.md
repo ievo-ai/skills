@@ -2,6 +2,7 @@
 name: overlay-status
 description: Surface the current state of iEvo evolution overlays in this project. Lists every overlay under `.ievo/evolution/` grouped by scope (project, agents, skills), with a one-line summary + last-modified date per file. Use when the user asks "what evolutions have I captured", "show my iEvo overlays", "what rules are active in this project", "list installed overlays", "summarize .ievo/evolution", "какие правила iEvo активны", or "покажи мои overlay'и". Read-only — never modifies, deletes, or rewrites overlay content. Closes the legibility gap iEvo's own `coverage-audit.md` flagged as "Standalone 'list installed iEvo overlays' command".
 license: MIT
+effort: low
 allowed-tools:
   - Read
   - Glob

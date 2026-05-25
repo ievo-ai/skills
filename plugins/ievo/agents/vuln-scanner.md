@@ -7,6 +7,7 @@ tools:
   - Read
   - Glob
   - Grep
+  - Skill
 ---
 
 # Vulnerability Scanner — per-module deep scan agent
@@ -70,7 +71,7 @@ Schema (per vuln-scan skill Step 5):
       "recommendation": "<specific fix>"
     }
   ],
-  "scan_complete": "<true|false>",
+  "scan_complete": <true|false>,
   "notes": "<any caveats — if scan_complete is false, explain what was missed>"
 }
 ```

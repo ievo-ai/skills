@@ -29,7 +29,15 @@ If no flag is provided, default to `--diff`.
 **--diff** (default):
 
 ```bash
-BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+# Try git symbolic-ref first, then gh API, then fall back to main with a warning
+BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+if [ -z "$BASE_BRANCH" ]; then
+  BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null)
+fi
+if [ -z "$BASE_BRANCH" ]; then
+  BASE_BRANCH="main"
+  echo "Warning: could not detect default branch — falling back to 'main'."
+fi
 git diff --name-only "$(git merge-base HEAD "origin/$BASE_BRANCH")"..HEAD
 ```
 
@@ -58,6 +66,8 @@ Use AskUserQuestion:
   - `Cancel` — description: `Don't scan.`
 
 If user cancels, exit. If user switches to diff, fall through to `--diff` scope.
+
+If user continues with full scan, enumerate all source files via Glob (excluding `node_modules`, `.git`, `vendor`, `build`, `dist`, `.next`, `__pycache__`, `.tox`, `.venv` directories) and proceed to Phase 1 with the full file list as scope.
 
 ## Phase 1: Threat Model
 
@@ -127,6 +137,10 @@ Each vuln-scanner agent returns a JSON object with:
 - `scan_complete` flag
 - `notes` for any caveats
 
+**JSON validation**: attempt to parse each agent response as JSON. If parsing fails (malformed output, preamble text, markdown fences around JSON), treat the response as `scan_complete: false` with zero findings and note the module as "scan failed — unparseable response" in the summary.
+
+**Agent failure handling**: if a Task-dispatched agent does not return (timeout, crash) or returns an error, treat that module as `scan_complete: false` with zero findings and proceed with available results. Flag incomplete modules in the summary banner (e.g., "Modules incomplete: auth, payments — results omitted").
+
 Parse and aggregate all module results.
 
 ## Phase 3: Exploit Validation (cross-module)
@@ -153,6 +167,7 @@ After cross-module validation, recalibrate confidence:
 - Findings confirmed by cross-module evidence — confidence stays or promotes
 - Findings with unverifiable cross-module preconditions — confidence demotes one level
 - Findings refuted by cross-module evidence — drop
+- Findings with no cross-module preconditions (self-contained within one module) — pass through unchanged at their Phase 2 confidence level
 
 ## Step 4: Present results
 
@@ -169,6 +184,8 @@ Findings: <count> (high confidence: N, medium: N, low: N)
 ```
 
 ### Findings (sorted by confidence, then blast radius)
+
+**Blast radius aggregation for sorting**: `blast_radius` has three axes (confidentiality, integrity, availability). For sort ordering, treat the aggregate as **high** if any axis is high, **low** if any axis is low and none are high, **none** if all axes are none.
 
 For each validated finding, present:
 

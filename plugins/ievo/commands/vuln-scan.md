@@ -152,7 +152,7 @@ Each vuln-scanner agent returns a JSON object with:
 - `scan_complete` flag
 - `notes` for any caveats
 
-**JSON validation**: attempt to parse each agent response as JSON. If parsing fails (malformed output, preamble text, markdown fences around JSON), treat the response as `scan_complete: false` with zero findings and note the module as "scan failed — unparseable response" in the summary.
+**JSON validation**: attempt to parse each agent response as JSON. If parsing fails on the first attempt, strip any wrapping markdown fence delimiters (` ```json ` / ` ``` `) and retry parsing on the inner content — Claude agents commonly wrap JSON in fences. Only if the stripped attempt also fails, treat the response as `scan_complete: false` with zero findings and note the module as "scan failed — unparseable response" in the summary.
 
 **Agent failure handling**: if a Task-dispatched agent does not return (timeout, crash) or returns an error, treat that module as `scan_complete: false` with zero findings and proceed with available results. Flag incomplete modules in the summary banner (e.g., "Modules incomplete: auth, payments — results omitted").
 

@@ -30,6 +30,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Pin a release with auto-generated changelog from commits | — | — | **gap** | Each version bumps manifests + roadmap entry by hand. Could automate via release-please or similar. |
 | Cortex A/B validation gate for evolution proposals | — | — | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
 | GitHub search source in `discover.mjs` for agent-only / plugin-only repos | — | (`discover.mjs` extension) | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
+| Schedule periodic iEvo operations via Claude Code Routines | `/ievo:schedule` | — | covered | Guided wizard: operation type + frequency + routine creation. Falls back to CI cron when Routines unavailable. Claude Code only (Routines require Pro/Max/Team/Enterprise + v2.1.149+). |
 | Standalone "list installed iEvo overlays" command | `/ievo:overlay-status` | — | covered | Reads `.ievo/evolution/`, groups by scope (Project / agents / skills) matching the actual layout written by `evolution/SKILL.md` (`project.md` flat file, plus `agents/<name>.md` and `skills/<name>.md` subdirs); extracts one-line summary per file with last-modified date; flags overlays untouched 180+ days as candidates for cleanup; pure Read + Glob + `stat` (Bash limited to `stat` for mtime; Windows-without-POSIX hosts gracefully omit dates) |
 | Standalone "show next-step suggestions based on installed skills" | — | — | gap | Adjacent to evolution capture but discovery-oriented |
 
@@ -85,6 +86,7 @@ ievo-ai/skills/
       hooks-setup/SKILL.md
       overlay-status/SKILL.md
       index-repos/SKILL.md
+      schedule/SKILL.md
       security-check/SKILL.md
 ```
 

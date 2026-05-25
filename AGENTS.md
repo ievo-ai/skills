@@ -67,8 +67,9 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 - Forward-looking roadmap (planned items) stays in `AGENTS.md` § Roadmap.
 - Shipped-version history lives in `CHANGELOG.md`.
-- Bumping the version requires touching FOUR files in the same PR: `.claude-plugin/marketplace.json` (twice — `metadata.version` + `plugins[0].version`), `plugins/ievo/.claude-plugin/plugin.json`, `plugins/ievo/scripts/discover.mjs` `SCRIPT_VERSION`. The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
-- AGENTS.md's "Current compliance ledger" header (e.g. `**Current compliance ledger (v0.X.Y):**`) is the only version reference that stays in this file — bump it alongside the manifests.
+- **Version bumping is automated via release-please.** PRs MUST NOT manually bump version files. The `release-please.yml` workflow creates a Release PR that bumps all version files atomically when merged. Use conventional commit prefixes (`feat:`, `fix:`) — release-please derives the semver bump from these.
+- The FOUR version files (`.claude-plugin/marketplace.json` ×2, `plugins/ievo/.claude-plugin/plugin.json`, `plugins/ievo/scripts/discover.mjs` `SCRIPT_VERSION`) are configured in `release-please-config.json` `extra-files`. The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
+- AGENTS.md's "Current compliance ledger" header carries an `x-release-please-version` marker — release-please bumps it automatically alongside the manifests.
 
 ### Skills format
 - Every `SKILL.md` MUST conform to [agentskills.io spec](https://agentskills.io/specification)
@@ -137,7 +138,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.24):**
+**Current compliance ledger (v0.6.24):** <!-- x-release-please-version -->
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.

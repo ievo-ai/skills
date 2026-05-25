@@ -100,56 +100,22 @@ Follow ALL conventions from AGENTS.md:
   # If agent .md files changed:
   node plugins/ievo/scripts/validate_agents.mjs
 
-### 4f. Version bump (atomic against latest main, NOT branch-time main)
+### 4f. Version bump — AUTOMATED, DO NOT DO MANUALLY
 
-Pick the version by querying main's CURRENT state at this moment,
-NOT the version that was on main when this job started. Another
-issue-handler run or human PR may have landed since. Race-safe:
+Version bumping is handled by release-please (see release-please-config.json).
+DO NOT touch any of these files:
+- .claude-plugin/marketplace.json
+- plugins/ievo/.claude-plugin/plugin.json
+- plugins/ievo/scripts/discover.mjs SCRIPT_VERSION
+- AGENTS.md compliance ledger
+- CHANGELOG.md
 
-  CURRENT_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" \
-    --jq '.content' | base64 -d | jq -r '.version')
-  # Next patch slot (semver patch bump for fixes, minor for new
-  # features/skills; never pick a number that's currently in flight
-  # on an open PR — check open PRs and skip any version they claim):
-  # NOTE: `sort -u` is LEXICOGRAPHIC, not numeric. Fine today
-  # (all patches < 10) but `0.6.9` would sort AFTER `0.6.10` once
-  # we cross patch 10. When picking the "next free slot" below,
-  # use NUMERIC comparison (e.g. `sort -t. -k1,1n -k2,2n -k3,3n`,
-  # awk numeric compare, or a Node/jq one-liner) rather than naive
-  # `sort` so the slot-pick is correct at higher patch numbers.
-  IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
-    --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
-    | sort -t. -k1,1n -k2,2n -k3,3n -u)
-  # Pick the smallest version > CURRENT_MAIN_VER that's not in IN_FLIGHT_VERS.
-  # Implement in shell with awk/jq or Node one-liner. If you can't compute
-  # reliably, pick CURRENT_MAIN_VER + 0.0.2 (skip one to avoid race) and
-  # leave a note in the PR body that the version was conservatively bumped.
+release-please creates a Release PR that bumps all version files
+atomically based on conventional commit prefixes (feat: → minor,
+fix: → patch). The CHANGELOG is auto-generated.
 
-Bump THE FOUR FILES per AGENTS.md § Version bumping — coupling
-assertion in discover.test.mjs enforces it on coverage-gate;
-missing the discover.mjs SCRIPT_VERSION bump burns a fix-round
-for a trivial miss:
-1. .claude-plugin/marketplace.json → "metadata.version"
-2. .claude-plugin/marketplace.json → "plugins[0].version"
-3. plugins/ievo/.claude-plugin/plugin.json → "version"
-4. plugins/ievo/scripts/discover.mjs → export const SCRIPT_VERSION
-Also bump the "Current compliance ledger (vX.Y.Z)" header in
-AGENTS.md to match.
-
-### 4f.5. CHANGELOG.md entry (required, mirrors AGENTS.md convention)
-
-Per AGENTS.md § Changelog — every shipped version MUST have an
-entry in CHANGELOG.md at the repo root. Reverse-chronological;
-insert ABOVE the previous-current entry:
-
-  # Read the current top of CHANGELOG.md to find the insertion point:
-  head -20 CHANGELOG.md
-
-  # Then prepend a new "## v<new_version>" section before the previous
-  # top entry. One paragraph (or short bullet list) describing what
-  # changed and why; reference Closes #$ISSUE_NUMBER. Use generic
-  # language per AGENTS.md § Public-repo content safety — no secret
-  # names, no internal endpoints, no infra attack-vector hints.
+Your job: use conventional commit prefixes (feat:, fix:) in commit
+messages — that's how release-please determines the bump type.
 
 ### 4g. Commit
 
@@ -185,77 +151,17 @@ sibling pushes):
     fi
     echo "Main moved by $BEHIND commits — rebasing (attempt $((REBASE_ATTEMPT+1))/$REBASE_MAX)"
 
-    # `--onto origin/main <merge-base>` replays only our unique
-    # commits on the latest main tip. Conflict-likely files: the
-    # 4 version files + AGENTS.md ledger header + CHANGELOG.md
-    # (all touched in Phase 4f / 4f.5).
     MERGE_BASE=$(git merge-base HEAD origin/main)
     if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
       echo "Rebase succeeded clean"
     else
-      # Conflicts. The only EXPECTED conflict surface is version
-      # files (race against a sibling PR that bumped the same
-      # version). Auto-resolve by re-running Phase 4f's
-      # version-pick query against the post-rebase main state:
-      echo "Conflicts detected — auto-resolving version files"
-
-      # Step 1: FIRST, abort early on ANY non-version conflict —
-      # the handler is not allowed to autonomously resolve arbitrary
-      # code conflicts. This check runs BEFORE any write so that an
-      # operator-needed escalation doesn't leave partial state.
-      if git diff --name-only --diff-filter=U | grep -v -E '^(\.claude-plugin/marketplace\.json|plugins/ievo/\.claude-plugin/plugin\.json|plugins/ievo/scripts/discover\.mjs|AGENTS\.md|CHANGELOG\.md)$' | grep -q .; then
-        git rebase --abort
-        echo "Unexpected non-version conflict — escalating to issue thread"
-        gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<ESC
-  Rebase against latest main produced conflicts in non-version files. The handler
-  auto-resolves version-bump conflicts only — other conflicts need operator review.
-  ESC
-        exit 1
-      fi
-
-      # Step 2: Re-query latest main version AND in-flight PR set
-      # — we're in conflict resolution because main moved, which
-      # is also the most likely moment a SECOND sibling PR has
-      # claimed the next-version slot. Re-scanning IN_FLIGHT_VERS
-      # is essential to avoid re-racing into a slot already taken.
-      NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" \
-        --jq '.content' | base64 -d | jq -r '.version')
-      IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open \
-        --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' \
-        | sort -t. -k1,1n -k2,2n -k3,3n -u)
-      # Compute next-free-slot from NEW_MAIN_VER + IN_FLIGHT_VERS
-      # using NUMERIC comparison (see lexicographic-sort warning
-      # in Phase 4f). Skip any version <= NEW_MAIN_VER OR in
-      # IN_FLIGHT_VERS; pick the smallest remaining patch.
-
-      # Step 3: WRITE the 4 version files + AGENTS.md ledger header
-      # + CHANGELOG.md (re-do the Phase 4f / 4f.5 outputs against the
-      # newly-picked version). This re-writes conflict markers with
-      # clean post-rebase content.
-
-      # Step 4: AFTER writing, stage all the resolved files:
-      git add .claude-plugin/marketplace.json \
-              plugins/ievo/.claude-plugin/plugin.json \
-              plugins/ievo/scripts/discover.mjs \
-              AGENTS.md CHANGELOG.md
-
-      # Step 5: continue the rebase with the resolved files.
-      # CHECK EXIT — if --continue fails (residual conflict marker,
-      # post-rebase hook rejection, etc.), we'd leave the tree in
-      # a mid-rebase state and the next loop iteration would error
-      # with "You have a rebase in progress". Abort + escalate.
-      if ! GIT_EDITOR=: git rebase --continue; then
-        git rebase --abort
-        echo "git rebase --continue failed after auto-resolve — escalating"
-        gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<ESC
-  The handler resolved version-file conflicts cleanly but
-  \`git rebase --continue\` still failed (residual conflict marker,
-  post-rebase hook rejection, or test failure in pre-commit). Tree
-  left in pre-rebase state. Operator review needed.
-  Branch: $(git branch --show-current)
-  ESC
-        exit 1
-      fi
+      # Since PRs no longer touch version files (release-please
+      # handles versioning), conflicts are unexpected. Abort and
+      # escalate to operator.
+      git rebase --abort
+      echo "Rebase conflict — escalating to issue thread"
+      gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Rebase against latest main produced conflicts. Operator review needed. Branch: $(git branch --show-current)"
+      exit 1
     fi
     REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
   done
@@ -473,29 +379,11 @@ Loop:
              [ "$BEHIND" = "0" ] && break
              MERGE_BASE=$(git merge-base HEAD origin/main)
              if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
-               :  # clean rebase, no resolve needed
+               :  # clean rebase
              else
-               # Check for non-version conflicts first (abort early)
-               if git diff --name-only --diff-filter=U | \
-                    grep -v -E '^(\.claude-plugin/marketplace\.json|plugins/ievo/\.claude-plugin/plugin\.json|plugins/ievo/scripts/discover\.mjs|AGENTS\.md|CHANGELOG\.md)$' | grep -q .; then
-                 git rebase --abort
-                 gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase produced non-version conflict — operator review needed."
-                 exit 1
-               fi
-               # Re-pick version from new main + in-flight PRs (re-run
-               # Phase 4f + 4f.5 outputs). MUST re-scan IN_FLIGHT_VERS
-               # too — recovery from a race is exactly when another
-               # sibling may have claimed the next slot.
-               NEW_MAIN_VER=$(gh api "repos/$REPO/contents/plugins/ievo/.claude-plugin/plugin.json?ref=main" --jq '.content' | base64 -d | jq -r '.version')
-               IN_FLIGHT_VERS=$(gh pr list --repo "$REPO" --state open --json title,body --jq '.[] | (.title + " " + (.body // "")) | scan("v0\\.[0-9]+\\.[0-9]+") | .[1:]' | sort -t. -k1,1n -k2,2n -k3,3n -u)
-               # ...pick next free slot from NEW_MAIN_VER + IN_FLIGHT_VERS (numeric compare)...
-               # ...write the 4 version files + AGENTS.md ledger + CHANGELOG.md to next-available version...
-               git add .claude-plugin/marketplace.json plugins/ievo/.claude-plugin/plugin.json plugins/ievo/scripts/discover.mjs AGENTS.md CHANGELOG.md
-               if ! GIT_EDITOR=: git rebase --continue; then
-                 git rebase --abort
-                 gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase --continue failed after auto-resolve — operator review needed."
-                 exit 1
-               fi
+               git rebase --abort
+               gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase produced conflicts — operator review needed."
+               exit 1
              fi
              REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
            done

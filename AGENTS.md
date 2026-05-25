@@ -67,8 +67,9 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 - Forward-looking roadmap (planned items) stays in `AGENTS.md` § Roadmap.
 - Shipped-version history lives in `CHANGELOG.md`.
-- Bumping the version requires touching FOUR files in the same PR: `.claude-plugin/marketplace.json` (twice — `metadata.version` + `plugins[0].version`), `plugins/ievo/.claude-plugin/plugin.json`, `plugins/ievo/scripts/discover.mjs` `SCRIPT_VERSION`. The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
-- AGENTS.md's "Current compliance ledger" header (e.g. `**Current compliance ledger (v0.X.Y):**`) is the only version reference that stays in this file — bump it alongside the manifests.
+- **Version bumping is automated via release-please.** PRs MUST NOT manually bump version files. The `release-please.yml` workflow creates a Release PR that bumps all version files atomically when merged. Use conventional commit prefixes (`feat:`, `fix:`) — release-please derives the semver bump from these.
+- The FOUR version files (`.claude-plugin/marketplace.json` ×2, `plugins/ievo/.claude-plugin/plugin.json`, `plugins/ievo/scripts/discover.mjs` `SCRIPT_VERSION`) are configured in `release-please-config.json` `extra-files`. The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
+- AGENTS.md's "Current compliance ledger" header carries an `x-release-please-version` marker — release-please bumps it automatically alongside the manifests.
 
 ### Skills format
 - Every `SKILL.md` MUST conform to [agentskills.io spec](https://agentskills.io/specification)
@@ -137,7 +138,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.6.24):**
+**Current compliance ledger (v0.6.24):** <!-- x-release-please-version -->
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -145,19 +146,20 @@ If a function is genuinely impossible to test in isolation (e.g., network call t
 
 No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` is under the 100% gate. The `CARVE_OUTS` map in `.github/scripts/check-coverage.mjs` is empty; keep it as the canonical place to grandfather any future legitimate exception.
 
-### Version bumping
-- **Every PR bumps version** in **four files** in the same commit — the canonical checklist (also documented in § Key conventions § Changelog):
+### Version bumping — automated via release-please
+- **PRs MUST NOT bump version files.** Versioning is fully automated by `release-please` (see `release-please-config.json` and `.github/workflows/release-please.yml`).
+- On every push to main, release-please analyzes conventional commit prefixes (`feat:` → minor, `fix:` → patch) and creates/updates a persistent **Release PR**.
+- Merging the Release PR bumps all **four version files** atomically:
   1. `.claude-plugin/marketplace.json` → `metadata.version`
   2. `.claude-plugin/marketplace.json` → `plugins[0].version`
   3. `plugins/ievo/.claude-plugin/plugin.json` → `version`
-  4. `plugins/ievo/scripts/discover.mjs` → `export const SCRIPT_VERSION`
-- The coupling assertion in `discover.test.mjs` ("SCRIPT_VERSION matches plugin.json") catches drift on the coverage-gate — an agent that bumps only the manifests but forgets `SCRIPT_VERSION` will see CI fail with `actual: '0.6.X' / expected: '0.6.Y'`.
-- The `**Current compliance ledger (vX.Y.Z):**` header in § Test coverage is the only version reference that stays in `AGENTS.md` — bump it alongside the four manifests.
-- **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block. No update needed there. If the Codex marketplace spec evolves to require a version field, update this guidance and ensure all manifests bump together.
-- Skip = bot/marketplace caches stale. Discipline matters.
+  4. `plugins/ievo/scripts/discover.mjs` → `export const SCRIPT_VERSION` (via `x-release-please-version` marker)
+- The `AGENTS.md` compliance ledger header is also bumped automatically (via `x-release-please-version` marker).
+- The coupling assertion in `discover.test.mjs` still catches drift — it validates the Release PR itself on the coverage-gate.
+- **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block.
 
 ### Branch + commit conventions
-- Feature branches: `feat/v<x.y.z>-<description>` or `fix/v<x.y.z>-<description>`
+- Feature branches: `feat/<description>` or `fix/<description>` (no version number — release-please assigns it)
 - Commit footer: `Co-Authored-By: iEVO <noreply@ievo.ai>` (NOT the default Claude/Anthropic footer)
 - Merge strategy: merge commit (`--merge --delete-branch`), never squash
 

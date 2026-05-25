@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.6.23
+
+`discover.mjs` gains a `--help` flag that prints brief usage text and exits 0. Parsed before other argv (works without `--stack-file` or stdin), mirroring the v0.6.20 `--version` flag pattern. Useful for operators who need a quick reference of available flags and input modes without reading source. Closes #81.
+
 ## v0.6.22
 
 Extracts the issue-handler's inline prompt (30KB, 600 lines) from the workflow YAML into `.github/prompts/issue-handler.md` and loads it via env var at runtime. The v0.6.21 changes nearly doubled the workflow file size (24KB to 46KB), which caused GitHub's workflow-file parser to reject it — the handler silently stopped firing on new issues. The workflow YAML drops from 773 lines (46KB) to 149 lines (7.4KB). Prompt content is unchanged; only the delivery mechanism changed. Verified by creating test issues #78 and #79 which both failed to trigger the handler before this fix.

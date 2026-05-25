@@ -50,7 +50,7 @@ name: "Issue Handler"
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 permissions:
   contents: write       # push branches + create commits during fix loop

@@ -5,6 +5,7 @@ license: MIT
 allowed-tools:
   - AskUserQuestion
   - Bash(claude*)
+  - Write
 compatibility: Claude Code only — Routines require Pro/Max/Team/Enterprise subscription and Claude Code v2.1.149+. The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io, but the scheduling wrapper is Claude Code-specific. Codex and other platforms: use the CI cron fallback printed when Routines are unavailable. No external dependencies beyond Claude Code itself.
 metadata:
   author: ievo-ai
@@ -31,7 +32,7 @@ Verify Claude Code Routines are accessible in this session:
 claude schedule list 2>&1
 ```
 
-**If available** (exit code 0 or output listing routines) — proceed to Step 2.
+**If available** (exit code 0) — proceed to Step 2.
 
 **If unavailable** (non-zero exit, "not found", or error message) — print the explanation below, then the CI workflow template from Step 1b, then exit cleanly. Do NOT proceed to Step 2.
 
@@ -70,14 +71,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action@main
+      - uses: anthropics/claude-code-action@v1
         with:
           prompt: |
             Run /ievo:security-check to audit all installed skills
             for security vulnerabilities. Post findings as a PR comment
             or write to .ievo/log/scheduled-audit.md.
-          # Store your Claude API key as a GitHub Actions secret
-          # See: github.com/anthropics/claude-code-action
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 Then print:
@@ -211,15 +211,17 @@ Build a routine name from the operation:
 - Skill refresh: `ievo-skill-refresh`
 - Custom: `ievo-scheduled`
 
-Create via Bash:
+Create via Bash. For the two static templates (security audit, skill refresh),
+inline `--prompt` is safe since the content is fully controlled. For Custom
+operation prompts, ALWAYS write to a temp file first to prevent shell injection
+(user input may contain `$()`, backticks, or other shell metacharacters):
 
 ```bash
-claude schedule create --name "<name>" --schedule "<cron>" --prompt "<full prompt from Step 4>"
-```
+# Static templates (security audit / skill refresh) — safe inline:
+claude schedule create --name "<name>" --schedule "<cron>" --prompt "<static prompt from Step 4>"
 
-If the prompt contains quotes or special characters, write it to a temporary file first and reference it:
-
-```bash
+# Custom operation — ALWAYS use --prompt-file:
+# Write the prompt to /tmp/ievo-routine-prompt.txt first, then:
 claude schedule create --name "<name>" --schedule "<cron>" --prompt-file /tmp/ievo-routine-prompt.txt
 ```
 

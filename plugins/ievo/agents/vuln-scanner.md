@@ -11,7 +11,7 @@ tools:
 ---
 
 > [!WARNING]
-> **Operator note — `CLAUDE_CODE_SUBAGENT_MODEL` precedence.** The `CLAUDE_CODE_SUBAGENT_MODEL` env var overrides the `model: sonnet` declared in frontmatter. If set to a Haiku-tier value, scan quality degrades silently — exploit-chain validation requires Sonnet-level reasoning. Leave the env var unset (frontmatter wins) or set it to `sonnet`/`opus`.
+> **Operator note — `CLAUDE_CODE_SUBAGENT_MODEL` precedence.** Per [Claude Code's subagent docs](https://code.claude.com/docs/en/sub-agents), model resolution order is: (1) `CLAUDE_CODE_SUBAGENT_MODEL` env var if set, (2) per-invocation model parameter, (3) agent frontmatter `model:`, (4) main-conversation model. **The env var overrides the `model: sonnet` declared above.** If an operator sets `CLAUDE_CODE_SUBAGENT_MODEL` to any Haiku-tier value (`haiku`, or a pinned `claude-haiku-...` ID), scan quality silently degrades — exploit-chain validation requires Sonnet-level reasoning. Guard against this by leaving the env var unset (frontmatter wins) or setting it to `sonnet`/`opus`. The env var first appears in Claude Code release notes at v2.1.146 (May 2026); it may have been added earlier without changelog mention.
 
 # Vulnerability Scanner — per-module deep scan agent
 
@@ -111,4 +111,4 @@ Always return structured output — the orchestrator needs parseable JSON even o
 - **Parallel dispatch**: the orchestrator launches N scans at once via Task tool. Wall-clock = slowest module, not sum.
 - **Context isolation**: full source code reads (potentially many KB per module) stay in this agent's scope, don't pollute the orchestrator's log buffer.
 - **Clean structured output**: orchestrator parses one JSON verdict per agent.
-- **Reasoning depth**: `model: sonnet` alias ensures adequate reasoning for exploit-chain validation. Haiku misses multi-step attack chains. **Warning**: `CLAUDE_CODE_SUBAGENT_MODEL` env var overrides frontmatter — if set to haiku, scans degrade silently. Leave unset or set to sonnet/opus.
+- **Reasoning depth**: `model: sonnet` alias ensures adequate reasoning for exploit-chain validation. Haiku misses multi-step attack chains.

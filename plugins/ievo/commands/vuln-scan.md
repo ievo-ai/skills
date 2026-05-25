@@ -67,7 +67,18 @@ Use AskUserQuestion:
 
 If user cancels, exit. If user switches to diff, fall through to `--diff` scope.
 
-If user continues with full scan, enumerate all source files via Glob (excluding `node_modules`, `.git`, `vendor`, `build`, `dist`, `.next`, `__pycache__`, `.tox`, `.venv` directories) and proceed to Phase 1 with the full file list as scope.
+If user continues with full scan, enumerate all source files:
+
+```bash
+find . -type f \
+  -not -path '*/node_modules/*' -not -path '*/.git/*' \
+  -not -path '*/vendor/*' -not -path '*/build/*' \
+  -not -path '*/dist/*' -not -path '*/.next/*' \
+  -not -path '*/__pycache__/*' -not -path '*/.tox/*' \
+  -not -path '*/.venv/*'
+```
+
+Proceed to Phase 1 with the full file list as scope.
 
 ## Phase 1: Threat Model
 
@@ -131,7 +142,7 @@ For each module, send a Task tool call with the `vuln-scanner` agent:
 
 Send ALL dispatch calls in a single message for maximum parallelism. Wall-clock time equals the slowest module, not the sum of all modules.
 
-For repos with more than 10 modules, batch into rounds of 10 concurrent agents (ordered by priority — Critical first) to control cost and context pressure.
+For repos with more than 10 modules, batch into rounds of 10 concurrent agents (ordered by priority — Critical first) to control cost and context pressure. Wait for all agents in a round to return results before dispatching the next round. Partial failures (timeout/crash) do not cancel subsequent rounds — proceed with available results and flag incomplete modules.
 
 ### Collect results
 

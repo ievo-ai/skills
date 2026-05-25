@@ -41,6 +41,7 @@ ievo-ai/skills/
         ├── hooks-setup/SKILL.md       # /ievo:hooks-setup — configure lifecycle hooks
         ├── overlay-status/SKILL.md    # /ievo:overlay-status — list active evolution overlays
         ├── index-repos/SKILL.md       # /ievo:index-repos — enumerate a repo
+        ├── schedule/SKILL.md          # /ievo:schedule — create Routines for periodic operations
         └── security-check/SKILL.md    # /ievo:security-check — antivirus audit
 ```
 

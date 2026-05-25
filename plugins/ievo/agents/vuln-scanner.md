@@ -34,7 +34,7 @@ You perform a **deep vulnerability scan** of ONE module (directory or file set) 
 
 ### 1. Apply vuln-scan skill (deep source code analysis)
 
-Read the skill file directly using the Read tool: `plugins/ievo/skills/vuln-scan/SKILL.md` (relative to the plugin root). Do NOT use the Skill tool — that is for user-invoked skills, not agent-internal use. Read the file, then follow ALL its steps inline:
+Invoke the vuln-scan skill via the Skill tool: `Skill("ievo:vuln-scan")`. The Skill tool resolves the plugin path correctly regardless of working directory. Follow ALL its steps:
 
 - **Step 1**: Read all source files in the module — full content, no sampling
 - **Step 2**: Map data flows — sources, transformations, sinks, guards

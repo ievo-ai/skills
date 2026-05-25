@@ -117,15 +117,16 @@ jobs:
           ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
         run: |
           ORG="ievo-ai"
-          STATUS=$(gh api "orgs/$ORG/members/$ISSUE_AUTHOR" --silent 2>&1 && echo "member" || echo "not-member")
-          if [ "$STATUS" != "member" ]; then
-            echo "Issue author $ISSUE_AUTHOR is not an org member — skipping"
+          # gh api returns 204 for members, 404 for non-members.
+          # Don't suppress output — API errors (missing scope, network) should be visible in logs.
+          if gh api "orgs/$ORG/members/$ISSUE_AUTHOR" 2>&1; then
+            echo "Issue author $ISSUE_AUTHOR is an org member — proceeding"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Issue author $ISSUE_AUTHOR is not an org member (or API error) — skipping"
             gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
               -f body="Issue handler only processes issues from org members. Author \`$ISSUE_AUTHOR\` is not a member of \`$ORG\`." 2>/dev/null || true
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Issue author $ISSUE_AUTHOR is an org member — proceeding"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout repository

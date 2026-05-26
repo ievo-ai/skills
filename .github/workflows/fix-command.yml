@@ -108,9 +108,6 @@ jobs:
           echo "fix_number=$FIX_NUMBER" >> "$GITHUB_OUTPUT"
           echo "effective_budget=$EFFECTIVE_BUDGET" >> "$GITHUB_OUTPUT"
 
-          gh pr comment "$PR_NUMBER" --repo "$REPO" \
-            --body "Budget extended to $EFFECTIVE_BUDGET. Retrying fix attempt $FIX_NUMBER/$EFFECTIVE_BUDGET..."
-
       - name: Check for actionable findings
         if: steps.budget.outputs.skip != 'true'
         id: findings
@@ -122,7 +119,7 @@ jobs:
           set -euo pipefail
 
           REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Code Review|Finding"; "i"))] | last.body // ""')
+            --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
 
           HAS_FINDINGS=false
           if echo "$REVIEW_BODY" | grep -qiE '### Finding|### Bug|\*\*Finding|\*\*Bug|\[Fix this|severity.*(must|should) fix'; then
@@ -142,6 +139,16 @@ jobs:
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "Findings: $HAS_FINDINGS, coverage failures: $COVERAGE_FAIL, pre-commit failures: $PRECOMMIT_FAIL"
+
+      - name: Post acknowledgment
+        if: steps.budget.outputs.skip != 'true' && steps.findings.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "Budget extended to ${{ steps.budget.outputs.effective_budget }}. Retrying fix attempt ${{ steps.budget.outputs.fix_number }}/${{ steps.budget.outputs.effective_budget }}..."
 
       - name: Checkout PR branch
         if: steps.budget.outputs.skip != 'true' && steps.findings.outputs.skip != 'true'

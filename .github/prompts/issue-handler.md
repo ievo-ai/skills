@@ -320,6 +320,14 @@ Loop:
        # NOTE: do NOT reset NO_RUN_ATTEMPT here — it must accumulate
        # across outer iterations so the >= 5 escalation guard fires.
 
+       # Pre-loop budget check — catches restart after full budget consumed
+       if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+         MSG="Reached max fix attempts ($MAX_ATTEMPTS) on restart. Leaving PR #$PR_NUMBER for human review."
+         echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+         echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+         break
+       fi
+
   2. Wait for ALL THREE checks to reach terminal state.
      `gh pr checks --json state` returns **lowercase** state strings:
      "pending" (queued OR running), "pass", "fail", "skipping",

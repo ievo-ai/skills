@@ -122,6 +122,11 @@ jobs:
       - name: Load fixer prompt
         if: steps.check.outputs.skip != 'true'
         run: |
+          if [ ! -f .github/prompts/review-fixer.md ]; then
+            echo "::warning::review-fixer.md not found on this branch — skipping"
+            echo "FIXER_PROMPT=Review fixer prompt file not available on this branch." >> "$GITHUB_ENV"
+            exit 0
+          fi
           if grep -qxF 'FIXER_PROMPT_EOF' .github/prompts/review-fixer.md 2>/dev/null; then
             echo "::error::review-fixer.md contains the heredoc delimiter"
             exit 1

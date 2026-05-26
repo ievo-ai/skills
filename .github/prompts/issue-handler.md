@@ -298,7 +298,11 @@ The three checks this loop monitors:
   - **coverage-gate** (from `coverage-gate.yml`) — 100% test coverage
   - **pre-commit-gate** (from `pre-commit-gate.yml`) — validator compliance
 
-ATTEMPT=0                       # real-finding fix attempts (shared budget via [pr-fix-N])
+# Initialize ATTEMPT from existing [pr-fix-N] markers in branch
+# history so the handler respects its own prior commits if
+# restarted (crash/timeout → reopened issue retrigger).
+ATTEMPT=$(git log --oneline "$(git merge-base HEAD origin/main)"..HEAD 2>/dev/null \
+  | grep -c '\[pr-fix-' || echo 0)
 MAX_ATTEMPTS=5
 STRUCTURAL_ATTEMPT=0             # action-side flake retriggers (separate budget)
 STRUCTURAL_MAX=3
@@ -325,7 +329,7 @@ Loop:
          COVERAGE_STATE=$(echo "$CHECKS_JSON" | jq -r \
            '[.[] | select(.name | test("coverage"; "i"))] | last.state // "pending" | ascii_upcase')
          PRECOMMIT_STATE=$(echo "$CHECKS_JSON" | jq -r \
-           '[.[] | select(.name | test("pre.commit"; "i"))] | last.state // "pending" | ascii_upcase')
+           '[.[] | select(.name | test("pre[-.]commit"; "i"))] | last.state // "pending" | ascii_upcase')
 
          # Break when ALL three are in a terminal state (not PENDING)
          if [ "$REVIEW_STATE" != "PENDING" ] && \

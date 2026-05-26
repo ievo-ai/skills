@@ -114,6 +114,8 @@ jobs:
           fi
 
           # --- Generate CHANGELOG entry from merged PR description ---
+          # Format: ## vX.Y.Z (YYYY-MM-DD) followed by PR summary text.
+          # Each entry is inserted immediately after the --- separator in CHANGELOG.md.
           # Find the PR that was just merged (merge commit references it)
           PR_NUMBER=$(echo "$COMMIT_MSG" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
           if [ -n "$PR_NUMBER" ]; then
@@ -163,5 +165,9 @@ jobs:
           $PR_TITLE
 
           Co-Authored-By: iEVO <noreply@ievo.ai>"
+          # NOTE: This push targets a protected branch (main). The GitHub App
+          # whose token is used above must have "bypass branch protection" enabled
+          # in the repository's branch protection ruleset. Without that permission,
+          # this step will fail with a 403.
           git push origin main
           echo "Bumped to v${NEXT}"

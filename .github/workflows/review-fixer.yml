@@ -86,7 +86,8 @@ jobs:
             --jq '[.[] | select(.commit.message | test("\\[pr-fix-"))] | length')
 
           FIX_EXTENSIONS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '[.[] | select(.body == "/fix") | select(.author_association | test("MEMBER|OWNER"))] | length')
+            --jq '[.[] | select(.body == "/fix") | select(.author_association | test("MEMBER|OWNER"))] | length' \
+            | awk '{s+=$1} END{print s+0}')
           EFFECTIVE_BUDGET=$((5 + FIX_EXTENSIONS * 5))
           echo "Fix attempts so far: $FIX_COUNT / $EFFECTIVE_BUDGET (base 5 + $FIX_EXTENSIONS extensions)"
 
@@ -94,8 +95,9 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "SKIP — fix budget exhausted ($FIX_COUNT/$EFFECTIVE_BUDGET)"
 
-            ALREADY_ESCALATED=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-              --jq '[.[] | select(.body | test("Review fixer exhausted|Budget exhausted"))] | length')
+            ALREADY_ESCALATED=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --jq '[.[] | select(.body | test("Review fixer exhausted|Budget exhausted"))] | length' \
+              | awk '{s+=$1} END{print s+0}')
             if [ "$ALREADY_ESCALATED" -eq 0 ]; then
               REVIEWERS=$(gh api --paginate "orgs/${REPO%%/*}/members" --jq '.[].login' 2>/dev/null \
                 | tr '\n' ',' | sed 's/,$//' || echo "")

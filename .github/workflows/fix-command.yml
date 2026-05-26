@@ -81,7 +81,8 @@ jobs:
 
           echo "::group::Gate: budget calculation"
           FIX_EXTENSIONS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '[.[] | select(.body == "/fix") | select(.author_association | test("MEMBER|OWNER"))] | length')
+            --jq '[.[] | select(.body == "/fix") | select(.author_association | test("MEMBER|OWNER"))] | length' \
+            | awk '{s+=$1} END{print s+0}')
           EFFECTIVE_BUDGET=$((5 + FIX_EXTENSIONS * 5))
           echo "Extensions: $FIX_EXTENSIONS → effective budget: $EFFECTIVE_BUDGET"
 

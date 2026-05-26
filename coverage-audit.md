@@ -34,6 +34,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Schedule periodic iEvo operations via Claude Code Routines | `/ievo:schedule` | — | covered | Guided wizard: operation type + frequency + routine creation. Falls back to CI cron when Routines unavailable. Claude Code only (Routines require Pro/Max/Team/Enterprise + v2.1.149+). |
 | Standalone "list installed iEvo overlays" command | `/ievo:overlay-status` | — | covered | Reads `.ievo/evolution/`, groups by scope (Project / agents / skills) matching the actual layout written by `evolution/SKILL.md` (`project.md` flat file, plus `agents/<name>.md` and `skills/<name>.md` subdirs); extracts one-line summary per file with last-modified date; flags overlays untouched 180+ days as candidates for cleanup; pure Read + Glob + `stat` (Bash limited to `stat` for mtime; Windows-without-POSIX hosts gracefully omit dates) |
 | Scan project source code for vulnerabilities (CWE-aware, exploit-chain validated) | `/ievo:vuln-scan` | — (`vuln-scan/SKILL.md` per-module worker + `vuln-scanner` agent dispatched in parallel) | covered | Glasswing-inspired: Step 1 reads all source files, Step 2 maps data flows, Step 3 detects via CWE taxonomy, Step 4 validates with exploit chains (no chain = no finding). Sonnet-tier reasoning required; parallel module dispatch via Task tool. |
+| Inspect a specific skill/repo before running init | `/ievo:inspect` | — (pure SKILL.md, `gh api` for remote data) | covered | Fetches repo tree + key file frontmatter via GitHub API; renders structured capability summary (skills, agents, commands, scripts, hooks, permissions); read-only, no install, no security scan |
 | Standalone "show next-step suggestions based on installed skills" | — | — | gap | Adjacent to evolution capture but discovery-oriented |
 
 ## Required language and scope checks
@@ -90,6 +91,7 @@ ievo-ai/skills/
       debug-on/SKILL.md
       debug-off/SKILL.md
       hooks-setup/SKILL.md
+      inspect/SKILL.md
       overlay-status/SKILL.md
       index-repos/SKILL.md
       schedule/SKILL.md

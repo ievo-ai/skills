@@ -1,6 +1,6 @@
 ---
 name: hooks-setup
-description: Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, evolution captured, and (optional) all-background-agents-complete via a Stop hook. Writes PostToolUse and Stop hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks "notify me when ievo finishes", "add hooks for ievo", "set up ievo notifications", "tell me when background agents are done", or "configure ievo lifecycle hooks". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal. The optional Stop hook for background-complete requires v2.1.145+ for the `background_tasks` and `session_crons` fields in the Stop hook input.
+description: "Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, evolution captured, and (optional) all-background-agents-complete via a Stop hook. Writes PostToolUse and Stop hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks \"notify me when ievo finishes\", \"add hooks for ievo\", \"set up ievo notifications\", \"tell me when background agents are done\", or \"configure ievo lifecycle hooks\". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal. The optional Stop hook for background-complete requires v2.1.145+ for the `background_tasks` and `session_crons` fields in the Stop hook input."
 license: MIT
 effort: low
 allowed-tools:
@@ -11,7 +11,7 @@ allowed-tools:
   - Bash(test*)
   - Bash(chmod*)
   - Bash(claude*)
-compatibility: Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema.
+compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

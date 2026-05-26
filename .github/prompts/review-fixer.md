@@ -19,7 +19,7 @@ is pointless until the merge conflict is resolved.
   MERGE_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
     --json mergeStateStatus --jq .mergeStateStatus)
 
-If MERGE_STATE is "DIRTY" or "CONFLICTING":
+If MERGE_STATE is "DIRTY":
 
   1. Fetch latest main and rebase:
        git fetch origin main
@@ -54,14 +54,21 @@ If MERGE_STATE is "DIRTY" or "CONFLICTING":
              REBASE_CONFLICT_OK=false
              break
            fi
-           if GIT_EDITOR=true git rebase --continue 2>/dev/null; then
+           if GIT_EDITOR=true git rebase --continue; then
              break  # rebase finished
            fi
            # Stopped on next commit — loop to resolve
          done
 
-         if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+         # Guard: verify rebase is not still in progress
+         if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \
+            [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then
            git rebase --abort
+           REBASE_CONFLICT_OK=false
+         fi
+
+         if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+           git rebase --abort 2>/dev/null || true
            gh pr comment "$PR_NUMBER" --repo "$REPO" \
              --body "Rebase conflict in files outside .github/prompts/ — operator review needed."
            exit 1

@@ -249,14 +249,21 @@ Non-infrastructure conflicts escalate to operator:
           REBASE_CONFLICT_OK=false
           break
         fi
-        if GIT_EDITOR=true git rebase --continue 2>/dev/null; then
+        if GIT_EDITOR=true git rebase --continue; then
           break  # rebase finished
         fi
         # Stopped on next commit — loop to resolve
       done
 
-      if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+      # Guard: verify rebase is not still in progress
+      if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \
+         [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then
         git rebase --abort
+        REBASE_CONFLICT_OK=false
+      fi
+
+      if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+        git rebase --abort 2>/dev/null || true
         echo "Rebase conflict in non-infrastructure files — escalating"
         gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Rebase conflict in files outside .github/prompts/ — operator review needed. Branch: $(git branch --show-current)"
         exit 1
@@ -455,15 +462,22 @@ Loop:
                    if [ "$ALL_INFRA" = "false" ]; then
                      REBASE_CONFLICT_OK=false; break
                    fi
-                   if GIT_EDITOR=true git rebase --continue 2>/dev/null; then
+                   if GIT_EDITOR=true git rebase --continue; then
                      break
                    fi
                  done
-                 if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+                 # Guard: verify rebase is not still in progress
+                 if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \
+                    [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then
                    git rebase --abort
+                   REBASE_CONFLICT_OK=false
+                 fi
+                 if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+                   git rebase --abort 2>/dev/null || true
                    gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase conflict in non-infrastructure files — operator review needed."
                    exit 1
                  fi
+                 echo "Recovery rebase succeeded after auto-resolving .github/prompts/ conflicts"
                fi
                REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
              done

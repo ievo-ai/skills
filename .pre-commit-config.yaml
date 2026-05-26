@@ -61,6 +61,12 @@ repos:
         files: ^plugins/ievo/skills/.*SKILL\.md$
         pass_filenames: true
 
+      - id: yaml-frontmatter
+        name: YAML frontmatter syntax validation (catches unquoted colons, broken mappings)
+        entry: node .github/scripts/validators/yaml-frontmatter.mjs
+        language: system
+        files: ^plugins/ievo/.*\.md$
+
       - id: utf8-validate
         name: UTF-8 byte integrity (Codex skill-load compatibility, rust-v0.133.0+)
         entry: node .github/scripts/validators/utf8-validate.mjs

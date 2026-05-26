@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.9.0
+
+Add `yaml-frontmatter.mjs` pre-commit validator to catch YAML frontmatter syntax errors before they reach production. Detects unquoted values containing `: ` (colon-space), unterminated quoted strings, duplicate keys, flow indicator characters, and inline comment ambiguity. For SKILL.md files, also validates required fields (`name`, `description`) and description length. Motivated by PR #122 where 5 SKILL.md files had Codex-breaking unquoted colons that survived all existing validators. Includes comprehensive test suite (60 tests). Closes #119.
+
 ## [0.7.0](https://github.com/ievo-ai/skills/compare/v0.6.24...v0.7.0) (2026-05-25)
 
 

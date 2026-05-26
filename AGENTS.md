@@ -150,7 +150,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.7.0):**
+**Current compliance ledger (v0.9.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -193,13 +193,14 @@ Uses a GitHub App token (org-level App credentials) so that PRs trigger downstre
 
 ### Pre-commit hooks + workflow gate
 
-Local enforcement + server-side hard gate, sharing the same validator scripts. See `.pre-commit-config.yaml` (local) and `.github/workflows/pre-commit-gate.yml` (server). The six validators are in `.github/scripts/validators/` (plus `validate_agents.mjs` re-used from `plugins/ievo/scripts/`):
+Local enforcement + server-side hard gate, sharing the same validator scripts. See `.pre-commit-config.yaml` (local) and `.github/workflows/pre-commit-gate.yml` (server). The seven validators are in `.github/scripts/validators/` (plus `validate_agents.mjs` re-used from `plugins/ievo/scripts/`):
 
 - `nested-fences.mjs` — markdown code-fence nesting bug (catches the `\`\`\`markdown` outer with `\`\`\`X` inner pattern that closes the outer per CommonMark)
 - `crlf-frontmatter.mjs` — CRLF or CR-only line endings inside YAML frontmatter (validator-bypass surface)
 - `machine-local-paths.mjs` — concrete-username paths like `/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\`, `/private/var/folders/...`
 - `placeholder-leakage.mjs` — orphan `TODO` / `FIXME` / `XXX` / `HACK` without a tracking reference `(#NNN)` / `(<url>)` / `(v0.X.Y)` / `(ticket-link-pending)` <!-- placeholder-ok: documenting the markers the validator catches -->
 - `utf8-validate.mjs` — byte-level UTF-8 validity using `TextDecoder` `{ fatal: true }`. Catches CP-1252 smart quotes (0x91-0x94, 0x96-0x97) from Word-paste, Latin-1 / mis-encoded escape sequences in `terminalSequence` examples, and truncated multi-byte tails at EOF. Closes a Codex skill-load hole — Codex `rust-v0.133.0` (May 2026) started warning on invalid UTF-8 in AGENTS / SKILL.md files instead of silent drops; catching at commit time prevents the broken-file install entirely.
+- `yaml-frontmatter.mjs` — YAML frontmatter syntax validation. Catches unquoted values containing `: ` (colon-space), unterminated quoted strings, duplicate keys, flow indicator characters in unquoted values, and inline comment ambiguity (` #`). For SKILL.md files, also checks required fields (`name`, `description`) and description length (≤1024). Complements `validate_skills.mjs` / `validate_agents.mjs` (semantic checks) — this validator covers syntax that minimal regex-based parsers miss. Motivated by PR #122 (5 SKILL.md files with Codex-breaking unquoted colons). <!-- placeholder-ok: (#119) -->
 
 - `validate_agents.mjs` — re-used from `plugins/ievo/scripts/` for agent frontmatter validation
 - `validate_skills.mjs` — re-used from `plugins/ievo/scripts/` for SKILL.md frontmatter validation (agentskills.io spec constraints)

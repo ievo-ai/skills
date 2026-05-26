@@ -88,6 +88,14 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "SKIP — fix budget exhausted ($FIX_COUNT/5)"
 
+            ALREADY_ESCALATED=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --jq '[.[] | select(.body | test("Review fixer exhausted"))] | length')
+            if [ "$ALREADY_ESCALATED" -gt 0 ]; then
+              echo "Escalation already posted — skipping duplicate comment"
+              echo "::endgroup::"
+              exit 0
+            fi
+
             REVIEWERS=$(gh api --paginate "orgs/${REPO%%/*}/members" --jq '.[].login' 2>/dev/null \
               | tr '\n' ',' | sed 's/,$//' || echo "")
             if [ -n "$REVIEWERS" ]; then

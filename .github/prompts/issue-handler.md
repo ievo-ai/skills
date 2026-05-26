@@ -419,9 +419,35 @@ Loop:
          if [ "$REVIEW_STATE" = "PASS" ] && \
             [ "$COVERAGE_STATE" = "PASS" ] && \
             [ "$PRECOMMIT_STATE" = "PASS" ]; then
-           # All green — proceed to Phase 6
-           CHECKS_PASSED=true
-           break
+
+           # All checks PASS — but claude-review may have posted findings
+           # with a passing verdict. Read the sticky comment and check.
+           REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+             --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Code Review"; "i"))] | last.body // ""')
+           if [ -z "$REVIEW_BODY" ]; then
+             echo "WARNING: no 'Code Review' sticky comment found — assuming clean"
+           fi
+
+           HAS_FINDINGS=false
+           if [ -n "$REVIEW_BODY" ]; then
+             # Invert the detection: look for KNOWN FINDING markers
+             # rather than absence of clean phrases (more robust — new
+             # clean phrasings don't cause false-positive finding loops).
+             if echo "$REVIEW_BODY" | grep -qiE '### Finding|### Bug|\*\*Finding|\*\*Bug|\[Fix this →|severity.*(must|should) fix'; then
+               HAS_FINDINGS=true
+             fi
+           fi
+
+           if [ "$HAS_FINDINGS" = "true" ]; then
+             echo "Review PASSED but has findings — treating as review round"
+             # Override REVIEW_STATE so step 4a enters the fix path
+             # (4a gates on REVIEW_STATE != PASS)
+             REVIEW_STATE="FINDINGS"
+           else
+             # Truly clean — proceed to Phase 6
+             CHECKS_PASSED=true
+             break
+           fi
          fi
 
   4. Handle failures by check type. Each failed check gets its own

@@ -3,7 +3,7 @@ name: debug-on
 description: "Enable verbose / trace-level logging across the iEvo pipeline. Use when the user wants to debug an init, evolution, or security-audit session — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting). Trigger words — \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\"."
 license: MIT
 effort: low
-compatibility: "Works on any agent platform that supports the agentskills.io standard — flag is a project-local file, not a Claude Code-specific setting. Requires write access to `.ievo/` and a POSIX-compatible shell (bash/zsh) for the diagnostic commands (`gh --version | head -1`, `grep -RiE …`). On native Windows use Git Bash, WSL, or substitute PowerShell equivalents (`gh --version | Select-Object -First 1`, `Get-ChildItem .ievo/log/debug/<session-id>/ -Recurse | Select-String -Pattern '(api[_-]?key|secret|token|password|bearer|x-api)'`). Required external tools: `gh`, `git`, `node` (18+)."
+compatibility: "Any agentskills.io platform. Flag is project-local (`.ievo/debug.flag`). Requires write access to `.ievo/`, POSIX shell (bash/zsh), `gh`, `git`, `node` (18+). On Windows use Git Bash or WSL."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

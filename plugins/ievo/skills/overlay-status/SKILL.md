@@ -9,7 +9,7 @@ allowed-tools:
   - Bash(stat*)
   - Bash(uname*)
   - Bash(date*)
-compatibility: "Works on any agent platform that supports the agentskills.io standard. Pure Read + Glob for enumeration; Bash (`stat`, `uname`, `date`) for last-modified-date capture, OS-branch routing, and today-date comparison — all on POSIX hosts. Gracefully degraded on Windows hosts without POSIX shell: the `uname` detection falls through to the Windows fallback path, dates are omitted with an explicit footer note, and the listing still renders from Read + Glob alone. Output is plain markdown so it renders correctly in every supported runner."
+compatibility: "Any agentskills.io platform. Read + Glob for enumeration, Bash (`stat`, `uname`, `date`) for timestamps on POSIX. Windows: dates omitted gracefully, listing renders from Read + Glob alone."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

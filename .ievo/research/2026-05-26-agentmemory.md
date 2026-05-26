@@ -58,7 +58,7 @@ Rohit Ghumare is **Principal Product Evangelist at iii.dev**. agentmemory is eff
 | **Architecture** | Running server (port 3111) + native binary | Plain markdown files, read at session start | `CLAUDE.md` + auto memory (MEMORY.md) | No built-in; community MCP tools |
 | **Storage** | SQLite + vector index in `~/.agentmemory/` | `.md` files in project tree | `.md` files in project tree | Varies by community tool |
 | **Search** | Hybrid BM25 + vector + knowledge graph | Sequential file read (200-line cap on index) | Sequential file read (200-line cap) | Varies |
-| **Cross-platform** | Claude Code, Codex, Cursor, Gemini CLI, OpenClaw, + 10 others via MCP | Any agentskills.io platform (files are universal) | Claude Code only | Cursor only |
+| **Cross-platform** | Claude Code, Codex, Cursor, Gemini CLI, OpenCode, + 10 others via MCP | Any agentskills.io platform (files are universal) | Claude Code only | Cursor only |
 | **Dependencies** | Node 20+, iii native binary (Rust), NPM | None — plain files | None — built into Claude Code | Varies by tool |
 | **Setup** | `npm install -g`, server process, hook wiring | Zero — exists as files in project | Zero — built in | Varies |
 | **Query cost** | Local compute, ~170K tokens/year claimed | Zero (file read at session start) | Zero (file read at session start) | Varies |

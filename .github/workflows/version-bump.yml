@@ -1,0 +1,167 @@
+# Auto Version Bump — patch/minor bump after every merge to main
+#
+# Plugin is distributed as repo checkout — users always get HEAD of main.
+# Version must stay current. This workflow bumps version + adds CHANGELOG
+# entry on every push to main that changes plugin files.
+#
+# Skips if:
+#   (a) commit message contains [version-bump] (self-referential loop guard)
+#   (b) no files under plugins/ievo/ or .claude-plugin/ or .github/prompts/ changed
+#
+# Determines bump type from the merge commit's conventional prefix:
+#   feat: → minor    fix: → patch    feat!: → minor (pre-1.0)
+#   anything else → patch
+#
+# CHANGELOG entry is generated from the merged PR description (Summary
+# section), not the commit message — PR descriptions contain the real
+# human-readable explanation of what changed.
+
+name: "Version Bump"
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: "Auto Version Bump"
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[version-bump]')"
+
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 2
+
+      - name: Check if plugin files changed
+        id: check
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- plugins/ievo/ .claude-plugin/ .github/prompts/ | head -1)
+          if [ -z "$CHANGED" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No plugin files changed — skipping version bump"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version and update CHANGELOG
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Read current version
+          CURRENT=$(jq -r .version plugins/ievo/.claude-plugin/plugin.json)
+          echo "Current version: $CURRENT"
+
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+
+          # Determine bump type from commit message prefix
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          if echo "$COMMIT_MSG" | grep -qE '^feat!:|BREAKING CHANGE:'; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            BUMP_TYPE="minor (breaking)"
+          elif echo "$COMMIT_MSG" | grep -qE '^feat(\(|:)'; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            BUMP_TYPE="minor"
+          else
+            PATCH=$((PATCH + 1))
+            BUMP_TYPE="patch"
+          fi
+
+          NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Bump: $CURRENT → $NEXT ($BUMP_TYPE)"
+
+          # --- Update 4 version files ---
+          jq --arg v "$NEXT" '.metadata.version = $v | .plugins[0].version = $v' \
+            .claude-plugin/marketplace.json > /tmp/mp.json && mv /tmp/mp.json .claude-plugin/marketplace.json
+          jq --arg v "$NEXT" '.version = $v' \
+            plugins/ievo/.claude-plugin/plugin.json > /tmp/pj.json && mv /tmp/pj.json plugins/ievo/.claude-plugin/plugin.json
+          sed -i "s/export const SCRIPT_VERSION = \".*\"/export const SCRIPT_VERSION = \"${NEXT}\"/" \
+            plugins/ievo/scripts/discover.mjs
+          sed -i "s/compliance ledger (v[0-9.]*)/compliance ledger (v${NEXT})/" AGENTS.md
+
+          # --- Verify coupling ---
+          V1=$(jq -r .metadata.version .claude-plugin/marketplace.json)
+          V2=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
+          V3=$(jq -r .version plugins/ievo/.claude-plugin/plugin.json)
+          V4=$(grep -oP 'SCRIPT_VERSION = "\K[^"]+' plugins/ievo/scripts/discover.mjs)
+          if [ "$V1" != "$NEXT" ] || [ "$V2" != "$NEXT" ] || [ "$V3" != "$NEXT" ] || [ "$V4" != "$NEXT" ]; then
+            echo "::error::Version coupling failed: mp.meta=$V1 mp.plugin=$V2 pj=$V3 discover=$V4 (expected $NEXT)"
+            exit 1
+          fi
+
+          # --- Generate CHANGELOG entry from merged PR description ---
+          # Find the PR that was just merged (merge commit references it)
+          PR_NUMBER=$(echo "$COMMIT_MSG" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+          if [ -n "$PR_NUMBER" ]; then
+            PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq .title 2>/dev/null || echo "$COMMIT_MSG")
+            PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq .body 2>/dev/null || echo "")
+            # Extract Summary section from PR body
+            SUMMARY=$(echo "$PR_BODY" | sed -n '/^## Summary/,/^## /{ /^## Summary/d; /^## /d; p; }' | head -10 | sed '/^$/d')
+            if [ -z "$SUMMARY" ]; then
+              SUMMARY="$PR_TITLE"
+            fi
+          else
+            PR_TITLE="$COMMIT_MSG"
+            SUMMARY="$COMMIT_MSG"
+          fi
+
+          # Insert CHANGELOG entry after the --- separator
+          DATE=$(date -u +%Y-%m-%d)
+
+          # Build changelog entry as a temp file, then splice into CHANGELOG
+          {
+            echo ""
+            echo "## v${NEXT} ($DATE)"
+            echo ""
+            echo "$SUMMARY"
+          } > /tmp/changelog-entry.txt
+
+          # Find the --- line number and insert after it
+          if grep -qn '^---$' CHANGELOG.md; then
+            SEPARATOR_LINE=$(grep -n '^---$' CHANGELOG.md | head -1 | cut -d: -f1)
+            { head -n "$SEPARATOR_LINE" CHANGELOG.md; cat /tmp/changelog-entry.txt; tail -n +"$((SEPARATOR_LINE + 1))" CHANGELOG.md; } > /tmp/changelog-new.md
+            mv /tmp/changelog-new.md CHANGELOG.md
+          else
+            # No separator — prepend after first line
+            { head -1 CHANGELOG.md; cat /tmp/changelog-entry.txt; tail -n +2 CHANGELOG.md; } > /tmp/changelog-new.md
+            mv /tmp/changelog-new.md CHANGELOG.md
+          fi
+
+          echo "CHANGELOG entry added for v${NEXT}"
+
+          # --- Commit and push ---
+          git config user.name "ievo-bot"
+          git config user.email "noreply@ievo.ai"
+          git add .claude-plugin/marketplace.json plugins/ievo/.claude-plugin/plugin.json \
+                  plugins/ievo/scripts/discover.mjs AGENTS.md CHANGELOG.md
+          git commit -m "chore: bump version to v${NEXT} [version-bump]
+
+          $PR_TITLE
+
+          Co-Authored-By: iEVO <noreply@ievo.ai>"
+          git push origin main
+          echo "Bumped to v${NEXT}"

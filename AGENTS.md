@@ -21,6 +21,7 @@ ievo-ai/skills/
 └── plugins/ievo/                      # The plugin itself
     ├── .claude-plugin/plugin.json     # Plugin manifest
     ├── agents/                        # Sub-agents (Claude Code + Codex Task tool)
+    │   ├── deep-reviewer.md           # Independent gap-detection reviewer for /ievo:deep-review
     │   ├── evolution.md
     │   ├── repo-indexer.md            # Parallel dispatch per repo for indexing
     │   └── security-auditor.md        # Parallel dispatch per item for antivirus audit
@@ -36,6 +37,7 @@ ievo-ai/skills/
         ├── init/SKILL.md              # /ievo:init — orchestrator
         ├── evolution/SKILL.md         # /ievo:evolution — overlay capture
         ├── feedback/SKILL.md          # /ievo:feedback — file GitHub issues
+        ├── deep-review/SKILL.md        # /ievo:deep-review — structured gap-detection review
         ├── debug-on/SKILL.md          # /ievo:debug-on — enable verbose session logging
         ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
         ├── hooks-setup/SKILL.md       # /ievo:hooks-setup — configure lifecycle hooks

@@ -471,7 +471,8 @@ Loop:
                  # during rebase = target branch). Other files → abort.
                  REBASE_CONFLICT_OK=true
                  RESOLVE_ROUND=0
-                 while [ "$RESOLVE_ROUND" -lt 20 ]; do
+                 MAX_RESOLVE_ROUNDS=20
+                 while [ "$RESOLVE_ROUND" -lt "$MAX_RESOLVE_ROUNDS" ]; do
                    RESOLVE_ROUND=$((RESOLVE_ROUND + 1))
                    CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
                    [ -z "$CONFLICTING" ] && break
@@ -496,7 +497,7 @@ Loop:
                      REBASE_CONFLICT_OK=false; break
                    fi
                  done
-                 [ "$RESOLVE_ROUND" -ge 20 ] && REBASE_CONFLICT_OK=false
+                 [ "$RESOLVE_ROUND" -ge "$MAX_RESOLVE_ROUNDS" ] && REBASE_CONFLICT_OK=false
                  # Guard: verify rebase is not still in progress
                  if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \
                     [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then

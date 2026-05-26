@@ -10,12 +10,12 @@
 # release-please PRs (ievo-eva[bot]) are also skipped — those are
 # mechanical version bumps that don't need code fixes.
 #
-# Loop prevention: each fix commit includes [review-fix-N] in its
+# Loop prevention: each fix commit includes [pr-fix-N] in its
 # message. The workflow counts these markers in the branch history
-# and stops after 3. This prevents infinite review→fix→review cycles.
+# and stops after 5. This prevents infinite review→fix→review cycles.
 #
 # Safety:
-#   - Max 3 fix attempts
+#   - Max 5 fix attempts (shared budget with issue-handler)
 #   - Never auto-merges — human must review and merge
 #   - Scope-locked to plugins/ievo/ (same as issue-handler)
 #   - Uses GitHub App token for pushes (triggers downstream CI)
@@ -81,7 +81,7 @@ jobs:
           echo "::group::Gate: fix budget"
           BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq '.headRefName')
           FIX_COUNT=$(gh api "repos/$REPO/commits?sha=$BRANCH&per_page=20" \
-            --jq '[.[] | select(.commit.message | test("\\[review-fix-"))] | length')
+            --jq '[.[] | select(.commit.message | test("\\[pr-fix-"))] | length')
           echo "Fix attempts so far: $FIX_COUNT / 5"
 
           if [ "$FIX_COUNT" -ge 5 ]; then
@@ -119,6 +119,13 @@ jobs:
           fi
           echo "Has actionable findings: $HAS_FINDINGS"
           echo "Review body length: $(echo "$REVIEW_BODY" | wc -c) chars"
+
+          if [ "$HAS_FINDINGS" = "false" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "SKIP — review body present but no actionable finding markers detected"
+            echo "::endgroup::"
+            exit 0
+          fi
           echo "::endgroup::"
 
           echo "skip=false" >> "$GITHUB_OUTPUT"

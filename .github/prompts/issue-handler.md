@@ -484,9 +484,7 @@ Loop:
        # still list findings (demonstrated on this very PR).
        HAS_FINDINGS=false
        if [ -n "$REVIEW_BODY" ]; then
-         if echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge'; then
-           HAS_FINDINGS=false
-         else
+         if ! echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge'; then
            HAS_FINDINGS=true
          fi
        fi

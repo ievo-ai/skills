@@ -62,6 +62,17 @@ describe("extractFrontmatter", () => {
     assert.deepEqual(result.lines, [""]);
   });
 
+  it("does not treat ---more as closing delimiter", () => {
+    const result = extractFrontmatter("---\nname: test\n---more text\n---\n");
+    assert.deepEqual(result.lines, ["name: test", "---more text"]);
+  });
+
+  it("handles closing --- at end of file without trailing newline", () => {
+    const result = extractFrontmatter("---\nname: test\n---");
+    assert.deepEqual(result.lines, ["name: test"]);
+    assert.equal(result.closeMissing, false);
+  });
+
   it("normalizes CRLF to LF", () => {
     const result = extractFrontmatter("---\r\nname: foo\r\n---\r\nbody");
     assert.deepEqual(result.lines, ["name: foo"]);

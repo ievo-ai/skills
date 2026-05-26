@@ -38,10 +38,11 @@ export function extractFrontmatter(text) {
     return null;
   }
 
-  const closeIdx = normalized.indexOf("\n---", 3);
-  if (closeIdx < 0) {
+  const closeMatch = normalized.slice(3).search(/\n---(\n|$)/);
+  if (closeMatch < 0) {
     return { lines: null, closeMissing: true };
   }
+  const closeIdx = closeMatch + 3;
 
   const content = normalized.slice(4, closeIdx);
   return { lines: content.split("\n"), startLine: 2, closeMissing: false };

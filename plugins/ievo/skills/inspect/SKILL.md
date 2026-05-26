@@ -13,7 +13,7 @@ metadata:
 
 # Inspect — pre-install structured summary of a remote repo
 
-Produce a structured capability summary of a remote GitHub repo that hosts skills, agents, or plugins — before committing to the full `/ievo:init` pipeline. Answers "what does this repo contain?" in under 30 seconds with zero side effects.
+Produce a structured capability summary of a remote GitHub repo that hosts skills, agents, or plugins — before committing to the full `/ievo:init` pipeline. Answers "what does this repo contain?" typically in under a minute with zero side effects.
 
 ## When to use
 
@@ -111,12 +111,14 @@ Record each detected item with its path for fetching in Step 4.
 
 For each detected item, fetch its content to extract metadata. Prioritise breadth over depth — fetch frontmatter and first lines, not entire file bodies.
 
+If the total detected item count exceeds 30, prioritise fetches in this order: plugin manifests first, then SKILL.md files, then agent `.md` files, then command files, then hooks, then scripts last. Skip lower-priority categories once the 30-fetch cap is reached.
+
 ### 4a. Plugin manifests
 
 For each detected `plugin.json`:
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content' | base64 -d
+gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content' | base64 --decode
 ```
 
 Extract: `name`, `version`, `description`, `author`, `license`, `keywords`.
@@ -126,7 +128,7 @@ Extract: `name`, `version`, `description`, `author`, `license`, `keywords`.
 For each detected `SKILL.md`, fetch and parse the YAML frontmatter (the `---`-delimited block at the top):
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content' | base64 -d
+gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content' | base64 --decode
 ```
 
 Extract from frontmatter: `name`, `description`, `allowed-tools`, `compatibility`, `effort`, `license`.
@@ -234,7 +236,7 @@ Aggregate `allowed-tools` across ALL skills into a deduplicated list:
 
 **Next steps:**
 - To install: run `/ievo:init` and select this repo when it appears, or add it manually
-- For a security verdict first: run `/ievo:security-check <owner>/<repo>@<skill-name>` (where `<skill-name>` is the name of a specific skill to audit, e.g. `@init` — not a git ref)
+- For a security verdict first: run `/ievo:security-check <owner>/<repo>@<skill-name>` (e.g. `/ievo:security-check ievo-ai/skills@evolution` — here `evolution` is the skill name, not a git branch)
 - To index the full repo structure: run `/ievo:index-repos <owner>/<repo>`
 ```
 

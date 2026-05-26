@@ -311,6 +311,10 @@ MAX_ATTEMPTS=5
 STRUCTURAL_ATTEMPT=0             # action-side flake retriggers (separate budget)
 STRUCTURAL_MAX=3
 NO_RUN_ATTEMPT=0                 # claude-review run-not-found retries
+NO_RUN_MAX=5                     # escalate after this many no-run retries
+NO_CHANGE_ATTEMPT=0              # no-changes-after-fix-round retries
+NO_CHANGE_MAX=3                  # escalate after this many no-change rounds
+CHECKS_PASSED=false              # set true when all three checks pass
 
 Loop:
   1. The PR number is in $PR_NUMBER (captured in Phase 4b.5 from
@@ -342,11 +346,11 @@ Loop:
          CHECKS_JSON=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state)
 
          REVIEW_STATE=$(echo "$CHECKS_JSON" | jq -r \
-           '[.[] | select(.name | test("claude.*review"; "i"))] | last.state // "pending" | ascii_upcase')
+           '[.[] | select(.name | test("claude.*review"; "i"))] | last | .state // "pending" | ascii_upcase')
          COVERAGE_STATE=$(echo "$CHECKS_JSON" | jq -r \
-           '[.[] | select(.name | test("coverage"; "i"))] | last.state // "pending" | ascii_upcase')
+           '[.[] | select(.name | test("coverage"; "i"))] | last | .state // "pending" | ascii_upcase')
          PRECOMMIT_STATE=$(echo "$CHECKS_JSON" | jq -r \
-           '[.[] | select(.name | test("pre[-.]commit"; "i"))] | last.state // "pending" | ascii_upcase')
+           '[.[] | select(.name | test("pre[-.]commit"; "i"))] | last | .state // "pending" | ascii_upcase')
 
          # Break when ALL three are in a terminal state (not PENDING)
          if [ "$REVIEW_STATE" != "PENDING" ] && \
@@ -433,13 +437,13 @@ Loop:
              --workflow "Claude Code Review" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
            if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
              NO_RUN_ATTEMPT=$((NO_RUN_ATTEMPT + 1))
-             if [ "$NO_RUN_ATTEMPT" -ge 5 ]; then
+             if [ "$NO_RUN_ATTEMPT" -ge "$NO_RUN_MAX" ]; then
                MSG="claude-review run never appeared after $NO_RUN_ATTEMPT retries on PR #$PR_NUMBER. Workflow dispatch may be broken. Manual operator review needed."
                echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
                echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
                exit 1
              fi
-             echo "No claude-review run found yet — waiting for dispatch (retry $NO_RUN_ATTEMPT/5)"
+             echo "No claude-review run found yet — waiting for dispatch (retry $NO_RUN_ATTEMPT/$NO_RUN_MAX)"
              sleep 30
              waited=0  # reset poll budget so step 2 re-polls fresh
              continue  # restart poll loop
@@ -578,7 +582,14 @@ Co-Authored-By: iEVO <noreply@ievo.ai>"
      re-runs pass clean, committing with no changes would crash.
 
          if git diff --cached --quiet && git diff --quiet; then
-           echo "No changes after fix round — skipping commit, re-polling"
+           NO_CHANGE_ATTEMPT=$((NO_CHANGE_ATTEMPT + 1))
+           if [ "$NO_CHANGE_ATTEMPT" -ge "$NO_CHANGE_MAX" ]; then
+             MSG="No changes produced after $NO_CHANGE_ATTEMPT consecutive fix rounds on PR #$PR_NUMBER. Checks may require manual intervention. Leaving PR open for human review."
+             echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+             echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+             break
+           fi
+           echo "No changes after fix round ($NO_CHANGE_ATTEMPT/$NO_CHANGE_MAX) — skipping commit, re-polling"
            waited=0
            continue
          fi

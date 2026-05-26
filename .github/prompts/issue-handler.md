@@ -439,7 +439,9 @@ Loop:
 
            if [ "$HAS_FINDINGS" = "true" ]; then
              echo "Review PASSED but has findings — treating as review round"
-             # Fall through to step 4 (fix loop) instead of Phase 6
+             # Override REVIEW_STATE so step 4a enters the fix path
+             # (4a gates on REVIEW_STATE != PASS)
+             REVIEW_STATE="FINDINGS"
            else
              # Truly clean — proceed to Phase 6
              CHECKS_PASSED=true

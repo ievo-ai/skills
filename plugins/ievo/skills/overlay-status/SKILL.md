@@ -1,6 +1,6 @@
 ---
 name: overlay-status
-description: Surface the current state of iEvo evolution overlays in this project. Lists every overlay under `.ievo/evolution/` grouped by scope (project, agents, skills), with a one-line summary + last-modified date per file. Use when the user asks "what evolutions have I captured", "show my iEvo overlays", "what rules are active in this project", "list installed overlays", "summarize .ievo/evolution", "какие правила iEvo активны", or "покажи мои overlay'и". Read-only — never modifies, deletes, or rewrites overlay content. Closes the legibility gap iEvo's own `coverage-audit.md` flagged as "Standalone 'list installed iEvo overlays' command".
+description: "Surface the current state of iEvo evolution overlays in this project. Lists every overlay under `.ievo/evolution/` grouped by scope (project, agents, skills), with a one-line summary + last-modified date per file. Use when the user asks \"what evolutions have I captured\", \"show my iEvo overlays\", \"what rules are active in this project\", \"list installed overlays\", \"summarize .ievo/evolution\". Read-only — never modifies, deletes, or rewrites overlay content. Closes the legibility gap iEvo's own `coverage-audit.md` flagged as \"Standalone 'list installed iEvo overlays' command\"."
 license: MIT
 effort: low
 allowed-tools:
@@ -9,7 +9,7 @@ allowed-tools:
   - Bash(stat*)
   - Bash(uname*)
   - Bash(date*)
-compatibility: Works on any agent platform that supports the agentskills.io standard. Pure Read + Glob for enumeration; Bash (`stat`, `uname`, `date`) for last-modified-date capture, OS-branch routing, and today-date comparison — all on POSIX hosts. Gracefully degraded on Windows hosts without POSIX shell: the `uname` detection falls through to the Windows fallback path, dates are omitted with an explicit footer note, and the listing still renders from Read + Glob alone. Output is plain markdown so it renders correctly in every supported runner.
+compatibility: "Works on any agent platform that supports the agentskills.io standard. Pure Read + Glob for enumeration; Bash (`stat`, `uname`, `date`) for last-modified-date capture, OS-branch routing, and today-date comparison — all on POSIX hosts. Gracefully degraded on Windows hosts without POSIX shell: the `uname` detection falls through to the Windows fallback path, dates are omitted with an explicit footer note, and the listing still renders from Read + Glob alone. Output is plain markdown so it renders correctly in every supported runner."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

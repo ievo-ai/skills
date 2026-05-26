@@ -1,13 +1,13 @@
 ---
 name: schedule
-description: Configure a Claude Code Routine for periodic iEvo operations — recurring security audits, skill-update checks, or custom iEvo commands on a cron schedule. Three-step wizard: pick operation (security audit / skill refresh / custom), pick frequency (daily / weekly / monthly / custom cron), confirm and create. Uses Claude Code Routines for Anthropic-managed execution. Falls back to CI cron instructions when Routines are unavailable (API-key auth, Free plan). Use when the user asks "schedule an iEvo audit", "set up weekly security scan", "automate iEvo", "run iEvo on a schedule", "periodic security check", or "create a routine for iEvo".
+description: "Configure a Claude Code Routine for periodic iEvo operations — recurring security audits, skill-update checks, or custom iEvo commands on a cron schedule. Three-step wizard: pick operation (security audit / skill refresh / custom), pick frequency (daily / weekly / monthly / custom cron), confirm and create. Uses Claude Code Routines for Anthropic-managed execution. Falls back to CI cron instructions when Routines are unavailable (API-key auth, Free plan). Use when the user asks \"schedule an iEvo audit\", \"set up weekly security scan\", \"automate iEvo\", \"run iEvo on a schedule\", \"periodic security check\", or \"create a routine for iEvo\"."
 license: MIT
 effort: low
 allowed-tools:
   - AskUserQuestion
   - Bash(claude*)
   - Write
-compatibility: Claude Code only — Routines require Pro/Max/Team/Enterprise subscription and Claude Code v2.1.149+. The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io, but the scheduling wrapper is Claude Code-specific. Codex and other platforms: use the CI cron fallback printed when Routines are unavailable. No external dependencies beyond Claude Code itself.
+compatibility: "Claude Code only — Routines require Pro/Max/Team/Enterprise subscription and Claude Code v2.1.149+. The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io, but the scheduling wrapper is Claude Code-specific. Codex and other platforms: use the CI cron fallback printed when Routines are unavailable. No external dependencies beyond Claude Code itself."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

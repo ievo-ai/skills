@@ -49,7 +49,7 @@ Then STOP. Do not proceed to Phase 4.
 If the issue is actionable — proceed to Phase 4.
 
 Post a comment acknowledging you're working on it:
-  echo "Working on implementation. Will create a PR shortly." | \
+  echo "Working on implementation. A draft PR will appear shortly with live progress." | \
     gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
 
 ## Phase 4 — Implementation
@@ -68,6 +68,51 @@ Branch naming per AGENTS.md:
   git checkout -b feat/<short-desc>
 or:
   git checkout -b fix/<short-desc>
+
+### 4b.5. Create draft PR for visibility
+
+Create an initial empty commit so the branch can be pushed, then
+open a draft PR immediately. This gives operators real-time
+visibility into implementation progress — the draft PR shows
+commits as they land, and the diff updates live.
+
+  # Idempotency: if a PR already exists for this branch (handler retry
+  # after crash/timeout), reuse it instead of creating a duplicate.
+  EXISTING_PR=$(gh pr view --repo "$REPO" --json number --jq .number 2>/dev/null || true)
+  if [ -n "$EXISTING_PR" ]; then
+    PR_NUMBER="$EXISTING_PR"
+    echo "Reusing existing PR #$PR_NUMBER"
+  else
+    # Scaffolding commit needed to create the branch ref for gh pr create.
+    # May be dropped by rebase --onto (git drops empty commits by default).
+    # chore: prefix means release-please ignores it.
+    git commit --allow-empty -m "chore: begin implementation for #$ISSUE_NUMBER"
+    git push -u origin HEAD
+
+    cat > /tmp/draft-pr-body.md << DRAFTEOF
+  ## Status
+  Implementation in progress — this is a draft PR created by the
+  issue handler for visibility. Commits will appear here as
+  implementation proceeds.
+
+  ## Issue
+  Closes #$ISSUE_NUMBER
+
+  ---
+  Automated by Issue Handler workflow.
+  DRAFTEOF
+
+    PR_URL=$(gh pr create --repo "$REPO" --draft \
+      --base main \
+      --title "WIP: <short description> (#$ISSUE_NUMBER)" \
+      --body-file /tmp/draft-pr-body.md)
+    PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+    if [ -z "$PR_NUMBER" ]; then
+      gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Failed to create draft PR. Branch: $(git branch --show-current)"
+      exit 1
+    fi
+    echo "Created draft PR #$PR_NUMBER ($PR_URL)"
+  fi
 
 ### 4c. Implement the change
 
@@ -130,14 +175,18 @@ Stage only the files you changed (no git add -A):
 
   Co-Authored-By: iEVO <noreply@ievo.ai>"
 
-### 4h. Pre-push freshness check + rebase loop, THEN create PR
+Push to the remote so the draft PR shows the implementation
+(fast-forward onto the empty WIP commit from Phase 4b.5):
+  git push
 
-Before pushing, verify our branch is still ahead of main.
-Main may have moved while Phase 1-4 ran (another issue-handler
-run, a human merge, a hotfix). Pushing a stale branch creates
-a CONFLICTING PR — and CONFLICTING PRs get NO CI checks fired
-(GitHub Actions skips `pull_request` events on PRs that can't
-merge cleanly), so the Phase 5 review loop dies silently.
+### 4h. Freshness check + rebase loop
+
+Verify our branch is still ahead of main before converting to
+ready-for-review. Main may have moved while Phase 1-4 ran
+(another issue-handler run, a human merge, a hotfix). A stale
+branch creates a DIRTY PR — and DIRTY PRs get NO CI checks
+fired (GitHub Actions skips `pull_request` events on PRs that
+can't merge cleanly), so the Phase 5 review loop dies silently.
 Rebase loop with up to 3 attempts (covers near-simultaneous
 sibling pushes):
 
@@ -178,7 +227,7 @@ sibling pushes):
     gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<ESC
   Sustained sibling-PR burst — main moved $FINAL_BEHIND commits ahead
   of the handler's branch even after $REBASE_MAX rebase attempts.
-  Branch left un-pushed to avoid creating a guaranteed-DIRTY PR.
+  Draft PR #$PR_NUMBER left stale to avoid force-pushing a guaranteed-DIRTY state.
   Operator can rebase manually once the burst settles.
   Branch: $(git branch --show-current)
   ESC
@@ -192,9 +241,11 @@ sibling pushes):
 
   # Push (force-with-lease since rebase rewrote local history;
   # safe on a topic branch nobody else pushes to):
-  git push --force-with-lease origin HEAD -u
+  git push --force-with-lease origin HEAD
 
-Create PR (real, not draft). Use --body-file for safety.
+Update the draft PR title and body to final versions. The draft
+was created in Phase 4b.5 with a placeholder body — now replace
+it with the real summary. Use --body-file for safety.
 
 Unquoted heredoc — $ISSUE_NUMBER expands to the actual number
 (mirrors the Phase 6 DONEEOF pattern). Single-quoted 'PREOF'
@@ -217,21 +268,27 @@ of `<issue number>`, fragile when LLM context is full:
   Automated by Issue Handler workflow.
   PREOF
 
-  # `gh pr create` writes the PR URL to stdout, NOT the bare number.
-  # Capture and extract the number — every gh subcommand in Phase 5
-  # below (`gh pr checks <N>`, `gh pr view <N>`, `gh pr comment <N>`)
-  # needs the number, not the URL.
-  PR_URL=$(gh pr create --repo "$REPO" \
+  gh pr edit "$PR_NUMBER" --repo "$REPO" \
     --title "<type>: <short description>" \
-    --body-file /tmp/pr-body.md \
-    --head "$(git branch --show-current)")
-  PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-  echo "Created PR #$PR_NUMBER ($PR_URL)"
+    --body-file /tmp/pr-body.md
 
 ## Phase 5 — Review Loop
 
-After creating the PR, wait for claude-code-review to run and
-iterate on its feedback. Max 3 fix iterations.
+Convert the draft PR to ready-for-review. This triggers the
+`ready_for_review` event on `claude-code-review.yml`, starting
+the review that Phase 5 polls for:
+
+  # Idempotent: skip if already promoted (handler retry after crash post-promotion)
+  PR_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json isDraft --jq '.isDraft')
+  if [ "$PR_DRAFT" = "true" ]; then
+    if ! gh pr ready "$PR_NUMBER" --repo "$REPO"; then
+      gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "gh pr ready failed for PR #$PR_NUMBER — manual promotion needed."
+      exit 1
+    fi
+  fi
+
+Wait for claude-code-review to run and iterate on its feedback.
+Max 3 fix iterations.
 
 ATTEMPT=0                       # real-finding fix attempts
 MAX_ATTEMPTS=3
@@ -239,8 +296,8 @@ STRUCTURAL_ATTEMPT=0             # action-side flake retriggers (separate budget
 STRUCTURAL_MAX=3
 
 Loop:
-  1. The PR number is in $PR_NUMBER (extracted at the end of Phase 4
-     from the `gh pr create` URL). Use it for all gh subcommands.
+  1. The PR number is in $PR_NUMBER (captured in Phase 4b.5 from
+     the `gh pr create --draft` URL). Use it for all gh subcommands.
   2. Wait for checks to complete. `gh pr checks --json state` returns
      **lowercase** state strings: "pending" (queued OR running),
      "pass", "fail", "skipping", "cancelled", "timeout", "neutral".
@@ -456,7 +513,7 @@ Loop:
 When the PR is green (all checks pass):
 
   # Unquoted heredoc — $PR_NUMBER expands to the actual PR number
-  # (captured in Phase 4 from `gh pr create` URL). Single-quoted
+  # (captured in Phase 4b.5 from `gh pr create --draft` URL). Single-quoted
   # 'DONEEOF' would have blocked expansion → the comment would
   # literally read "PR #<number>" instead of "PR #123".
   cat > /tmp/done-comment.md << DONEEOF

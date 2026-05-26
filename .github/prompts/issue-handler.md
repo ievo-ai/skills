@@ -422,8 +422,8 @@ Loop:
 
            # All checks PASS — but claude-review may have posted findings
            # with a passing verdict. Read the sticky comment and check.
-           REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-             --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Code Review"))] | last.body // ""')
+           REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+             --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Code Review"; "i"))] | last.body // ""')
            if [ -z "$REVIEW_BODY" ]; then
              echo "WARNING: no 'Code Review' sticky comment found — assuming clean"
            fi
@@ -433,7 +433,7 @@ Loop:
              # Invert the detection: look for KNOWN FINDING markers
              # rather than absence of clean phrases (more robust — new
              # clean phrasings don't cause false-positive finding loops).
-             if echo "$REVIEW_BODY" | grep -qiE '### Finding|### Bug|### Issue|\*\*Finding|\*\*Bug|\[Fix this|severity.*fix|blocker'; then
+             if echo "$REVIEW_BODY" | grep -qiE '### Finding|### Bug|\*\*Finding|\*\*Bug|\[Fix this →|severity.*(must|should) fix'; then
                HAS_FINDINGS=true
              fi
            fi

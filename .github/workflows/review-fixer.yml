@@ -65,45 +65,66 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "::group::Gate: author check"
           AUTHOR=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json author --jq '.author.login')
           echo "PR #$PR_NUMBER author: $AUTHOR"
 
           if [ "$AUTHOR" != "app/claude" ] && [ "$AUTHOR" != "claude[bot]" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Skipping — not a handler-authored PR"
+            echo "SKIP — not a handler-authored PR (author=$AUTHOR)"
+            echo "::endgroup::"
             exit 0
           fi
+          echo "PASS — handler-authored PR"
+          echo "::endgroup::"
 
+          echo "::group::Gate: fix budget"
           BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq '.headRefName')
           FIX_COUNT=$(gh api "repos/$REPO/commits?sha=$BRANCH&per_page=20" \
             --jq '[.[] | select(.commit.message | test("\\[review-fix-"))] | length')
-          echo "Fix attempts so far: $FIX_COUNT"
+          echo "Fix attempts so far: $FIX_COUNT / 5"
 
           if [ "$FIX_COUNT" -ge 5 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "SKIP — fix budget exhausted ($FIX_COUNT/5)"
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "Review fixer exhausted 3 fix attempts. Remaining findings need manual review."
+              --body "Review fixer exhausted fix attempts. Remaining findings need manual review."
+            echo "::endgroup::"
             exit 0
           fi
+          echo "PASS — budget available"
+          echo "::endgroup::"
 
+          echo "::group::Gate: review findings"
           REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
             --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
 
-          if echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge|verdict.*correct'; then
+          if [ -z "$REVIEW_BODY" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Review is clean — no findings to fix"
+            echo "SKIP — no review comment found"
+            echo "::endgroup::"
             exit 0
           fi
 
-          if [ -z "$REVIEW_BODY" ]; then
+          if echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge|verdict.*correct'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "No review comment found"
+            echo "SKIP — review is clean (matched clean-verdict pattern)"
+            echo "::endgroup::"
             exit 0
           fi
+
+          HAS_FINDINGS=false
+          if echo "$REVIEW_BODY" | grep -qiE '### Finding|### Bug|\*\*Finding|\*\*Bug|\[Fix this|severity.*(must|should) fix'; then
+            HAS_FINDINGS=true
+          fi
+          echo "Has actionable findings: $HAS_FINDINGS"
+          echo "Review body length: $(echo "$REVIEW_BODY" | wc -c) chars"
+          echo "::endgroup::"
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "fix_number=$((FIX_COUNT + 1))" >> "$GITHUB_OUTPUT"
+          echo "Decision: PROCEED — findings detected, dispatching fixer"
 
       - name: Checkout PR branch
         if: steps.check.outputs.skip != 'true'

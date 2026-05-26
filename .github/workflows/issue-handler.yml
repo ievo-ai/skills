@@ -117,9 +117,10 @@ jobs:
           ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
         run: |
           ORG="ievo-ai"
-          # gh api returns 204 for members, 404 for non-members.
-          # Don't suppress output — API errors (missing scope, network) should be visible in logs.
-          if gh api "orgs/$ORG/members/$ISSUE_AUTHOR" 2>&1; then
+          # Use /orgs/{org}/members to list ALL members (public + private).
+          # The single-user endpoint /orgs/{org}/members/{user} only sees
+          # public membership without admin:org scope — fails on private members.
+          if gh api "orgs/$ORG/members" --jq '.[].login' 2>&1 | grep -qx "$ISSUE_AUTHOR"; then
             echo "Issue author $ISSUE_AUTHOR is an org member — proceeding"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else

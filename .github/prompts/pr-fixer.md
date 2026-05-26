@@ -101,6 +101,15 @@ fixing one check must not break another:
 
 ## Step 4 — Commit and push
 
+First check if there are actual changes to commit. If all findings
+were skipped (low-severity) or local validation passed clean, there
+may be nothing to stage — committing with no changes would crash.
+
+  if git diff --cached --quiet && git diff --quiet; then
+    echo "No changes to commit after review round — exiting cleanly"
+    exit 0
+  fi
+
 Stage only the files you changed (no git add -A):
   git add <specific files>
   git commit -m "fix: address check failures (round $FIX_NUMBER) [pr-fix-$FIX_NUMBER]

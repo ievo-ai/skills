@@ -466,7 +466,11 @@ Loop:
 
      4b. coverage-gate failure — reproduce locally, fix coverage gaps.
 
-         if [ "$COVERAGE_STATE" != "PASS" ] && [ "$COVERAGE_STATE" != "PENDING" ]; then
+         # Skip structural states (CANCELLED/TIMEOUT/NEUTRAL/SKIPPING) —
+         # local re-run can't fix an infra flake; wastes time + budget.
+         COVERAGE_IS_STRUCTURAL=$(case "$COVERAGE_STATE" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
+         if [ "$COVERAGE_STATE" != "PASS" ] && [ "$COVERAGE_STATE" != "PENDING" ] && \
+            [ "$COVERAGE_IS_STRUCTURAL" = "no" ]; then
            echo "coverage-gate failed — reproducing locally to identify gaps"
            # Run tests with coverage to reproduce the failure
            node --test --experimental-test-coverage \
@@ -489,7 +493,9 @@ Loop:
 
      4c. pre-commit-gate failure — run validators locally, fix violations.
 
-         if [ "$PRECOMMIT_STATE" != "PASS" ] && [ "$PRECOMMIT_STATE" != "PENDING" ]; then
+         PRECOMMIT_IS_STRUCTURAL=$(case "$PRECOMMIT_STATE" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
+         if [ "$PRECOMMIT_STATE" != "PASS" ] && [ "$PRECOMMIT_STATE" != "PENDING" ] && \
+            [ "$PRECOMMIT_IS_STRUCTURAL" = "no" ]; then
            echo "pre-commit-gate failed — running validators locally"
            # Run all pre-commit hooks to reproduce failures
            PRECOMMIT_OUTPUT=$(pre-commit run --all-files 2>&1 || true)

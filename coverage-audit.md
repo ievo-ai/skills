@@ -75,6 +75,7 @@ ievo-ai/skills/
     commands/
       uninstall.md
       update.md
+      vuln-scan.md
     scripts/
       discover.mjs
       scan_repo.mjs

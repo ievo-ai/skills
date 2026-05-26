@@ -549,6 +549,10 @@ Loop:
            # If 4b/4c produced fixes, commit + push first so the
            # reopened PR's CI reruns against the fixed code.
            if ! git diff --cached --quiet || ! git diff --quiet; then
+             # Cross-check validation before committing — step 5 is
+             # bypassed by the continue below, so validate here.
+             node --test plugins/ievo/scripts/tests/*.test.mjs
+             pre-commit run --all-files || pre-commit run --all-files
              ATTEMPT=$((ATTEMPT + 1))
              git add <fixed files>
              git commit -m "fix: address check failures (round $ATTEMPT) [pr-fix-$ATTEMPT]

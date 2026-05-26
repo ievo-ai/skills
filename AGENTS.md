@@ -181,6 +181,8 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 
 Uses a GitHub App token (org-level App credentials) so that PRs trigger downstream workflows. See skills#65 for the full design.
 
+**After merging infra fixes (workflow, CI config) into main** — immediately rebase open handler PRs that depend on the fix. A workflow fix in main is inert until dependent branches pull it in. Check `gh pr list --state open --author app/claude` and rebase any that would benefit.
+
 ### PR workflow — wait for in-progress reviews before merging
 
 **Do NOT merge while any review check is `IN_PROGRESS`** — even with `--admin` override. Run `gh pr view <N> --json statusCheckRollup` and confirm no check is in flight before invoking `gh pr merge`. The `claude-review` automation typically completes in 2–5 minutes; that window is cheap insurance.

@@ -81,7 +81,7 @@ Scan the file list from Step 2 to detect the repo layout and categorise items. L
 
 - `*/SKILL.md` or `SKILL.md` at any depth — agentskills.io-compliant skills
 - Skills inside plugins typically live at `plugins/<name>/skills/<skill-name>/SKILL.md`
-- **Exclude** paths under `tests/`, `test/`, `fixtures/`, and `__tests__/` directories — these are likely test fixture copies, not real skills. Including them would inflate the skill count and pollute the Permission Footprint with synthetic `allowed-tools`.
+- **Exclude** paths under `tests/`, `test/`, `fixtures/`, `__tests__/`, and `spec/` directories — these are likely test fixture copies, not real skills. Including them would inflate the skill count and pollute the Permission Footprint with synthetic `allowed-tools`.
 
 ### 3c. Agent detection
 
@@ -111,7 +111,7 @@ Record each detected item with its path for fetching in Step 4.
 
 For each detected item, fetch its content to extract metadata. Prioritise breadth over depth — fetch frontmatter and first lines, not entire file bodies.
 
-If the total detected item count exceeds 30, prioritise fetches in this order: plugin manifests first, then SKILL.md files, then agent `.md` files, then command files, then hooks, then scripts last. Skip lower-priority categories once the 30-fetch cap is reached.
+Prioritise fetches in this order: plugin manifests first, then SKILL.md files, then agent `.md` files, then command files, then hooks, then scripts last. When the total item count exceeds the 30-fetch cap, skip lower-priority categories.
 
 ### 4a. Plugin manifests
 
@@ -224,8 +224,8 @@ Aggregate `allowed-tools` across ALL skills into a deduplicated list:
 
 <If no skills have allowed-tools: "No skills in this repo declare `allowed-tools` in their frontmatter.">
 
-<If any skill has broad permissions like `Bash(*)`, flag it:>
-> **Note:** <skill-name> requests broad Bash access (`Bash(*)`). Review its SKILL.md body before installing.
+<If any skill has broad permissions like `Bash(*)`, `Write(*)`, or `Edit(*)`, flag it:>
+> **Note:** <skill-name> requests broad access (`Bash(*)` / `Write(*)` / `Edit(*)`). Review its SKILL.md body before installing.
 
 ---
 

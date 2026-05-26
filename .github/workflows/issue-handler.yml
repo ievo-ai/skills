@@ -99,8 +99,7 @@ jobs:
     # call needed, no permission issues. External users get NONE.
     if: >
       !endsWith(github.event.issue.user.login, '[bot]') &&
-      github.event.issue.user.login != 'ievo-eva' &&
-      contains(fromJSON('["MEMBER","OWNER","COLLABORATOR"]'), github.event.issue.author_association)
+      github.event.issue.user.login != 'ievo-eva'
 
     steps:
       # All actions pinned to commit SHA (not floating tags) — public repo

@@ -42,28 +42,30 @@ Verify the repo exists and resolve the default branch if no ref was provided:
 gh api "repos/<owner>/<repo>" --jq '.default_branch'
 ```
 
-If the API call fails (404), report clearly:
+If the API call fails, report clearly based on the error:
 
-```
-Repository `<owner>/<repo>` not found or not accessible.
-Check the repo name and ensure `gh` is authenticated with access.
-```
+- **404** — `Repository '<owner>/<repo>' not found. Check the repo name and spelling.`
+- **403** — `Access denied to '<owner>/<repo>'. Check that 'gh' is authenticated with sufficient token scope (repo access for private repos).`
+- **429** — `GitHub API rate limit hit. Wait a few minutes and try again.`
+- **Any other error** — report the raw error message from `gh api`.
 
-Exit cleanly. Do NOT retry or guess alternative names.
+Exit cleanly on any failure. Do NOT retry or guess alternative names.
 
 Store the resolved ref (default branch name, or user-provided ref) for all subsequent API calls.
 
 ## Step 2: Fetch the repo tree
 
-Enumerate all files recursively using the git trees API:
+Enumerate all files recursively using the git trees API. Fetch the raw JSON (no `--jq` filter) so the top-level `truncated` field is preserved:
 
 ```bash
-gh api "repos/<owner>/<repo>/git/trees/<ref>?recursive=1" --jq '.tree[] | select(.type=="blob") | .path'
+gh api "repos/<owner>/<repo>/git/trees/<ref>?recursive=1"
 ```
 
-This returns every file path in the repo at the given ref. Store the full list for classification in Step 3.
+From the response JSON, extract:
+1. **`truncated`** (boolean) — if `true`, the tree listing is incomplete (very large repos). Store this flag for the output footer.
+2. **File paths** — `.tree[] | select(.type=="blob") | .path` — every file path in the repo at the given ref. Store the full list for classification in Step 3.
 
-If the tree is truncated (very large repos — the API sets `truncated: true`), note this in the output footer and proceed with the partial listing.
+If the API call fails (non-zero exit or empty output), the ref is likely invalid. Report: `Ref '<ref>' not found in <owner>/<repo>. Check the branch name, tag, or commit SHA.` Exit cleanly.
 
 ## Step 3: Classify the repo structure
 
@@ -79,6 +81,7 @@ Scan the file list from Step 2 to detect the repo layout and categorise items. L
 
 - `*/SKILL.md` or `SKILL.md` at any depth — agentskills.io-compliant skills
 - Skills inside plugins typically live at `plugins/<name>/skills/<skill-name>/SKILL.md`
+- **Exclude** paths under `tests/`, `test/`, `fixtures/`, and `__tests__/` directories — these are likely test fixture copies, not real skills. Including them would inflate the skill count and pollute the Permission Footprint with synthetic `allowed-tools`.
 
 ### 3c. Agent detection
 
@@ -231,7 +234,7 @@ Aggregate `allowed-tools` across ALL skills into a deduplicated list:
 
 **Next steps:**
 - To install: run `/ievo:init` and select this repo when it appears, or add it manually
-- For a security verdict first: run `/ievo:security-check <owner>/<repo>@<skill-name>`
+- For a security verdict first: run `/ievo:security-check <owner>/<repo>@<skill-name>` (where `<skill-name>` is the name of a specific skill to audit, e.g. `@init` — not a git ref)
 - To index the full repo structure: run `/ievo:index-repos <owner>/<repo>`
 ```
 

@@ -232,7 +232,7 @@ Non-infrastructure conflicts escalate to operator:
           break
         fi
         ALL_INFRA=true
-        for file in $CONFLICTING; do
+        while IFS= read -r file; do
           case "$file" in
             .github/prompts/*.md)
               # --ours = rebase target (origin/main) during rebase
@@ -244,7 +244,7 @@ Non-infrastructure conflicts escalate to operator:
               break
               ;;
           esac
-        done
+        done <<< "$CONFLICTING"
         if [ "$ALL_INFRA" = "false" ]; then
           REBASE_CONFLICT_OK=false
           break
@@ -453,12 +453,12 @@ Loop:
                    CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
                    [ -z "$CONFLICTING" ] && break
                    ALL_INFRA=true
-                   for file in $CONFLICTING; do
+                   while IFS= read -r file; do
                      case "$file" in
                        .github/prompts/*.md) git checkout --ours "$file"; git add "$file" ;;
                        *) ALL_INFRA=false; break ;;
                      esac
-                   done
+                   done <<< "$CONFLICTING"
                    if [ "$ALL_INFRA" = "false" ]; then
                      REBASE_CONFLICT_OK=false; break
                    fi

@@ -37,7 +37,7 @@ If MERGE_STATE is "DIRTY":
              break
            fi
            ALL_INFRA=true
-           for file in $CONFLICTING; do
+           while IFS= read -r file; do
              case "$file" in
                .github/prompts/*.md)
                  # --ours = rebase target (origin/main) during rebase
@@ -49,7 +49,7 @@ If MERGE_STATE is "DIRTY":
                  break
                  ;;
              esac
-           done
+           done <<< "$CONFLICTING"
            if [ "$ALL_INFRA" = "false" ]; then
              REBASE_CONFLICT_OK=false
              break
@@ -90,7 +90,8 @@ If MERGE_STATE is "DIRTY":
        echo "Rebased and pushed — exiting to let fresh CI runs complete"
        exit 0
 
-If MERGE_STATE is "CLEAN" or "UNSTABLE" — proceed to Step 1.
+For all other values (CLEAN, UNSTABLE, BLOCKED, BEHIND, HAS_HOOKS,
+UNKNOWN) — proceed to Step 1.
 
 ## Step 1 — Read context and identify failures
 

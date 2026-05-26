@@ -317,6 +317,7 @@ Loop:
      the `gh pr create --draft` URL). Use it for all gh subcommands.
      Reset per-iteration state at the top of each loop body:
        REVIEW_NEEDS_RETRIGGER=false
+       NO_RUN_ATTEMPT=0
 
   2. Wait for ALL THREE checks to reach terminal state.
      `gh pr checks --json state` returns **lowercase** state strings:
@@ -538,7 +539,7 @@ Loop:
              git add <fixed files>
              git commit -m "fix: address check failures (round $ATTEMPT) [pr-fix-$ATTEMPT]
 
-             Co-Authored-By: iEVO <noreply@ievo.ai>"
+Co-Authored-By: iEVO <noreply@ievo.ai>"
              git push
            fi
            gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"

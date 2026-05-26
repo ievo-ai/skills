@@ -87,8 +87,15 @@ jobs:
           if [ "$FIX_COUNT" -ge 5 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "SKIP — fix budget exhausted ($FIX_COUNT/5)"
+
+            REVIEWERS=$(gh api "orgs/${REPO%%/*}/members" --jq '[.[].login] | join(",")')
+            if [ -n "$REVIEWERS" ]; then
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "$REVIEWERS" || true
+              echo "Requested review from org members: $REVIEWERS"
+            fi
+
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "Review fixer exhausted fix attempts. Remaining findings need manual review."
+              --body "Review fixer exhausted fix attempts ($FIX_COUNT/5). Requested review from org members — remaining findings need human attention."
             echo "::endgroup::"
             exit 0
           fi

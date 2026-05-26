@@ -118,7 +118,7 @@ If the total detected item count exceeds 30, prioritise fetches in this order: p
 For each detected `plugin.json`:
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content' | base64 --decode
+gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content | @base64d'
 ```
 
 Extract: `name`, `version`, `description`, `author`, `license`, `keywords`.
@@ -128,7 +128,7 @@ Extract: `name`, `version`, `description`, `author`, `license`, `keywords`.
 For each detected `SKILL.md`, fetch and parse the YAML frontmatter (the `---`-delimited block at the top):
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content' | base64 --decode
+gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content | @base64d'
 ```
 
 Extract from frontmatter: `name`, `description`, `allowed-tools`, `compatibility`, `effort`, `license`.
@@ -153,9 +153,9 @@ Extract: event types (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, etc.) and
 
 ### 4f. README
 
-If `README.md` exists at the repo root, fetch the first 40 lines for a project-level summary.
+If `README.md` exists at the repo root, fetch the first 40 lines for a project-level summary. If the response has no `content` field but includes `download_url`, the file exceeds the GitHub contents API 1MB limit — skip the README summary and note it was too large to fetch.
 
-**Rate limit awareness:** GitHub API has a 5,000 requests/hour limit for authenticated users. For repos with many items, batch fetches and stop at 30 file fetches total. Note in the output if some items were not fetched due to rate-limit caution.
+**Fetch cap:** Cap file content fetches at 30 to keep the inspect fast. Note in the output if some items were skipped.
 
 ## Step 5: Render the capability summary
 

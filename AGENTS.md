@@ -38,6 +38,7 @@ ievo-ai/skills/
         ├── feedback/SKILL.md          # /ievo:feedback — file GitHub issues
         ├── debug-on/SKILL.md          # /ievo:debug-on — enable verbose session logging
         ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
+        ├── handoff/SKILL.md           # /ievo:handoff — portable context handoff between sessions
         ├── hooks-setup/SKILL.md       # /ievo:hooks-setup — configure lifecycle hooks
         ├── overlay-status/SKILL.md    # /ievo:overlay-status — list active evolution overlays
         ├── index-repos/SKILL.md       # /ievo:index-repos — enumerate a repo

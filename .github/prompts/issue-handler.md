@@ -272,11 +272,13 @@ of `<issue number>`, fragile when LLM context is full:
     --title "<type>: <short description>" \
     --body-file /tmp/pr-body.md
 
-## Phase 5 — Review Loop
+## Phase 5 — Unified Check Fix Loop
 
 Convert the draft PR to ready-for-review. This triggers the
 `ready_for_review` event on `claude-code-review.yml`, starting
-the review that Phase 5 polls for:
+the review that Phase 5 polls for. Coverage-gate and pre-commit-gate
+trigger on the `pull_request` event (already fired when the PR was
+created / synchronized):
 
   # Idempotent: skip if already promoted (handler retry after crash post-promotion)
   PR_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json isDraft --jq '.isDraft')
@@ -287,226 +289,223 @@ the review that Phase 5 polls for:
     fi
   fi
 
-Wait for claude-code-review to run and iterate on its feedback.
-Max 3 fix iterations.
+Wait for ALL THREE CI checks to pass and iterate on failures.
+Max 5 fix iterations (shared budget with pr-fixer via `[pr-fix-N]`
+markers in commit messages).
 
-ATTEMPT=0                       # real-finding fix attempts
-MAX_ATTEMPTS=3
+The three checks this loop monitors:
+  - **claude-review** (from `claude-code-review.yml`) — code review findings
+  - **coverage-gate** (from `coverage-gate.yml`) — 100% test coverage
+  - **pre-commit-gate** (from `pre-commit-gate.yml`) — validator compliance
+
+ATTEMPT=0                       # real-finding fix attempts (shared budget via [pr-fix-N])
+MAX_ATTEMPTS=5
 STRUCTURAL_ATTEMPT=0             # action-side flake retriggers (separate budget)
 STRUCTURAL_MAX=3
 
 Loop:
   1. The PR number is in $PR_NUMBER (captured in Phase 4b.5 from
      the `gh pr create --draft` URL). Use it for all gh subcommands.
-  2. Wait for checks to complete. `gh pr checks --json state` returns
-     **lowercase** state strings: "pending" (queued OR running),
-     "pass", "fail", "skipping", "cancelled", "timeout", "neutral".
-     Normalize to uppercase via `| ascii_upcase` so the shell
-     comparison is unambiguous (mixed-case bugs silently break the
-     loop). PENDING = keep waiting; everything else = terminal.
-     Poll every 60s with an ENFORCED 10-minute outer timeout
-     (don't trust the job's 60-minute wall clock — that's a backstop,
-     not a per-poll bound):
-       # MAX_WAIT=600 (10 min) — claude-code-review typically
-       # completes in 2-5 min. 3 attempts × 10 min poll = 30 min
-       # leaves ~30 min in the 60-min job wall clock for Phase 1-4
-       # implementation work; 3 × 15 min would have blown the
-       # budget on the third iteration with no diagnostic.
+
+  2. Wait for ALL THREE checks to reach terminal state.
+     `gh pr checks --json state` returns **lowercase** state strings:
+     "pending" (queued OR running), "pass", "fail", "skipping",
+     "cancelled", "timeout", "neutral". Normalize to uppercase via
+     `| ascii_upcase` so the shell comparison is unambiguous.
+     PENDING = keep waiting; everything else = terminal.
+     Poll every 60s with an ENFORCED 10-minute outer timeout:
        MAX_WAIT=600
        waited=0
        while [ "$waited" -lt "$MAX_WAIT" ]; do
-         # `last` not `.[0]` — if `gh pr checks` ever returns
-         # multiple claude.*review entries (e.g. a rerun creates
-         # a second), the most-recently-appended one is the
-         # authoritative state, not the first in the response.
-         STATUS=$(gh pr checks "$PR_NUMBER" --repo "$REPO" \
-           --json name,state --jq \
+         # Single API call, three local jq extractions
+         CHECKS_JSON=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state)
+
+         REVIEW_STATE=$(echo "$CHECKS_JSON" | jq -r \
            '[.[] | select(.name | test("claude.*review"; "i"))] | last.state // "pending" | ascii_upcase')
-         [ "$STATUS" = "PENDING" ] || break
+         COVERAGE_STATE=$(echo "$CHECKS_JSON" | jq -r \
+           '[.[] | select(.name | test("coverage"; "i"))] | last.state // "pending" | ascii_upcase')
+         PRECOMMIT_STATE=$(echo "$CHECKS_JSON" | jq -r \
+           '[.[] | select(.name | test("pre.commit"; "i"))] | last.state // "pending" | ascii_upcase')
+
+         # Break when ALL three are in a terminal state (not PENDING)
+         if [ "$REVIEW_STATE" != "PENDING" ] && \
+            [ "$COVERAGE_STATE" != "PENDING" ] && \
+            [ "$PRECOMMIT_STATE" != "PENDING" ]; then
+           break
+         fi
          sleep 60
          waited=$((waited + 60))
        done
-     Then branch on $STATUS for next-step routing —
-       PASS    → step 3 (success path)
-       FAIL    → step 2.5 (distinguish structural vs real BEFORE fixing)
-       PENDING → step 2.6 (check mergeable: if DIRTY, rebase + retry;
-                           otherwise timed out — diagnostic + exit)
-       any other (SKIPPING/CANCELLED/TIMEOUT/NEUTRAL) → step 2.5
-                           (treat as structural; may auto-recover)
 
-  2.5. Distinguish STRUCTURAL claude-review failures from REAL
-       code findings BEFORE consuming a fix-attempt. Several known
-       failure modes are action-side bugs / GitHub Actions flakes,
-       NOT findings on our code, and the correct recovery is
-       retrigger (close+reopen the PR), NOT iterate on phantom
-       findings:
+  2.5. PENDING-routing — if any check is still PENDING after
+       MAX_WAIT, the PR may be DIRTY (vs main; GitHub Actions
+       skips `pull_request` events on PRs that can't merge cleanly).
+       This is the race PR #75 hit when main moved underneath while
+       the handler was running. Check + recover:
 
-         # Fetch the latest claude-review run's log
-         RUN_ID=$(gh run list --repo "$REPO" --branch \
-           "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq .headRefName)" \
-           --workflow "Claude Code Review" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-         if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-           # No run found yet — race against workflow dispatch.
-           # Sleep + restart poll loop without consuming a fix-attempt
-           # (treat as transient; the next poll iteration should see it).
-           echo "No claude-review run found yet — waiting for dispatch"
-           sleep 30
-           continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
-         fi
-         # `--log-failed` only returns logs from job steps recorded
-         # as failed — but several of the structural patterns we
-         # need to detect (Workflow validation failed, OIDC fetch
-         # fail, App token exchange fail) happen at runner
-         # BOOTSTRAP / workflow STARTUP, before any step is
-         # recorded. In that case `--log-failed` returns empty,
-         # grep misses everything, and the handler mis-classifies
-         # a structural fail as a real finding (consuming a fix-
-         # attempt budget on phantom feedback). Fall back to full
-         # `--log` when `--log-failed` is empty:
-         LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
-         if [ -z "$(echo "$LOG" | tr -d '[:space:]')" ]; then
-           LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log 2>&1)
-         fi
+         # Only enter PENDING-routing if at least one check is still PENDING
+         if [ "$REVIEW_STATE" = "PENDING" ] || \
+            [ "$COVERAGE_STATE" = "PENDING" ] || \
+            [ "$PRECOMMIT_STATE" = "PENDING" ]; then
 
-         # Treat as structural if either:
-         #   (a) the log matches a known startup-failure pattern, OR
-         #   (b) the conclusion itself indicates non-FAIL termination
-         #       (SKIPPING/CANCELLED/TIMEOUT/NEUTRAL — these are
-         #       infra states, not code findings; falling through to
-         #       the fix-loop would waste a real-finding budget on
-         #       a phantom finding).
-         IS_STRUCTURAL_STATUS=$(case "$STATUS" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
-         if [ "$IS_STRUCTURAL_STATUS" = "yes" ] || echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
-           STRUCTURAL_ATTEMPT=$((STRUCTURAL_ATTEMPT + 1))
-           # Cap structural retriggers separately from real-finding fixes
-           # — if OIDC / credentials / allowed-bots are permanently broken,
-           # we'd otherwise loop close+reopen until the job's 60-min
-           # wall-clock killed us silently. STRUCTURAL_MAX=3 should be
-           # initialized to 0 alongside ATTEMPT at the top of Phase 5.
-           # `-gt` (not `-ge`): with STRUCTURAL_MAX=3, escalate
-           # AFTER the 3rd retrigger (attempts 1, 2, 3 all
-           # retrigger; attempt 4 → escalate). Off-by-one fix
-           # vs the round-3 `-ge` which escalated after only 2.
-           if [ "$STRUCTURAL_ATTEMPT" -gt "$STRUCTURAL_MAX" ]; then  # STRUCTURAL_MAX initialised at Phase 5 entry; no fallback needed
-             echo "Structural failures persist after $STRUCTURAL_ATTEMPT retriggers — escalating"
-             MSG="Structural CI failures persisted across $STRUCTURAL_ATTEMPT retriggers on PR #$PR_NUMBER. This is likely a permanent action-side problem (missing org secret, revoked token, claude-code-action regression). Manual operator review needed."
-             echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
-             echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
-             exit 1
-           fi
-           echo "Structural claude-review failure ($STRUCTURAL_ATTEMPT/$STRUCTURAL_MAX) — retrigger via close+reopen"
-           gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
-           # sleep 15 — 5s was occasionally too short under load /
-           # during GitHub incidents; the close state needs to
-           # propagate before the API accepts reopen (otherwise 422
-           # "PR is already open"). Costs nothing on the happy path.
-           sleep 15
-           gh pr reopen "$PR_NUMBER" --repo "$REPO"
-           # Restart the poll loop WITHOUT incrementing ATTEMPT —
-           # nothing was wrong with our code, the workflow infra hiccupped
-           continue  # restart Phase 5 poll loop from step 2 (pseudo-code marker — Claude reads this as "restart the while-loop body shown in step 2 above")
-         fi
-
-         # Real review failure — proceed to step 4 (fix loop)
-
-  2.6. PENDING-routing — if no checks fired after MAX_WAIT, the
-       PR may be DIRTY (vs main; GitHub Actions skips `pull_request`
-       events on PRs that can't merge cleanly). This is exactly
-       the race PR #75 hit when main moved underneath while the
-       handler was running. Check + recover:
-
-         MERGE_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
-           --json mergeStateStatus --jq .mergeStateStatus)
-         if [ "$MERGE_STATE" = "DIRTY" ]; then
-           echo "PR is DIRTY against main — re-running FULL Phase 4h block (rebase + push)"
-           # CRITICAL: must inline the FULL Phase 4h sequence here,
-           # NOT a goto. A bare `continue` would restart the Phase 5
-           # poll loop without re-pushing → PR stays DIRTY → next
-           # poll detects DIRTY → infinite loop.
-           # The block below is a verbatim copy of Phase 4h's
-           # rebase loop + post-loop guard + tests + push. Keep in
-           # sync if Phase 4h changes (or refactor both into a
-           # shared shell function — but inline copy is safer
-           # against pseudo-code mis-interpretation by the agent).
-           REBASE_ATTEMPT=0
-           REBASE_MAX=3
-           while [ "$REBASE_ATTEMPT" -lt "$REBASE_MAX" ]; do
+           MERGE_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+             --json mergeStateStatus --jq .mergeStateStatus)
+           if [ "$MERGE_STATE" = "DIRTY" ]; then
+             echo "PR is DIRTY against main — re-running FULL Phase 4h block (rebase + push)"
+             REBASE_ATTEMPT=0
+             REBASE_MAX=3
+             while [ "$REBASE_ATTEMPT" -lt "$REBASE_MAX" ]; do
+               git fetch origin main
+               BEHIND=$(git rev-list --count HEAD..origin/main)
+               [ "$BEHIND" = "0" ] && break
+               MERGE_BASE=$(git merge-base HEAD origin/main)
+               if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
+                 :  # clean rebase
+               else
+                 git rebase --abort
+                 gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase produced conflicts — operator review needed."
+                 exit 1
+               fi
+               REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
+             done
              git fetch origin main
-             BEHIND=$(git rev-list --count HEAD..origin/main)
-             [ "$BEHIND" = "0" ] && break
-             MERGE_BASE=$(git merge-base HEAD origin/main)
-             if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
-               :  # clean rebase
-             else
-               git rebase --abort
-               gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase produced conflicts — operator review needed."
+             FINAL_BEHIND=$(git rev-list --count HEAD..origin/main)
+             if [ "$FINAL_BEHIND" != "0" ]; then
+               gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase exhausted $REBASE_MAX attempts; main still $FINAL_BEHIND ahead. Operator review needed."
+               gh pr comment "$PR_NUMBER" --repo "$REPO" --body "Recovery rebase exhausted attempts — handler aborted to avoid pushing a stale branch."
                exit 1
              fi
-             REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
-           done
-           # Post-loop guard
-           git fetch origin main
-           FINAL_BEHIND=$(git rev-list --count HEAD..origin/main)
-           if [ "$FINAL_BEHIND" != "0" ]; then
-             gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase exhausted $REBASE_MAX attempts; main still $FINAL_BEHIND ahead. Operator review needed."
-             gh pr comment "$PR_NUMBER" --repo "$REPO" --body "Recovery rebase exhausted attempts — handler aborted to avoid pushing a stale branch."
-             exit 1
+             node --test plugins/ievo/scripts/tests/*.test.mjs
+             pre-commit run --all-files || pre-commit run --all-files
+             git push --force-with-lease origin HEAD
+             continue  # restart Phase 5 poll loop — push cleared DIRTY, fresh CI should now fire
            fi
-           # Re-run tests + push
-           node --test plugins/ievo/scripts/tests/*.test.mjs
-           pre-commit run --all-files || pre-commit run --all-files
-           git push --force-with-lease origin HEAD
-           continue  # restart Phase 5 poll loop from step 2 — push cleared DIRTY, fresh CI should now fire
+           # Not DIRTY — genuinely timed out. Diagnostic + exit.
+           MSG="CI checks timed out after MAX_WAIT=${MAX_WAIT}s on PR #$PR_NUMBER (issue #$ISSUE_NUMBER). States: review=$REVIEW_STATE, coverage=$COVERAGE_STATE, precommit=$PRECOMMIT_STATE. Mergeable: $MERGE_STATE. Likely an action-side infrastructure issue. Manual operator review needed."
+           echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+           echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+           exit 1
          fi
-         # Otherwise genuinely timed out at MAX_WAIT — diagnostic + exit.
-         MSG="claude-code-review timed out after MAX_WAIT=${MAX_WAIT}s on PR #$PR_NUMBER (issue #$ISSUE_NUMBER). Mergeable state: $MERGE_STATE (not DIRTY). Likely an action-side infrastructure issue. Manual operator review needed."
-         echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
-         echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
-         exit 1
 
-  3. If all checks pass → done! Post success comment and exit.
+  3. If ALL three checks pass → done! Post success comment and exit
+     (proceed to Phase 6).
 
-  4. If claude-code-review has findings:
-       - Read the review comments. `claude-code-action` uses
-         `use_sticky_comment: true` which posts a single sticky
-         issue-comment, not inline review diff-comments. Read both
-         channels (sticky covers ~all cases; the `pulls/.../comments`
-         endpoint is for inline diff-anchored review comments,
-         populated only when an upstream reviewer chooses that mode):
-           # Sticky comment + any review summaries — covers claude-code-action
+         if [ "$REVIEW_STATE" = "PASS" ] && \
+            [ "$COVERAGE_STATE" = "PASS" ] && \
+            [ "$PRECOMMIT_STATE" = "PASS" ]; then
+           # All green — proceed to Phase 6
+           break
+         fi
+
+  4. Handle failures by check type. Each failed check gets its own
+     fix strategy. Multiple checks can fail in the same round —
+     fix all of them before committing.
+
+     4a. claude-review failure — distinguish structural vs real.
+
+         if [ "$REVIEW_STATE" != "PASS" ] && [ "$REVIEW_STATE" != "PENDING" ]; then
+           # Fetch the latest claude-review run's log
+           RUN_ID=$(gh run list --repo "$REPO" --branch \
+             "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq .headRefName)" \
+             --workflow "Claude Code Review" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+             echo "No claude-review run found yet — waiting for dispatch"
+             sleep 30
+             continue  # restart poll loop
+           fi
+
+           LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
+           if [ -z "$(echo "$LOG" | tr -d '[:space:]')" ]; then
+             LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log 2>&1)
+           fi
+
+           IS_STRUCTURAL_STATUS=$(case "$REVIEW_STATE" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
+           if [ "$IS_STRUCTURAL_STATUS" = "yes" ] || echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
+             STRUCTURAL_ATTEMPT=$((STRUCTURAL_ATTEMPT + 1))
+             if [ "$STRUCTURAL_ATTEMPT" -gt "$STRUCTURAL_MAX" ]; then
+               MSG="Structural CI failures persisted across $STRUCTURAL_ATTEMPT retriggers on PR #$PR_NUMBER. This is likely a permanent action-side problem (missing org secret, revoked token, claude-code-action regression). Manual operator review needed."
+               echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+               echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+               exit 1
+             fi
+             echo "Structural claude-review failure ($STRUCTURAL_ATTEMPT/$STRUCTURAL_MAX) — retrigger via close+reopen"
+             gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
+             sleep 15
+             gh pr reopen "$PR_NUMBER" --repo "$REPO"
+             continue  # restart poll loop — retrigger, not a fix-attempt
+           fi
+
+           # Real review findings — read and fix
            gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,comments
-           # Top-level PR thread comments (the `issues/<N>/comments`
-           # endpoint serves the PR thread for issue-numbered PRs —
-           # that's where claude-code-action's sticky comment lives,
-           # so filter for `claude*[bot]` author to read the review
-           # body. The literal `pulls/<N>/comments` endpoint is for
-           # inline diff-anchored review comments, which sticky-mode
-           # doesn't use; not read here.
            gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
              --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | .body'
-       - Address EACH finding:
-           * Read the specific file and line
-           * Understand the reviewer's concern
-           * Fix the issue
-           * Re-run tests + validators locally
-       - Commit the fixes:
-           git add <fixed files>
-           git commit -m "fix: address review feedback (attempt $ATTEMPT)
+           # Address EACH finding:
+           #   * Read the specific file and line
+           #   * Understand the reviewer's concern
+           #   * Fix the issue
+         fi
 
-           Co-Authored-By: iEVO <noreply@ievo.ai>"
-           git push
-       - Increment ATTEMPT
-       - If ATTEMPT >= MAX_ATTEMPTS, post the exhaustion summary
-         to BOTH the original issue thread AND the PR thread so
-         a reviewer landing on the PR sees the loop gave up
-         (otherwise the PR looks silently abandoned with no
-         indication that review attempts were exhausted):
+     4b. coverage-gate failure — reproduce locally, fix coverage gaps.
+
+         if [ "$COVERAGE_STATE" != "PASS" ] && [ "$COVERAGE_STATE" != "PENDING" ]; then
+           echo "coverage-gate failed — reproducing locally to identify gaps"
+           # Run tests with coverage to reproduce the failure
+           node --test --experimental-test-coverage \
+             --test-reporter=lcov --test-reporter-destination=coverage.lcov \
+             --test-reporter=spec --test-reporter-destination=stdout \
+             plugins/ievo/scripts/tests/*.test.mjs 2>&1 || true
+           # Run check-coverage to identify which scripts/axes are below 100%
+           COVERAGE_OUTPUT=$(node .github/scripts/check-coverage.mjs coverage.lcov 2>&1 || true)
+           echo "$COVERAGE_OUTPUT"
+           # The output shows exactly which scripts have gaps and on which axes
+           # (lines, branches, functions). Read the specific uncovered lines
+           # from coverage.lcov, then add/modify tests to cover them.
+           # After fixing, re-run to verify:
+           node --test --experimental-test-coverage \
+             --test-reporter=lcov --test-reporter-destination=coverage.lcov \
+             --test-reporter=spec --test-reporter-destination=stdout \
+             plugins/ievo/scripts/tests/*.test.mjs
+           node .github/scripts/check-coverage.mjs coverage.lcov
+         fi
+
+     4c. pre-commit-gate failure — run validators locally, fix violations.
+
+         if [ "$PRECOMMIT_STATE" != "PASS" ] && [ "$PRECOMMIT_STATE" != "PENDING" ]; then
+           echo "pre-commit-gate failed — running validators locally"
+           # Run all pre-commit hooks to reproduce failures
+           PRECOMMIT_OUTPUT=$(pre-commit run --all-files 2>&1 || true)
+           echo "$PRECOMMIT_OUTPUT"
+           # Some validators auto-fix (e.g. trailing-whitespace, end-of-file-fixer).
+           # For those, the fixes are already staged. For others (nested-fences,
+           # crlf-frontmatter, machine-local-paths, placeholder-leakage,
+           # utf8-validate, validate_agents), read the error output and fix
+           # the violations manually.
+           # After fixing, re-run to verify:
+           pre-commit run --all-files
+         fi
+
+  5. Commit all fixes from this round, push, and check budget.
+
+         ATTEMPT=$((ATTEMPT + 1))
+         git add <fixed files>
+         git commit -m "fix: address check failures (round $ATTEMPT) [pr-fix-$ATTEMPT]
+
+         Co-Authored-By: iEVO <noreply@ievo.ai>"
+         git push
+
+  6. Budget check — if ATTEMPT >= MAX_ATTEMPTS, post exhaustion
+     to BOTH the original issue thread AND the PR thread:
+
+         if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
            MSG="Reached max fix attempts ($MAX_ATTEMPTS). Leaving PR #$PR_NUMBER open for human review.
-           Latest claude-review findings remain in the PR thread above; manual triage needed."
+         Failed checks: review=$REVIEW_STATE, coverage=$COVERAGE_STATE, precommit=$PRECOMMIT_STATE.
+         Latest findings remain in the PR thread above; manual triage needed."
            echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
            echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
            break
-       - Otherwise, go back to step 2
+         fi
+
+     Otherwise, go back to step 2.
 
 ## Phase 6 — Completion
 

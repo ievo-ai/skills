@@ -79,7 +79,7 @@ commits as they land, and the diff updates live.
   # Idempotency: if a PR already exists for this branch (handler retry
   # after crash/timeout), reuse it instead of creating a duplicate.
   EXISTING_PR=$(gh pr view --repo "$REPO" --json number --jq .number 2>/dev/null || true)
-  if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+  if [ -n "$EXISTING_PR" ]; then
     PR_NUMBER="$EXISTING_PR"
     echo "Reusing existing PR #$PR_NUMBER"
   else
@@ -102,9 +102,9 @@ commits as they land, and the diff updates live.
   DRAFTEOF
 
     PR_URL=$(gh pr create --repo "$REPO" --draft \
+      --base main \
       --title "WIP: <short description> (#$ISSUE_NUMBER)" \
-      --body-file /tmp/draft-pr-body.md \
-      --head "$(git branch --show-current)")
+      --body-file /tmp/draft-pr-body.md)
     PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
     if [ -z "$PR_NUMBER" ]; then
       gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Failed to create draft PR. Branch: $(git branch --show-current)"

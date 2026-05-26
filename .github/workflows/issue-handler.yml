@@ -100,8 +100,7 @@ jobs:
     if: >
       !endsWith(github.event.issue.user.login, '[bot]') &&
       github.event.issue.user.login != 'ievo-eva' &&
-      (github.event.issue.author_association == 'MEMBER' ||
-       github.event.issue.author_association == 'OWNER')
+      contains(fromJSON('["MEMBER","OWNER","COLLABORATOR"]'), github.event.issue.author_association)
 
     steps:
       # All actions pinned to commit SHA (not floating tags) — public repo

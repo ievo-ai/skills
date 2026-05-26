@@ -471,8 +471,13 @@ Loop:
      like OIDC / auth failures). Before declaring success, read
      the sticky comment to check whether the review found issues:
 
+       # Filter for the review comment specifically — `last` among
+       # all claude[bot] comments could pick up a handler escalation
+       # message posted to the PR thread (e.g., max-attempt
+       # exhaustion). The review sticky comment always contains
+       # "Code Review" in the body; handler status messages don't.
        REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-         --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
+         --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Code Review"))] | last.body // ""')
 
        # Determine if findings exist in the review body.
        # Default to findings-present when the body is non-empty
@@ -491,10 +496,11 @@ Loop:
 
        if [ "$HAS_FINDINGS" = "true" ]; then
          echo "Review PASSED but sticky comment contains findings — entering fix loop"
-         # Fall through to step 4 (treat exactly like a FAIL
-         # with real findings — read, fix, push, re-poll).
-         # ATTEMPT counter still applies — this consumes a fix
-         # attempt just like FAIL-routed findings.
+         # Continue to step 4 below — do NOT break the loop.
+         # Treat exactly like a FAIL with real findings: read
+         # findings, fix, push, re-poll. ATTEMPT counter still
+         # applies — this consumes a fix attempt just like
+         # FAIL-routed findings.
        else
          # Truly clean (explicit clean phrase matched, or no
          # review comment at all) → proceed to Phase 6

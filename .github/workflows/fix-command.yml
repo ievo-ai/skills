@@ -119,7 +119,9 @@ jobs:
           set -euo pipefail
 
           REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
+            --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))
+                       | select(.body | test("^(Budget exhausted|No actionable findings|Budget extended to|Review fixer exhausted)") | not)
+                  ] | last.body // ""')
 
           HAS_FINDINGS=false
           if echo "$REVIEW_BODY" | grep -qiE '### Finding|### Bug|\*\*Finding|\*\*Bug|\[Fix this|severity.*(must|should) fix'; then

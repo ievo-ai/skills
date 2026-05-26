@@ -95,7 +95,7 @@ jobs:
             echo "SKIP — fix budget exhausted ($FIX_COUNT/$EFFECTIVE_BUDGET)"
 
             ALREADY_ESCALATED=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-              --jq '[.[] | select(.body | test("Review fixer exhausted"))] | length')
+              --jq '[.[] | select(.body | test("Review fixer exhausted|Budget exhausted"))] | length')
             if [ "$ALREADY_ESCALATED" -eq 0 ]; then
               REVIEWERS=$(gh api --paginate "orgs/${REPO%%/*}/members" --jq '.[].login' 2>/dev/null \
                 | tr '\n' ',' | sed 's/,$//' || echo "")
@@ -119,7 +119,9 @@ jobs:
 
           echo "::group::Gate: review findings"
           REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
+            --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))
+                       | select(.body | test("^(Budget exhausted|No actionable findings|Budget extended to|Review fixer exhausted)") | not)
+                  ] | last.body // ""')
 
           if [ -z "$REVIEW_BODY" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"

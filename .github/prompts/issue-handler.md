@@ -408,6 +408,7 @@ Loop:
             [ "$COVERAGE_STATE" = "PASS" ] && \
             [ "$PRECOMMIT_STATE" = "PASS" ]; then
            # All green — proceed to Phase 6
+           CHECKS_PASSED=true
            break
          fi
 
@@ -596,6 +597,12 @@ Co-Authored-By: iEVO <noreply@ievo.ai>"
      Otherwise, go back to step 2.
 
 ## Phase 6 — Completion
+
+Skip if budget was exhausted (step 7 already posted the exhaustion message):
+
+  if [ "$CHECKS_PASSED" != "true" ]; then
+    exit 0
+  fi
 
 When the PR is green (all checks pass):
 

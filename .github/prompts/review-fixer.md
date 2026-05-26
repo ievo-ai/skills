@@ -31,7 +31,9 @@ If MERGE_STATE is "DIRTY":
          # are shared infrastructure edited by multiple handler runs.
          # When they conflict, main's version is authoritative.
          REBASE_CONFLICT_OK=true
-         while true; do
+         RESOLVE_ROUND=0
+         while [ "$RESOLVE_ROUND" -lt 20 ]; do
+           RESOLVE_ROUND=$((RESOLVE_ROUND + 1))
            CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
            if [ -z "$CONFLICTING" ]; then
              break
@@ -57,17 +59,25 @@ If MERGE_STATE is "DIRTY":
            if GIT_EDITOR=true git rebase --continue; then
              break  # rebase finished
            fi
-           # --continue failed; if no conflicts remain, the commit became
-           # empty after taking --ours for all infra files — skip it
+           # --continue failed with no conflicts: distinguish empty
+           # commit (safe to skip) from non-conflict failure (hooks, etc.)
            if [ -z "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then
-             if ! git rebase --skip; then
-               REBASE_CONFLICT_OK=false
-               break
+             if git diff --cached --quiet && git diff --quiet; then
+               # Truly empty commit — safe to skip
+               if ! git rebase --skip; then
+                 REBASE_CONFLICT_OK=false
+                 break
+               fi
+               continue
              fi
-             continue  # check next commit
+             # Non-empty index but no conflicts — non-conflict failure
+             REBASE_CONFLICT_OK=false
+             break
            fi
-           # Still has conflicts → loop to resolve
          done
+         if [ "$RESOLVE_ROUND" -ge 20 ]; then
+           REBASE_CONFLICT_OK=false
+         fi
 
          # Guard: verify rebase is not still in progress
          if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \

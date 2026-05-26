@@ -226,7 +226,10 @@ Non-infrastructure conflicts escalate to operator:
       # main's version is authoritative — take it and continue.
       # Non-infrastructure conflicts cannot be safely auto-resolved.
       REBASE_CONFLICT_OK=true
-      while true; do
+      RESOLVE_ROUND=0
+      MAX_RESOLVE_ROUNDS=20
+      while [ "$RESOLVE_ROUND" -lt "$MAX_RESOLVE_ROUNDS" ]; do
+        RESOLVE_ROUND=$((RESOLVE_ROUND + 1))
         CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
         if [ -z "$CONFLICTING" ]; then
           break
@@ -252,17 +255,26 @@ Non-infrastructure conflicts escalate to operator:
         if GIT_EDITOR=true git rebase --continue; then
           break  # rebase finished
         fi
-        # --continue failed; if no conflicts remain, the commit became
-        # empty after taking --ours for all infra files — skip it
+        # --continue failed with no conflicts: either an empty commit
+        # (safe to skip) or a non-conflict failure (hooks, git error).
+        # Distinguish by checking if the index is clean.
         if [ -z "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then
-          if ! git rebase --skip; then
-            REBASE_CONFLICT_OK=false
-            break
+          if git diff --cached --quiet && git diff --quiet; then
+            # Truly empty commit — safe to skip
+            if ! git rebase --skip; then
+              REBASE_CONFLICT_OK=false
+              break
+            fi
+            continue
           fi
-          continue  # check next commit
+          # Non-empty index but no conflicts — non-conflict failure
+          REBASE_CONFLICT_OK=false
+          break
         fi
-        # Still has conflicts → loop to resolve
       done
+      if [ "$RESOLVE_ROUND" -ge "$MAX_RESOLVE_ROUNDS" ]; then
+        REBASE_CONFLICT_OK=false
+      fi
 
       # Guard: verify rebase is not still in progress
       if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \
@@ -458,7 +470,9 @@ Loop:
                  # `.github/prompts/*.md` → take main's version (--ours
                  # during rebase = target branch). Other files → abort.
                  REBASE_CONFLICT_OK=true
-                 while true; do
+                 RESOLVE_ROUND=0
+                 while [ "$RESOLVE_ROUND" -lt 20 ]; do
+                   RESOLVE_ROUND=$((RESOLVE_ROUND + 1))
                    CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
                    [ -z "$CONFLICTING" ] && break
                    ALL_INFRA=true
@@ -474,14 +488,15 @@ Loop:
                    if GIT_EDITOR=true git rebase --continue; then
                      break
                    fi
-                   # Empty commit after --ours? Skip it.
                    if [ -z "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then
-                     if ! git rebase --skip; then
-                       REBASE_CONFLICT_OK=false; break
+                     if git diff --cached --quiet && git diff --quiet; then
+                       git rebase --skip || { REBASE_CONFLICT_OK=false; break; }
+                       continue
                      fi
-                     continue
+                     REBASE_CONFLICT_OK=false; break
                    fi
                  done
+                 [ "$RESOLVE_ROUND" -ge 20 ] && REBASE_CONFLICT_OK=false
                  # Guard: verify rebase is not still in progress
                  if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \
                     [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then

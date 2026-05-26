@@ -430,9 +430,10 @@ Loop:
 
            HAS_FINDINGS=false
            if [ -n "$REVIEW_BODY" ]; then
-             # Dropped `verdict.*correct` — it false-positively matched
-             # reviews saying "the change is correct" while listing findings.
-             if ! echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge'; then
+             # Invert the detection: look for KNOWN FINDING markers
+             # rather than absence of clean phrases (more robust — new
+             # clean phrasings don't cause false-positive finding loops).
+             if echo "$REVIEW_BODY" | grep -qiE '### Finding|### Bug|### Issue|\*\*Finding|\*\*Bug|\[Fix this|severity.*fix|blocker'; then
                HAS_FINDINGS=true
              fi
            fi

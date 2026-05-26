@@ -475,16 +475,18 @@ Loop:
          --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
 
        # Determine if findings exist in the review body.
-       # Clean-review indicators: claude-code-action uses phrases
-       # like "no issues found" / "looks good to merge" when the
-       # review has no actionable findings.
-       # Finding indicators: each finding gets a "### Finding"
-       # header in the sticky comment body.
+       # Default to findings-present when the body is non-empty
+       # and no explicit clean phrase matches — mirrors the
+       # review-fixer.yml approach (safer than requiring a
+       # specific finding-header format that could change).
+       # Dropped `verdict.*correct` from clean patterns: it
+       # matches reviews that say "the change is correct" but
+       # still list findings (demonstrated on this very PR).
        HAS_FINDINGS=false
        if [ -n "$REVIEW_BODY" ]; then
-         if echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge|verdict.*correct'; then
+         if echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge'; then
            HAS_FINDINGS=false
-         elif echo "$REVIEW_BODY" | grep -qE '### Finding'; then
+         else
            HAS_FINDINGS=true
          fi
        fi
@@ -496,8 +498,8 @@ Loop:
          # ATTEMPT counter still applies — this consumes a fix
          # attempt just like FAIL-routed findings.
        else
-         # Truly clean (explicit clean phrase, no findings, or
-         # no review comment at all) → proceed to Phase 6
+         # Truly clean (explicit clean phrase matched, or no
+         # review comment at all) → proceed to Phase 6
          break
        fi
 

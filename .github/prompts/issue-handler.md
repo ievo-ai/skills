@@ -5,6 +5,13 @@ with a real PR that passes all CI checks.
 
 IMPORTANT: Use Opus-level depth and thoroughness. Max effort.
 
+## Phase 0 — Acknowledge
+
+Post a comment immediately so the issue author knows the handler picked it up:
+
+  echo "Issue picked up by handler. Researching..." | \
+    gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+
 ## Phase 1 — Load Context
 
 Read in order (stop when you have enough):

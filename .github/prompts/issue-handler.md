@@ -485,9 +485,12 @@ Loop:
        # review-fixer.yml approach (safer than requiring a
        # specific finding-header format that could change).
        # Dropped `verdict.*correct` from clean patterns: it
-       # matches reviews that say "the change is correct" but
-       # still list findings (demonstrated on this very PR).
+       # false-positively matched reviews saying "the change is
+       # correct" while still listing findings above.
        HAS_FINDINGS=false
+       if [ -z "$REVIEW_BODY" ]; then
+         echo "WARNING: no 'Code Review' sticky comment found — assuming clean"
+       fi
        if [ -n "$REVIEW_BODY" ]; then
          if ! echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge'; then
            HAS_FINDINGS=true

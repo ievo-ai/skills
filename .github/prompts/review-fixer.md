@@ -57,7 +57,16 @@ If MERGE_STATE is "DIRTY":
            if GIT_EDITOR=true git rebase --continue; then
              break  # rebase finished
            fi
-           # Stopped on next commit — loop to resolve
+           # --continue failed; if no conflicts remain, the commit became
+           # empty after taking --ours for all infra files — skip it
+           if [ -z "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then
+             if ! git rebase --skip; then
+               REBASE_CONFLICT_OK=false
+               break
+             fi
+             continue  # check next commit
+           fi
+           # Still has conflicts → loop to resolve
          done
 
          # Guard: verify rebase is not still in progress
@@ -81,10 +90,20 @@ If MERGE_STATE is "DIRTY":
        node --test plugins/ievo/scripts/tests/*.test.mjs
        pre-commit run --all-files || pre-commit run --all-files
 
-  3. Force-push the rebased branch (safe on a handler topic branch):
+  3. Verify main hasn't moved during rebase + tests (prevents
+     pushing a stale branch that would be DIRTY immediately):
+       git fetch origin main
+       FINAL_BEHIND=$(git rev-list --count HEAD..origin/main)
+       if [ "$FINAL_BEHIND" != "0" ]; then
+         gh pr comment "$PR_NUMBER" --repo "$REPO" \
+           --body "Post-rebase check: main moved $FINAL_BEHIND commits ahead during rebase — operator review needed."
+         exit 1
+       fi
+
+  4. Force-push the rebased branch (safe on a handler topic branch):
        git push --force-with-lease origin HEAD
 
-  4. The push triggers fresh CI runs. Exit cleanly — the next
+  5. The push triggers fresh CI runs. Exit cleanly — the next
      pr-fixer invocation (triggered by the new CI run completing)
      will handle any remaining check failures:
        echo "Rebased and pushed — exiting to let fresh CI runs complete"

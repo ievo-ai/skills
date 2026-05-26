@@ -252,7 +252,16 @@ Non-infrastructure conflicts escalate to operator:
         if GIT_EDITOR=true git rebase --continue; then
           break  # rebase finished
         fi
-        # Stopped on next commit — loop to resolve
+        # --continue failed; if no conflicts remain, the commit became
+        # empty after taking --ours for all infra files — skip it
+        if [ -z "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then
+          if ! git rebase --skip; then
+            REBASE_CONFLICT_OK=false
+            break
+          fi
+          continue  # check next commit
+        fi
+        # Still has conflicts → loop to resolve
       done
 
       # Guard: verify rebase is not still in progress
@@ -464,6 +473,13 @@ Loop:
                    fi
                    if GIT_EDITOR=true git rebase --continue; then
                      break
+                   fi
+                   # Empty commit after --ours? Skip it.
+                   if [ -z "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then
+                     if ! git rebase --skip; then
+                       REBASE_CONFLICT_OK=false; break
+                     fi
+                     continue
                    fi
                  done
                  # Guard: verify rebase is not still in progress

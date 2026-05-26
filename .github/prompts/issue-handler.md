@@ -315,6 +315,8 @@ NO_RUN_ATTEMPT=0                 # claude-review run-not-found retries
 Loop:
   1. The PR number is in $PR_NUMBER (captured in Phase 4b.5 from
      the `gh pr create --draft` URL). Use it for all gh subcommands.
+     Reset per-iteration state at the top of each loop body:
+       REVIEW_NEEDS_RETRIGGER=false
 
   2. Wait for ALL THREE checks to reach terminal state.
      `gh pr checks --json state` returns **lowercase** state strings:
@@ -448,7 +450,7 @@ Loop:
            # Steps 4b/4c may have coverage/pre-commit fixes to process
            # in the same round. The retrigger happens in step 4d AFTER
            # all fix types have been addressed.
-           REVIEW_NEEDS_RETRIGGER=false
+           # (REVIEW_NEEDS_RETRIGGER is initialized at loop top in step 1)
            IS_STRUCTURAL_STATUS=$(case "$REVIEW_STATE" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
            if [ "$IS_STRUCTURAL_STATUS" = "yes" ] || echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
              STRUCTURAL_ATTEMPT=$((STRUCTURAL_ATTEMPT + 1))

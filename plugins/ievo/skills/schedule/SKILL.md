@@ -2,6 +2,7 @@
 name: schedule
 description: Configure a Claude Code Routine for periodic iEvo operations — recurring security audits, skill-update checks, or custom iEvo commands on a cron schedule. Three-step wizard: pick operation (security audit / skill refresh / custom), pick frequency (daily / weekly / monthly / custom cron), confirm and create. Uses Claude Code Routines for Anthropic-managed execution. Falls back to CI cron instructions when Routines are unavailable (API-key auth, Free plan). Use when the user asks "schedule an iEvo audit", "set up weekly security scan", "automate iEvo", "run iEvo on a schedule", "periodic security check", or "create a routine for iEvo".
 license: MIT
+effort: low
 allowed-tools:
   - AskUserQuestion
   - Bash(claude*)

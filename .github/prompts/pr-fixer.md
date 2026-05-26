@@ -114,7 +114,7 @@ Stage only the files you changed (no git add -A):
   git add <specific files>
   git commit -m "fix: address check failures (round $FIX_NUMBER) [pr-fix-$FIX_NUMBER]
 
-  Co-Authored-By: iEVO <noreply@ievo.ai>"
+Co-Authored-By: iEVO <noreply@ievo.ai>"
   git push
 
 ## Safety Rules

@@ -317,7 +317,8 @@ Loop:
      the `gh pr create --draft` URL). Use it for all gh subcommands.
      Reset per-iteration state at the top of each loop body:
        REVIEW_NEEDS_RETRIGGER=false
-       NO_RUN_ATTEMPT=0
+       # NOTE: do NOT reset NO_RUN_ATTEMPT here — it must accumulate
+       # across outer iterations so the >= 5 escalation guard fires.
 
   2. Wait for ALL THREE checks to reach terminal state.
      `gh pr checks --json state` returns **lowercase** state strings:
@@ -577,7 +578,7 @@ Co-Authored-By: iEVO <noreply@ievo.ai>"
          git add <fixed files>
          git commit -m "fix: address check failures (round $ATTEMPT) [pr-fix-$ATTEMPT]
 
-         Co-Authored-By: iEVO <noreply@ievo.ai>"
+Co-Authored-By: iEVO <noreply@ievo.ai>"
          git push
 
   7. Budget check — if ATTEMPT >= MAX_ATTEMPTS, post exhaustion

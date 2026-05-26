@@ -116,17 +116,19 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
         run: |
-          ORG="ievo-ai"
-          # Use /orgs/{org}/members to list ALL members (public + private).
-          # The single-user endpoint /orgs/{org}/members/{user} only sees
-          # public membership without admin:org scope — fails on private members.
-          if gh api "orgs/$ORG/members" --jq '.[].login' 2>&1 | grep -qx "$ISSUE_AUTHOR"; then
-            echo "Issue author $ISSUE_AUTHOR is an org member — proceeding"
+          # Check if issue author is a repo collaborator. Uses the
+          # collaborators endpoint which works with the App's existing
+          # contents:write permission (no extra org-level scope needed).
+          # The /orgs/{org}/members endpoint requires members:read which
+          # the App doesn't have.
+          REPO="${{ github.repository }}"
+          if gh api "repos/$REPO/collaborators/$ISSUE_AUTHOR" 2>/dev/null; then
+            echo "Issue author $ISSUE_AUTHOR is a repo collaborator — proceeding"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Issue author $ISSUE_AUTHOR is not an org member (or API error) — skipping"
-            gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
-              -f body="Issue handler only processes issues from org members. Author \`$ISSUE_AUTHOR\` is not a member of \`$ORG\`." 2>/dev/null || true
+            echo "Issue author $ISSUE_AUTHOR is not a collaborator (or API error) — skipping"
+            gh api "repos/$REPO/issues/${{ github.event.issue.number }}/comments" \
+              -f body="Issue handler only processes issues from repo collaborators. Author \`$ISSUE_AUTHOR\` does not have access." 2>/dev/null || true
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 

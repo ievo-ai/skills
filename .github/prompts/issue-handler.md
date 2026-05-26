@@ -301,11 +301,16 @@ The three checks this loop monitors:
 # Initialize ATTEMPT from existing [pr-fix-N] markers in branch
 # history so the handler respects its own prior commits if
 # restarted (crash/timeout → reopened issue retrigger).
+# `grep -c` exits 1 on zero matches but still prints "0" to stdout;
+# use `|| true` to suppress the exit code without appending a
+# second "0" (which `|| echo 0` would do, corrupting ATTEMPT).
 ATTEMPT=$(git log --oneline "$(git merge-base HEAD origin/main)"..HEAD 2>/dev/null \
-  | grep -c '\[pr-fix-' || echo 0)
+  | grep -c '\[pr-fix-' || true)
+ATTEMPT=${ATTEMPT:-0}
 MAX_ATTEMPTS=5
 STRUCTURAL_ATTEMPT=0             # action-side flake retriggers (separate budget)
 STRUCTURAL_MAX=3
+NO_RUN_ATTEMPT=0                 # claude-review run-not-found retries
 
 Loop:
   1. The PR number is in $PR_NUMBER (captured in Phase 4b.5 from
@@ -382,6 +387,7 @@ Loop:
              node --test plugins/ievo/scripts/tests/*.test.mjs
              pre-commit run --all-files || pre-commit run --all-files
              git push --force-with-lease origin HEAD
+             waited=0  # reset poll budget for fresh CI run after rebase
              continue  # restart Phase 5 poll loop — push cleared DIRTY, fresh CI should now fire
            fi
            # Not DIRTY — genuinely timed out. Diagnostic + exit.
@@ -413,8 +419,16 @@ Loop:
              "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq .headRefName)" \
              --workflow "Claude Code Review" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
            if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-             echo "No claude-review run found yet — waiting for dispatch"
+             NO_RUN_ATTEMPT=$((NO_RUN_ATTEMPT + 1))
+             if [ "$NO_RUN_ATTEMPT" -ge 5 ]; then
+               MSG="claude-review run never appeared after $NO_RUN_ATTEMPT retries on PR #$PR_NUMBER. Workflow dispatch may be broken. Manual operator review needed."
+               echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+               echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+               exit 1
+             fi
+             echo "No claude-review run found yet — waiting for dispatch (retry $NO_RUN_ATTEMPT/5)"
              sleep 30
+             waited=0  # reset poll budget so step 2 re-polls fresh
              continue  # restart poll loop
            fi
 
@@ -430,6 +444,11 @@ Loop:
              LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log 2>&1)
            fi
 
+           # Detect structural vs real — but do NOT `continue` yet.
+           # Steps 4b/4c may have coverage/pre-commit fixes to process
+           # in the same round. The retrigger happens in step 4d AFTER
+           # all fix types have been addressed.
+           REVIEW_NEEDS_RETRIGGER=false
            IS_STRUCTURAL_STATUS=$(case "$REVIEW_STATE" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
            if [ "$IS_STRUCTURAL_STATUS" = "yes" ] || echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
              STRUCTURAL_ATTEMPT=$((STRUCTURAL_ATTEMPT + 1))
@@ -443,25 +462,21 @@ Loop:
                echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
                exit 1
              fi
-             echo "Structural claude-review failure ($STRUCTURAL_ATTEMPT/$STRUCTURAL_MAX) — retrigger via close+reopen"
-             gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
-             # sleep 15 — 5s was occasionally too short under load /
-             # during GitHub incidents; the close state needs to
-             # propagate before the API accepts reopen (otherwise 422
-             # "PR is already open"). Costs nothing on the happy path.
-             sleep 15
-             gh pr reopen "$PR_NUMBER" --repo "$REPO"
-             continue  # restart poll loop — retrigger, not a fix-attempt
+             REVIEW_NEEDS_RETRIGGER=true
+             echo "Structural claude-review failure ($STRUCTURAL_ATTEMPT/$STRUCTURAL_MAX) — will retrigger after processing 4b/4c"
            fi
 
-           # Real review findings — read and fix
-           gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,comments
-           gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-             --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | .body'
-           # Address EACH finding:
-           #   * Read the specific file and line
-           #   * Understand the reviewer's concern
-           #   * Fix the issue
+           # Real review findings (only if not structural) — read and fix
+           if [ "$REVIEW_NEEDS_RETRIGGER" = "false" ]; then
+             # Real review findings — read and fix
+             gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,comments
+             gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+               --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | .body'
+             # Address EACH finding:
+             #   * Read the specific file and line
+             #   * Understand the reviewer's concern
+             #   * Fix the issue
+           fi
          fi
 
      4b. coverage-gate failure — reproduce locally, fix coverage gaps.
@@ -510,7 +525,50 @@ Loop:
            pre-commit run --all-files || pre-commit run --all-files
          fi
 
-  5. Commit all fixes from this round, push, and check budget.
+     4d. If claude-review was structural, retrigger AFTER processing
+         4b/4c so coverage/pre-commit fixes are not lost.
+
+         if [ "$REVIEW_NEEDS_RETRIGGER" = "true" ]; then
+           # If 4b/4c produced fixes, commit + push first so the
+           # reopened PR's CI reruns against the fixed code.
+           if ! git diff --cached --quiet || ! git diff --quiet; then
+             ATTEMPT=$((ATTEMPT + 1))
+             git add <fixed files>
+             git commit -m "fix: address check failures (round $ATTEMPT) [pr-fix-$ATTEMPT]
+
+             Co-Authored-By: iEVO <noreply@ievo.ai>"
+             git push
+           fi
+           gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
+           # sleep 15 — 5s was occasionally too short under load /
+           # during GitHub incidents; the close state needs to
+           # propagate before the API accepts reopen (otherwise 422
+           # "PR is already open"). Costs nothing on the happy path.
+           sleep 15
+           gh pr reopen "$PR_NUMBER" --repo "$REPO"
+           waited=0  # reset poll budget for fresh CI run
+           continue  # restart poll loop — retrigger, not a fix-attempt
+         fi
+
+  5. Validate all fixes locally before committing — a fix for one
+     check must not break another.
+
+         node --test --experimental-test-coverage \
+           --test-reporter=lcov --test-reporter-destination=coverage.lcov \
+           --test-reporter=spec --test-reporter-destination=stdout \
+           plugins/ievo/scripts/tests/*.test.mjs
+         node .github/scripts/check-coverage.mjs coverage.lcov
+         pre-commit run --all-files || pre-commit run --all-files
+
+  6. Commit fixes — but only if there are actual changes to commit.
+     If the LLM judged all findings as low-severity skips, or local
+     re-runs pass clean, committing with no changes would crash.
+
+         if git diff --cached --quiet && git diff --quiet; then
+           echo "No changes after fix round — skipping commit, re-polling"
+           waited=0
+           continue
+         fi
 
          ATTEMPT=$((ATTEMPT + 1))
          git add <fixed files>
@@ -519,7 +577,7 @@ Loop:
          Co-Authored-By: iEVO <noreply@ievo.ai>"
          git push
 
-  6. Budget check — if ATTEMPT >= MAX_ATTEMPTS, post exhaustion
+  7. Budget check — if ATTEMPT >= MAX_ATTEMPTS, post exhaustion
      to BOTH the original issue thread AND the PR thread:
 
          if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then

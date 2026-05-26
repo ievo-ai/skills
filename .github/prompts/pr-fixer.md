@@ -38,6 +38,11 @@ Skip findings that:
 
 ### For coverage-gate failures:
 
+First check the check state — skip structural failures
+(CANCELLED/TIMEOUT/NEUTRAL/SKIPPING) which indicate infra
+flakes, not code issues. Only proceed with local reproduction
+if the failure is a real FAIL state.
+
 Reproduce the failure locally:
   node --test --experimental-test-coverage \
     --test-reporter=lcov --test-reporter-destination=coverage.lcov \
@@ -58,6 +63,9 @@ After fixing, re-run to verify 100/100/100:
   node .github/scripts/check-coverage.mjs coverage.lcov
 
 ### For pre-commit-gate failures:
+
+Same as coverage-gate: skip structural failures (CANCELLED/TIMEOUT/
+NEUTRAL/SKIPPING). Only fix real FAIL states.
 
 Reproduce the failure locally:
   PRECOMMIT_OUTPUT=$(pre-commit run --all-files 2>&1 || true)

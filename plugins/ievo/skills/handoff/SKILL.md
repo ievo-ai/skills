@@ -7,10 +7,8 @@ effort: low
 allowed-tools:
   - Read
   - Glob
-  - Bash(mktemp*)
-  - Bash(uname*)
   - Write
-compatibility: Works on any agent platform that supports the agentskills.io standard. Uses Read + Glob for context gathering, Write for output. Bash limited to temp-dir detection (mktemp) and OS detection (uname). Output is a plain Markdown file readable by any agent on any platform. No external dependencies.
+compatibility: Works on any agent platform that supports the agentskills.io standard. Uses Read + Glob for context gathering, Write for output. Output is a plain Markdown file readable by any agent on any platform. No external dependencies.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -45,15 +43,15 @@ The user's choice (or freeform "Other" response) becomes the stated purpose.
 
 ## Step 1: Determine output path
 
-Detect the OS temp directory and generate a unique filename:
+Use the OS temp directory (via the `TMPDIR` environment variable, falling back to `/tmp`) and generate a unique filename:
 
-```sh
-mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}"
+```
+${TMPDIR:-/tmp}
 ```
 
 Build the output path: `<temp-dir>/ievo-handoff-<YYYYMMDD-HHMMSS>.md`
 
-Use ISO-8601 basic format for the timestamp (no colons — Windows-safe, sortable).
+Use ISO-8601 basic format for the timestamp (no colons — Windows-safe, sortable). No Bash invocation needed — the agent reads the `TMPDIR` env var directly or defaults to `/tmp`.
 
 ## Step 2: Gather context for the handoff document
 

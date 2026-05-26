@@ -37,14 +37,15 @@ ievo-ai/skills/
         ├── init/SKILL.md              # /ievo:init — orchestrator
         ├── evolution/SKILL.md         # /ievo:evolution — overlay capture
         ├── feedback/SKILL.md          # /ievo:feedback — file GitHub issues
-        ├── deep-review/SKILL.md        # /ievo:deep-review — structured gap-detection review
+        ├── deep-review/SKILL.md       # /ievo:deep-review — structured gap-detection review
         ├── debug-on/SKILL.md          # /ievo:debug-on — enable verbose session logging
         ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
         ├── hooks-setup/SKILL.md       # /ievo:hooks-setup — configure lifecycle hooks
         ├── overlay-status/SKILL.md    # /ievo:overlay-status — list active evolution overlays
         ├── index-repos/SKILL.md       # /ievo:index-repos — enumerate a repo
         ├── schedule/SKILL.md          # /ievo:schedule — create Routines for periodic operations
-        └── security-check/SKILL.md    # /ievo:security-check — antivirus audit
+        ├── security-check/SKILL.md    # /ievo:security-check — antivirus audit
+        └── vuln-scan/SKILL.md         # /ievo:vuln-scan — CWE-aware source vulnerability scan
 ```
 
 ## Key conventions

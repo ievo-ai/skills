@@ -23,6 +23,8 @@ Your job is NOT to re-run linters or type-checkers. Those already passed. You ca
 
 For each file in `changed_files`, use Read to load the **complete current content** (not just the diff hunk). You need surrounding context to judge whether a change is complete, consistent, and correct.
 
+**Staged-mode caveat:** `Read` reads the working tree, not the git index. When the diff was captured with `git diff --staged`, the file on disk may include unstaged hunks that are not part of the diff. Treat the diff as the authoritative record of what is being committed. Do not flag issues that are visible only in the working-tree content but absent from the diff — those changes are not being reviewed.
+
 If a file was deleted, note it but skip reading. If a file is binary, skip with a note.
 
 ## Step 2: Execute the 10-point review checklist
@@ -84,6 +86,8 @@ Are parallel changes consistent across files? Look for:
 - Database column changes not reflected in ORM models or migration files
 - Duplicated logic updated in one copy but not another
 
+**Expand beyond changed files:** For each symbol renamed or removed in the diff, use Grep to search the codebase for references to that symbol. Read any referencing files not already in `changed_files` to check whether they need a corresponding update. This is the most important step — cross-file inconsistencies almost always involve files that are not in the diff.
+
 ### Point 7: Error-path coverage
 
 Are error conditions handled completely? Look for:
@@ -122,7 +126,7 @@ Are concurrent access patterns safe? Look for:
 
 ## Step 3: Build structured output
 
-Return your findings as a structured report. Format:
+Sort findings by severity before writing the report: **blockers first**, then **warnings**, then **notes**. Return your findings as a structured report. Format:
 
 ```
 ## Deep Review — <N> finding(s)

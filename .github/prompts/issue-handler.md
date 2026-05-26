@@ -201,7 +201,10 @@ branch creates a DIRTY PR — and DIRTY PRs get NO CI checks
 fired (GitHub Actions skips `pull_request` events on PRs that
 can't merge cleanly), so the Phase 5 review loop dies silently.
 Rebase loop with up to 3 attempts (covers near-simultaneous
-sibling pushes):
+sibling pushes). If a rebase produces conflicts in
+`.github/prompts/*.md` files, auto-resolve by taking main's
+version (shared infrastructure — latest main is authoritative).
+Non-infrastructure conflicts escalate to operator:
 
   REBASE_ATTEMPT=0
   REBASE_MAX=3
@@ -217,13 +220,48 @@ sibling pushes):
     if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
       echo "Rebase succeeded clean"
     else
-      # Since PRs no longer touch version files (version-bump.yml
-      # handles versioning), conflicts are unexpected. Abort and
-      # escalate to operator.
-      git rebase --abort
-      echo "Rebase conflict — escalating to issue thread"
-      gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Rebase against latest main produced conflicts. Operator review needed. Branch: $(git branch --show-current)"
-      exit 1
+      # Conflict during rebase — attempt smart auto-resolution.
+      # `.github/prompts/*.md` files are shared infrastructure that
+      # multiple handler runs edit concurrently. When they conflict,
+      # main's version is authoritative — take it and continue.
+      # Non-infrastructure conflicts cannot be safely auto-resolved.
+      REBASE_CONFLICT_OK=true
+      while true; do
+        CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
+        if [ -z "$CONFLICTING" ]; then
+          break
+        fi
+        ALL_INFRA=true
+        for file in $CONFLICTING; do
+          case "$file" in
+            .github/prompts/*.md)
+              # --ours = rebase target (origin/main) during rebase
+              git checkout --ours "$file"
+              git add "$file"
+              ;;
+            *)
+              ALL_INFRA=false
+              break
+              ;;
+          esac
+        done
+        if [ "$ALL_INFRA" = "false" ]; then
+          REBASE_CONFLICT_OK=false
+          break
+        fi
+        if GIT_EDITOR=true git rebase --continue 2>/dev/null; then
+          break  # rebase finished
+        fi
+        # Stopped on next commit — loop to resolve
+      done
+
+      if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+        git rebase --abort
+        echo "Rebase conflict in non-infrastructure files — escalating"
+        gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Rebase conflict in files outside .github/prompts/ — operator review needed. Branch: $(git branch --show-current)"
+        exit 1
+      fi
+      echo "Rebase succeeded after auto-resolving .github/prompts/ conflicts"
     fi
     REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
   done
@@ -400,9 +438,32 @@ Loop:
                if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
                  :  # clean rebase
                else
-                 git rebase --abort
-                 gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase produced conflicts — operator review needed."
-                 exit 1
+                 # Smart conflict resolution — same logic as Phase 4h.
+                 # `.github/prompts/*.md` → take main's version (--ours
+                 # during rebase = target branch). Other files → abort.
+                 REBASE_CONFLICT_OK=true
+                 while true; do
+                   CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
+                   [ -z "$CONFLICTING" ] && break
+                   ALL_INFRA=true
+                   for file in $CONFLICTING; do
+                     case "$file" in
+                       .github/prompts/*.md) git checkout --ours "$file"; git add "$file" ;;
+                       *) ALL_INFRA=false; break ;;
+                     esac
+                   done
+                   if [ "$ALL_INFRA" = "false" ]; then
+                     REBASE_CONFLICT_OK=false; break
+                   fi
+                   if GIT_EDITOR=true git rebase --continue 2>/dev/null; then
+                     break
+                   fi
+                 done
+                 if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+                   git rebase --abort
+                   gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "Recovery rebase conflict in non-infrastructure files — operator review needed."
+                   exit 1
+                 fi
                fi
                REBASE_ATTEMPT=$((REBASE_ATTEMPT+1))
              done

@@ -56,6 +56,7 @@ ievo-ai/skills/
       claude-code-review.yml
       coverage-gate.yml
       pre-commit-gate.yml
+      release-please.yml
     scripts/
       check-coverage.mjs
       validators/

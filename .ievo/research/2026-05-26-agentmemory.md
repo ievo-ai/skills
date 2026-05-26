@@ -26,6 +26,7 @@
 - **Search:** Triple-stream hybrid — BM25 (keyword) + vector (semantic) + knowledge graph, reranked on-device
 - **Benchmarks (claimed):** 95.2% R@5 on LongMemEval-S (ICLR 2025, 500 questions), 2.2x precision vs grep baseline, P50 retrieval under 20ms
 - **MCP tools:** 8 core + 43 extended (51 total, gated behind `AGENTMEMORY_TOOLS=all`)
+- **REST API:** 124 endpoints on port 3111 (per project README/OpenAPI spec; local network only by default)
 - **Hooks:** 12 capture hooks for Claude Code, 6 for Codex CLI, 22 for OpenCode
 - **No external DBs** — self-contained by default
 
@@ -157,7 +158,7 @@ If iEvo bundles or recommends agentmemory as a default, every iEvo user inherits
 |---|---|
 | **NPM org control** | `@agentmemory` NPM scope — controlled by rohitg00/iii.dev. A malicious update would affect all users. |
 | **iii engine binary** | Precompiled Rust binary downloaded from GitHub releases. Not reproducible-build verified. Users trust the artifact. |
-| **Single maintainer** | rohitg00 is the primary maintainer. Bus factor = 1 for the agentmemory layer. |
+| **Primary author** | rohitg00 is the primary author of the agentmemory layer (additional contributors not independently verified). Single-org governance risk is captured in the NPM org control row above. |
 | **iii-hq governance** | No documented governance model found. iii engine decisions are made by iii-hq org. |
 | **Native binary hooks** | The iii engine intercepts all worker I/O — any telemetry or exfiltration would be invisible at the TypeScript layer. |
 
@@ -192,7 +193,7 @@ Recommending agentmemory as a default install would bypass this model — users 
 
 **Do NOT bundle, fork, or default-install agentmemory.** Instead:
 
-1. **Acknowledge it exists** — if users ask about persistent memory during `/ievo:init` or elsewhere, mention agentmemory as a third-party option alongside other memory tools (claude-mem, MemPalace, Basic Memory).
+1. **Acknowledge it exists** — if users ask about persistent memory during `/ievo:init` or elsewhere, mention agentmemory as a third-party option alongside other community memory MCP tools.
 
 2. **Do NOT add to default init flow** — the iii engine ELv2 dependency and supply chain risks disqualify it from being a recommended-by-default install. iEvo's value proposition is zero-dep, inspectable, cross-platform. Recommending a proprietary-engine-dependent MCP server contradicts this.
 
@@ -232,4 +233,4 @@ The issue correctly identifies that agentmemory and handoff (#112) address the s
 - [x] Comparison matrix in markdown (Section 2)
 - [x] Concrete recommendation: **A (Endorse only, with constraints)** + rationale (Section 5)
 - [x] Recommendation = A: no separate proposal issue needed (no implementation work — acknowledgment is passive)
-- [x] `.ievo/memory/CONTEXT.md` update: not applicable (directory does not exist in repo; verdict does not change iEvo strategy — existing approach is validated)
+- [ ] `.ievo/memory/CONTEXT.md` update: not applicable (directory does not exist in repo; verdict does not change iEvo strategy — existing approach is validated)

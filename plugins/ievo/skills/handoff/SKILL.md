@@ -1,7 +1,6 @@
 ---
 name: handoff
 description: Compact the current conversation into a portable handoff document for a fresh agent session. Solves the context-window degradation problem — reasoning quality drops past ~120k tokens, so instead of /compact (lossy summarization), branch out-of-scope work into a focused parallel session with curated context. Produces a Markdown document with the next session's purpose, relevant context excerpts, suggested iEvo skills, artifact pointers (file paths, PR/issue links), and redacted secrets. Saved to OS temp dir for easy copy-paste into a new session. Use when the user says "hand off", "hand this off", "create a handoff", "branch this to another session", "pass context to next session", "start a new session for X", or invokes /ievo:handoff.
-argument-hint: "What will the next session be used for?"
 license: MIT
 effort: low
 allowed-tools:
@@ -43,15 +42,16 @@ The user's choice (or freeform "Other" response) becomes the stated purpose.
 
 ## Step 1: Determine output path
 
-Use the OS temp directory (via the `TMPDIR` environment variable, falling back to `/tmp`) and generate a unique filename:
+Use the OS temp directory and generate a unique filename. Resolve in priority order:
 
-```
-${TMPDIR:-/tmp}
-```
+1. `TMPDIR` — set on POSIX systems (macOS, Linux)
+2. `TEMP` — set on Windows
+3. `TMP` — Windows legacy fallback
+4. `/tmp` — last resort
 
 Build the output path: `<temp-dir>/ievo-handoff-<YYYYMMDD-HHMMSS>.md`
 
-Use ISO-8601 basic format for the timestamp (no colons — Windows-safe, sortable). No Bash invocation needed — the agent reads the `TMPDIR` env var directly or defaults to `/tmp`.
+Use ISO-8601 basic format for the timestamp (no colons — Windows-safe, sortable). No Bash invocation needed — the agent reads the relevant env var directly.
 
 ## Step 2: Gather context for the handoff document
 
@@ -114,7 +114,7 @@ Before writing the handoff document, scan ALL text content for sensitive pattern
 | GitHub tokens | `ghp_...`, `gho_...`, `ghs_...`, `github_pat_...` | `[REDACTED]` |
 | Private key blocks | `-----BEGIN.*PRIVATE KEY-----` | `[REDACTED PRIVATE KEY]` |
 | Connection strings with credentials | `://user:pass@host` | `://[REDACTED]@host` |
-| High-entropy strings (40+ hex chars) | `a1b2c3d4e5f6...` | `[REDACTED]` |
+| High-entropy strings (40+ hex chars, excluding exact 40-char git SHAs) | `a1b2c3d4e5f6...` (>40 chars) | `[REDACTED]` |
 
 Redaction is best-effort — the denylist cannot catch every secret. The handoff document header includes a warning about this (see Step 4).
 

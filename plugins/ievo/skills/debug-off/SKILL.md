@@ -1,6 +1,6 @@
 ---
 name: debug-off
-description: Disable verbose / trace-level logging for the iEvo pipeline. Reverts to normal logging (concise `.ievo/log/init-*.md` only). Use when debugging is complete and user wants to stop accumulating large trace logs. Trigger words — "turn off debug", "stop verbose", "disable trace", "debug off".
+description: "Disable verbose / trace-level logging for the iEvo pipeline. Reverts to normal logging (concise `.ievo/log/init-*.md` only). Use when debugging is complete and user wants to stop accumulating large trace logs. Trigger words — \"turn off debug\", \"stop verbose\", \"disable trace\", \"debug off\"."
 license: MIT
 effort: low
 compatibility: "Works on any agent platform that supports the agentskills.io standard. Inverse of `/ievo:debug-on`. The current implementation uses POSIX shell commands (`rm -f`, `ls`, `du`); on Windows hosts run via WSL or Git Bash, or fall back to the Write/Read tool equivalents documented inline."

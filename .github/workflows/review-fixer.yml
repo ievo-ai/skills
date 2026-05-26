@@ -4,7 +4,7 @@
 # created by the issue-handler (author = claude[bot]) and the review
 # posted findings, this workflow checks out the PR branch, runs Claude
 # to fix the findings, and pushes. The push re-triggers claude-review,
-# which re-triggers this workflow if findings remain — up to 3 rounds.
+# which re-triggers this workflow if findings remain — up to 5 rounds.
 #
 # Human-authored PRs are skipped — humans fix their own review feedback.
 # release-please PRs (ievo-eva[bot]) are also skipped — those are

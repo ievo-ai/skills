@@ -113,12 +113,14 @@ For each detected item, fetch its content to extract metadata. Prioritise breadt
 
 Prioritise fetches in this order: plugin manifests first, then SKILL.md files, then agent `.md` files, then command files, then hooks, then scripts last. When the total item count exceeds the 30-fetch cap, skip lower-priority categories.
 
+If any fetch returns null content (file over 1MB) or exits non-zero, skip the item and note it in the output footer.
+
 ### 4a. Plugin manifests
 
 For each detected `plugin.json`:
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content | @base64d'
+gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '(.content // empty) | @base64d'
 ```
 
 Extract: `name`, `version`, `description`, `author`, `license`, `keywords`.
@@ -128,7 +130,7 @@ Extract: `name`, `version`, `description`, `author`, `license`, `keywords`.
 For each detected `SKILL.md`, fetch and parse the YAML frontmatter (the `---`-delimited block at the top):
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '.content | @base64d'
+gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>" --jq '(.content // empty) | @base64d'
 ```
 
 Extract from frontmatter: `name`, `description`, `allowed-tools`, `compatibility`, `effort`, `license`.
@@ -153,7 +155,7 @@ Extract: event types (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, etc.) and
 
 ### 4f. README
 
-If `README.md` exists at the repo root, fetch the first 40 lines for a project-level summary. If the response has no `content` field but includes `download_url`, the file exceeds the GitHub contents API 1MB limit — skip the README summary and note it was too large to fetch.
+If `README.md` exists at the repo root, fetch the first 40 lines for a project-level summary. If `gh api` exits non-zero (e.g. 403 for files over 1MB), skip the README summary and note it was too large to fetch.
 
 **Fetch cap:** Cap file content fetches at 30 to keep the inspect fast. Note in the output if some items were skipped.
 

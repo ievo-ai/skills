@@ -73,8 +73,15 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 - Forward-looking roadmap (planned items) stays in `AGENTS.md` § Roadmap.
 - Shipped-version history lives in `CHANGELOG.md`.
-- **Version bumping is automated via `version-bump.yml`.** PRs MUST NOT manually bump version files. On every merge to main, the workflow bumps all 4 version files + AGENTS.md ledger + CHANGELOG.md atomically. Bump type derived from conventional commit prefix (`feat:` → minor, `fix:` → patch). CHANGELOG entry generated from the merged PR description.
-- The FOUR version files (`.claude-plugin/marketplace.json` ×2, `plugins/ievo/.claude-plugin/plugin.json`, `plugins/ievo/scripts/discover.mjs` `SCRIPT_VERSION`) + the compliance ledger header in AGENTS.md are all bumped by the workflow. The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
+- **Every PR that changes plugin files MUST bump the version.** Bump all FOUR files in the same commit:
+  1. `.claude-plugin/marketplace.json` → `metadata.version` + `plugins[0].version`
+  2. `plugins/ievo/.claude-plugin/plugin.json` → `version`
+  3. `plugins/ievo/scripts/discover.mjs` → `export const SCRIPT_VERSION`
+  4. AGENTS.md → compliance ledger header `(vX.Y.Z)`
+- Bump type: `fix:` → patch, `feat:` → minor, `feat!:` → minor (pre-1.0).
+- Query main's CURRENT version at push time (not branch time) to avoid race with parallel PRs. Check open PRs for in-flight version claims and pick the next free slot.
+- Add a CHANGELOG.md entry in the same commit — reverse-chronological, `## vX.Y.Z` header.
+- The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
 
 ### Skills format
 - Every `SKILL.md` MUST conform to [agentskills.io spec](https://agentskills.io/specification)
@@ -152,10 +159,14 @@ If a function is genuinely impossible to test in isolation (e.g., network call t
 
 No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` is under the 100% gate. The `CARVE_OUTS` map in `.github/scripts/check-coverage.mjs` is empty; keep it as the canonical place to grandfather any future legitimate exception.
 
-### Version bumping — automated via version-bump.yml
-- **PRs MUST NOT bump version files.** On every merge to main, `version-bump.yml` automatically bumps all four version files + AGENTS.md compliance ledger + CHANGELOG.md in a single `[version-bump]` commit.
-- Bump type from conventional commit prefix: `feat:` → minor, `fix:` → patch, `feat!:` → minor (pre-1.0).
-- CHANGELOG entry generated from the merged PR description (Summary section).
+### Version bumping — in every PR
+- **Every PR bumps version** in **four files** in the same commit:
+  1. `.claude-plugin/marketplace.json` → `metadata.version` + `plugins[0].version`
+  2. `plugins/ievo/.claude-plugin/plugin.json` → `version`
+  3. `plugins/ievo/scripts/discover.mjs` → `export const SCRIPT_VERSION`
+  4. AGENTS.md → compliance ledger header `**Current compliance ledger (vX.Y.Z):**`
+- Also add a `## vX.Y.Z` entry in `CHANGELOG.md` (reverse-chronological).
+- To avoid race with parallel PRs: query main's CURRENT version at push time via `gh api`, check open PRs for claimed versions, pick next free slot.
 - The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block.
 

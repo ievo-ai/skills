@@ -21,9 +21,11 @@ ievo-ai/skills/
 └── plugins/ievo/                      # The plugin itself
     ├── .claude-plugin/plugin.json     # Plugin manifest
     ├── agents/                        # Sub-agents (Claude Code + Codex Task tool)
+    │   ├── deep-reviewer.md           # Independent gap-detection reviewer for /ievo:deep-review
     │   ├── evolution.md
     │   ├── repo-indexer.md            # Parallel dispatch per repo for indexing
-    │   └── security-auditor.md        # Parallel dispatch per item for antivirus audit
+    │   ├── security-auditor.md        # Parallel dispatch per item for antivirus audit
+    │   └── vuln-scanner.md            # Per-module vulnerability scanner for /ievo:vuln-scan
     ├── commands/                      # Slash commands (Claude Code-specific)
     │   ├── uninstall.md
     │   └── update.md
@@ -36,6 +38,7 @@ ievo-ai/skills/
         ├── init/SKILL.md              # /ievo:init — orchestrator
         ├── evolution/SKILL.md         # /ievo:evolution — overlay capture
         ├── feedback/SKILL.md          # /ievo:feedback — file GitHub issues
+        ├── deep-review/SKILL.md       # /ievo:deep-review — structured gap-detection review
         ├── debug-on/SKILL.md          # /ievo:debug-on — enable verbose session logging
         ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
         ├── handoff/SKILL.md           # /ievo:handoff — portable context handoff between sessions
@@ -43,7 +46,8 @@ ievo-ai/skills/
         ├── overlay-status/SKILL.md    # /ievo:overlay-status — list active evolution overlays
         ├── index-repos/SKILL.md       # /ievo:index-repos — enumerate a repo
         ├── schedule/SKILL.md          # /ievo:schedule — create Routines for periodic operations
-        └── security-check/SKILL.md    # /ievo:security-check — antivirus audit
+        ├── security-check/SKILL.md    # /ievo:security-check — antivirus audit
+        └── vuln-scan/SKILL.md         # /ievo:vuln-scan — CWE-aware source vulnerability scan
 ```
 
 ## Key conventions

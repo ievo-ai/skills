@@ -24,7 +24,8 @@ ievo-ai/skills/
     │   ├── deep-reviewer.md           # Independent gap-detection reviewer for /ievo:deep-review
     │   ├── evolution.md
     │   ├── repo-indexer.md            # Parallel dispatch per repo for indexing
-    │   └── security-auditor.md        # Parallel dispatch per item for antivirus audit
+    │   ├── security-auditor.md        # Parallel dispatch per item for antivirus audit
+    │   └── vuln-scanner.md            # Per-module vulnerability scanner for /ievo:vuln-scan
     ├── commands/                      # Slash commands (Claude Code-specific)
     │   ├── uninstall.md
     │   └── update.md

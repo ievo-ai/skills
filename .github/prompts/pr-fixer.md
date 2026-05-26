@@ -69,8 +69,9 @@ crlf-frontmatter, machine-local-paths, placeholder-leakage,
 utf8-validate, validate_agents), read the error output and fix the
 violations manually.
 
-After fixing, re-run to verify:
-  pre-commit run --all-files
+After fixing, re-run to verify (double-run: first applies auto-fixes,
+second verifies clean):
+  pre-commit run --all-files || pre-commit run --all-files
 
 ## Step 3 — Validate all checks locally
 
@@ -84,8 +85,8 @@ fixing one check must not break another:
     plugins/ievo/scripts/tests/*.test.mjs
   node .github/scripts/check-coverage.mjs coverage.lcov
 
-  # Pre-commit validators
-  pre-commit run --all-files
+  # Pre-commit validators (double-run: first applies auto-fixes, second verifies)
+  pre-commit run --all-files || pre-commit run --all-files
 
   # Agent validation (if agent .md files changed)
   node plugins/ievo/scripts/validate_agents.mjs

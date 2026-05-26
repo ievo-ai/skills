@@ -414,6 +414,13 @@ Loop:
              continue  # restart poll loop
            fi
 
+           # `--log-failed` only returns logs from job steps recorded
+           # as failed — but structural patterns (Workflow validation
+           # failed, OIDC fetch fail, App token exchange fail) happen
+           # at runner BOOTSTRAP / workflow STARTUP, before any step is
+           # recorded. Fall back to full `--log` when `--log-failed`
+           # returns empty, otherwise we mis-classify structural fails
+           # as real findings.
            LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
            if [ -z "$(echo "$LOG" | tr -d '[:space:]')" ]; then
              LOG=$(gh run view "$RUN_ID" --repo "$REPO" --log 2>&1)
@@ -422,6 +429,10 @@ Loop:
            IS_STRUCTURAL_STATUS=$(case "$REVIEW_STATE" in SKIPPING|CANCELLED|TIMEOUT|NEUTRAL) echo "yes" ;; *) echo "no" ;; esac)
            if [ "$IS_STRUCTURAL_STATUS" = "yes" ] || echo "$LOG" | grep -qE "HttpError: Bad credentials|Workflow validation failed|Workflow initiated by non-human actor|Could not fetch an OIDC token|App token exchange failed"; then
              STRUCTURAL_ATTEMPT=$((STRUCTURAL_ATTEMPT + 1))
+             # `-gt` (not `-ge`): with STRUCTURAL_MAX=3, escalate
+             # AFTER the 3rd retrigger (attempts 1, 2, 3 all
+             # retrigger; attempt 4 → escalate). `-ge` would have
+             # escalated after only 2 retriggers (off-by-one).
              if [ "$STRUCTURAL_ATTEMPT" -gt "$STRUCTURAL_MAX" ]; then
                MSG="Structural CI failures persisted across $STRUCTURAL_ATTEMPT retriggers on PR #$PR_NUMBER. This is likely a permanent action-side problem (missing org secret, revoked token, claude-code-action regression). Manual operator review needed."
                echo "$MSG" | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
@@ -430,6 +441,10 @@ Loop:
              fi
              echo "Structural claude-review failure ($STRUCTURAL_ATTEMPT/$STRUCTURAL_MAX) — retrigger via close+reopen"
              gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Auto-close to retrigger after structural CI failure"
+             # sleep 15 — 5s was occasionally too short under load /
+             # during GitHub incidents; the close state needs to
+             # propagate before the API accepts reopen (otherwise 422
+             # "PR is already open"). Costs nothing on the happy path.
              sleep 15
              gh pr reopen "$PR_NUMBER" --repo "$REPO"
              continue  # restart poll loop — retrigger, not a fix-attempt
@@ -480,8 +495,9 @@ Loop:
            # crlf-frontmatter, machine-local-paths, placeholder-leakage,
            # utf8-validate, validate_agents), read the error output and fix
            # the violations manually.
-           # After fixing, re-run to verify:
-           pre-commit run --all-files
+           # After fixing, re-run to verify (double-run: first run
+           # applies auto-fixes, second run verifies clean):
+           pre-commit run --all-files || pre-commit run --all-files
          fi
 
   5. Commit all fixes from this round, push, and check budget.

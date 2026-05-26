@@ -34,7 +34,7 @@ export const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^claude-/, why: "Anthropic-specific ID" },
   { pattern: /^gpt-/, why: "OpenAI-specific ID" },
   { pattern: /^gemini-/, why: "Google-specific ID" },
-  { pattern: /^o[12345]/, why: "OpenAI o-series ID" },
+  { pattern: /^o\d/, why: "OpenAI o-series ID" },
   { pattern: /-\d+-\d+/, why: "Version-pinned ID" },
   { pattern: /-\d{8}/, why: "Date-pinned snapshot" },
   { pattern: /^\S+@\S+/, why: "Provider-namespaced model" },
@@ -52,6 +52,18 @@ export function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Minimal single-line-only YAML frontmatter parser.
+ *
+ * Limitation: this handles only simple `key: value` lines. Multi-line YAML
+ * constructs — block scalars (`|`, `>`), continuation/folded lines, sequences
+ * (`- item`), and nested mappings — are silently skipped. Any line without a
+ * top-level colon is ignored. This is intentional: SKILL.md frontmatter uses
+ * only flat scalar fields (name, description, license, compatibility, model),
+ * so a full YAML parser is unnecessary. If the agentskills.io spec ever adds
+ * structured frontmatter fields, this function must be replaced with a proper
+ * YAML parser (e.g. `yaml` npm package).
+ */
 export function parseFrontmatter(content) {
   const normalized = content.replace(/\r\n?/g, "\n");
   const match = normalized.match(/^---\s*\n([\s\S]*?)\n---/);

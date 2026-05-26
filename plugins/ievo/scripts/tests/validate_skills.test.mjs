@@ -66,7 +66,7 @@ describe("constants", () => {
     assert.ok(patterns.includes("^claude-"));
     assert.ok(patterns.includes("^gpt-"));
     assert.ok(patterns.includes("^gemini-"));
-    assert.ok(patterns.includes("^o[12345]"));
+    assert.ok(patterns.includes("^o\\d"));
   });
 
   it("every forbidden pattern has a non-empty why reason", () => {
@@ -444,13 +444,21 @@ describe("main (CLI entry)", () => {
     };
   }
 
-  it("exits 2 when discover fails (no default skills dir — subprocess)", () => {
-    // The try/catch around discoverSkillFiles in main() is exercised by the
-    // subprocess test below ("exits 2 when no files found"). Here we verify
-    // the error message format via the injected errLog.
-    // Since we can't override DEFAULT_SKILLS_DIR (a const), we use a subprocess
-    // in the CLI tests to run from a CWD where the dir doesn't exist.
-    assert.ok(true);
+  it("exits 2 and prints error when discover fails (no default skills dir)", () => {
+    // Exercise main()'s try/catch around discoverSkillFiles synchronously by
+    // changing cwd to a directory where plugins/ievo/skills/ doesn't exist.
+    const emptyRoot = join(tmpDir, "empty-root-sync");
+    mkdirSync(emptyRoot, { recursive: true });
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(emptyRoot);
+      const run = makeRun();
+      main(["node", "validate_skills.mjs"], run.exit, run.log, run.errLog);
+      assert.equal(run.exitCode, 2);
+      assert.ok(run.errs.some((e) => e.includes("cannot scan skills directory")));
+    } finally {
+      process.chdir(originalCwd);
+    }
   });
 
   it("exits 0 when all skills pass (explicit files)", () => {

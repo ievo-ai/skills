@@ -27,11 +27,12 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Detect 5 markdown/text hygiene anti-patterns at commit time | `pre-commit-gate.yml` workflow + `.pre-commit-config.yaml` | `.github/scripts/validators/*.mjs` | covered | nested-fences, machine-local-paths, crlf-frontmatter, placeholder-leakage, validate-agents |
 | Surface a code-review verdict on every PR | `claude-code-review.yml` workflow | — | covered | sticky-comment + track_progress, posts inline + summary |
 | Generate a domain-specific MVP harness blueprint for a new agent project | — | — | **gap** | iEvo discovers + audits + installs existing skills; doesn't generate new skill bodies from a domain prompt. Out of scope for v0.6.x; could be a future `/ievo:scaffold` skill. |
-| Pin a release with auto-generated changelog from commits | — | — | **gap** | Each version bumps manifests + roadmap entry by hand. Could automate via release-please or similar. |
+| Pin a release with auto-generated changelog from commits | `release-please.yml` workflow | — | covered | Automated via release-please (shipped v0.7.0+): conventional commit prefixes (`feat:` → minor, `fix:` → patch) drive a persistent Release PR that bumps all 4 version files atomically. |
 | Cortex A/B validation gate for evolution proposals | — | — | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
 | GitHub search source in `discover.mjs` for agent-only / plugin-only repos | — | (`discover.mjs` extension) | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
 | Schedule periodic iEvo operations via Claude Code Routines | `/ievo:schedule` | — | covered | Guided wizard: operation type + frequency + routine creation. Falls back to CI cron when Routines unavailable. Claude Code only (Routines require Pro/Max/Team/Enterprise + v2.1.149+). |
 | Standalone "list installed iEvo overlays" command | `/ievo:overlay-status` | — | covered | Reads `.ievo/evolution/`, groups by scope (Project / agents / skills) matching the actual layout written by `evolution/SKILL.md` (`project.md` flat file, plus `agents/<name>.md` and `skills/<name>.md` subdirs); extracts one-line summary per file with last-modified date; flags overlays untouched 180+ days as candidates for cleanup; pure Read + Glob + `stat` (Bash limited to `stat` for mtime; Windows-without-POSIX hosts gracefully omit dates) |
+| Scan project source code for vulnerabilities (CWE-aware, exploit-chain validated) | `/ievo:vuln-scan` | — (`vuln-scan/SKILL.md` per-module worker + `vuln-scanner` agent dispatched in parallel) | covered | Glasswing-inspired: Step 1 reads all source files, Step 2 maps data flows, Step 3 detects via CWE taxonomy, Step 4 validates with exploit chains (no chain = no finding). Sonnet-tier reasoning required; parallel module dispatch via Task tool. |
 | Standalone "show next-step suggestions based on installed skills" | — | — | gap | Adjacent to evolution capture but discovery-oriented |
 
 ## Required language and scope checks
@@ -69,6 +70,7 @@ ievo-ai/skills/
       evolution.md
       repo-indexer.md
       security-auditor.md
+      vuln-scanner.md
     commands/
       uninstall.md
       update.md
@@ -88,6 +90,7 @@ ievo-ai/skills/
       index-repos/SKILL.md
       schedule/SKILL.md
       security-check/SKILL.md
+      vuln-scan/SKILL.md
 ```
 
 ## How to update this file

@@ -26,6 +26,7 @@ const SCRIPTS_DIR = "plugins/ievo/scripts";
 const REQUIRED = new Set([
   "discover.mjs",
   "validate_agents.mjs",
+  "validate_skills.mjs",
   "scan_repo.mjs",
 ]);
 

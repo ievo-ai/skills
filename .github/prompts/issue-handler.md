@@ -327,7 +327,9 @@ Loop:
          waited=$((waited + 60))
        done
      Then branch on $STATUS for next-step routing —
-       PASS    → step 3 (success path)
+       PASS    → step 3 (post-PASS finding check: read sticky
+                         comment before declaring success — claude-
+                         code-review returns success even with findings)
        FAIL    → step 2.5 (distinguish structural vs real BEFORE fixing)
        PENDING → step 2.6 (check mergeable: if DIRTY, rebase + retry;
                            otherwise timed out — diagnostic + exit)
@@ -464,9 +466,44 @@ Loop:
          echo "$MSG" | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
          exit 1
 
-  3. If all checks pass → done! Post success comment and exit.
+  3. STATUS is PASS — but claude-code-review returns success even
+     when it posts findings (it only fails on structural errors
+     like OIDC / auth failures). Before declaring success, read
+     the sticky comment to check whether the review found issues:
 
-  4. If claude-code-review has findings:
+       REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+         --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body // ""')
+
+       # Determine if findings exist in the review body.
+       # Clean-review indicators: claude-code-action uses phrases
+       # like "no issues found" / "looks good to merge" when the
+       # review has no actionable findings.
+       # Finding indicators: each finding gets a "### Finding"
+       # header in the sticky comment body.
+       HAS_FINDINGS=false
+       if [ -n "$REVIEW_BODY" ]; then
+         if echo "$REVIEW_BODY" | grep -qiE 'no issues|looks good to merge|no findings|ready to merge|verdict.*correct'; then
+           HAS_FINDINGS=false
+         elif echo "$REVIEW_BODY" | grep -qE '### Finding'; then
+           HAS_FINDINGS=true
+         fi
+       fi
+
+       if [ "$HAS_FINDINGS" = "true" ]; then
+         echo "Review PASSED but sticky comment contains findings — entering fix loop"
+         # Fall through to step 4 (treat exactly like a FAIL
+         # with real findings — read, fix, push, re-poll).
+         # ATTEMPT counter still applies — this consumes a fix
+         # attempt just like FAIL-routed findings.
+       else
+         # Truly clean (explicit clean phrase, no findings, or
+         # no review comment at all) → proceed to Phase 6
+         break
+       fi
+
+  4. If claude-code-review has findings (reached from step 3 when
+     PASS-with-findings, or from step 2.5 when FAIL with real
+     findings):
        - Read the review comments. `claude-code-action` uses
          `use_sticky_comment: true` which posts a single sticky
          issue-comment, not inline review diff-comments. Read both

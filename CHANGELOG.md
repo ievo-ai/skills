@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.11.0
+
+Update `hooks-setup/SKILL.md` for Claude Code v2.1.152 hook system additions. Documents the new `MessageDisplay` hook type (session logging, response telemetry), `SessionStart` return fields (`reloadSkills: true` for automatic skill reload, `sessionTitle` for UI display), and the `/reload-skills` command as the manual reload alternative. Adds a hook types reference table, two new optional configuration steps (5.6 MessageDisplay, 5.7 SessionStart), and updates the merge/confirmation flow to handle all four hook types. Closes #140.
+
 ## v0.9.0
 
 Add `yaml-frontmatter.mjs` pre-commit validator to catch YAML frontmatter syntax errors before they reach production. Detects unquoted values containing `: ` (colon-space), unterminated quoted strings, duplicate keys, flow indicator characters, and inline comment ambiguity. For SKILL.md files, also validates required fields (`name`, `description`) and description length. Motivated by PR #122 where 5 SKILL.md files had Codex-breaking unquoted colons that survived all existing validators. Includes comprehensive test suite (60 tests). Closes #119.

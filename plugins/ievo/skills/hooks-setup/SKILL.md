@@ -1,6 +1,6 @@
 ---
 name: hooks-setup
-description: "Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, evolution captured, and (optional) all-background-agents-complete via a Stop hook. Writes PostToolUse and Stop hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks \"notify me when ievo finishes\", \"add hooks for ievo\", \"set up ievo notifications\", \"tell me when background agents are done\", or \"configure ievo lifecycle hooks\". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal. The optional Stop hook for background-complete requires v2.1.145+ for the `background_tasks` and `session_crons` fields in the Stop hook input."
+description: "Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, evolution captured, background-agents-complete (Stop), session logging (MessageDisplay), and auto-reload on project open (SessionStart). Writes hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks \"notify me when ievo finishes\", \"add hooks for ievo\", \"set up ievo notifications\", \"tell me when background agents are done\", \"log AI responses\", \"auto-reload skills\", or \"configure ievo lifecycle hooks\". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications require v2.1.141+; Stop hook fields require v2.1.145+; MessageDisplay hook and SessionStart return fields (`reloadSkills`, `sessionTitle`) require v2.1.152+."
 license: MIT
 effort: low
 allowed-tools:
@@ -11,7 +11,7 @@ allowed-tools:
   - Bash(test*)
   - Bash(chmod*)
   - Bash(claude*)
-compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema."
+compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields); v2.1.152+ (MessageDisplay hook type, SessionStart return fields `reloadSkills`/`sessionTitle`, `/reload-skills` command). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -21,12 +21,23 @@ metadata:
 
 Configure Claude Code lifecycle hooks that fire on iEvo pipeline events — so you can get notified when a long init finishes, when a security audit finds something RED, or when an evolution is captured.
 
-Uses two Claude Code hook features (verified against [v2.1.139](https://github.com/anthropics/claude-code/releases/tag/v2.1.139) + [v2.1.141](https://github.com/anthropics/claude-code/releases/tag/v2.1.141) release notes):
+Uses four Claude Code hook features (verified against [v2.1.139](https://github.com/anthropics/claude-code/releases/tag/v2.1.139), [v2.1.141](https://github.com/anthropics/claude-code/releases/tag/v2.1.141), and [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) release notes):
 
 - **Exec-form `args: string[]`** (v2.1.139+): spawns the command directly without a shell at the *outer* invocation — eliminates the shell-quoting injection surface when paths get interpolated into the matcher → args chain. (We still use `sh -c "..."` *inside* `args` for the `date`/`mkdir`/`echo` pipeline — that's intentional, and there's no user-controlled input in the inner shell string.)
 - **`terminalSequence`** field on hook JSON output (v2.1.141+): emits desktop notifications, window titles, and bells without requiring a controlling terminal.
+- **`MessageDisplay` hook type** (v2.1.152+): fires when a message is displayed to the user — enables session logging, response telemetry, or overlay injection without intercepting the tool-call path.
+- **`SessionStart` return fields** (v2.1.152+): SessionStart hooks can return a JSON object with `reloadSkills: true` (triggers skill reload without `/reload-skills`) and `sessionTitle: "..."` (sets the session display title in the Claude Code UI).
 
 Hooks trigger on **signal files** that iEvo writes at well-known paths under `.ievo/hooks/`. Init, evolution, and the security-auditor agent each write their respective signal file as a final step (added in v0.6.9 alongside this skill); this skill configures the matching `PostToolUse` `Write(...)` hooks.
+
+### Hook types reference
+
+| Hook type | When it fires | Min version | iEvo use case |
+|-----------|--------------|-------------|---------------|
+| `PostToolUse` | After a tool call completes | v2.1.139+ | Signal-file write detection (Steps 1–5) |
+| `Stop` | When the session is about to stop | v2.1.145+ | Background-agents-complete notification (Step 5.5) |
+| `MessageDisplay` | When a message is displayed to the user | v2.1.152+ | Session logging, response telemetry (Step 5.6) |
+| `SessionStart` | When a new session begins | v2.1.152+ | Auto-reload iEvo skills, set session title (Step 5.7) |
 
 ## Step 1: Ask the user which events to hook
 
@@ -40,7 +51,7 @@ Options (multi-select):
 - "evolution-captured"  — when /ievo:evolution captures a lesson overlay
 ```
 
-If user picks nothing, do NOT exit yet — Step 5.5 below offers an independent Stop hook flow. Only exit at the end of Step 5.5 if both Step 1 and Step 5.5 produced zero hook entries.
+If user picks nothing, do NOT exit yet — Steps 5.5–5.7 below offer independent hook flows (Stop, MessageDisplay, SessionStart). Only exit at the end of Step 5.7 if Steps 1, 5.5, 5.6, and 5.7 all produced zero hook entries.
 
 ## Step 2: Ask for notification preference
 
@@ -135,7 +146,7 @@ Configure background-agents-complete notification (read-side Stop hook)?
 - "no"   — skip (you can re-run /ievo:hooks-setup later)
 ```
 
-If "no" → skip to Step 6 (with whatever signal-file entries Step 5 built; if Step 5 also produced zero entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later.").
+If "no" → skip to Step 5.6 (MessageDisplay and SessionStart hooks are offered independently).
 
 ### Step 5.5.2: Ask for notification command
 
@@ -212,6 +223,93 @@ For Step 6's merge stage, build this entry (to be added to `hooks.Stop[]`):
 
 Stop hook entries don't have a `matcher` field — Claude Code calls every Stop hook on every stop, the script itself decides whether to act. Dedup at merge time by checking whether an existing entry has the same `args` array.
 
+### Step 5.6: Optional — MessageDisplay hook for session logging
+
+**Added in Claude Code v2.1.152.** The `MessageDisplay` hook fires every time a message is displayed to the user — both assistant responses and tool-result summaries. Unlike the PostToolUse signal-file hooks (write-side, one-shot), MessageDisplay is a high-frequency read-side hook suitable for continuous session logging or telemetry.
+
+#### Step 5.6.1: Ask whether to configure
+
+```
+Configure MessageDisplay hook for iEvo session logging?
+- "yes"  — log every displayed message to .ievo/log/hooks/messages.log (timestamped, append-only)
+- "no"   — skip
+```
+
+If "no" → skip to Step 5.7.
+
+#### Step 5.6.2: Build the MessageDisplay hook entry
+
+The hook logs each displayed message to `.ievo/log/hooks/messages.log` with a UTC timestamp. No notification — this is a silent audit trail for debugging and telemetry.
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) message-display\" >> .ievo/log/hooks/messages.log"]
+    }
+  ]
+}
+```
+
+MessageDisplay entries go into `hooks.MessageDisplay[]` in settings.json (Step 6 merge). Like Stop hooks, MessageDisplay hooks have no `matcher` field — they fire on every message display event.
+
+### Step 5.7: Optional — SessionStart hook for iEvo project auto-detection
+
+**Added in Claude Code v2.1.152.** SessionStart hooks fire when a new Claude Code session begins. In v2.1.152+, the hook can return a JSON object with two new fields:
+
+- **`reloadSkills: true`** — causes Claude Code to reload all installed skills without requiring the user to type `/reload-skills` (the manual equivalent, also new in v2.1.152). This ensures iEvo skills are fresh on every session start.
+- **`sessionTitle: "..."`** — sets the session display title in the Claude Code UI. Useful for identifying which project an iEvo session belongs to.
+
+#### Step 5.7.1: Ask whether to configure
+
+```
+Configure SessionStart hook for iEvo project auto-detection?
+- "yes"  — auto-reload iEvo skills + set session title when opening a project with .ievo/
+- "no"   — skip (you can manually reload skills with /reload-skills)
+```
+
+If "no" → skip to Step 6. If Steps 1, 5.5, 5.6, and 5.7 all produced zero hook entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later."
+
+#### Step 5.7.2: Write the SessionStart hook script
+
+Use the Write tool to create `.ievo/hooks/scripts/on-session-start.sh`. The script checks for `.ievo/plugin.json` (present in any iEvo-initialized project), reads the project name, and returns the JSON object that triggers skill reload + title setting.
+
+```bash
+#!/bin/sh
+# iEvo SessionStart hook — auto-reload skills + set session title for iEvo projects.
+# Requires Claude Code v2.1.152+ (SessionStart return fields).
+# Exit 0 always — informational hook, never blocks session start.
+
+if [ -f ".ievo/plugin.json" ]; then
+  PROJECT=$(node -e "const f=require('./.ievo/plugin.json'); console.log(f.name||'project')" 2>/dev/null || echo "project")
+  printf '{"reloadSkills":true,"sessionTitle":"iEvo — %s"}' "$PROJECT"
+fi
+
+exit 0
+```
+
+Then make it executable. Use Bash: `chmod +x .ievo/hooks/scripts/on-session-start.sh`.
+
+**Manual alternative:** users who prefer explicit control can skip this hook and use the `/reload-skills` command (v2.1.152+) to manually reload skills at any time during a session.
+
+#### Step 5.7.3: Build the SessionStart hook entry
+
+For Step 6's merge stage, build this entry (to be added to `hooks.SessionStart[]`):
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["sh", ".ievo/hooks/scripts/on-session-start.sh"]
+    }
+  ]
+}
+```
+
+SessionStart hook entries don't have a `matcher` field — Claude Code calls every SessionStart hook on every session start. Dedup at merge time by checking whether an existing entry has the same `args` array.
+
 ## Step 6: Merge entries into settings.json
 
 Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing comments and key order on Claude Code's tolerant JSON parser). Pseudo-procedure:
@@ -219,6 +317,8 @@ Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing com
 1. Read current settings.json (from Step 4, or `{}` if absent).
 2. For signal-file entries (Step 5): ensure `hooks.PostToolUse` exists as an array; create if missing. For each new entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append.
 3. For the Stop hook entry (Step 5.5, if Step 5.5.1 = "yes"): ensure `hooks.Stop` exists as an array; create if missing. Stop hook entries have no `matcher`, so dedup by comparing the inner `hooks[0].args` array — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-stop.sh"]`, skip with "Stop hook already configured; skipping." Otherwise append.
+4. For the MessageDisplay hook entry (Step 5.6, if Step 5.6.1 = "yes"): ensure `hooks.MessageDisplay` exists as an array; create if missing. Dedup by comparing `hooks[0].args` — if an existing entry's args ends with `messages.log"]`, skip with "MessageDisplay hook already configured; skipping." Otherwise append.
+5. For the SessionStart hook entry (Step 5.7, if Step 5.7.1 = "yes"): ensure `hooks.SessionStart` exists as an array; create if missing. Dedup by comparing `hooks[0].args` — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-session-start.sh"]`, skip with "SessionStart hook already configured; skipping." Otherwise append.
 
 ## Step 7: Confirm with the user
 
@@ -254,17 +354,25 @@ Hooks fire on these signal-file writes (PostToolUse):
 Stop hook (read-side, .ievo/hooks/scripts/on-stop.sh):
   fires once per session-stop, ONLY when background_tasks=0 AND session_crons=0
   (i.e. all parallel subagents from /ievo:init are done; requires Claude Code v2.1.145+)
+[If Step 5.6 configured:]
+MessageDisplay hook (read-side):
+  logs every displayed message to .ievo/log/hooks/messages.log (requires Claude Code v2.1.152+)
+[If Step 5.7 configured:]
+SessionStart hook (.ievo/hooks/scripts/on-session-start.sh):
+  auto-reloads iEvo skills + sets session title when opening a project with .ievo/
+  (requires Claude Code v2.1.152+; manual alternative: /reload-skills command)
 Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f` / `grep` it).
 ```
 
 ## Rules
 
-- **Never overwrite** existing `PostToolUse` entries — append only, with the dedup check in Step 6.3.
+- **Never overwrite** existing hook entries — append only, with the dedup checks in Step 6 (items 2–5).
 - **Project scope is recommended** for team-shared signal (the same hooks fire for everyone on the team after pulling). Global scope is for personal-machine-wide preferences.
 - **Logs go to `.ievo/log/hooks/`** even when `none` is selected as the notification — silent operation, but the audit trail is still available.
 - **Signal files are written by other iEvo skills** (init, evolution, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
 - **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
-- **Stop hook script is local, not team-shared.** Notification commands are OS- and preference-specific (macOS osascript vs Linux notify-send vs custom path), so `.ievo/hooks/scripts/on-stop.sh` is intentionally written under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10). The Stop hook entry in `settings.json` is project-scope-tracked, but the script it references is not — when a team member pulls a project that uses the Stop hook, Claude Code will log a hook-launch error if their `.ievo/hooks/scripts/on-stop.sh` is absent. The error is cosmetic (Stop hook is non-blocking by design; the missing-script `sh` exit is also non-blocking on session flow). To activate the hook locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copy of the script.
+- **SessionStart hook is non-blocking always.** `.ievo/hooks/scripts/on-session-start.sh` exits 0 unconditionally. Output is only emitted when `.ievo/plugin.json` exists — in non-iEvo projects the hook is a silent no-op.
+- **Hook scripts are local, not team-shared.** Scripts under `.ievo/hooks/scripts/` (Stop, SessionStart) are gitignored by `/ievo:init` Step 10. The hook entries in `settings.json` are project-scope-tracked, but the scripts they reference are not — when a team member pulls, Claude Code will log a hook-launch error if scripts are absent. The error is cosmetic (non-blocking by design). To activate locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copies.
 
 ## See also
 
@@ -278,4 +386,5 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - [Claude Code v2.1.141 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.141) — `terminalSequence` desktop-notification field
 - [Claude Code v2.1.143 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.143) — `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` env var (default 8) for blocking Stop hooks
 - [Claude Code v2.1.145 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.145) — Stop + SubagentStop hook input gains `background_tasks` and `session_crons` fields
+- [Claude Code v2.1.152 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) — `MessageDisplay` hook type, SessionStart return fields (`reloadSkills`, `sessionTitle`), `/reload-skills` command
 - Signal-file trigger pattern (`PostToolUse` + `Write(<path>)` matcher) is portable across any host that matches Write-tool calls to a path pattern

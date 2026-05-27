@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.10.0
+
+New `/ievo:inspect` skill — pre-install structured summary of a remote skill/plugin repo. Fetches the repo tree and key file frontmatter via `gh api`, then renders a human-readable capability overview (skills, agents, commands, scripts, hooks, MCP servers, aggregate permission footprint) without triggering discovery, security scan, or install. Read-only, pure SKILL.md (no scripts, no coverage obligation). Closes #67.
+
 ## v0.9.0
 
 Add `yaml-frontmatter.mjs` pre-commit validator to catch YAML frontmatter syntax errors before they reach production. Detects unquoted values containing `: ` (colon-space), unterminated quoted strings, duplicate keys, flow indicator characters, and inline comment ambiguity. For SKILL.md files, also validates required fields (`name`, `description`) and description length. Motivated by PR #122 where 5 SKILL.md files had Codex-breaking unquoted colons that survived all existing validators. Includes comprehensive test suite (60 tests). Closes #119.

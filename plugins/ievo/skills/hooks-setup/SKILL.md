@@ -225,7 +225,9 @@ Stop hook entries don't have a `matcher` field — Claude Code calls every Stop 
 
 ## Step 5.6: Optional — MessageDisplay hook for session logging
 
-**Added in Claude Code v2.1.152.** The `MessageDisplay` hook fires every time a message is displayed to the user — both assistant responses and tool-result summaries. Unlike the PostToolUse signal-file hooks (write-side, one-shot), MessageDisplay is a high-frequency read-side hook suitable for continuous session logging or telemetry.
+**Added in Claude Code v2.1.152.** The `MessageDisplay` hook fires every time a message is displayed to the user — both assistant responses and tool-result summaries. Unlike the PostToolUse signal-file hooks (write-side, one-shot), MessageDisplay is a high-frequency read-side hook suitable for continuous session activity logging.
+
+**Note:** MessageDisplay fires on every displayed message — a moderately active session can produce hundreds of log entries per hour. Rotate or prune `messages.log` periodically for long-running projects.
 
 ### Step 5.6.1: Ask whether to configure
 
@@ -246,7 +248,7 @@ The hook logs each displayed message to `.ievo/log/hooks/messages.log` with a UT
   "hooks": [
     {
       "type": "command",
-      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) message-display\" >> .ievo/log/hooks/messages.log"]
+      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) message-display\" >> .ievo/log/hooks/messages.log; exit 0"]
     }
   ]
 }
@@ -316,7 +318,7 @@ Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing com
 1. Read current settings.json (from Step 4, or `{}` if absent).
 2. For signal-file entries (Step 5): ensure `hooks.PostToolUse` exists as an array; create if missing. For each new entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append.
 3. For the Stop hook entry (Step 5.5, if Step 5.5.1 = "yes"): ensure `hooks.Stop` exists as an array; create if missing. Stop hook entries have no `matcher`, so dedup by comparing the inner `hooks[0].args` array — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-stop.sh"]`, skip with "Stop hook already configured; skipping." Otherwise append.
-4. For the MessageDisplay hook entry (Step 5.6, if Step 5.6.1 = "yes"): ensure `hooks.MessageDisplay` exists as an array; create if missing. Dedup by comparing the full `hooks[0].args` array — if an existing entry's `args[0]` is `"sh"` AND `args[1]` is `"-c"` AND `args[2]` contains `.ievo/log/hooks/messages.log`, skip with "MessageDisplay hook already configured; skipping." Otherwise append.
+4. For the MessageDisplay hook entry (Step 5.6, if Step 5.6.1 = "yes"): ensure `hooks.MessageDisplay` exists as an array; create if missing. Dedup by comparing `hooks[0].args` — if an existing entry's `args[0]` is `"sh"` AND `args[1]` is `"-c"` AND `args[2]` contains both `message-display` and `messages.log`, skip with "MessageDisplay hook already configured; skipping." Otherwise append.
 5. For the SessionStart hook entry (Step 5.7, if Step 5.7.1 = "yes"): ensure `hooks.SessionStart` exists as an array; create if missing. Dedup by comparing `hooks[0].args` — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-session-start.sh"]`, skip with "SessionStart hook already configured; skipping." Otherwise append.
 
 ## Step 7: Confirm with the user
@@ -370,6 +372,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - **Logs go to `.ievo/log/hooks/`** even when `none` is selected as the notification — silent operation, but the audit trail is still available.
 - **Signal files are written by other iEvo skills** (init, evolution, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
 - **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
+- **MessageDisplay hook is non-blocking always.** The inline `sh -c` command appends `; exit 0` to guarantee a zero exit code even when the log write fails (full disk, EACCES). This is a high-frequency hook — fires on every displayed message.
 - **SessionStart hook is non-blocking always.** `.ievo/hooks/scripts/on-session-start.sh` exits 0 unconditionally. Output is only emitted when `.ievo/plugin.json` exists — in non-iEvo projects the hook is a silent no-op.
 - **Hook scripts are local, not team-shared.** Scripts under `.ievo/hooks/scripts/` (Stop, SessionStart) are gitignored by `/ievo:init` Step 10. The hook entries in `settings.json` are project-scope-tracked, but the scripts they reference are not — when a team member pulls, Claude Code will log a hook-launch error if scripts are absent. The error is cosmetic (non-blocking by design). To activate locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copies.
 

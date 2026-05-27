@@ -151,7 +151,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.12.0):**
+**Current compliance ledger (v0.13.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -176,11 +176,15 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - Commit footer: `Co-Authored-By: iEVO <noreply@ievo.ai>` (NOT the default Claude/Anthropic footer)
 - Merge strategy: merge commit (`--merge --delete-branch`), never squash
 
-### Issue handler — autonomous issue-to-PR pipeline
+### Issue lifecycle — two-phase discussion + implementation
 
-`issue-handler.yml` triggers on every new issue. Claude (Opus, max effort) does deep research, then either closes the issue with explanation or implements a fix/feature PR with full test coverage. After creating the PR, it monitors `claude-code-review` and iterates on feedback (max 3 attempts) until the review is green. Never auto-merges — human must review and merge.
+Issues follow a two-phase lifecycle (skills#153):
 
-Uses a GitHub App token (org-level App credentials) so that PRs trigger downstream workflows. See skills#65 for the full design.
+**Phase 1 — Discussion (`@ievo` triggered):** `issue-discussion.yml` triggers when an org member (MEMBER/OWNER) mentions `@ievo` in an issue comment. Claude (Opus) does deep research on the codebase and posts a structured analysis (Understanding, Approach, Questions, Conflicts, Risks). The bot does NOT create branches, open PRs, or modify files. Operators iterate via `@ievo` follow-up comments until requirements are clear. Edit and Write tools are excluded from --allowedTools to enforce read-only at the tool level.
+
+**Phase 2 — Implementation (`/implement` triggered):** `issue-handler.yml` triggers when an org member comments exactly `/implement` on an issue. Claude reads the discussion thread, validates that all questions are resolved, then either closes the issue with explanation or implements a fix/feature PR with full test coverage. After creating the PR, it monitors `claude-code-review` and iterates on feedback (max 5 attempts) until the review is green. Never auto-merges — human must review and merge.
+
+The discussion phase is optional — `/implement` works without prior `@ievo` discussion. Both workflows use a GitHub App token (org-level App credentials) so that PRs trigger downstream workflows. See skills#65 and skills#153 for the full design.
 
 **After merging infra fixes (workflow, CI config) into main** — immediately rebase open handler PRs that depend on the fix. A workflow fix in main is inert until dependent branches pull it in. Check `gh pr list --state open --author app/claude` and rebase any that would benefit.
 

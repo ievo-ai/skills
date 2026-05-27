@@ -151,7 +151,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.14.0):**
+**Current compliance ledger (v0.15.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -187,6 +187,18 @@ Issues follow a two-phase lifecycle (skills#153):
 The discussion phase is optional — `/implement` works without prior `@ievo` discussion. Both workflows use a GitHub App token (org-level App credentials) so that PRs trigger downstream workflows. See skills#65 and skills#153 for the full design.
 
 **After merging infra fixes (workflow, CI config) into main** — immediately rebase open handler PRs that depend on the fix. A workflow fix in main is inert until dependent branches pull it in. Check `gh pr list --state open --author app/claude` and rebase any that would benefit.
+
+### Conflict resolver — auto-rebase DIRTY handler PRs
+
+`conflict-resolver.yml` triggers on every push to main (and every 6 hours as a safety net). When main advances, open handler PRs may become DIRTY (merge conflicts) — GitHub Actions skips CI on DIRTY PRs, so the review-fixer never triggers. This workflow bridges the gap:
+
+1. Lists all open PRs by `app/claude` / `claude[bot]` with `mergeStateStatus == "DIRTY"`
+2. For each, rebases onto latest main
+3. `.github/prompts/*.md` conflicts → auto-resolved (take main's version, same as issue-handler Phase 4h)
+4. Non-infra conflicts → escalate to PR + linked issue comment
+5. Force-with-lease push triggers fresh CI
+
+No LLM needed — pure git rebase operations. Never auto-merges. Also supports `workflow_dispatch` for manual operator invocation.
 
 ### PR workflow — wait for in-progress reviews before merging
 

@@ -8,6 +8,7 @@
 //   3. `description`: required, ≤1024 chars
 //   4. `compatibility`: optional, but if present ≤500 chars
 //   5. No `model:` vendor-specific IDs (skills should not declare model preferences)
+//   6. `effort:` optional but recommended; warns on absent, errors on invalid value
 //
 // Exit codes:
 //   0 — all skills pass
@@ -27,6 +28,8 @@ export const NAME_MAX_LENGTH = 64;
 export const NAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 export const DESCRIPTION_MAX_LENGTH = 1024;
 export const COMPATIBILITY_MAX_LENGTH = 500;
+
+export const VALID_EFFORT_VALUES = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
 
@@ -103,6 +106,25 @@ export function checkModelField(model) {
   }];
 }
 
+export function checkEffortField(effort) {
+  if (!effort) {
+    return [{
+      severity: "warning",
+      rule: "missing-effort-field",
+      message: "Missing recommended frontmatter field: effort (values: low, medium, high, xhigh, max). " +
+               "Claude Code v2.1.149+ shows this in the status bar.",
+    }];
+  }
+  if (!VALID_EFFORT_VALUES.has(effort)) {
+    return [{
+      severity: "error",
+      rule: "invalid-effort-value",
+      message: `effort: "${effort}" is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}`,
+    }];
+  }
+  return [];
+}
+
 export function validateSkillContent(content, parentDirName) {
   const fm = parseFrontmatter(content);
   const violations = [];
@@ -174,6 +196,8 @@ export function validateSkillContent(content, parentDirName) {
     violations.push(...checkModelField(fm.model));
   }
 
+  violations.push(...checkEffortField(fm.effort));
+
   return violations;
 }
 
@@ -226,7 +250,8 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
     return exit(2);
   }
 
-  let totalViolations = 0;
+  let totalErrors = 0;
+  let totalWarnings = 0;
   let totalPassed = 0;
 
   for (const filePath of files) {
@@ -242,11 +267,20 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
       }];
     }
 
-    if (violations.length === 0) {
+    const errors = violations.filter((v) => v.severity === "error");
+    const warnings = violations.filter((v) => v.severity === "warning");
+    totalErrors += errors.length;
+    totalWarnings += warnings.length;
+
+    if (errors.length === 0) {
       totalPassed++;
-      if (!args.quiet) log(`✓ ${rel}`);
+      if (!args.quiet) {
+        log(`✓ ${rel}`);
+        for (const w of warnings) {
+          log(`    [${w.severity}] ${w.rule}: ${w.message}`);
+        }
+      }
     } else {
-      totalViolations += violations.length;
       log(`✗ ${rel}`);
       for (const v of violations) {
         log(`    [${v.severity}] ${v.rule}: ${v.message}`);
@@ -255,9 +289,9 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
   }
 
   log("");
-  log(`Summary: ${totalPassed} passed, ${totalViolations} violations across ${files.length} files`);
+  log(`Summary: ${totalPassed} passed, ${totalErrors} errors, ${totalWarnings} warnings across ${files.length} files`);
 
-  if (totalViolations > 0) {
+  if (totalErrors > 0) {
     log("");
     log("Fix: see agentskills.io/specification for field constraints.");
     return exit(1);

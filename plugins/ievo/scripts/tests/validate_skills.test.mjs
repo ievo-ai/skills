@@ -593,13 +593,14 @@ describe("main (CLI entry)", () => {
     const skillDir = join(tmpDir, "quiet-pass");
     mkdirSync(skillDir, { recursive: true });
     const filePath = join(skillDir, "SKILL.md");
-    writeFileSync(filePath, "---\nname: quiet-pass\ndescription: ok\neffort: medium\n---", "utf-8");
+    writeFileSync(filePath, "---\nname: quiet-pass\ndescription: ok\n---", "utf-8");
     const run = makeRun();
     main(["node", "validate_skills.mjs", "--quiet", filePath], run.exit, run.log, run.errLog);
     assert.equal(run.exitCode, 0);
     assert.ok(!run.logs.some((l) => l.includes("✓")));
     assert.ok(!run.logs.some((l) => l.includes("[warning]")));
     assert.match(run.logs.join("\n"), /1 passed/);
+    assert.match(run.logs.join("\n"), /1 warnings/);
   });
 
   it("--quiet still shows violations", () => {

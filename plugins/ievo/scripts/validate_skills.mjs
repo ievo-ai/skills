@@ -8,6 +8,7 @@
 //   3. `description`: required, ≤1024 chars
 //   4. `compatibility`: optional, but if present ≤500 chars
 //   5. No `model:` vendor-specific IDs (skills should not declare model preferences)
+//   6. `effort:` optional but recommended; warns on absent, errors on invalid value
 //
 // Exit codes:
 //   0 — all skills pass
@@ -267,7 +268,7 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
     }
 
     const errors = violations.filter((v) => v.severity === "error");
-    const warnings = violations.filter((v) => v.severity !== "error");
+    const warnings = violations.filter((v) => v.severity === "warning");
     totalErrors += errors.length;
     totalWarnings += warnings.length;
 

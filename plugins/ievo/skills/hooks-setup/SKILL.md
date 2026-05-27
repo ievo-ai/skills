@@ -232,8 +232,8 @@ Stop hook entries don't have a `matcher` field — Claude Code calls every Stop 
 ### Step 5.6.1: Ask whether to configure
 
 ```
-Configure MessageDisplay hook for iEvo session logging?
-- "yes"  — log every displayed message to .ievo/log/hooks/messages.log (timestamped, append-only)
+Configure MessageDisplay hook for iEvo session activity logging?
+- "yes"  — log message-display events to .ievo/log/hooks/messages.log (timestamps only, no content)
 - "no"   — skip
 ```
 
@@ -241,14 +241,14 @@ If "no" → skip to Step 5.7.
 
 ### Step 5.6.2: Build the MessageDisplay hook entry
 
-The hook logs each displayed message to `.ievo/log/hooks/messages.log` with a UTC timestamp. No notification — this is a silent audit trail for debugging and telemetry.
+The hook logs each message-display event to `.ievo/log/hooks/messages.log` with a UTC timestamp. Only the timestamp is recorded — message content is intentionally omitted for privacy and size. The `exec 0</dev/null` prefix closes stdin immediately to prevent pipe-buffer stalls if Claude Code pipes message content to the hook. No notification — this is a silent audit trail.
 
 ```json
 {
   "hooks": [
     {
       "type": "command",
-      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) message-display\" >> .ievo/log/hooks/messages.log; exit 0"]
+      "args": ["sh", "-c", "exec 0</dev/null; mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) message-display\" >> .ievo/log/hooks/messages.log; exit 0"]
     }
   ]
 }
@@ -281,6 +281,7 @@ Use the Write tool to create `.ievo/hooks/scripts/on-session-start.sh`. The scri
 #!/bin/sh
 # iEvo SessionStart hook — auto-reload skills + set session title for iEvo projects.
 # Requires Claude Code v2.1.152+ (SessionStart return fields).
+# Requires node (bundled with Claude Code; already required by iEvo).
 # Exit 0 always — informational hook, never blocks session start.
 
 if [ -f ".ievo/plugin.json" ]; then

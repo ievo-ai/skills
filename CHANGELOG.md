@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.14.0
+
+Handler posts decision-log comments to PR thread during implementation. New Phase 4b.6 (research summary after Phase 2), Phase 4c.5 (key design trade-offs after Phase 4c), and Phase 4d.5 (test strategy after Phase 4d) — each posts a concise "Handler decision log" comment to the PR thread. The review-fixer reads these comments for implementation context, ensuring fixes align with the handler's intent. Improves audit trail and handoff to fixer/operator. Closes #147.
+
 ## v0.13.0
 
 Two-phase issue lifecycle: `@ievo` discussion + `/implement` trigger. New `issue-discussion.yml` workflow triggers when an org member mentions `@ievo` in an issue comment — Claude does deep codebase research and posts a structured analysis (Understanding, Approach, Questions, Conflicts, Risks) without creating branches or modifying files. The existing `issue-handler.yml` now triggers on `/implement` comments instead of `issues: opened/reopened`, and validates the discussion thread before implementing. Discussion phase is optional — `/implement` works without prior `@ievo` discussion. Closes #153.
@@ -15,6 +19,9 @@ Two-phase issue lifecycle: `@ievo` discussion + `/implement` trigger. New `issue
 Add `effort:` field validation to `validate_skills.mjs`. All 13 iEvo SKILL.md files declare `effort:` (added in v0.6.24) and Claude Code v2.1.149+ renders it in the status bar, making it user-facing UI. The validator now warns on absent `effort:` (severity: warning, does not fail CI) and errors on invalid values (severity: error, fails CI). Valid values: `low`, `medium`, `high`, `xhigh`, `max`. Also introduces warning-vs-error severity distinction in the `main()` exit logic — warnings no longer cause exit 1, only errors do. Exports `VALID_EFFORT_VALUES` set and `checkEffortField()` function for reuse. Closes #141.
 Add `disallowed-tools` frontmatter to `security-check/SKILL.md` and `vuln-scan/SKILL.md` for read-only enforcement during security assessments. Claude Code v2.1.152 introduced `disallowed-tools` in skill frontmatter, allowing skills to explicitly block specific tools during execution. The security-check skill now blocks `Write`, `Edit`, `Bash(rm*)`, `Bash(mv*)`, `Bash(cp*)`, `Bash(curl*)`, and `Bash(wget*)`; the vuln-scan skill blocks `Write`, `Edit`, `Bash(rm*)`, `Bash(mv*)`, and `Bash(cp*)`. This is defense-in-depth: the sub-agents already declare limited `tools:` allowlists, but the skill-level wrapper previously had no such restriction. Closes #139.
 Add `disallowed-tools` frontmatter to `security-check/SKILL.md` and `vuln-scan/SKILL.md` for read-only enforcement during security assessments. Claude Code v2.1.152 introduced `disallowed-tools` in skill frontmatter, allowing skills to explicitly block specific tools during execution. The security-check skill now blocks `Write`, `Edit`, `Bash(rm*)`, `Bash(mv*)`, `Bash(cp*)`, `Bash(curl*)`, and `Bash(wget*)`; the vuln-scan skill blocks `Write`, `Edit`, `Bash(rm*)`, `Bash(mv*)`, `Bash(cp*)`, `Bash(curl*)`, and `Bash(wget*)`. This is defense-in-depth: the sub-agents already declare limited `tools:` allowlists, but the skill-level wrapper previously had no such restriction. Closes #139.
+## v0.12.0
+
+Handler now posts decision-log comments to the PR thread at key phases (research summary, design decisions, test strategy). Preserves reasoning that previously died with the CI runner — fixer and operator get full context about WHY specific choices were made. Review-fixer updated to read these comments before applying fixes, ensuring alignment with handler intent. Closes #147.
 
 ## v0.10.0
 

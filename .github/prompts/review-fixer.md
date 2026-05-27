@@ -155,6 +155,13 @@ UNKNOWN) — proceed to Step 1.
    which were skipped (and why), and any concerns raised. Build on
    prior reasoning rather than starting from scratch.
 
+5. Read handler decision-log comments for implementation context:
+     gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+       --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Handler decision log"))] | .[].body'
+   These comments explain WHY the handler made specific design choices.
+   Ensure your fixes align with the handler's intent — don't contradict
+   documented trade-offs or design decisions without strong reason.
+
 ## Step 2 — Fix each failed check
 
 ### For claude-review failures:

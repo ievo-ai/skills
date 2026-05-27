@@ -146,6 +146,14 @@ UNKNOWN) — proceed to Step 1.
      gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state
 3. Read the PR diff to understand what was changed:
      gh pr diff "$PR_NUMBER" --repo "$REPO"
+4. Read prior fixer round comments for context — avoid re-trying
+   approaches that already failed or re-evaluating findings that
+   were already skipped with good reason:
+     gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+       --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("^\\*\\*Fixer round")) | .body'
+   If prior rounds exist, note which findings were already fixed,
+   which were skipped (and why), and any concerns raised. Build on
+   prior reasoning rather than starting from scratch.
 
 ## Step 2 — Fix each failed check
 
@@ -153,7 +161,7 @@ UNKNOWN) — proceed to Step 1.
 
 Read the latest review comment (sticky comment from claude[bot]):
   gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-    --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body'
+    --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("^\\*\\*Fixer round") | not)] | last.body'
 
 For each finding marked as blocker, high, or medium severity:
 1. Read the specific file and line mentioned
@@ -165,6 +173,9 @@ Skip findings that:
 - Require architectural changes beyond the PR scope
 - Are about files outside plugins/ievo/ (except .github/prompts/)
 - Contradict AGENTS.md conventions
+
+Track each finding's disposition (fixed/skipped with reason) as you
+go — you will need this for the Step 3.5 decision comment.
 
 ### For coverage-gate failures:
 
@@ -229,11 +240,66 @@ fixing one check must not break another:
   # Agent validation (if agent .md files changed)
   node plugins/ievo/scripts/validate_agents.mjs
 
+## Step 3.5 — Post decision comment
+
+After validation (Step 3), post a structured summary of this round's
+decisions to the PR. This gives the next fixer round (or a human
+operator) full context about what was tried and why.
+
+Build the comment as you work through Step 2 — track each finding's
+disposition (fixed or skipped) and the reasoning. Post the comment
+BEFORE committing so it's visible even if the push fails.
+
+Format (use this exact structure):
+
+  **Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET**
+
+  **Fixed:**
+  - Finding: <title/summary> (<severity>) — <what was changed and why>
+  - ...
+
+  **Skipped:**
+  - Finding: <title/summary> (<severity>) — <reason: too minor, requires arch change, contradicts AGENTS.md, out of scope, etc.>
+  - ...
+
+  **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
+  **Concerns:** <any worries about the fix approach, or "none">
+
+Omit the Fixed or Skipped section if it has no entries.
+
+If there were NO findings to evaluate (e.g. coverage-only or
+pre-commit-only failure), adjust the format:
+
+  **Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET**
+
+  **Check failures addressed:** <which checks failed and what was fixed>
+  **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
+
+Build the comment content:
+  - If Step 3 validation PASSED: format as the normal decision comment
+  - If Step 3 validation FAILED: include the failure details in the
+    Validated line (e.g. "tests FAIL: 2 failures", "coverage 94%",
+    "pre-commit: nested-fences violation in X.md")
+
+Write to disk and post (once):
+  cat > /tmp/fixer-decision.md << 'FIXER_EOF'
+  <formatted comment content using the structure above>
+FIXER_EOF
+  gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
+
+If Step 3 validation FAILED, exit immediately after posting:
+  exit 1
+Do NOT proceed to Step 4 — pushing broken code wastes a fix-round
+budget slot and triggers another CI cycle that will just fail again.
+
 ## Step 4 — Commit and push
 
 First check if there are actual changes to commit. If all findings
 were skipped (low-severity) or local validation passed clean, there
 may be nothing to stage — committing with no changes would crash.
+
+When there are no changes, exit cleanly — Step 3.5's decision
+comment already documents which findings were skipped and why:
 
   if git diff --cached --quiet && git diff --quiet; then
     echo "No changes to commit after review round — exiting cleanly"

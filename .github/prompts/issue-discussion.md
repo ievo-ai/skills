@@ -53,7 +53,13 @@ Write your analysis to /tmp/analysis.md using the following structure,
 then post it as a comment. Every section is required — if a section
 has nothing to report, say "None identified" rather than omitting it.
 
-The structure (use these exact headings):
+IMPORTANT: the analysis comment MUST start with the HTML marker line
+below (on its own line, before any other content). The handler uses
+this marker to detect discussion analysis comments reliably:
+
+  <!-- ievo-discussion-analysis -->
+
+The structure (use these exact headings, after the marker):
 
   ### Understanding
 

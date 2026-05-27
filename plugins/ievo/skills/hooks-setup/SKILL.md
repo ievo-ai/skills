@@ -223,11 +223,11 @@ For Step 6's merge stage, build this entry (to be added to `hooks.Stop[]`):
 
 Stop hook entries don't have a `matcher` field — Claude Code calls every Stop hook on every stop, the script itself decides whether to act. Dedup at merge time by checking whether an existing entry has the same `args` array.
 
-### Step 5.6: Optional — MessageDisplay hook for session logging
+## Step 5.6: Optional — MessageDisplay hook for session logging
 
 **Added in Claude Code v2.1.152.** The `MessageDisplay` hook fires every time a message is displayed to the user — both assistant responses and tool-result summaries. Unlike the PostToolUse signal-file hooks (write-side, one-shot), MessageDisplay is a high-frequency read-side hook suitable for continuous session logging or telemetry.
 
-#### Step 5.6.1: Ask whether to configure
+### Step 5.6.1: Ask whether to configure
 
 ```
 Configure MessageDisplay hook for iEvo session logging?
@@ -237,7 +237,7 @@ Configure MessageDisplay hook for iEvo session logging?
 
 If "no" → skip to Step 5.7.
 
-#### Step 5.6.2: Build the MessageDisplay hook entry
+### Step 5.6.2: Build the MessageDisplay hook entry
 
 The hook logs each displayed message to `.ievo/log/hooks/messages.log` with a UTC timestamp. No notification — this is a silent audit trail for debugging and telemetry.
 
@@ -254,14 +254,14 @@ The hook logs each displayed message to `.ievo/log/hooks/messages.log` with a UT
 
 MessageDisplay entries go into `hooks.MessageDisplay[]` in settings.json (Step 6 merge). Like Stop hooks, MessageDisplay hooks have no `matcher` field — they fire on every message display event.
 
-### Step 5.7: Optional — SessionStart hook for iEvo project auto-detection
+## Step 5.7: Optional — SessionStart hook for iEvo project auto-detection
 
 **Added in Claude Code v2.1.152.** SessionStart hooks fire when a new Claude Code session begins. In v2.1.152+, the hook can return a JSON object with two new fields:
 
 - **`reloadSkills: true`** — causes Claude Code to reload all installed skills without requiring the user to type `/reload-skills` (the manual equivalent, also new in v2.1.152). This ensures iEvo skills are fresh on every session start.
 - **`sessionTitle: "..."`** — sets the session display title in the Claude Code UI. Useful for identifying which project an iEvo session belongs to.
 
-#### Step 5.7.1: Ask whether to configure
+### Step 5.7.1: Ask whether to configure
 
 ```
 Configure SessionStart hook for iEvo project auto-detection?
@@ -269,9 +269,9 @@ Configure SessionStart hook for iEvo project auto-detection?
 - "no"   — skip (you can manually reload skills with /reload-skills)
 ```
 
-If "no" → skip to Step 6. If Steps 1, 5.5, 5.6, and 5.7 all produced zero hook entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later."
+If "no" → if all prior steps (1, 5.5, 5.6, and 5.7) produced zero hook entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later." Otherwise skip to Step 6.
 
-#### Step 5.7.2: Write the SessionStart hook script
+### Step 5.7.2: Write the SessionStart hook script
 
 Use the Write tool to create `.ievo/hooks/scripts/on-session-start.sh`. The script checks for `.ievo/plugin.json` (present in any iEvo-initialized project), reads the project name, and returns the JSON object that triggers skill reload + title setting.
 
@@ -293,7 +293,7 @@ Then make it executable. Use Bash: `chmod +x .ievo/hooks/scripts/on-session-star
 
 **Manual alternative:** users who prefer explicit control can skip this hook and use the `/reload-skills` command (v2.1.152+) to manually reload skills at any time during a session.
 
-#### Step 5.7.3: Build the SessionStart hook entry
+### Step 5.7.3: Build the SessionStart hook entry
 
 For Step 6's merge stage, build this entry (to be added to `hooks.SessionStart[]`):
 
@@ -317,7 +317,7 @@ Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing com
 1. Read current settings.json (from Step 4, or `{}` if absent).
 2. For signal-file entries (Step 5): ensure `hooks.PostToolUse` exists as an array; create if missing. For each new entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append.
 3. For the Stop hook entry (Step 5.5, if Step 5.5.1 = "yes"): ensure `hooks.Stop` exists as an array; create if missing. Stop hook entries have no `matcher`, so dedup by comparing the inner `hooks[0].args` array — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-stop.sh"]`, skip with "Stop hook already configured; skipping." Otherwise append.
-4. For the MessageDisplay hook entry (Step 5.6, if Step 5.6.1 = "yes"): ensure `hooks.MessageDisplay` exists as an array; create if missing. Dedup by comparing `hooks[0].args` — if an existing entry's args ends with `messages.log"]`, skip with "MessageDisplay hook already configured; skipping." Otherwise append.
+4. For the MessageDisplay hook entry (Step 5.6, if Step 5.6.1 = "yes"): ensure `hooks.MessageDisplay` exists as an array; create if missing. Dedup by comparing the full `hooks[0].args` array — if an existing entry's `args[0]` is `"sh"` AND `args[1]` is `"-c"` AND `args[2]` contains `.ievo/log/hooks/messages.log`, skip with "MessageDisplay hook already configured; skipping." Otherwise append.
 5. For the SessionStart hook entry (Step 5.7, if Step 5.7.1 = "yes"): ensure `hooks.SessionStart` exists as an array; create if missing. Dedup by comparing `hooks[0].args` — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-session-start.sh"]`, skip with "SessionStart hook already configured; skipping." Otherwise append.
 
 ## Step 7: Confirm with the user

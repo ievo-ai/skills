@@ -4,7 +4,7 @@ description: CWE-aware deep source code vulnerability scan for a single module o
 license: MIT
 effort: high
 compatibility: "Requires source code access via Read/Glob/Grep tools and git CLI for diff-based scoping. Designed for Sonnet-tier reasoning — Haiku lacks depth for exploit-chain validation. Host platform should route via model: sonnet alias in vuln-scanner agent frontmatter."
-disallowed-tools: Write Edit Bash(rm*) Bash(mv*) Bash(cp*)
+disallowed-tools: Write Edit Bash(rm*) Bash(mv*) Bash(cp*) Bash(curl*) Bash(wget*)
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

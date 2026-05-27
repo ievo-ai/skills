@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.11.0
+
+Add `effort:` field validation to `validate_skills.mjs`. All 13 iEvo SKILL.md files declare `effort:` (added in v0.6.24) and Claude Code v2.1.149+ renders it in the status bar, making it user-facing UI. The validator now warns on absent `effort:` (severity: warning, does not fail CI) and errors on invalid values (severity: error, fails CI). Valid values: `low`, `medium`, `high`, `xhigh`, `max`. Also introduces warning-vs-error severity distinction in the `main()` exit logic — warnings no longer cause exit 1, only errors do. Exports `VALID_EFFORT_VALUES` set and `checkEffortField()` function for reuse. Closes #141.
+
 ## v0.10.0
 
 New `/ievo:inspect` skill — pre-install structured summary of a remote skill/plugin repo. Fetches the repo tree and key file frontmatter via `gh api`, then renders a human-readable capability overview (skills, agents, commands, scripts, hooks, MCP servers, aggregate permission footprint) without triggering discovery, security scan, or install. Read-only, pure SKILL.md (no scripts, no coverage obligation). Closes #67.

@@ -14,12 +14,14 @@ import {
   NAME_PATTERN,
   DESCRIPTION_MAX_LENGTH,
   COMPATIBILITY_MAX_LENGTH,
+  VALID_EFFORT_VALUES,
   ALLOWED_MODELS,
   FORBIDDEN_MODEL_PATTERNS,
   DEFAULT_SKILLS_DIR,
   parseArgs,
   parseFrontmatter,
   checkModelField,
+  checkEffortField,
   validateSkillContent,
   validateSkill,
   discoverSkillFiles,
@@ -55,6 +57,10 @@ describe("constants", () => {
 
   it("COMPATIBILITY_MAX_LENGTH is 500", () => {
     assert.equal(COMPATIBILITY_MAX_LENGTH, 500);
+  });
+
+  it("VALID_EFFORT_VALUES contains the five canonical effort levels", () => {
+    assert.deepEqual([...VALID_EFFORT_VALUES].sort(), ["high", "low", "max", "medium", "xhigh"]);
   });
 
   it("ALLOWED_MODELS contains the four canonical aliases", () => {
@@ -220,14 +226,77 @@ describe("checkModelField", () => {
   });
 });
 
+describe("checkEffortField", () => {
+  it("returns warning for absent effort field", () => {
+    const v = checkEffortField(undefined);
+    assert.equal(v.length, 1);
+    assert.equal(v[0].severity, "warning");
+    assert.equal(v[0].rule, "missing-effort-field");
+    assert.match(v[0].message, /Missing recommended/);
+    assert.match(v[0].message, /v2\.1\.149/);
+  });
+
+  it("returns empty array for effort: low", () => {
+    assert.deepEqual(checkEffortField("low"), []);
+  });
+
+  it("returns empty array for effort: medium", () => {
+    assert.deepEqual(checkEffortField("medium"), []);
+  });
+
+  it("returns empty array for effort: high", () => {
+    assert.deepEqual(checkEffortField("high"), []);
+  });
+
+  it("returns empty array for effort: xhigh", () => {
+    assert.deepEqual(checkEffortField("xhigh"), []);
+  });
+
+  it("returns empty array for effort: max", () => {
+    assert.deepEqual(checkEffortField("max"), []);
+  });
+
+  it("returns error for typo effort: hight", () => {
+    const v = checkEffortField("hight");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].severity, "error");
+    assert.equal(v[0].rule, "invalid-effort-value");
+    assert.match(v[0].message, /hight/);
+    assert.match(v[0].message, /Allowed:/);
+  });
+
+  it("returns error for wrong case effort: High", () => {
+    const v = checkEffortField("High");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].severity, "error");
+    assert.equal(v[0].rule, "invalid-effort-value");
+  });
+
+  it("returns error for plausible but invalid effort: critical", () => {
+    const v = checkEffortField("critical");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].severity, "error");
+    assert.equal(v[0].rule, "invalid-effort-value");
+    assert.match(v[0].message, /critical/);
+  });
+});
+
 describe("validateSkillContent", () => {
-  it("passes a valid minimal skill", () => {
-    const content = "---\nname: foo\ndescription: A short description.\n---\nBody";
+  it("passes a valid skill with effort field", () => {
+    const content = "---\nname: foo\ndescription: A short description.\neffort: medium\n---\nBody";
     assert.deepEqual(validateSkillContent(content, "foo"), []);
   });
 
+  it("warns on valid minimal skill without effort field", () => {
+    const content = "---\nname: foo\ndescription: A short description.\n---\nBody";
+    const v = validateSkillContent(content, "foo");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].severity, "warning");
+    assert.equal(v[0].rule, "missing-effort-field");
+  });
+
   it("passes when parentDirName is null (no dir check)", () => {
-    const content = "---\nname: foo\ndescription: A short description.\n---";
+    const content = "---\nname: foo\ndescription: A short description.\neffort: low\n---";
     assert.deepEqual(validateSkillContent(content, null), []);
   });
 
@@ -337,8 +406,18 @@ describe("validateSkillContent", () => {
   });
 
   it("ignores absent model (optional)", () => {
-    const v = validateSkillContent("---\nname: foo\ndescription: ok\n---", "foo");
+    const v = validateSkillContent("---\nname: foo\ndescription: ok\neffort: low\n---", "foo");
     assert.ok(!v.some((x) => x.rule === "model-vendor-locked" || x.rule === "model-not-allowed"));
+  });
+
+  it("flags invalid effort value in validateSkillContent", () => {
+    const v = validateSkillContent("---\nname: foo\ndescription: ok\neffort: hight\n---", "foo");
+    assert.ok(v.some((x) => x.rule === "invalid-effort-value"));
+  });
+
+  it("passes valid effort value in validateSkillContent", () => {
+    const v = validateSkillContent("---\nname: foo\ndescription: ok\neffort: high\n---", "foo");
+    assert.ok(!v.some((x) => x.rule === "invalid-effort-value" || x.rule === "missing-effort-field"));
   });
 
   it("accumulates multiple violations", () => {
@@ -357,7 +436,7 @@ describe("validateSkill (filesystem)", () => {
     const skillDir = join(tmpDir, "my-skill");
     mkdirSync(skillDir, { recursive: true });
     const filePath = join(skillDir, "SKILL.md");
-    writeFileSync(filePath, "---\nname: my-skill\ndescription: ok\n---", "utf-8");
+    writeFileSync(filePath, "---\nname: my-skill\ndescription: ok\neffort: low\n---", "utf-8");
     assert.deepEqual(validateSkill(filePath), []);
   });
 
@@ -465,11 +544,11 @@ describe("main (CLI entry)", () => {
     const skillDir = join(tmpDir, "good-skill");
     mkdirSync(skillDir, { recursive: true });
     const filePath = join(skillDir, "SKILL.md");
-    writeFileSync(filePath, "---\nname: good-skill\ndescription: A good skill.\n---\nBody", "utf-8");
+    writeFileSync(filePath, "---\nname: good-skill\ndescription: A good skill.\neffort: low\n---\nBody", "utf-8");
     const run = makeRun();
     main(["node", "validate_skills.mjs", filePath], run.exit, run.log, run.errLog);
     assert.equal(run.exitCode, 0);
-    assert.match(run.logs.join("\n"), /1 passed, 0 violations/);
+    assert.match(run.logs.join("\n"), /1 passed, 0 errors/);
     assert.match(run.logs.join("\n"), /✓/);
   });
 
@@ -485,15 +564,41 @@ describe("main (CLI entry)", () => {
     assert.match(run.logs.join("\n"), /agentskills\.io/);
   });
 
-  it("--quiet suppresses pass messages", () => {
+  it("exits 0 with warnings for missing effort (warnings don't fail CI)", () => {
+    const skillDir = join(tmpDir, "warn-skill");
+    mkdirSync(skillDir, { recursive: true });
+    const filePath = join(skillDir, "SKILL.md");
+    writeFileSync(filePath, "---\nname: warn-skill\ndescription: ok\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_skills.mjs", filePath], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 0);
+    assert.match(run.logs.join("\n"), /✓/);
+    assert.match(run.logs.join("\n"), /missing-effort-field/);
+    assert.match(run.logs.join("\n"), /1 warnings/);
+  });
+
+  it("exits 1 for invalid effort value (error severity)", () => {
+    const skillDir = join(tmpDir, "bad-effort");
+    mkdirSync(skillDir, { recursive: true });
+    const filePath = join(skillDir, "SKILL.md");
+    writeFileSync(filePath, "---\nname: bad-effort\ndescription: ok\neffort: hight\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_skills.mjs", filePath], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 1);
+    assert.match(run.logs.join("\n"), /✗/);
+    assert.match(run.logs.join("\n"), /invalid-effort-value/);
+  });
+
+  it("--quiet suppresses pass messages and warnings", () => {
     const skillDir = join(tmpDir, "quiet-pass");
     mkdirSync(skillDir, { recursive: true });
     const filePath = join(skillDir, "SKILL.md");
-    writeFileSync(filePath, "---\nname: quiet-pass\ndescription: ok\n---", "utf-8");
+    writeFileSync(filePath, "---\nname: quiet-pass\ndescription: ok\neffort: medium\n---", "utf-8");
     const run = makeRun();
     main(["node", "validate_skills.mjs", "--quiet", filePath], run.exit, run.log, run.errLog);
     assert.equal(run.exitCode, 0);
     assert.ok(!run.logs.some((l) => l.includes("✓")));
+    assert.ok(!run.logs.some((l) => l.includes("[warning]")));
     assert.match(run.logs.join("\n"), /1 passed/);
   });
 
@@ -531,12 +636,12 @@ describe("main (CLI entry)", () => {
     const dir2 = join(tmpDir, "multi-b");
     mkdirSync(dir1, { recursive: true });
     mkdirSync(dir2, { recursive: true });
-    writeFileSync(join(dir1, "SKILL.md"), "---\nname: multi-a\ndescription: ok\n---", "utf-8");
-    writeFileSync(join(dir2, "SKILL.md"), "---\nname: multi-b\ndescription: ok\n---", "utf-8");
+    writeFileSync(join(dir1, "SKILL.md"), "---\nname: multi-a\ndescription: ok\neffort: low\n---", "utf-8");
+    writeFileSync(join(dir2, "SKILL.md"), "---\nname: multi-b\ndescription: ok\neffort: high\n---", "utf-8");
     const run = makeRun();
     main(["node", "validate_skills.mjs", join(dir1, "SKILL.md"), join(dir2, "SKILL.md")], run.exit, run.log, run.errLog);
     assert.equal(run.exitCode, 0);
-    assert.match(run.logs.join("\n"), /2 passed, 0 violations/);
+    assert.match(run.logs.join("\n"), /2 passed, 0 errors/);
   });
 
   after(() => {
@@ -605,7 +710,7 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
   it("runs as CLI, exits 0 on valid skill", () => {
     const skillDir = join(tmpDir, "ok-skill");
     mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: ok-skill\ndescription: A valid skill.\n---\nBody", "utf-8");
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: ok-skill\ndescription: A valid skill.\neffort: low\n---\nBody", "utf-8");
     const r = spawnSync(process.execPath, [scriptPath, join(skillDir, "SKILL.md")], { encoding: "utf-8" });
     assert.equal(r.status, 0, `expected exit 0, got ${r.status}: ${r.stderr}`);
     assert.match(r.stdout, /1 passed/);

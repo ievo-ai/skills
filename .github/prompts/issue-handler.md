@@ -36,7 +36,8 @@ Ignore Dependabot, coverage bots, and other automated comments.
 
 Check:
 1. Are there any discussion analysis comments (containing the marker)?
-2. If yes: were any questions raised in the "### Questions" section?
+2. If yes: were any questions raised? Look for the <!-- ievo-open-questions -->
+   marker and the "### Questions" section that follows it.
 3. Did the issue author answer ALL of them in subsequent comments?
 4. Is there an agreed approach from the discussion?
 

@@ -10,8 +10,6 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 Two-phase issue lifecycle: `@ievo` discussion + `/implement` trigger. New `issue-discussion.yml` workflow triggers when an org member mentions `@ievo` in an issue comment — Claude does deep codebase research and posts a structured analysis (Understanding, Approach, Questions, Conflicts, Risks) without creating branches or modifying files. The existing `issue-handler.yml` now triggers on `/implement` comments instead of `issues: opened/reopened`, and validates the discussion thread before implementing. Discussion phase is optional — `/implement` works without prior `@ievo` discussion. Closes #153.
 
-v0.12.0 is reserved for PRs #150/#151 currently in flight.
-
 ## v0.12.0
 
 Add `effort:` field validation to `validate_skills.mjs`. All 13 iEvo SKILL.md files declare `effort:` (added in v0.6.24) and Claude Code v2.1.149+ renders it in the status bar, making it user-facing UI. The validator now warns on absent `effort:` (severity: warning, does not fail CI) and errors on invalid values (severity: error, fails CI). Valid values: `low`, `medium`, `high`, `xhigh`, `max`. Also introduces warning-vs-error severity distinction in the `main()` exit logic — warnings no longer cause exit 1, only errors do. Exports `VALID_EFFORT_VALUES` set and `checkEffortField()` function for reuse. Closes #141.

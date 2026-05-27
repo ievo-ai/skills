@@ -226,6 +226,12 @@ After validation (Step 3), post a structured summary of this round's
 decisions to the PR. This gives the next fixer round (or a human
 operator) full context about what was tried and why.
 
+If Step 3 validation FAILED (tests fail, coverage below 100%, or
+pre-commit violations remain after fixes), post the decision comment
+with the failure details and exit 1 — do NOT proceed to Step 4.
+Pushing broken code wastes a fix-round budget slot and triggers
+another CI cycle that will just fail again.
+
 Build the comment as you work through Step 2 — track each finding's
 disposition (fixed or skipped) and the reasoning. Post the comment
 BEFORE committing so it's visible even if the push fails.

@@ -133,7 +133,7 @@ UNKNOWN) — proceed to Step 1.
    approaches that already failed or re-evaluating findings that
    were already skipped with good reason:
      gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-       | jq -r '.[] | select(.body | test("^\\*\\*Fixer round")) | .body'
+       --jq '.[] | select(.body | test("^\\*\\*Fixer round")) | .body'
    If prior rounds exist, note which findings were already fixed,
    which were skipped (and why), and any concerns raised. Build on
    prior reasoning rather than starting from scratch.
@@ -248,6 +248,8 @@ Format (use this exact structure):
   **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
   **Concerns:** <any worries about the fix approach, or "none">
 
+Omit the Fixed or Skipped section if it has no entries.
+
 If there were NO findings to evaluate (e.g. coverage-only or
 pre-commit-only failure), adjust the format:
 
@@ -263,9 +265,9 @@ Build the comment content:
     "pre-commit: nested-fences violation in X.md")
 
 Write to disk and post (once):
-  cat > /tmp/fixer-decision.md << 'EOF'
+  cat > /tmp/fixer-decision.md << 'FIXER_EOF'
   <formatted comment content using the structure above>
-  EOF
+FIXER_EOF
   gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
 
 If Step 3 validation FAILED, exit immediately after posting:
@@ -286,7 +288,7 @@ round understand why nothing was pushed:
     # The decision comment (Step 3.5) was already posted — it
     # contains the skip reasoning. Add a brief no-change note:
     gh pr comment "$PR_NUMBER" --repo "$REPO" \
-      --body "**Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET — no changes pushed.** See decision comment above for details on what was evaluated and why nothing was committed."
+      --body "**Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET — no changes pushed.** See decision comment from this round for details on what was evaluated and why nothing was committed."
     exit 0
   fi
 

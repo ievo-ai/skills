@@ -284,6 +284,9 @@ Use the Write tool to create `.ievo/hooks/scripts/on-session-start.sh`. The scri
 # Requires node (bundled with Claude Code; already required by iEvo).
 # Exit 0 always — informational hook, never blocks session start.
 
+mkdir -p .ievo/log/hooks 2>/dev/null || true
+printf '%s session-start\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .ievo/log/hooks/events.log 2>/dev/null || true
+
 if [ -f ".ievo/plugin.json" ]; then
   node -e "const f=require('./.ievo/plugin.json');const n=f.name||'project';process.stdout.write(JSON.stringify({reloadSkills:true,sessionTitle:'iEvo — '+n}))" 2>/dev/null || true
 fi

@@ -282,8 +282,7 @@ Use the Write tool to create `.ievo/hooks/scripts/on-session-start.sh`. The scri
 # Exit 0 always — informational hook, never blocks session start.
 
 if [ -f ".ievo/plugin.json" ]; then
-  PROJECT=$(node -e "const f=require('./.ievo/plugin.json'); console.log(f.name||'project')" 2>/dev/null || echo "project")
-  printf '{"reloadSkills":true,"sessionTitle":"iEvo — %s"}' "$PROJECT"
+  node -e "const f=require('./.ievo/plugin.json');const n=f.name||'project';process.stdout.write(JSON.stringify({reloadSkills:true,sessionTitle:'iEvo — '+n}))" 2>/dev/null || true
 fi
 
 exit 0

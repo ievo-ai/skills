@@ -1,8 +1,8 @@
-# Issue Handler — deep research → close or implement → review loop
+# Issue Handler — /implement-triggered implementation pipeline
 #
-# When a new issue opens in ievo-ai/skills, Claude (Opus, max effort)
-# performs deep research on the codebase, then either:
-#   (a) closes the issue with an explanation, or
+# When an org member comments /implement on an issue, Claude (Opus,
+# max effort) validates the discussion thread, then either:
+#   (a) blocks with unresolved questions, or
 #   (b) creates a real PR with implementation + tests, then iterates
 #       on claude-code-review feedback until the review is green.
 #
@@ -49,8 +49,8 @@
 name: "Issue Handler"
 
 on:
-  issues:
-    types: [opened, reopened]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write       # push branches + create commits during fix loop
@@ -98,8 +98,11 @@ jobs:
     # author_association is computed by GitHub at event time — no API
     # call needed, no permission issues. External users get NONE.
     if: >
-      !endsWith(github.event.issue.user.login, '[bot]') &&
-      github.event.issue.user.login != 'ievo-eva'
+      !github.event.issue.pull_request &&
+      !endsWith(github.event.comment.user.login, '[bot]') &&
+      github.event.comment.body == '/implement' &&
+      (github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'OWNER')
 
     steps:
       # All actions pinned to commit SHA (not floating tags) — public repo

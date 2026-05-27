@@ -129,6 +129,14 @@ UNKNOWN) — proceed to Step 1.
      gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state
 3. Read the PR diff to understand what was changed:
      gh pr diff "$PR_NUMBER" --repo "$REPO"
+4. Read prior fixer round comments for context — avoid re-trying
+   approaches that already failed or re-evaluating findings that
+   were already skipped with good reason:
+     gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+       --jq '[.[] | select(.body | test("^\\*\\*Fixer round"))] | .[] | .body'
+   If prior rounds exist, note which findings were already fixed,
+   which were skipped (and why), and any concerns raised. Build on
+   prior reasoning rather than starting from scratch.
 
 ## Step 2 — Fix each failed check
 
@@ -212,14 +220,56 @@ fixing one check must not break another:
   # Agent validation (if agent .md files changed)
   node plugins/ievo/scripts/validate_agents.mjs
 
+## Step 3.5 — Post decision comment
+
+After validation (Step 3), post a structured summary of this round's
+decisions to the PR. This gives the next fixer round (or a human
+operator) full context about what was tried and why.
+
+Build the comment as you work through Step 2 — track each finding's
+disposition (fixed or skipped) and the reasoning. Post the comment
+BEFORE committing so it's visible even if the push fails.
+
+Format (use this exact structure):
+
+  **Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET**
+
+  **Fixed:**
+  - Finding: <title/summary> (<severity>) — <what was changed and why>
+  - ...
+
+  **Skipped:**
+  - Finding: <title/summary> (<severity>) — <reason: too minor, requires arch change, contradicts AGENTS.md, out of scope, etc.>
+  - ...
+
+  **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
+  **Concerns:** <any worries about the fix approach, or "none">
+
+Post via:
+  gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
+
+If there were NO findings to evaluate (e.g. coverage-only or
+pre-commit-only failure), adjust the format:
+
+  **Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET**
+
+  **Check failures addressed:** <which checks failed and what was fixed>
+  **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
+
 ## Step 4 — Commit and push
 
 First check if there are actual changes to commit. If all findings
 were skipped (low-severity) or local validation passed clean, there
 may be nothing to stage — committing with no changes would crash.
 
+When there are no changes, post reasoning so the operator and next
+round understand why nothing was pushed:
+
   if git diff --cached --quiet && git diff --quiet; then
-    echo "No changes to commit after review round — exiting cleanly"
+    # The decision comment (Step 3.5) was already posted — it
+    # contains the skip reasoning. Add a brief no-change note:
+    gh pr comment "$PR_NUMBER" --repo "$REPO" \
+      --body "**Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET — no changes pushed.** All remaining findings were below the fix threshold (low severity, out of scope, or require architectural changes). See decision comment above for per-finding reasoning."
     exit 0
   fi
 

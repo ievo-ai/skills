@@ -253,16 +253,19 @@ pre-commit-only failure), adjust the format:
   **Check failures addressed:** <which checks failed and what was fixed>
   **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
 
-Write the formatted comment to disk, then post:
+Build the comment content:
+  - If Step 3 validation PASSED: format as the normal decision comment
+  - If Step 3 validation FAILED: include the failure details in the
+    Validated line (e.g. "tests FAIL: 2 failures", "coverage 94%",
+    "pre-commit: nested-fences violation in X.md")
+
+Write to disk and post (once):
   cat > /tmp/fixer-decision.md << 'EOF'
   <formatted comment content using the structure above>
   EOF
   gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
 
-If Step 3 validation FAILED (tests fail, coverage below 100%, or
-pre-commit violations remain after fixes), include the failure details
-in the decision comment, post it, then exit immediately:
-  gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
+If Step 3 validation FAILED, exit immediately after posting:
   exit 1
 Do NOT proceed to Step 4 — pushing broken code wastes a fix-round
 budget slot and triggers another CI cycle that will just fail again.

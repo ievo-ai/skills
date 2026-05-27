@@ -73,12 +73,17 @@ The structure (use these exact headings, after the marker):
   files would change, what the changes would look like, and what
   the implementation order would be. Reference concrete file paths.
 
-  <!-- ievo-open-questions -->
   ### Questions
 
   List any open questions that need answers before implementation
   can start. If no questions remain (e.g., the issue is fully
   specified), say "None — requirements are clear."
+
+  IMPORTANT: Only include the <!-- ievo-open-questions --> marker
+  IMMEDIATELY BEFORE the ### Questions heading when there ARE real
+  open questions. Do NOT include the marker when the answer is
+  "None — requirements are clear." The handler uses this marker
+  to detect whether questions exist.
 
   ### Conflicts
 

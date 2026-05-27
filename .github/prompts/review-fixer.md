@@ -133,7 +133,7 @@ UNKNOWN) — proceed to Step 1.
    approaches that already failed or re-evaluating findings that
    were already skipped with good reason:
      gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-       --jq '[.[] | select(.body | test("^\\*\\*Fixer round"))] | .[] | .body'
+       | jq -r '.[] | select(.body | test("^\\*\\*Fixer round")) | .body'
    If prior rounds exist, note which findings were already fixed,
    which were skipped (and why), and any concerns raised. Build on
    prior reasoning rather than starting from scratch.
@@ -156,6 +156,9 @@ Skip findings that:
 - Require architectural changes beyond the PR scope
 - Are about files outside plugins/ievo/ (except .github/prompts/)
 - Contradict AGENTS.md conventions
+
+Track each finding's disposition (fixed/skipped with reason) as you
+go — you will need this for the Step 3.5 decision comment.
 
 ### For coverage-gate failures:
 

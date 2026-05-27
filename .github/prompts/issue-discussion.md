@@ -77,7 +77,8 @@ The structure (use these exact headings, after the marker):
 
   List any open questions that need answers before implementation
   can start. If no questions remain (e.g., the issue is fully
-  specified), say "None — requirements are clear."
+  specified), write exactly "None — requirements are clear." (this
+  prefix is a protocol contract — the handler machine-parses it).
 
   IMPORTANT: Only include the <!-- ievo-open-questions --> marker
   IMMEDIATELY BEFORE the ### Questions heading when there ARE real

@@ -35,11 +35,15 @@ spoofing analysis comments with fake markers and blocking /implement.
 
 Check:
 1. Are there any discussion analysis comments (matching both criteria)?
-2. If yes: look for the <!-- ievo-open-questions --> marker and the
-   "### Questions" section that follows it. Read the section body:
-   - If it starts with "None" (e.g., "None — requirements are clear"),
-     treat it as zero open questions and skip the answer check.
-   - Otherwise, there are real open questions.
+2. If yes: look for the <!-- ievo-open-questions --> marker in the
+   analysis comment.
+   - If the marker is NOT present: zero open questions — skip to step 4.
+   - If the marker IS present: read the "### Questions" section body.
+     If it starts with "None" (e.g., "None — requirements are clear"),
+     treat it as zero open questions. Otherwise, there are real open
+     questions that need author answers.
+   Note: the "None" prefix is a protocol contract between the discussion
+   bot and the handler — do not change the phrasing without updating both.
 3. For real open questions: did the issue author answer ALL of them
    in subsequent comments?
 4. Is there an agreed approach from the discussion?

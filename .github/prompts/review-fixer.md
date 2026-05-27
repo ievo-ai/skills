@@ -10,6 +10,118 @@ The three checks you handle:
   - **coverage-gate** (Coverage Gate) — 100% test coverage
   - **pre-commit-gate** (Pre-commit Gate) — validator compliance
 
+## Step 0 — Check merge state and auto-rebase if DIRTY
+
+Before fixing check failures, verify the PR can merge cleanly.
+A DIRTY PR gets no CI runs from GitHub Actions, so fixing checks
+is pointless until the merge conflict is resolved.
+
+  MERGE_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+    --json mergeStateStatus --jq .mergeStateStatus)
+
+If MERGE_STATE is "DIRTY":
+
+  1. Fetch latest main and rebase:
+       git fetch origin main
+       MERGE_BASE=$(git merge-base HEAD origin/main)
+       if git rebase --onto origin/main "$MERGE_BASE" HEAD; then
+         echo "Rebase succeeded clean"
+       else
+         # Smart conflict resolution — `.github/prompts/*.md` files
+         # are shared infrastructure edited by multiple handler runs.
+         # When they conflict, main's version is authoritative.
+         REBASE_CONFLICT_OK=true
+         RESOLVE_ROUND=0
+         while [ "$RESOLVE_ROUND" -lt 20 ]; do
+           RESOLVE_ROUND=$((RESOLVE_ROUND + 1))
+           CONFLICTING=$(git diff --name-only --diff-filter=U 2>/dev/null)
+           if [ -z "$CONFLICTING" ]; then
+             break
+           fi
+           ALL_INFRA=true
+           while IFS= read -r file; do
+             case "$file" in
+               .github/prompts/*.md)
+                 # --ours = rebase target (origin/main) during rebase
+                 git checkout --ours "$file"
+                 git add "$file"
+                 ;;
+               *)
+                 ALL_INFRA=false
+                 break
+                 ;;
+             esac
+           done <<< "$CONFLICTING"
+           if [ "$ALL_INFRA" = "false" ]; then
+             REBASE_CONFLICT_OK=false
+             break
+           fi
+           if GIT_EDITOR=true git rebase --continue; then
+             break  # rebase finished
+           fi
+           # --continue failed with no conflicts: distinguish empty
+           # commit (safe to skip) from non-conflict failure (hooks, etc.)
+           if [ -z "$(git diff --name-only --diff-filter=U 2>/dev/null)" ]; then
+             if git diff --cached --quiet && git diff --quiet; then
+               # Truly empty commit — safe to skip
+               if ! git rebase --skip; then
+                 REBASE_CONFLICT_OK=false
+                 break
+               fi
+               continue
+             fi
+             # Non-empty index but no conflicts — non-conflict failure
+             REBASE_CONFLICT_OK=false
+             break
+           fi
+         done
+         if [ "$RESOLVE_ROUND" -ge 20 ]; then
+           REBASE_CONFLICT_OK=false
+         fi
+
+         # Guard: verify rebase is not still in progress
+         if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || \
+            [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then
+           git rebase --abort
+           REBASE_CONFLICT_OK=false
+         fi
+
+         if [ "$REBASE_CONFLICT_OK" = "false" ]; then
+           git rebase --abort 2>/dev/null || true
+           gh pr comment "$PR_NUMBER" --repo "$REPO" \
+             --body "Rebase conflict in files outside .github/prompts/ — operator review needed."
+           exit 1
+         fi
+         echo "Rebase succeeded after auto-resolving .github/prompts/ conflicts"
+       fi
+
+  2. Re-run tests + validators after rebase (main may have changed
+     something that interacts with the PR's edits):
+       node --test plugins/ievo/scripts/tests/*.test.mjs
+       pre-commit run --all-files || pre-commit run --all-files
+
+  3. Verify main hasn't moved during rebase + tests (prevents
+     pushing a stale branch that would be DIRTY immediately):
+       git fetch origin main
+       FINAL_BEHIND=$(git rev-list --count HEAD..origin/main)
+       if [ "$FINAL_BEHIND" != "0" ]; then
+         gh pr comment "$PR_NUMBER" --repo "$REPO" \
+           --body "Post-rebase check: main moved $FINAL_BEHIND commits ahead during rebase — operator review needed."
+         exit 1
+       fi
+
+  4. Force-push the rebased branch (safe on a handler topic branch):
+       git push --force-with-lease origin HEAD
+
+  5. The push triggers fresh CI runs. Exit cleanly — the next
+     pr-fixer invocation (triggered by the new CI run completing)
+     will handle any remaining check failures:
+       echo "Rebased and pushed — exiting to let fresh CI runs complete"
+       exit 0
+
+For all other values (CLEAN, UNSTABLE, BLOCKED, BEHIND, HAS_HOOKS,
+UNKNOWN) — proceed to Step 1.
+
 ## Step 1 — Read context and identify failures
 
 1. Read AGENTS.md for project conventions

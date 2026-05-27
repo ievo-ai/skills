@@ -281,8 +281,8 @@ First check if there are actual changes to commit. If all findings
 were skipped (low-severity) or local validation passed clean, there
 may be nothing to stage — committing with no changes would crash.
 
-When there are no changes, post reasoning so the operator and next
-round understand why nothing was pushed:
+When there are no changes, exit cleanly — Step 3.5's decision
+comment already documents which findings were skipped and why:
 
   if git diff --cached --quiet && git diff --quiet; then
     echo "No changes to commit after review round — exiting cleanly"

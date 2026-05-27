@@ -4,15 +4,15 @@
     "name": "Denys Rotnov"
   },
   "metadata": {
-    "description": "iEvo plugin marketplace — self-evolving agents and skills for AI coding agents (Claude Code, Codex). Universal via the agentskills.io standard.",
-    "version": "0.11.0"
+    "description": "iEvo plugin marketplace \u2014 self-evolving agents and skills for AI coding agents (Claude Code, Codex). Universal via the agentskills.io standard.",
+    "version": "0.12.0"
   },
   "plugins": [
     {
       "name": "ievo",
       "source": "./plugins/ievo",
       "description": "Capture lessons, patch local agents and skills, replay logs on upstream updates.",
-      "version": "0.11.0",
+      "version": "0.12.0",
       "author": {
         "name": "Denys Rotnov"
       },

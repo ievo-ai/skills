@@ -4,6 +4,14 @@ description: Vulnerability assessment by a senior application security engineer 
 license: MIT
 effort: high
 compatibility: "Requires `gh` CLI for fetching content. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter."
+disallowed-tools:
+  - Write
+  - Edit
+  - Bash(rm*)
+  - Bash(mv*)
+  - Bash(cp*)
+  - Bash(curl*)
+  - Bash(wget*)
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

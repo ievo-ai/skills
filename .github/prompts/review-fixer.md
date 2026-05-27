@@ -144,7 +144,7 @@ UNKNOWN) — proceed to Step 1.
 
 Read the latest review comment (sticky comment from claude[bot]):
   gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-    --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i"))] | last.body'
+    --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("^\\*\\*Fixer round") | not)] | last.body'
 
 For each finding marked as blocker, high, or medium severity:
 1. Read the specific file and line mentioned
@@ -285,10 +285,7 @@ When there are no changes, post reasoning so the operator and next
 round understand why nothing was pushed:
 
   if git diff --cached --quiet && git diff --quiet; then
-    # The decision comment (Step 3.5) was already posted — it
-    # contains the skip reasoning. Add a brief no-change note:
-    gh pr comment "$PR_NUMBER" --repo "$REPO" \
-      --body "**Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET — no changes pushed.** See decision comment from this round for details on what was evaluated and why nothing was committed."
+    echo "No changes to commit after review round — exiting cleanly"
     exit 0
   fi
 

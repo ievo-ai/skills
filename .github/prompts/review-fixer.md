@@ -226,12 +226,6 @@ After validation (Step 3), post a structured summary of this round's
 decisions to the PR. This gives the next fixer round (or a human
 operator) full context about what was tried and why.
 
-If Step 3 validation FAILED (tests fail, coverage below 100%, or
-pre-commit violations remain after fixes), post the decision comment
-with the failure details and exit 1 — do NOT proceed to Step 4.
-Pushing broken code wastes a fix-round budget slot and triggers
-another CI cycle that will just fail again.
-
 Build the comment as you work through Step 2 — track each finding's
 disposition (fixed or skipped) and the reasoning. Post the comment
 BEFORE committing so it's visible even if the push fails.
@@ -251,9 +245,6 @@ Format (use this exact structure):
   **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
   **Concerns:** <any worries about the fix approach, or "none">
 
-Post via:
-  gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
-
 If there were NO findings to evaluate (e.g. coverage-only or
 pre-commit-only failure), adjust the format:
 
@@ -261,6 +252,20 @@ pre-commit-only failure), adjust the format:
 
   **Check failures addressed:** <which checks failed and what was fixed>
   **Validated:** <tests pass/fail, coverage %, pre-commit clean/failed>
+
+Write the formatted comment to disk, then post:
+  cat > /tmp/fixer-decision.md << 'EOF'
+  <formatted comment content using the structure above>
+  EOF
+  gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
+
+If Step 3 validation FAILED (tests fail, coverage below 100%, or
+pre-commit violations remain after fixes), include the failure details
+in the decision comment, post it, then exit immediately:
+  gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/fixer-decision.md
+  exit 1
+Do NOT proceed to Step 4 — pushing broken code wastes a fix-round
+budget slot and triggers another CI cycle that will just fail again.
 
 ## Step 4 — Commit and push
 
@@ -275,7 +280,7 @@ round understand why nothing was pushed:
     # The decision comment (Step 3.5) was already posted — it
     # contains the skip reasoning. Add a brief no-change note:
     gh pr comment "$PR_NUMBER" --repo "$REPO" \
-      --body "**Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET — no changes pushed.** All remaining findings were below the fix threshold (low severity, out of scope, or require architectural changes). See decision comment above for per-finding reasoning."
+      --body "**Fixer round $FIX_NUMBER/$EFFECTIVE_BUDGET — no changes pushed.** See decision comment above for details on what was evaluated and why nothing was committed."
     exit 0
   fi
 

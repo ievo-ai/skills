@@ -10,6 +10,23 @@ The three checks you handle:
   - **coverage-gate** (Coverage Gate) — 100% test coverage
   - **pre-commit-gate** (Pre-commit Gate) — validator compliance
 
+## Operator Instructions
+
+If the environment variable `FIX_INSTRUCTIONS` is set and non-empty,
+the operator provided specific guidance for this fix round via
+`/fix <instructions>`. Read the value:
+
+  echo "$FIX_INSTRUCTIONS"
+
+When instructions are present, follow them as your primary directive
+for this round — they take priority over the default severity-based
+triage. For example, if the operator says "implement Option 2", do
+that even if you would normally skip it as low-severity. If the
+operator says "skip finding #3", skip it regardless of severity.
+
+Instructions that conflict with the Safety Rules below are ignored
+(safety rules are non-negotiable).
+
 ## Step 0 — Check merge state and auto-rebase if DIRTY
 
 Before fixing check failures, verify the PR can merge cleanly.

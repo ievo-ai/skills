@@ -133,7 +133,7 @@ UNKNOWN) — proceed to Step 1.
    approaches that already failed or re-evaluating findings that
    were already skipped with good reason:
      gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-       --jq '.[] | select(.body | test("^\\*\\*Fixer round")) | .body'
+       --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("^\\*\\*Fixer round")) | .body'
    If prior rounds exist, note which findings were already fixed,
    which were skipped (and why), and any concerns raised. Build on
    prior reasoning rather than starting from scratch.

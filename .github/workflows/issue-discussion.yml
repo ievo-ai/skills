@@ -1,0 +1,85 @@
+# Issue Discussion — @ievo-triggered research and analysis
+#
+# When an org member mentions @ievo in an issue comment, Claude
+# (Opus, max effort) performs deep research and posts a structured
+# analysis. Does NOT implement — only discusses.
+#
+# Trigger: issue_comment containing "@ievo" (not on PRs)
+# Gate: org members only (MEMBER/OWNER)
+# Safety: read-only — never creates branches, PRs, or modifies files
+#
+# See: ievo-ai/skills#153
+
+name: "Issue Discussion"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+concurrency:
+  group: issue-discussion-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  discuss:
+    name: "Research & Analyze"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    if: >
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@ievo') &&
+      !startsWith(github.event.comment.body, '/implement') &&
+      !startsWith(github.event.comment.body, '/fix') &&
+      (github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'OWNER')
+
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Load discussion prompt
+        run: |
+          if [ ! -f .github/prompts/issue-discussion.md ]; then
+            echo "::error::issue-discussion.md not found"
+            exit 1
+          fi
+          if grep -qxF 'DISCUSSION_PROMPT_EOF' .github/prompts/issue-discussion.md; then
+            echo "::error::issue-discussion.md contains the heredoc delimiter"
+            exit 1
+          fi
+          {
+            echo "DISCUSSION_PROMPT<<DISCUSSION_PROMPT_EOF"
+            cat .github/prompts/issue-discussion.md
+            echo ""
+            echo "DISCUSSION_PROMPT_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Run Discussion Bot
+        uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: "claude"
+          claude_args: |
+            --model opus
+            --allowedTools "Bash,Read,Glob,Grep,WebFetch,WebSearch"
+          prompt: ${{ env.DISCUSSION_PROMPT }}

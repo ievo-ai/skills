@@ -49,8 +49,8 @@
 name: "Issue Handler"
 
 on:
-  issues:
-    types: [opened, reopened]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write       # push branches + create commits during fix loop
@@ -98,8 +98,10 @@ jobs:
     # author_association is computed by GitHub at event time — no API
     # call needed, no permission issues. External users get NONE.
     if: >
-      !endsWith(github.event.issue.user.login, '[bot]') &&
-      github.event.issue.user.login != 'ievo-eva'
+      !github.event.issue.pull_request &&
+      github.event.comment.body == '/implement' &&
+      (github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'OWNER')
 
     steps:
       # All actions pinned to commit SHA (not floating tags) — public repo

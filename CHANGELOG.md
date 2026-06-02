@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.14.0
+
+Handler posts decision-log comments to PR thread during implementation. New Phase 4b.6 (research summary after Phase 2), Phase 4c.5 (key design trade-offs after Phase 4c), and Phase 4d.5 (test strategy after Phase 4d) — each posts a concise "Handler decision log" comment to the PR thread. The review-fixer reads these comments for implementation context, ensuring fixes align with the handler's intent. Improves audit trail and handoff to fixer/operator. Closes #147.
+
 ## v0.13.0
 
 Two-phase issue lifecycle: `@ievo` discussion + `/implement` trigger. New `issue-discussion.yml` workflow triggers when an org member mentions `@ievo` in an issue comment — Claude does deep codebase research and posts a structured analysis (Understanding, Approach, Questions, Conflicts, Risks) without creating branches or modifying files. The existing `issue-handler.yml` now triggers on `/implement` comments instead of `issues: opened/reopened`, and validates the discussion thread before implementing. Discussion phase is optional — `/implement` works without prior `@ievo` discussion. Closes #153.

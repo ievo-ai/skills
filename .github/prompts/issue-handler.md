@@ -94,6 +94,10 @@ Thoroughly investigate the issue:
      grep -r "<relevant terms>" plugins/ievo/
 - Understand the full impact of any proposed change
 
+After completing research, note your key findings, chosen approach,
+and rejected alternatives. You will transcribe them into the
+decision-log comment in Phase 4b.6.
+
 ## Phase 3 — Triage Decision
 
 Decide ONE of:
@@ -179,6 +183,29 @@ commits as they land, and the diff updates live.
     echo "Created draft PR #$PR_NUMBER ($PR_URL)"
   fi
 
+### 4b.6. Post research decision log
+
+Post a decision-log comment to the PR summarizing Phase 2 research
+and Phase 4a version-bump decision. Replace each `<...>` placeholder
+below with your own findings; keep it concise (3-5 sentences). This
+preserves reasoning that would otherwise die with the runner — the
+fixer and operator read these to understand WHY specific choices were
+made. Keep the closing `DLEOF` at column 0 (no indent) or the heredoc
+won't terminate:
+
+  cat > /tmp/decision-log-research.md << 'DLEOF'
+  **Handler decision log — Research & Planning**
+
+  <1-3 sentences: what you found during research, what the core problem/opportunity is>
+
+  **Approach:** <chosen implementation strategy in 1-2 sentences>
+  **Reasoning:** <why this approach, not alternatives>
+  **Version bump:** <patch|minor> — <one-line rationale>
+DLEOF
+
+  gh pr comment "$PR_NUMBER" --repo "$REPO" \
+    --body-file /tmp/decision-log-research.md
+
 ### 4c. Implement the change
 
 Follow ALL conventions from AGENTS.md:
@@ -186,6 +213,26 @@ Follow ALL conventions from AGENTS.md:
 - Agent model frontmatter: family aliases only (sonnet/opus/haiku/inherit)
 - Skills: agentskills.io spec compliant
 - No Python, no external dependencies
+
+### 4c.5. Post design decision log
+
+Post a decision-log comment covering key implementation trade-offs.
+Skip this step only when you wrote no new code/logic — e.g. a
+prompt-only or docs-only change, regardless of how many files it
+touched. Otherwise post — code changes always carry trade-offs worth
+recording:
+
+  cat > /tmp/decision-log-design.md << 'DLEOF'
+  **Handler decision log — Design Decisions**
+
+  <1-3 sentences: key choices made during implementation>
+
+  **Reasoning:** <why these choices>
+  **Alternatives considered:** <what was rejected and why>
+DLEOF
+
+  gh pr comment "$PR_NUMBER" --repo "$REPO" \
+    --body-file /tmp/decision-log-design.md
 
 ### 4d. Write/update tests
 
@@ -199,6 +246,23 @@ Follow ALL conventions from AGENTS.md:
       --test-reporter=spec --test-reporter-destination=stdout \
       plugins/ievo/scripts/tests/*.test.mjs
     node .github/scripts/check-coverage.mjs coverage.lcov
+
+### 4d.5. Post test strategy decision log
+
+Post a decision-log comment covering the test approach. Skip this
+step if no tests were written or updated (e.g., prompt-only changes):
+
+  cat > /tmp/decision-log-tests.md << 'DLEOF'
+  **Handler decision log — Test Strategy**
+
+  <1-3 sentences: what was tested, coverage approach>
+
+  **Reasoning:** <why this test structure>
+  **Edge cases:** <notable edge cases covered or intentionally skipped, with rationale>
+DLEOF
+
+  gh pr comment "$PR_NUMBER" --repo "$REPO" \
+    --body-file /tmp/decision-log-tests.md
 
 ### 4e. Run pre-commit validators locally
 

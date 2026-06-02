@@ -94,17 +94,9 @@ Thoroughly investigate the issue:
      grep -r "<relevant terms>" plugins/ievo/
 - Understand the full impact of any proposed change
 
-After completing research, write your key findings, chosen approach,
-and rejected alternatives to a scratch file so they survive across
-the long CI run (don't rely on in-context memory):
-
-  cat > /tmp/decision-log-scratch.md << 'SCRATCHEOF'
-  Findings: <key facts uncovered during research>
-  Approach: <the implementation path you chose>
-  Rejected: <alternatives considered and why you ruled them out>
-  SCRATCHEOF
-
-Phase 4b.6 populates the decision-log comment from this scratch file.
+After completing research, note your key findings, chosen approach,
+and rejected alternatives. You will transcribe them into the
+decision-log comment in Phase 4b.6.
 
 ## Phase 3 — Triage Decision
 
@@ -194,11 +186,12 @@ commits as they land, and the diff updates live.
 ### 4b.6. Post research decision log
 
 Post a decision-log comment to the PR summarizing Phase 2 research
-and Phase 4a version-bump decision. Populate it from the Phase 2
-scratch file (`/tmp/decision-log-scratch.md`) rather than reconstructing
-from memory. Keep it concise (3-5 sentences). This preserves reasoning
-that would otherwise die with the runner — the fixer and operator read
-these to understand WHY specific choices were made:
+and Phase 4a version-bump decision. Replace each `<...>` placeholder
+below with your own findings; keep it concise (3-5 sentences). This
+preserves reasoning that would otherwise die with the runner — the
+fixer and operator read these to understand WHY specific choices were
+made. Keep the closing `DLEOF` at column 0 (no indent) or the heredoc
+won't terminate:
 
   cat > /tmp/decision-log-research.md << 'DLEOF'
   **Handler decision log — Research & Planning**
@@ -208,7 +201,7 @@ these to understand WHY specific choices were made:
   **Approach:** <chosen implementation strategy in 1-2 sentences>
   **Reasoning:** <why this approach, not alternatives>
   **Version bump:** <patch|minor> — <one-line rationale>
-  DLEOF
+DLEOF
 
   gh pr comment "$PR_NUMBER" --repo "$REPO" \
     --body-file /tmp/decision-log-research.md
@@ -224,9 +217,10 @@ Follow ALL conventions from AGENTS.md:
 ### 4c.5. Post design decision log
 
 Post a decision-log comment covering key implementation trade-offs.
-Skip this step only when BOTH hold: you touched a single file AND
-wrote no new code/logic (e.g. a pure prose or config edit). Otherwise
-post — multi-file or code changes always carry trade-offs worth recording:
+Skip this step only when you wrote no new code/logic — e.g. a
+prompt-only or docs-only change, regardless of how many files it
+touched. Otherwise post — code changes always carry trade-offs worth
+recording:
 
   cat > /tmp/decision-log-design.md << 'DLEOF'
   **Handler decision log — Design Decisions**
@@ -235,7 +229,7 @@ post — multi-file or code changes always carry trade-offs worth recording:
 
   **Reasoning:** <why these choices>
   **Alternatives considered:** <what was rejected and why>
-  DLEOF
+DLEOF
 
   gh pr comment "$PR_NUMBER" --repo "$REPO" \
     --body-file /tmp/decision-log-design.md
@@ -265,7 +259,7 @@ step if no tests were written or updated (e.g., prompt-only changes):
 
   **Reasoning:** <why this test structure>
   **Edge cases:** <notable edge cases covered or intentionally skipped, with rationale>
-  DLEOF
+DLEOF
 
   gh pr comment "$PR_NUMBER" --repo "$REPO" \
     --body-file /tmp/decision-log-tests.md

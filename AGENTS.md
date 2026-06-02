@@ -195,7 +195,7 @@ The discussion phase is optional — `/implement` works without prior `@ievo` di
 1. Lists all open PRs by `app/claude` / `claude[bot]` with `mergeStateStatus == "DIRTY"`
 2. For each, rebases onto latest main
 3. `.github/prompts/*.md` conflicts → auto-resolved (take main's version, same as issue-handler Phase 4h)
-4. Non-infra conflicts → escalate to PR + linked issue comment
+4. Non-infra conflicts → escalate to a PR comment for operator review
 5. Force-with-lease push triggers fresh CI
 
 No LLM needed — pure git rebase operations. Never auto-merges. Also supports `workflow_dispatch` for manual operator invocation.

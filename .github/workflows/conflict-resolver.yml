@@ -133,7 +133,12 @@ jobs:
                 fi
               done
 
-              if [ "$ROUND" -ge "$MAX_ROUNDS" ] || [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then
+              # Rely solely on the rebase-dir check. If the rebase is
+              # still in progress after the loop those dirs exist; if it
+              # completed via `break` they don't. A `ROUND -ge MAX_ROUNDS`
+              # check would falsely fail a rebase that succeeded on
+              # exactly the MAX_ROUNDS-th continuation step.
+              if [ -d "$(git rev-parse --git-dir)/rebase-merge" ] || [ -d "$(git rev-parse --git-dir)/rebase-apply" ]; then
                 REBASE_OK=false
                 git rebase --abort 2>/dev/null || true
               fi
@@ -156,9 +161,19 @@ jobs:
               continue
             fi
 
-            git push --force-with-lease origin HEAD:"$BRANCH"
-            gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "Auto-rebased onto latest main."
-            echo "Rebased and pushed PR #$PR_NUMBER"
+            # Wrap the push so a rejected force-with-lease (concurrent
+            # push, lease mismatch, transient network) can't trip `set -e`
+            # and silently abort the loop — that would skip every
+            # remaining PR with no comment. On failure, note it and move
+            # on; the next push/schedule trigger retries this PR.
+            if git push --force-with-lease origin HEAD:"$BRANCH"; then
+              gh pr comment "$PR_NUMBER" --repo "$REPO" \
+                --body "Auto-rebased onto latest main."
+              echo "Rebased and pushed PR #$PR_NUMBER"
+            else
+              gh pr comment "$PR_NUMBER" --repo "$REPO" \
+                --body "Auto-rebase: force-with-lease push was rejected (branch moved concurrently) — will retry on next trigger."
+              echo "Push rejected for PR #$PR_NUMBER — will retry on next trigger"
+            fi
             echo "::endgroup::"
           done <<< "$PRS"

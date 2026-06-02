@@ -157,7 +157,7 @@ UNKNOWN) — proceed to Step 1.
 
 5. Read handler decision-log comments for implementation context:
      gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-       --jq '[.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Handler decision log"))] | .[].body'
+       --jq '.[] | select(.user.login | test("claude.*\\[bot\\]"; "i")) | select(.body | test("Handler decision log")) | .body'
    These comments explain WHY the handler made specific design choices.
    Ensure your fixes align with the handler's intent — don't contradict
    documented trade-offs or design decisions without strong reason.

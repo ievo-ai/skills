@@ -94,9 +94,17 @@ Thoroughly investigate the issue:
      grep -r "<relevant terms>" plugins/ievo/
 - Understand the full impact of any proposed change
 
-After completing research, note your key findings, chosen approach,
-and rejected alternatives. You will post these to the PR thread as
-a decision-log comment in Phase 4b.6.
+After completing research, write your key findings, chosen approach,
+and rejected alternatives to a scratch file so they survive across
+the long CI run (don't rely on in-context memory):
+
+  cat > /tmp/decision-log-scratch.md << 'SCRATCHEOF'
+  Findings: <key facts uncovered during research>
+  Approach: <the implementation path you chose>
+  Rejected: <alternatives considered and why you ruled them out>
+  SCRATCHEOF
+
+Phase 4b.6 populates the decision-log comment from this scratch file.
 
 ## Phase 3 — Triage Decision
 
@@ -186,10 +194,11 @@ commits as they land, and the diff updates live.
 ### 4b.6. Post research decision log
 
 Post a decision-log comment to the PR summarizing Phase 2 research
-and Phase 4a version-bump decision. Keep it concise (3-5 sentences).
-This preserves reasoning that would otherwise die with the runner —
-the fixer and operator read these to understand WHY specific choices
-were made:
+and Phase 4a version-bump decision. Populate it from the Phase 2
+scratch file (`/tmp/decision-log-scratch.md`) rather than reconstructing
+from memory. Keep it concise (3-5 sentences). This preserves reasoning
+that would otherwise die with the runner — the fixer and operator read
+these to understand WHY specific choices were made:
 
   cat > /tmp/decision-log-research.md << 'DLEOF'
   **Handler decision log — Research & Planning**
@@ -215,8 +224,9 @@ Follow ALL conventions from AGENTS.md:
 ### 4c.5. Post design decision log
 
 Post a decision-log comment covering key implementation trade-offs.
-Skip this step if the change was straightforward with no meaningful
-alternatives to document:
+Skip this step only when BOTH hold: you touched a single file AND
+wrote no new code/logic (e.g. a pure prose or config edit). Otherwise
+post — multi-file or code changes always carry trade-offs worth recording:
 
   cat > /tmp/decision-log-design.md << 'DLEOF'
   **Handler decision log — Design Decisions**

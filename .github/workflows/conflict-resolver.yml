@@ -32,7 +32,6 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  actions: read
 
 concurrency:
   group: conflict-resolver
@@ -79,13 +78,17 @@ jobs:
             exit 0
           fi
 
+          # Fetch main once up front — it doesn't change from our own
+          # per-branch pushes, and the post-rebase FINAL_BEHIND check
+          # below catches an external merge landing mid-loop.
+          git fetch origin main
+
           # Here-string (not `echo | while`) keeps the loop in the main
           # shell — no subshell, so an unclosed ::group:: can't outlive a
           # mid-loop exit and CI log grouping stays consistent.
           while IFS=' ' read -r PR_NUMBER BRANCH; do
             echo "::group::Rebasing PR #$PR_NUMBER ($BRANCH)"
 
-            git fetch origin main
             git fetch origin "$BRANCH"
             git checkout "$BRANCH"
             git reset --hard "origin/$BRANCH"

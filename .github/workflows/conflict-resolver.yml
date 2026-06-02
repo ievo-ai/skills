@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          PRS=$(gh pr list --repo "$REPO" --state open \
+          PRS=$(gh pr list --repo "$REPO" --state open --limit 100 \
             --json number,headRefName,author,mergeStateStatus \
             --jq '.[] | select(.mergeStateStatus == "DIRTY") | select(.author.login == "app/claude" or .author.login == "claude[bot]") | "\(.number) \(.headRefName)"')
 
@@ -79,7 +79,10 @@ jobs:
             exit 0
           fi
 
-          echo "$PRS" | while IFS=' ' read -r PR_NUMBER BRANCH; do
+          # Here-string (not `echo | while`) keeps the loop in the main
+          # shell — no subshell, so an unclosed ::group:: can't outlive a
+          # mid-loop exit and CI log grouping stays consistent.
+          while IFS=' ' read -r PR_NUMBER BRANCH; do
             echo "::group::Rebasing PR #$PR_NUMBER ($BRANCH)"
 
             git fetch origin main
@@ -153,9 +156,9 @@ jobs:
               continue
             fi
 
-            git push --force-with-lease origin HEAD
+            git push --force-with-lease origin HEAD:"$BRANCH"
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
               --body "Auto-rebased onto latest main."
             echo "Rebased and pushed PR #$PR_NUMBER"
             echo "::endgroup::"
-          done
+          done <<< "$PRS"

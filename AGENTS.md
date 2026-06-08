@@ -151,7 +151,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.15.0):**
+**Current compliance ledger (v0.17.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -210,7 +210,7 @@ No LLM needed — pure git rebase operations. Never auto-merges. Also supports `
 
 ### Pre-commit hooks + workflow gate
 
-Local enforcement + server-side hard gate, sharing the same validator scripts. See `.pre-commit-config.yaml` (local) and `.github/workflows/pre-commit-gate.yml` (server). The seven validators are in `.github/scripts/validators/` (plus `validate_agents.mjs` re-used from `plugins/ievo/scripts/`):
+Local enforcement + server-side hard gate, sharing the same validator scripts. See `.pre-commit-config.yaml` (local) and `.github/workflows/pre-commit-gate.yml` (server). Eight validators enforce quality — six in `.github/scripts/validators/` and two re-used from `plugins/ievo/scripts/`:
 
 - `nested-fences.mjs` — markdown code-fence nesting bug (catches the `\`\`\`markdown` outer with `\`\`\`X` inner pattern that closes the outer per CommonMark)
 - `crlf-frontmatter.mjs` — CRLF or CR-only line endings inside YAML frontmatter (validator-bypass surface)

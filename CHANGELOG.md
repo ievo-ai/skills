@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.17.0
+
+Fix stale "seven validators" count in AGENTS.md pre-commit section. The count was introduced when there were 6 validators in `.github/scripts/validators/` plus `validate_agents.mjs` re-used from `plugins/ievo/scripts/` (total 7). When `validate_skills.mjs` was later re-used as an eighth validator the prose was not updated. The section now reads "Eight validators enforce quality — six in `.github/scripts/validators/` and two re-used from `plugins/ievo/scripts/`" which matches the actual validator inventory. No functional change.
+
+---
+
 ## v0.15.0
 
 Standalone conflict resolver workflow (`conflict-resolver.yml`). When main advances and open handler PRs become DIRTY (merge conflicts prevent CI from running), this workflow auto-rebases them onto latest main. Resolves `.github/prompts/*.md` conflicts by taking main's version; escalates non-infrastructure conflicts to a PR comment for operator review. Triggers on push to main, every 6 hours as safety net, and via manual workflow dispatch. No LLM needed — pure git operations. Closes #145.

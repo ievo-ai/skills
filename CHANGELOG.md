@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.19.0
+
+Attribute automation commits to the iEvo GitHub App bot instead of the default Claude bot identity. The issue-handler, review-fixer, and `/fix` workflows already push as the App (the push token is what triggers downstream CI), but the commit *author* still surfaced the generic bot. Passing the App bot's identity to `claude-code-action` aligns the commit author with the pusher, so implementation and review-fix commits are now consistently attributed to the iEvo App. No behavioural change to the pipelines; commit signing (Verified badge) is out of scope.
+
+---
+
 ## v0.17.0
 
 Fix stale "seven validators" count in AGENTS.md pre-commit section. The count was introduced when there were 6 validators in `.github/scripts/validators/` plus `validate_agents.mjs` re-used from `plugins/ievo/scripts/` (total 7). When `validate_skills.mjs` was later re-used as an eighth validator the prose was not updated. The section now reads "Eight validators enforce quality — six in `.github/scripts/validators/` and two re-used from `plugins/ievo/scripts/`" which matches the actual validator inventory. No functional change.

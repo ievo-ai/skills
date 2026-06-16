@@ -204,6 +204,11 @@ jobs:
           EFFECTIVE_BUDGET: ${{ steps.check.outputs.effective_budget }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Attribute fix commits to the iEvo App bot, not the default claude[bot].
+          # The push already authenticates as the App (checkout token); these inputs
+          # align the commit author so the visible identity matches the pusher.
+          bot_id: "264606751"
+          bot_name: "ievo-eva[bot]"
           allowed_bots: "claude"
           claude_args: |
             --model sonnet

@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.20.0
+
+Fix stale roadmap version target and compliance ledger version reference in AGENTS.md. The roadmap entry that read `**v0.7.0** — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs` was never shipped and main has long since surpassed v0.7.0. Replaces the version pin with `**planned**` and adds a parenthetical noting the original target. The compliance ledger header read `v0.19.0`; bumped to `v0.20.0` to track the current shipped version. No functional change to any script, skill, or workflow.
+
+---
+
 ## v0.19.0
 
 Attribute automation commits to the iEvo GitHub App bot instead of the default Claude bot identity. The issue-handler, review-fixer, and `/fix` workflows already push as the App (the push token is what triggers downstream CI), but the commit *author* still surfaced the generic bot. Passing the App bot's identity to `claude-code-action` aligns the commit author with the pusher, so implementation and review-fix commits are now consistently attributed to the iEvo App. No behavioural change to the pipelines; commit signing (Verified badge) is out of scope.

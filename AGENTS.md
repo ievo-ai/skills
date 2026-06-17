@@ -151,7 +151,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.19.0):**
+**Current compliance ledger (v0.20.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -294,7 +294,7 @@ node plugins/ievo/scripts/scan_repo.mjs anthropics/claude-code \
 
 Forward-looking only. **Shipped versions live in `CHANGELOG.md` at the repo root** — see § Key conventions § Changelog goes in `CHANGELOG.md`.
 
-- **v0.7.0** — cortex A/B validation gate for evolutions; GitHub search source in `discover.mjs` for agent-only / plugin-only repos.
+- **planned** — cortex A/B validation gate for evolutions; GitHub search source in `discover.mjs` for agent-only / plugin-only repos. (Originally targeted v0.7.0; carried forward as the plugin surpassed that version without shipping these items.)
 - **v1.0** — skills.sh publication + cross-project pattern curation.
 
 See `README.md` for user-facing documentation; see `CHANGELOG.md` for the full shipped-version history.

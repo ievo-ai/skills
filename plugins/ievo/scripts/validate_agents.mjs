@@ -2,7 +2,7 @@
 // validate_agents.mjs — lint check for agent .md files in the ievo plugin.
 //
 // Rules enforced (v0.5.2+):
-//   1. `model:` frontmatter, if present, MUST be one of: sonnet | opus | haiku | inherit
+//   1. `model:` frontmatter, if present, MUST be one of: sonnet | opus | haiku | fable | inherit
 //   2. NEVER use vendor-specific or version-pinned IDs like claude-sonnet-4-6, gpt-5, etc.
 //   3. Required frontmatter fields: name, description
 //
@@ -20,7 +20,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
+export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "fable", "inherit"]);
 export const REQUIRED_FIELDS = ["name", "description"];
 
 // Patterns that indicate vendor-specific or version-pinned IDs

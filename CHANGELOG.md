@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.21.0
+
+Add `fable` as a vendor-neutral model alias to `validate_agents.mjs`. Claude Fable 5 (Claude Code v2.1.170, June 2026) is the Mythos-class model now generally available. Agent files using `model: fable` would fail the vendor-neutrality validator before this change — now `fable` is recognized as a first-class family alias alongside `sonnet`, `opus`, `haiku`, and `inherit`. Updates AGENTS.md § Allowed values list. Closes #191.
+
+---
+
 ## v0.20.0
 
 Fix stale roadmap version target and compliance ledger version reference in AGENTS.md. The roadmap entry that read `**v0.7.0** — cortex A/B validation gate for evolutions; GitHub search source in discover.mjs` was never shipped and main has long since surpassed v0.7.0. Replaces the version pin with `**planned**` and adds a parenthetical noting the original target. The compliance ledger header read `v0.19.0`; bumped to `v0.20.0` to track the current shipped version. No functional change to any script, skill, or workflow.

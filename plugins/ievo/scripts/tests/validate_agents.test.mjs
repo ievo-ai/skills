@@ -23,8 +23,8 @@ import {
 } from "../validate_agents.mjs";
 
 describe("constants", () => {
-  it("ALLOWED_MODELS contains the four canonical aliases", () => {
-    assert.deepEqual([...ALLOWED_MODELS].sort(), ["haiku", "inherit", "opus", "sonnet"]);
+  it("ALLOWED_MODELS contains all canonical aliases", () => {
+    assert.deepEqual([...ALLOWED_MODELS].sort(), ["fable", "haiku", "inherit", "opus", "sonnet"]);
   });
 
   it("REQUIRED_FIELDS lists name and description", () => {

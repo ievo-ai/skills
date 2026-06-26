@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.22.0
+
+Fix `AGENTS.md` tree diagram to include `commands/vuln-scan.md` — the Glasswing-inspired `/ievo:vuln-scan` orchestrator command (phases 1-4, parallel sub-agents) was present in the filesystem but missing from the directory listing. AI agents reading `AGENTS.md` would not discover this command. No behaviour change — documentation correction only.
+
+---
+
 ## v0.21.0
 
 Add `fable` as a vendor-neutral model alias to `validate_agents.mjs`. Claude Fable 5 (Claude Code v2.1.170, June 2026) is the Mythos-class model now generally available. Agent files using `model: fable` would fail the vendor-neutrality validator before this change — now `fable` is recognized as a first-class family alias alongside `sonnet`, `opus`, `haiku`, and `inherit`. Updates AGENTS.md § Allowed values list. Closes #191.

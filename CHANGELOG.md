@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.23.0
+
+Add the upstream `check-merge-conflict` hook (`pre-commit/pre-commit-hooks` `rev: v6.0.0`) to `.pre-commit-config.yaml`. The config previously had no guard against leftover merge-conflict markers (`<<<<<<<` / `=======` / `>>>>>>>`) reaching a commit — a real gap surfaced while landing the v0.20–v0.22 version-chain, which required several manual rebase conflict resolutions. Configured with `--assume-in-merge` so it fires after **rebase** resolutions too (`git rebase` does not set `MERGE_HEAD`), not only `git merge` conflicts. Runs in both the local hook and the `pre-commit-gate.yml` CI, so it cannot be bypassed with `--no-verify`. No script, skill, or workflow logic changed.
+
+---
+
 ## v0.22.0
 
 Fix `AGENTS.md` tree diagram to include `commands/vuln-scan.md` — the Glasswing-inspired `/ievo:vuln-scan` orchestrator command (phases 1-4, parallel sub-agents) was present in the filesystem but missing from the directory listing. AI agents reading `AGENTS.md` would not discover this command. No behaviour change — documentation correction only.

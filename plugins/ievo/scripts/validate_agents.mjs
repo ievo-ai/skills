@@ -5,6 +5,7 @@
 //   1. `model:` frontmatter, if present, MUST be one of: sonnet | opus | haiku | fable | inherit
 //   2. NEVER use vendor-specific or version-pinned IDs like claude-sonnet-4-6, gpt-5, etc.
 //   3. Required frontmatter fields: name, description
+//   4. `effort:` frontmatter, if present, MUST be one of: low | medium | high | xhigh | max
 //
 // Exit codes:
 //   0 — all agents pass
@@ -22,6 +23,11 @@ import { fileURLToPath } from "node:url";
 
 export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "fable", "inherit"]);
 export const REQUIRED_FIELDS = ["name", "description"];
+// `effort:` overrides the session effort level for this sub-agent. Validate-if-present,
+// mirroring how `model:` is handled here: an absent value is fine (the agent inherits
+// session effort), but a mistyped value silently does nothing at runtime, so we error
+// on it. Value set matches validate_skills.mjs (the same agentskills.io field).
+export const VALID_EFFORT_VALUES = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 // Patterns that indicate vendor-specific or version-pinned IDs
 export const FORBIDDEN_MODEL_PATTERNS = [
@@ -93,6 +99,18 @@ export function checkModelField(model) {
   return violations;
 }
 
+export function checkEffortField(effort) {
+  if (!effort) return [];
+  if (!VALID_EFFORT_VALUES.has(effort)) {
+    return [{
+      severity: "error",
+      rule: "invalid-effort-value",
+      message: `\`effort: ${effort}\` is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
+    }];
+  }
+  return [];
+}
+
 export function validateAgent(filePath) {
   const content = readFileSync(filePath, "utf-8");
   return validateAgentContent(content);
@@ -121,6 +139,8 @@ export function validateAgentContent(content) {
   if (fm.model) {
     violations.push(...checkModelField(fm.model));
   }
+
+  violations.push(...checkEffortField(fm.effort));
 
   return violations;
 }

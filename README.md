@@ -52,6 +52,16 @@ Codex support added in v0.3.3 — same plugin content, separate marketplace mani
 
 That's it. Interactive interview, security checks, install. Then `/reload-plugins` to activate.
 
+### Migrating from Claude Code → Codex (or back)
+
+Already running iEvo on one platform and switching to the other? Your iEvo state is **already portable** — `.ievo/evolution/` overlays, the repo index, and config are plain files on the shared filesystem, platform-agnostic by design. You do **not** need a fresh `/ievo:init`:
+
+1. On Codex, run `codex /import` (Codex `v0.140.0+`) to bring over your Claude Code project configuration (plugin state, recent context).
+2. Install the iEvo plugin on the new platform if it isn't already (marketplace add + install above).
+3. Your `.ievo/evolution/` overlays and `.ievo/cache/index/` transfer automatically — **skip `/ievo:init`**; run `/ievo:evolution`, `/ievo:security-check`, or `/ievo:index-repos` directly when you want to refresh.
+
+`/ievo:init` also detects pre-existing `.ievo/evolution/` state on startup and tells you it's already active, so re-running it after a migration won't clobber your overlays.
+
 ### Permission pre-setup (optional, skips the prompt)
 
 If you want to set permissions before running `/ievo:init`, add to `.claude/settings.local.json` (per-user, gitignored — recommended) or `.claude/settings.json` (team-shared, committed):

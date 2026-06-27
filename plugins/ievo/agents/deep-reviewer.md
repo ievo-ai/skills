@@ -127,7 +127,7 @@ Are concurrent access patterns safe? Look for:
 ### Point 11: Leaked secrets in the diff
 
 Scan the diff text for credential exposure — a category that survives linters/tests but is high-impact once committed. Flag (as a **blocker**) any added line containing:
-- **API-key prefixes**: `sk-` (OpenAI/Anthropic), `ghp_` / `ghs_` / `github_pat_` (GitHub tokens), `AKIA` (AWS access-key id), `xoxb-` / `xoxp-` (Slack), `AIza` (Google).
+- **API-key prefixes**: `sk-` (OpenAI and other `sk-` providers), `sk-ant-` (Anthropic), `ghp_` / `ghs_` / `github_pat_` (GitHub tokens), `AKIA` (AWS access-key id), `xoxb-` / `xoxp-` (Slack), `AIza` (Google).
 - **Private-key material**: `-----BEGIN RSA PRIVATE KEY-----`, `-----BEGIN OPENSSH PRIVATE KEY-----`, `-----BEGIN EC PRIVATE KEY-----`.
 - **Credential assignments with a real value**: `(password|api_key|secret|token|passwd|auth_token)` followed by `=`/`:` and a quoted value of 8+ chars — but EXCLUDE obvious placeholders (`YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`).
 - **Committed dotenv files** with real values (an added `.env` / `.env.*` that isn't `.env.example`).

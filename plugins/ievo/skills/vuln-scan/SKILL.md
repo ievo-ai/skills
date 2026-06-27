@@ -16,6 +16,8 @@ disallowed-tools:
   - Bash(cp*)
   - Bash(curl*)
   - Bash(wget*)
+  - Bash(sudo*)
+  - Bash(chmod*)
   # WebSearch works in sub-agents as of CC v2.1.183 — a vuln scan must never
   # web-search about the code it is analyzing (exfiltration surface).
   - WebSearch

@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.29.0
+
+Harden `issue-handler.md` against comment-based prompt injection. The `/implement` handler reads the issue's comment thread, and previously treated non-author comments as "informational context" — meaning external comment text still reached the model. Now it fetches each comment's `authorAssociation` and **ignores the body of any comment from a non-member author** (`NONE`/`CONTRIBUTOR`/etc.) entirely — untrusted external data, never read as context, requirements, or instructions. Authoritative input is the issue body (a member vouched for it via `/implement`) plus member/owner comments and the verified discussion-bot analysis. The existing member/owner trigger gate + privilege ceiling already made the surface narrow; this closes the residual at the prompt layer.
+
 ## v0.28.0
 
 Split `init/SKILL.md` (951 lines, ~190% of the agentskills.io ≤500-line recommendation — the flagship orchestrator and the only spec-violating skill) into progressive-disclosure references. Moved provably-static content out of the body — the seven run-log output templates (→ `references/log-format.md`), the manifest + category lookup tables (→ `references/reference-tables.md`), the rare RED-verdict report-to-source flow (→ `references/security-report-flow.md`), and the Step 9 install mechanics (→ `references/install-protocol.md`) — while keeping ALL happy-path execution, decision points, and the inline "log section N NOW — do not defer" cues in the body (the cues were deliberate anti-skip emphasis; only the verbose templates moved). Body now 638 lines (−33%). Note: literal ≤500 was not pursued — reaching it requires relocating execution-coupled instructions (interview shapes, permission logic) behind references, which would make the issue's own motivating case (a context-pressured agent skipping the load) WORSE; 638 is the floor before that trade. Closes #172.

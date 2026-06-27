@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.26.0
+
+Add `notify-release.yml` — on merge to main with a plugin version change, announce the new `ievo-ai/skills` release to the iEvo community Telegram via a cross-repo `repository_dispatch(child-release)` into `ievo-ai/eva` (which owns the Telegram token; this public repo never holds it). Mirrors eva's documented cross-repo announce design; the `merged==true` guard lives here at the dispatch source. The (untrusted) PR title is JSON-escaped via `jq --arg`. Closes the gap where skills releases shipped silently while eva merges notified.
+
 ## v0.25.0
 
 Add `effort:` frontmatter validation to `validate_agents.mjs` (parity with `validate_skills.mjs`, which already validates the field). `effort:` overrides the session effort level for a sub-agent (values: `low`/`medium`/`high`/`xhigh`/`max`); a mistyped value (`effort: medium-high`, `effort: fast`) silently does nothing at runtime and previously passed validation. The validator now errors on an invalid value. Scoped deliberately to **validate-if-present** (an absent `effort:` is fine), mirroring how this script already treats `model:` — rather than warning on absent like `validate_skills.mjs`, which would emit persistent non-actionable warnings on every agent file and require changing the script's exit semantics. Exports `VALID_EFFORT_VALUES` + `checkEffortField()`. 100% coverage maintained. Partially addresses #163 (the invalid-value gap; the optional absent-nudge is left for when `effort:` is added to agent files).

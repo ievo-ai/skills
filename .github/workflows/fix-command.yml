@@ -57,6 +57,18 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      # Immediate acknowledgment: 👀 on the /fix comment so the operator sees
+      # it was picked up. App-attributed; non-fatal.
+      - name: Acknowledge with 👀 reaction
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes \
+            || echo "::warning::could not add 👀 reaction (non-fatal)"
+
       - name: Check author and calculate budget
         id: budget
         env:

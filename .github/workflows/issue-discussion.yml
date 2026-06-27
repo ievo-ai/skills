@@ -48,6 +48,20 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      # Immediate acknowledgment: drop a 👀 on the triggering comment so the
+      # operator sees the bot picked it up, before the (minutes-long) research
+      # run posts its analysis. Attributed to the App via the App token.
+      # Non-fatal — a failed reaction must never abort the discussion.
+      - name: Acknowledge with 👀 reaction
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes \
+            || echo "::warning::could not add 👀 reaction (non-fatal)"
+
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:

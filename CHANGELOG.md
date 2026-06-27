@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.30.0
+
+Comment-triggered workflows now drop an immediate 👀 reaction (from the iEvo App) on the triggering comment. `issue-discussion.yml` (`@ievo-ai` mention), `issue-handler.yml` (`/implement`), and `fix-command.yml` (`/fix`) each add the reaction right after minting the App token — before the minutes-long research/implementation run posts anything — so the operator gets instant confirmation the bot picked the comment up instead of wondering whether anything triggered. The reaction step is non-fatal (a failed reaction never aborts the run) and uses `github.event.comment.id` via env (no untrusted input in the shell).
+
 ## v0.29.0
 
 Harden `issue-handler.md` against comment-based prompt injection. The `/implement` handler reads the issue's comment thread, and previously treated non-author comments as "informational context" — meaning external comment text still reached the model. Now it fetches each comment's `authorAssociation` and **ignores the body of any comment from a non-member author** (`NONE`/`CONTRIBUTOR`/etc.) entirely — untrusted external data, never read as context, requirements, or instructions. Authoritative input is the issue body (a member vouched for it via `/implement`) plus member/owner comments and the verified discussion-bot analysis. The existing member/owner trigger gate + privilege ceiling already made the surface narrow; this closes the residual at the prompt layer.

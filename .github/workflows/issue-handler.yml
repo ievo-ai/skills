@@ -117,6 +117,19 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      # Immediate acknowledgment: 👀 on the /implement comment so the operator
+      # sees it was picked up, before the implementation run posts its first
+      # text comment. App-attributed; non-fatal.
+      - name: Acknowledge with 👀 reaction
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes \
+            || echo "::warning::could not add 👀 reaction (non-fatal)"
+
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:

@@ -76,3 +76,15 @@ repos:
         # the rest is defence-in-depth.
         files: \.(md|mjs|js|ts|py|sh|yaml|yml|json|txt)$
         exclude: ^(package-lock\.json|coverage\.lcov)$
+
+  # Upstream builtin guard (not one of the local validators above): fails on
+  # leftover merge-conflict markers (<<<<<<<, =======, >>>>>>>) reaching a
+  # commit. --assume-in-merge makes it fire even outside a detected merge state
+  # — `git rebase` does NOT set MERGE_HEAD, so botched REBASE resolutions are
+  # caught too, not only `git merge` conflicts. Runs in both the local hook and
+  # the pre-commit-gate.yml CI (can't be bypassed with --no-verify).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+        args: [--assume-in-merge]

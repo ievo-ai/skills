@@ -153,7 +153,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.22.0):**
+**Current compliance ledger (v0.23.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -223,6 +223,8 @@ Local enforcement + server-side hard gate, sharing the same validator scripts. S
 
 - `validate_agents.mjs` — re-used from `plugins/ievo/scripts/` for agent frontmatter validation
 - `validate_skills.mjs` — re-used from `plugins/ievo/scripts/` for SKILL.md frontmatter validation (agentskills.io spec constraints)
+
+Plus one upstream builtin (not a local validator, so it falls outside the "eight" count): **`check-merge-conflict`** from `pre-commit/pre-commit-hooks` (pinned `rev: v6.0.0`) — fails on leftover merge-conflict markers (`<<<<<<<` / `=======` / `>>>>>>>`) reaching a commit. Configured with `--assume-in-merge` so it also catches botched **rebase** resolutions (`git rebase` does not set `MERGE_HEAD`), not just `git merge` conflicts.
 
 Setup for new contributors (uv-based, matches the iEvo toolchain):
 ```

@@ -192,6 +192,15 @@ Create if missing:
 
 Do NOT touch `CLAUDE.md` or `AGENTS.md` here.
 
+**Migration check (Claude Code ↔ Codex).** Before creating the dirs, check whether
+`.ievo/evolution/` already holds overlay files (`.ievo/evolution/skills/*.md` or
+`.ievo/evolution/agents/*.md`). If so, existing iEvo state is present — likely
+migrated from another platform on the shared filesystem (e.g. via Codex `/import`).
+**Preserve it** (create only missing dirs; never overwrite existing overlays) and
+tell the user: "Existing iEvo evolution state detected — kept as-is. Init continues
+for discovery; your overlays stay active." The idempotent inventory (Step 3)
+already prevents re-suggesting installed items.
+
 ## Step 2.5: Create run-log file (incremental writes — do not defer!)
 
 **Critical:** the log is written **incrementally**, after each major step — not as a single flush at the end. If init hangs, crashes, or the user cancels mid-run, the diagnostic log up to the point of failure must be on disk.

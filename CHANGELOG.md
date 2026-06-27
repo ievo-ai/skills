@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.31.0
+
+Document the cross-platform migration path (Claude Code ↔ Codex) — closes #244. iEvo's `.ievo/` state (evolution overlays, repo index, config) is already platform-agnostic plain files on the shared filesystem, but there was no documented way to move between the two platforms iEvo supports. Adds a README "Migrating from Claude Code → Codex" section (use Codex `/import` v0.140.0+ for the platform config; `.ievo/` overlays transfer automatically; skip a fresh `/ievo:init`) plus a migration check in `init/SKILL.md` Step 2 that detects pre-existing `.ievo/evolution/` overlays, preserves them, and tells the user the state is already active. Directly serves iEvo's universal/cross-platform positioning.
+
+---
+
 ## v0.30.0
 
 Comment-triggered workflows now drop an immediate 👀 reaction (from the iEvo App) on the triggering comment. `issue-discussion.yml` (`@ievo-ai` mention), `issue-handler.yml` (`/implement`), and `fix-command.yml` (`/fix`) each add the reaction right after minting the App token — before the minutes-long research/implementation run posts anything — so the operator gets instant confirmation the bot picked the comment up instead of wondering whether anything triggered. The reaction step is non-fatal (a failed reaction never aborts the run) and uses `github.event.comment.id` via env (no untrusted input in the shell).

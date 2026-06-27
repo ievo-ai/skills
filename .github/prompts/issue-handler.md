@@ -16,7 +16,7 @@ Post a neutral comment so the issue author knows the handler picked it up:
 
 Before researching, read the full discussion thread. The /implement
 command that triggered this handler was preceded by one or more
-@ievo discussion rounds (issue-discussion.yml). Read ALL comments
+@ievo-ai discussion rounds (issue-discussion.yml). Read ALL comments
 and validate that requirements are clear before proceeding.
 
   gh issue view "$ISSUE_NUMBER" --repo "$REPO" \

@@ -1,10 +1,10 @@
-# Issue Discussion — @ievo-triggered research and analysis
+# Issue Discussion — @ievo-ai-triggered research and analysis
 #
-# When an org member mentions @ievo in an issue comment, Claude
+# When an org member mentions @ievo-ai in an issue comment, Claude
 # (Opus, max effort) performs deep research and posts a structured
 # analysis. Does NOT implement — only discusses.
 #
-# Trigger: issue_comment containing "@ievo" (not on PRs)
+# Trigger: issue_comment containing "@ievo-ai" (not on PRs)
 # Gate: org members only (MEMBER/OWNER)
 # Safety: read-only — never creates branches, PRs, or modifies files
 #
@@ -34,7 +34,7 @@ jobs:
     if: >
       !github.event.issue.pull_request &&
       !endsWith(github.event.comment.user.login, '[bot]') &&
-      contains(github.event.comment.body, '@ievo') &&
+      contains(github.event.comment.body, '@ievo-ai') &&
       !startsWith(github.event.comment.body, '/implement') &&
       !startsWith(github.event.comment.body, '/fix') &&
       (github.event.comment.author_association == 'MEMBER' ||

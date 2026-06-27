@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.27.0
+
+Fix the issue-discussion trigger handle: `@ievo` -> `@ievo-ai`. `@ievo` is not our handle (it is a squat-able/foreign GitHub username); ours is the `ievo-ai` org. The `issue-discussion.yml` trigger matched `@ievo` (which works only as an accidental substring of `@ievo-ai`), and the docs/prompt instructed mentioning `@ievo` — every such mention pinged a foreign user instead of us. Updated the trigger condition, the workflow header comments, AGENTS.md Phase-1 docs, and the handler prompt to use `@ievo-ai`. Behavioural change: the discussion bot now triggers on `@ievo-ai`, not bare `@ievo`.
+
 ## v0.26.0
 
 Add `notify-release.yml` — on merge to main with a plugin version change, announce the new `ievo-ai/skills` release to the iEvo community Telegram via a cross-repo `repository_dispatch(child-release)` into `ievo-ai/eva` (which owns the Telegram token; this public repo never holds it). Mirrors eva's documented cross-repo announce design; the `merged==true` guard lives here at the dispatch source. The (untrusted) PR title is JSON-escaped via `jq --arg`. Closes the gap where skills releases shipped silently while eva merges notified.

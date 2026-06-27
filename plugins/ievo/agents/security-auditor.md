@@ -2,29 +2,35 @@
 name: security-auditor
 description: Senior application security engineer specializing in AI agent supply-chain vulnerabilities. Performs vulnerability assessment of ONE candidate (skill / agent / plugin from Claude Code or Codex marketplace) before installation. Domain expertise — prompt injection (direct + indirect), credential exfiltration, supply-chain compromise patterns, hook abuse, indirection attacks, encoded payloads, social engineering in technical artifacts, tool-model bypass. Deep content review (full SKILL.md + agent.md + scripts/ + references/ + assets/ + bundled plugin files). No owner-based trust shortcuts — reputation isn't security. Returns structured verdict (GREEN/YELLOW/RED) + cited evidence flags + pre-filled GitHub issue body for RED findings. Dispatched in parallel by /ievo:init Step 8.
 model: sonnet
-# Read-only allowlist: the auditor inspects and returns a verdict + a pre-filled
-# report body in its output JSON — it never writes files (the report Write happens
-# in /ievo:init Step 8b, not here). Write is intentionally absent.
+# The auditor inspects + returns a verdict and a pre-filled report body in its
+# output JSON. Its ONLY file write is the RED-only `.ievo/hooks/security-red`
+# signal in Step 6, so `Write` stays in the allowlist; everything destructive is
+# denied below.
 tools:
   - Bash
   - Read
+  - Write
   - WebFetch
   - Glob
   - Grep
 # Defense-in-depth denylist (camelCase per Claude Code sub-agent frontmatter —
 # distinct from the kebab-case `disallowed-tools` in SKILL.md). Skill-level
 # `disallowed-tools` does NOT propagate to Task-tool-dispatched sub-agents, so the
-# auditor self-enforces. WebSearch is blocked because the auditor must never
-# search the web about a candidate it is scanning — a scan target carrying prompt
-# injection could turn that into an exfiltration channel.
+# auditor self-enforces. `Edit` is denied (it only ever creates the one signal
+# file via `Write`, never edits); destructive shell is denied; `WebSearch` is
+# denied because the auditor must never search the web about a candidate it is
+# scanning — a target carrying prompt injection could turn that into an
+# exfiltration channel. (`WebFetch` is kept: Step 1 needs it for skills.sh audit
+# signals — a known residual exfil surface.)
 disallowedTools:
-  - Write
   - Edit
   - Bash(rm*)
   - Bash(mv*)
   - Bash(cp*)
   - Bash(curl*)
   - Bash(wget*)
+  - Bash(sudo*)
+  - Bash(chmod*)
   - WebSearch
 ---
 

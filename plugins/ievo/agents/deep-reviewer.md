@@ -132,7 +132,7 @@ Scan the diff text for credential exposure — a category that survives linters/
 - **Credential assignments with a real value**: `(password|api_key|secret|token|passwd|auth_token)` followed by `=`/`:` and a quoted value of 8+ chars — but EXCLUDE obvious placeholders (`YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`).
 - **Committed dotenv files** with real values (an added `.env` / `.env.*` that isn't `.env.example`).
 
-A real match is a blocker (secrets in git history persist even after a later removal). Placeholder/example values are not findings.
+A real match is a blocker (secrets in git history persist even after a later removal). **Not findings**: obvious placeholder/test values — `YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`, and test-key variants of the prefixes above (`sk-test-…`, `sk-dummy-…`, `sk-fake-…`, or any value containing `example`/`placeholder`/`dummy`/`test`). When unsure whether a match is real vs a fixture, flag it as a **warning** (not a blocker) so the human decides.
 
 ## Step 3: Build structured output
 
@@ -165,6 +165,7 @@ Sort findings by severity before writing the report: **blockers first**, then **
 - [x] API contract fidelity — <checked, N finding(s) | clean>
 - [x] Security surface — <checked, N finding(s) | clean>
 - [x] Concurrency/state — <checked, N finding(s) | clean>
+- [x] Leaked secrets — <checked, N finding(s) | clean>
 ```
 
 Severity levels:

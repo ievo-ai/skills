@@ -3,7 +3,13 @@ name: security-check
 description: Vulnerability assessment by a senior application security engineer for a skill, agent, or plugin (Claude Code or Codex marketplace item) before installation. Domain expertise — prompt injection, credential exfiltration, supply-chain compromise, hook abuse, indirection attacks, encoded payloads, social engineering in technical artifacts, tool-model bypass. Deep content review across SKILL.md/agent.md body + ALL dependencies (scripts/, references/, assets/, bundled plugin files). Threat detection by expert reasoning, not regex. Returns structured verdict (GREEN/YELLOW/RED) with cited evidence (file + excerpt + concern). Invoked by the security-auditor agent in parallel per selected item. Use before installing ANY third-party skill, agent, or plugin.
 license: MIT
 effort: high
-compatibility: "Requires `gh` CLI for fetching content. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter."
+# Turn-level model pin: when this skill is invoked DIRECTLY (not via the
+# security-auditor agent, which already declares model: sonnet), this forces the
+# audit turn to Sonnet — Haiku is insufficient (misses indirection attacks). Note
+# it is a per-turn override (the session model resumes on the next prompt), so it
+# guards the scan turn, not the whole session.
+model: sonnet
+compatibility: "Requires `gh` CLI for fetching content. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter, and this skill's own `model: sonnet` pins the audit turn on direct invocation."
 disallowed-tools:
   - Write
   - Edit
@@ -12,6 +18,12 @@ disallowed-tools:
   - Bash(cp*)
   - Bash(curl*)
   - Bash(wget*)
+  - Bash(sudo*)
+  - Bash(chmod*)
+  # WebSearch works in sub-agents as of CC v2.1.183 — a security scan must never
+  # web-search about its target (a candidate carrying prompt injection could turn
+  # it into an exfiltration channel).
+  - WebSearch
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

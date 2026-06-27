@@ -1,9 +1,12 @@
 ---
 name: deep-review
-description: Structured 10-point gap-detection review of a diff before commit. Spawns a deep-reviewer subagent for independent eyes (fresh context, separate token budget). Catches issues that survive pre-commit hooks, linters, and test suites but surface in human PR review — completeness gaps, test/impl drift, dead code from partial refactors, naming/behaviour mismatch, doc-paraphrase drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, and concurrency/state. Supports scope modes — staged changes (default), working tree, or arbitrary git range. Use before committing significant changes, after a refactor, or when you want a second opinion on a diff.
+description: Structured 11-point gap-detection review of a diff before commit. Spawns a deep-reviewer subagent for independent eyes (fresh context, separate token budget). Catches issues that survive pre-commit hooks, linters, and test suites but surface in human PR review — completeness gaps, test/impl drift, dead code from partial refactors, naming/behaviour mismatch, doc-paraphrase drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, concurrency/state, and leaked secrets. Supports scope modes — staged changes (default), working tree, or arbitrary git range. Use before committing significant changes, after a refactor, or when you want a second opinion on a diff.
 license: MIT
 effort: medium
-compatibility: Requires git CLI for diff generation. Subagent dispatch (Task tool) available on Claude Code and Codex with the iEvo plugin — other agentskills.io-compatible platforms execute the deep-reviewer steps inline. Designed for Sonnet-tier reasoning via the deep-reviewer agent frontmatter.
+# Turn-level model pin (per-turn override; reverts next prompt) — the 11-point
+# gap-detection review needs reasoning depth beyond Haiku on direct invocation.
+model: sonnet
+compatibility: "Requires git CLI for diff generation. Subagent dispatch (Task tool) available on Claude Code and Codex with the iEvo plugin — other agentskills.io-compatible platforms execute the deep-reviewer steps inline. Designed for Sonnet-tier reasoning via the deep-reviewer agent frontmatter and this skill's own `model: sonnet` pin."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -11,7 +14,7 @@ metadata:
 
 # Deep Review — structured gap-detection before commit
 
-A structured 10-point review of your diff by an independent reviewer (fresh context, separate token budget). Catches the class of issues that automated tooling misses but humans find in PR review:
+A structured 11-point review of your diff by an independent reviewer (fresh context, separate token budget). Catches the class of issues that automated tooling misses but humans find in PR review:
 
 - Completeness gaps (spec says X, code does Y)
 - Test/impl drift (test asserts old behaviour after code changed)
@@ -124,14 +127,14 @@ Review the following diff for gaps, drift, and consistency issues.
 <full diff from Step 2>
 ```
 
-The deep-reviewer runs in a fresh context with separate token budget. It executes the 10-point checklist independently and returns a structured report.
+The deep-reviewer runs in a fresh context with separate token budget. It executes the 11-point checklist independently and returns a structured report.
 
 ### On other agentskills.io-compatible platforms
 
 If Task tool dispatch is not available, execute the deep-reviewer's steps inline:
 
 1. Read the full content of every changed file (not just the diff hunks)
-2. Execute all 10 checklist points against the changes
+2. Execute all 11 checklist points against the changes
 3. Build the structured output
 
 The inline path is functionally identical but shares context with the caller (no isolation benefit).
@@ -145,7 +148,7 @@ If the review found **zero findings**:
 ```
 ## Deep Review — clean
 
-All 10 checklist points evaluated. No issues found.
+All 11 checklist points evaluated. No issues found.
 
 Your diff looks ready to commit.
 ```
@@ -165,4 +168,4 @@ After presenting results, suggest next steps based on severity:
 - **Present findings verbatim.** Do not filter, suppress, or editorialize the deep-reviewer's output. The user decides what to act on.
 - **Default to staged.** If the user says `/ievo:deep-review` with no flags, review staged changes. This matches the pre-commit mental model.
 - **Empty diff = clean exit.** Don't warn or suggest — just state the fact and exit.
-- **All 10 points, every time.** The checklist summary must show all 10 points evaluated. Skipping a point because "it doesn't apply" is not allowed — mark it clean instead.
+- **All 11 points, every time.** The checklist summary must show all 11 points evaluated. Skipping a point because "it doesn't apply" is not allowed — mark it clean instead.

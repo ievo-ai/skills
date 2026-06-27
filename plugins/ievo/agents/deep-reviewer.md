@@ -1,6 +1,6 @@
 ---
 name: deep-reviewer
-description: Independent code reviewer dispatched by /ievo:deep-review for gap-detection analysis. Runs in a fresh context (separate token budget, no shared state with the caller) to provide genuinely independent eyes on a diff. Executes a structured 10-point checklist covering completeness, test/impl drift, dead code, naming/behaviour mismatch, doc drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, and concurrency/state. Returns a structured verdict with per-finding file, line, category, and severity. Designed for pre-commit review — catches issues that survive linters and tests but surface in human PR review.
+description: Independent code reviewer dispatched by /ievo:deep-review for gap-detection analysis. Runs in a fresh context (separate token budget, no shared state with the caller) to provide genuinely independent eyes on a diff. Executes a structured 11-point checklist covering completeness, test/impl drift, dead code, naming/behaviour mismatch, doc drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, concurrency/state, and leaked secrets. Returns a structured verdict with per-finding file, line, category, and severity. Designed for pre-commit review — catches issues that survive linters and tests but surface in human PR review.
 model: sonnet
 tools:
   - Read
@@ -27,7 +27,7 @@ For each file in `changed_files`, use Read to load the **complete current conten
 
 If a file was deleted, note it but skip reading. If a file is binary, skip with a note.
 
-## Step 2: Execute the 10-point review checklist
+## Step 2: Execute the 11-point review checklist
 
 For each point, scan ALL changed files. Think carefully — false negatives (missed real issues) are worse than false positives here, but unfounded nitpicks waste the user's time. Every finding must cite a specific file + line + concrete concern.
 
@@ -124,6 +124,16 @@ Are concurrent access patterns safe? Look for:
 - Database transactions that should be atomic but aren't wrapped
 - Event ordering assumptions that may not hold under load
 
+### Point 11: Leaked secrets in the diff
+
+Scan the diff text for credential exposure — a category that survives linters/tests but is high-impact once committed. Flag (as a **blocker**) any added line containing:
+- **API-key prefixes**: `sk-` (OpenAI and other `sk-` providers), `sk-ant-` (Anthropic), `ghp_` / `ghs_` / `github_pat_` (GitHub tokens), `AKIA` (AWS access-key id), `xoxb-` / `xoxp-` (Slack), `AIza` (Google).
+- **Private-key material**: `-----BEGIN RSA PRIVATE KEY-----`, `-----BEGIN OPENSSH PRIVATE KEY-----`, `-----BEGIN EC PRIVATE KEY-----`.
+- **Credential assignments with a real value**: `(password|api_key|secret|token|passwd|auth_token)` followed by `=`/`:` and a quoted value of 8+ chars — but EXCLUDE obvious placeholders (`YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`).
+- **Committed dotenv files** with real values (an added `.env` / `.env.*` that isn't `.env.example`).
+
+A real match is a blocker (secrets in git history persist even after a later removal). **Not findings**: obvious placeholder/test values — `YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`, and test-key variants of the prefixes above (`sk-test-…`, `sk-dummy-…`, `sk-fake-…`, or any value containing `example`/`placeholder`/`dummy`/`test`). When unsure whether a match is real vs a fixture, flag it as a **warning** (not a blocker) so the human decides.
+
 ## Step 3: Build structured output
 
 Sort findings by severity before writing the report: **blockers first**, then **warnings**, then **notes**. Return your findings as a structured report. Format:
@@ -155,6 +165,7 @@ Sort findings by severity before writing the report: **blockers first**, then **
 - [x] API contract fidelity — <checked, N finding(s) | clean>
 - [x] Security surface — <checked, N finding(s) | clean>
 - [x] Concurrency/state — <checked, N finding(s) | clean>
+- [x] Leaked secrets — <checked, N finding(s) | clean>
 ```
 
 Severity levels:
@@ -169,4 +180,4 @@ Severity levels:
 - **No feature suggestions.** "You could also add X" is not a finding. Review what IS there, not what COULD be.
 - **False negatives > false positives, but not by much.** Missing a real issue is worse than flagging a non-issue, but unfounded findings erode trust. When uncertain, flag as severity `note` with your reasoning.
 - **Independent eyes.** You have no context from the caller's session. Read the code fresh. Form your own conclusions.
-- **Complete checklist.** All 10 points must be evaluated and reported in the checklist section, even if clean. Skipping a point is not allowed.
+- **Complete checklist.** All 11 points must be evaluated and reported in the checklist section, even if clean. Skipping a point is not allowed.

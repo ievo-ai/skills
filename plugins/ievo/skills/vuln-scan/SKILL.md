@@ -3,7 +3,11 @@ name: vuln-scan
 description: CWE-aware deep source code vulnerability scan for a single module or file set, inspired by Project Glasswing. Uses AI reasoning (not regex) to trace data flows, detect vulnerabilities, and validate findings via complete exploit chains. Every finding requires an attack narrative (entry point, data flow, impact); no chain means no finding. Applied per-module by the vuln-scanner agent, orchestrated by the /ievo:vuln-scan command. Covers OWASP top 10, CWE-anchored threat taxonomy (injection, auth bypass, crypto misuse, data exposure, race conditions, deserialization, path traversal, SSRF, business logic, supply chain).
 license: MIT
 effort: high
-compatibility: "Requires source code access via Read/Glob/Grep tools and git CLI for diff-based scoping. Designed for Sonnet-tier reasoning — Haiku lacks depth for exploit-chain validation. Host platform should route via model: sonnet alias in vuln-scanner agent frontmatter."
+# Turn-level model pin (per-turn override; session model resumes next prompt) —
+# forces the scan turn to Sonnet on direct invocation. Haiku lacks the depth for
+# exploit-chain validation.
+model: sonnet
+compatibility: "Requires source code access via Read/Glob/Grep tools and git CLI for diff-based scoping. Designed for Sonnet-tier reasoning — Haiku lacks depth for exploit-chain validation. Host platform should route via model: sonnet alias in vuln-scanner agent frontmatter, and this skill's own model: sonnet pins the scan turn on direct invocation."
 disallowed-tools:
   - Write
   - Edit
@@ -12,6 +16,9 @@ disallowed-tools:
   - Bash(cp*)
   - Bash(curl*)
   - Bash(wget*)
+  # WebSearch works in sub-agents as of CC v2.1.183 — a vuln scan must never
+  # web-search about the code it is analyzing (exfiltration surface).
+  - WebSearch
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

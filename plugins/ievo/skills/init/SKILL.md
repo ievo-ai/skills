@@ -84,23 +84,12 @@ The **`from:` line is part of the banner** — shows the user the exact path the
 
 `jq` via Bash works, but Bash tool invocations can be skipped by some inference paths — the model can complete the next line as if Bash had returned the expected value. **Read tool is deterministic**: its result is a file content snapshot in the tool response. The version IS what Read returned, by construction.
 
-### Step 0c — Write to log
+### Step 0c — Record version in the run-log
 
-Create `$LOG_PATH` (see Step 2.5) and write section 0:
-
-```markdown
-# Init run — <ISO-8601 timestamp>
-
-## 0. Plugin metadata
-- iEvo plugin version: <version-from-read>
-- Plugin path: ${CLAUDE_PLUGIN_ROOT}
-- Plugin commit SHA: <run `git -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD 2>/dev/null` or write "marketplace-installed">
-- Claude Code: <output of `claude --version`>
-- OS: <output of `uname -srm`>
-- Run started: <ISO-8601 timestamp>
-```
-
-Plugin path in the log helps diagnose "which install dir is Claude Code loading the plugin from".
+The banner version becomes **section 0** of the run-log, written when the log
+file is created in Step 2.5 (format: [log-format.md §0](references/log-format.md)).
+The plugin path + commit SHA recorded there help diagnose which install dir
+Claude Code loaded the plugin from.
 
 ## Step 1: Verify prerequisites
 
@@ -247,34 +236,14 @@ Collect names from:
 **Plugins enabled:**
 - Parse `.claude/settings.json` field `enabledPlugins` keys
 
-### MANDATORY log content — section 3
-
-Write **complete lists**, do not abbreviate. The diagnostic value depends on seeing everything:
-
-```markdown
-## 3. Installed inventory
-
-### Skills (<N> total)
-**Project-level** (`.claude/skills/`): <full comma-separated list>
-**Project-level plugins** (`.claude/plugins/*/skills/`): <full list>
-**User-level** (`~/.claude/skills/`): <full list>
-**User-level plugins** (`~/.claude/plugins/*/skills/`): <full list>
-
-### Agents (<N> total)
-**Project-level** (`.claude/agents/`): <full comma-separated list — do not truncate>
-**Project-level plugins** (`.claude/plugins/*/agents/`): <full list>
-**User-level** (`~/.claude/agents/`): <full list>
-**User-level plugins** (`~/.claude/plugins/*/agents/`): <full list>
-
-### Plugins enabled (`.claude/settings.json`)
-<comma-separated list of enabledPlugins keys, or "(none)">
-```
-
-If a project has 26 agents, the log MUST list all 26 names. Do not collapse to "12 iEvo-managed plus N others" — that loses information needed for filtering decisions in step 5.
+**Log section 3 NOW — do not defer.** Write the full inventory with **complete
+lists, never truncated** — if a project has 26 agents, log all 26 names;
+"12 iEvo-managed plus N others" loses information needed for step-5 filtering.
+Format: [log-format.md §3](references/log-format.md).
 
 ## Step 4: Detect stack and dependencies
 
-Parse manifest files (see comprehensive table — Python, Node/TS, Rust, Go, Java/Kotlin, Ruby, PHP, Dart, Elixir, .NET, Swift/iOS, Haskell, Clojure, Crystal, OCaml, Nim, Lua, R, Julia, Zig, C/C++, Unreal, Godot, Unity).
+Parse manifest files (full per-stack table in the **Manifest reference** below — covers Python, Node/TS, Rust, Go, Java/Kotlin, Ruby, PHP, Dart, Elixir, .NET, Swift/iOS, Haskell, Clojure, Crystal, OCaml, Nim, Lua, R, Julia, Zig, C/C++, Unreal, Godot, Unity).
 
 For each found manifest, extract direct (top-level) dependency names.
 
@@ -282,37 +251,11 @@ Output stack + deps summary. Log to buffer (section 4).
 
 ### Manifest reference
 
-| Stack | Manifest | What to extract |
-|-------|----------|-----------------|
-| Python | `pyproject.toml` | `[project].dependencies` + `[project.optional-dependencies].*` + `[tool.poetry.dependencies]` |
-| Python | `requirements*.txt`, `Pipfile` | package names |
-| Node / TS / Bun | `package.json` | `dependencies` + `devDependencies` |
-| Deno | `deno.json`, `deno.jsonc` | `imports` keys |
-| Rust | `Cargo.toml` | `[dependencies]` + `[dev-dependencies]` |
-| Go | `go.mod` | `require` directives |
-| Java | `pom.xml` | `<artifactId>` per `<dependency>` |
-| Java / Kotlin | `build.gradle(.kts)` | `implementation`/`api`/`testImplementation` |
-| Ruby | `Gemfile`, `*.gemspec` | `gem '<name>'` |
-| PHP | `composer.json` | `require` + `require-dev` |
-| Dart / Flutter | `pubspec.yaml` | `dependencies` + `dev_dependencies` |
-| Elixir | `mix.exs` | `deps` function |
-| .NET / C# / F# | `*.csproj`, `*.fsproj`, `Directory.Packages.props` | `<PackageReference Include="..."/>` |
-| Swift / iOS | `Package.swift`, `Podfile`, `Cartfile` | dependencies / pods / github |
-| Haskell | `*.cabal`, `package.yaml`, `stack.yaml` | `build-depends` / `dependencies` / `extra-deps` |
-| Clojure | `deps.edn`, `project.clj` | `:deps` keys / `:dependencies` |
-| Crystal | `shard.yml` | `dependencies` + `development_dependencies` |
-| OCaml | `dune-project`, `*.opam` | `depends` |
-| Nim | `*.nimble` | `requires` |
-| Lua | `*.rockspec` | `dependencies` |
-| R | `DESCRIPTION` | `Imports:` + `Depends:` |
-| Julia | `Project.toml` | `[deps]` |
-| Zig | `build.zig.zon` | `.dependencies` |
-| C / C++ | `conanfile.txt/py`, `vcpkg.json`, `CMakeLists.txt` | requires / find_package |
-| Unreal | `*.uproject` | Plugins block |
-| Godot | `project.godot` | `[autoload]` + `addons/` |
-| Unity | `Packages/manifest.json` | `dependencies` |
-
-Tag deps with source manifest for polyglot projects.
+Parse the manifest(s) found, extracting direct (top-level) dependency names, per
+the **[manifest reference table](references/reference-tables.md)** — covers Python,
+Node/TS/Bun, Deno, Rust, Go, Java/Kotlin, Ruby, PHP, Dart, Elixir, .NET, Swift/iOS,
+Haskell, Clojure, Crystal, OCaml, Nim, Lua, R, Julia, Zig, C/C++, Unreal, Godot,
+Unity. Tag deps with their source manifest for polyglot projects.
 
 ## Step 4.5: Disambiguate broad categories
 
@@ -390,34 +333,11 @@ Capture stderr separately from stdout: `node discover.mjs ... 2>discover.err >di
 
 From the discover.mjs output `candidates[]`, drop any candidate whose name matches the inventory from Step 3 (already-installed skills/agents/plugins). The script doesn't know the user's installed state; init applies that filter post-hoc.
 
-### Step 5d — Log section 5 + 5b
+### Step 5d — Log section 5
 
-````markdown
-## 5. Candidate discovery (discover.mjs)
-
-### Stack input
-```json
-<the stack JSON sent to discover.mjs>
-```
-
-### Sources
-- skills.sh API: <queries_executed> queries, <raw_results> results, <errors.length> errors
-- (future v0.7+: GitHub search for agent/plugin discovery)
-
-### Queries generated
-<comma-separated list>
-
-### Candidates after dedup + ranking (top <N>)
-| Rank | Name | Source repo | Installs | Quality | Matched queries | Score |
-|------|------|-------------|----------|---------|-----------------|-------|
-
-### Dropped — already installed (<N>)
-<list with reason "matches installed <type>: <name>">
-
-### Final discover output: <N> candidates
-````
-
-Pass `final_candidates[]` to Step 6.
+**Log section 5 NOW — do not defer.** Format: [log-format.md §5](references/log-format.md)
+(stack input, sources, queries, ranked-candidates table, dropped-already-installed).
+Then pass `final_candidates[]` to Step 6.
 
 ## Step 6: Expand via index-repos (parallel local scan)
 
@@ -445,47 +365,20 @@ Wait for all to complete. Collect their one-line summaries.
 
 Each `repo-indexer` writes to `<project>/.ievo/cache/index/<owner>-<repo>.md` (no conflicts — different paths per repo).
 
-**Why parallel via sub-agents (not sequential):**
-- Cold-cache 8 repos sequentially: ~4-8 minutes
-- Parallel via sub-agents: ~30-60 sec (slowest repo's time)
-- Each sub-agent has isolated context — terminal output and progress noise stays in its scope, doesn't pollute init's log buffer
-- Each returns ONE clean summary line
-
-**Performance expectation (v0.3.1+ — parallel checkout-based):** 8 repos in parallel = total wall-clock ~30-60 sec for cold cache (slowest repo wins). Per-repo: shallow clone (~5-30 sec) + filesystem scan (instant). Cache hits are sub-second per repo.
-
-Surface progress to user via the incremental log file — they can `tail -f .ievo/log/init-*.md` to monitor.
+(Parallel via sub-agents: ~30-60s cold-cache wall-clock for 8 repos vs ~4-8 min
+sequential — slowest repo wins, each has isolated context + returns one summary
+line; cache hits sub-second. Surface progress via `tail -f .ievo/log/init-*.md`.)
 
 Read each generated index and **expand the candidate list**:
 - All standalone skills from index
 - All standalone agents from index
 - All plugins from index (each plugin = candidate with `type: plugin`)
 
-Now your candidate list has three types: `skill` (install via vendor), `agent` (install via vendor), `plugin` (install via marketplace settings).
+Now your candidate list has three types: `skill` (vendor), `agent` (vendor),
+`plugin` (marketplace settings).
 
-### Log: append section 6 to `$LOG_PATH` NOW (do not defer) — index-repos can take 5-15 minutes for big repos like wshobson/agents
-
-### MANDATORY log content — section 6 (expansion)
-
-```markdown
-## 6. Repo indexing + candidate expansion
-
-### Repos considered (<N>)
-<for each repo: name, source (discover.mjs | auto-available), cache hit/miss>
-
-### Per-repo expansion
-#### <owner>/<repo>
-- Index path: `.ievo/cache/index/<owner>-<repo>.md`
-- Skills found: <count> — <full list>
-- Agents found: <count> — <full list>
-- Plugins found: <count> — <full list>
-- Hooks present in any plugin: <yes/no> (which plugins)
-[...repeat per repo...]
-
-### Expanded candidate list (before stack matching)
-- Skills: <count> from <N> repos
-- Agents: <count> from <M> repos
-- Plugins: <count> from <K> repos
-```
+**Log section 6 NOW — do not defer** (index-repos can take 5-15 min for big repos
+like wshobson/agents). Format: [log-format.md §6](references/log-format.md).
 
 ## Step 7: Categorical ranking — top-N per category
 
@@ -501,25 +394,11 @@ Filter and rank **per category** (not overall):
 
 ### Step 7b — Categorize each surviving candidate
 
-Assign each candidate to ONE primary category based on its name + description:
-
-| Category | Examples |
-|----------|----------|
-| `testing` | pytest-runner, jest-config, vitest-setup, integration-tests |
-| `linting` | ruff, eslint-config, prettier, black, mypy |
-| `formatting` | code-formatter, prettier, biome |
-| `build-tools` | vite-config, webpack, esbuild, bun-setup |
-| `frameworks` | react-pro, fastapi-pro, django-pro, nextjs-expert |
-| `databases` | postgres-pro, prisma-helper, sqlite-tuner |
-| `security` | security-auditor, snyk-scan, owasp-check |
-| `documentation` | mkdocs-helper, jsdoc-writer, api-doc-gen |
-| `observability` | logger, opentelemetry, sentry-integration |
-| `devops` | docker-helper, kubernetes-pro, github-actions |
-| `agent-tooling` | code-reviewer, refactor-pro, test-writer (general-purpose dev agents) |
-| `domain-specific` | stripe-pro, openai-pro, slack-bot (specific to a dep in step 4) |
-| `other` | anything not fitting above |
-
-If a candidate fits multiple categories, pick the **most specific** one.
+Assign each candidate to ONE primary category (by name + description) from the
+**[category assignment table](references/reference-tables.md)** — testing, linting,
+formatting, build-tools, frameworks, databases, security, documentation,
+observability, devops, agent-tooling, domain-specific, other. If a candidate fits
+multiple, pick the **most specific** one.
 
 ### Step 7c — Rank within each category, keep top-5
 
@@ -529,44 +408,12 @@ Within each category bucket:
 
 Final candidate list = union of top-5 from each category. Typically 15-40 total candidates depending on stack richness.
 
-### Why categorical (vs flat top-12)
+(Categorical top-5 over flat top-12: a flat list is dominated by popular
+categories — testing always wins — so niche-but-useful skills never surface;
+categorical gives breadth and a clear per-category coverage map.)
 
-- Flat top-12 dominated by popular categories (testing always wins) → user never sees niche but useful skills
-- Categorical top-5 gives breadth — every category present gets visibility
-- User can see "I have 5 testing skills suggested, 5 linting, 3 security..." — clear coverage map
-
-### Log: append section 6b to `$LOG_PATH` NOW (do not defer)
-
-### MANDATORY log content — section 6b (filtering + categorical ranking)
-
-```markdown
-## 6b. Stack-match filtering + categorical ranking
-
-### Dropped: already-installed (<N>)
-<list with name + reason "matches installed <agent|skill|plugin>: <name>">
-
-### Dropped: out-of-stack (<N>)
-<list with name + reason "no signal match for project's stack">
-
-### Categorized candidates by category
-
-#### testing (<N kept of M scored>)
-| Name | Type | Score | Source repo | Why kept |
-|------|------|-------|-------------|----------|
-[top 5 ranked, dropped overflow listed separately]
-
-Dropped from testing (<M-N>): <name (score), name (score), ...>
-
-#### linting (<N kept of M scored>)
-[same format]
-
-... (one section per non-empty category)
-
-### Final candidates: <total>
-| Category | Top item | Count |
-|----------|----------|-------|
-[category summary]
-```
+**Log section 6b NOW — do not defer.** Format: [log-format.md §6b](references/log-format.md)
+(dropped-already-installed, dropped-out-of-stack, categorized candidates, final summary).
 
 ## Step 7a: Resolve ambiguous categories first (if any)
 
@@ -626,28 +473,8 @@ Track selections:
 - `vendor_queue[]` — skills + agents to vendor
 - `plugin_queue[]` — plugins to install via settings.json
 
-### Log: append section 7 + 7b to `$LOG_PATH` NOW (do not defer)
-
-### MANDATORY log content — section 7b (interview results)
-
-```markdown
-## 7b. Interview results
-
-### Vendor queue (<N>)
-| name | type | source repo | user choice |
-|------|------|-------------|-------------|
-[...rows for skills + agents user picked "vendor"...]
-
-### Plugin queue (<N>)
-| name | marketplace | from plugin | user choice |
-|------|-------------|-------------|-------------|
-[...rows for plugins user picked "install whole plugin"...]
-
-### Skipped (<N>)
-| name | type | source repo | reason (if known from question) |
-|------|------|-------------|----------------------------------|
-[...all candidates user skipped or rejected via security in step 8...]
-```
+**Log section 7b NOW — do not defer.** Format: [log-format.md §7b](references/log-format.md)
+(vendor queue, plugin queue, skipped — source repo + user choice per row).
 
 ## Step 8: Parallel security audit via `security-auditor` sub-agents
 
@@ -685,175 +512,35 @@ After all sub-agents return, group items by verdict:
 
 ### Step 8b — Report-to-source flow (when user picks "Report")
 
-The `security-auditor` sub-agent returned a `report_template` field in its JSON with `available: true`, pre-filled `title` and `body`. Walk the user through filing:
+Only reached on a RED verdict when the user picks "Report". The `security-auditor`
+returned a pre-filled `report_template` (`available: true`). Walk the user through
+preview → file via `gh issue create` (body written with the **Write tool**, never
+`echo`, since it may contain `$(...)`/backticks) → show result → handle failures.
+Full protocol: **[security-report-flow.md](references/security-report-flow.md)**.
+Candidate stays removed from the install queue (`skip` semantics) in all cases.
 
-#### 1. Preview
+(Parallel via sub-agents because N items × ~10s sequential = 60-90s vs ~10-15s
+wall-clock; isolated context keeps each audit's WebFetch/gh noise out of init's log.)
 
-Show the pre-filled issue to the user via `AskUserQuestion`:
-
-```
-Question: "Preview of issue to file at <owner>/<repo>:
-
-Title: <report_template.title>
-
-<body preview — first 30 lines of report_template.body>
-
-File this issue?"
-
-Options:
-  - "File it" — invokes `gh issue create` with the prefilled content
-  - "Edit body first" — opens preview in tmp file for user to edit, then re-asks
-  - "Cancel" — drops the report, candidate stays skipped
-```
-
-#### 2. File via `gh issue create`
-
-**CRITICAL**: write the body via the **Write tool**, NOT via `echo "..." > file`. The body may contain `$(...)`, backticks, or `${VAR}` patterns from cited malicious code excerpts — shell interpolation during `echo` would execute these. Write tool writes literal bytes.
-
-**Filename safety**: use ISO-8601 *basic* format (no colons) for the timestamp portion. Windows filesystems reject `:` in filenames, and the project dir may be on Windows / WSL / cross-platform-shared volume. Format: `YYYYMMDDTHHMMSSZ` (e.g. `20260520T075958Z`), NOT `2026-05-20T07:59:58Z`.
-
-```
-# Step A — Use Write tool (NOT Bash):
-#   file_path: <project>/.ievo/log/pending-reports/issue-body-<YYYYMMDDTHHMMSSZ>.md
-#   content:   <report_template.body>   (literal string, no expansion)
-
-# Step B — File the issue via gh, passing the body file:
-gh issue create --repo <owner>/<repo> \
-  --title <report_template.title> \
-  --body-file <project>/.ievo/log/pending-reports/issue-body-<YYYYMMDDTHHMMSSZ>.md
-```
-
-Quote the `--title` argument safely — single quotes or `--title="$TITLE"` with the title in an env var, never directly substituting via shell. If using gh's Bash flag, use single quotes: `--title 'literal title here'`.
-
-Capture the returned issue URL (e.g., `https://github.com/owner/repo/issues/N`).
-
-The pending-reports/ directory doubles as audit trail — even successful filings retain a local copy so user can re-read what was sent.
-
-#### 3. Show result
-
-```
-✓ Filed: <issue-url>
-
-Thanks for contributing to community security.
-```
-
-#### 4. Handle failures
-
-- `gh` not authenticated → show error, fall back to copying body to clipboard with manual instructions
-- API rate limit → save body to `<project>/.ievo/log/pending-reports/<owner>-<repo>-<timestamp>.md`, tell user to file manually later
-- Repo doesn't accept issues (Issues disabled) → save body, show repo URL, tell user to find alternative reporting channel
-
-In all failure modes: candidate stays removed from install queue (`skip` semantics).
-
-### Why offer Report
-
-- **Community defense**: maintainer notified within minutes of first user spotting the issue, not weeks later
-- **Crowd-sourced audit**: N independent users × M findings = collective security signal
-- **Accountability**: GitHub issues are public — pressure on maintainer to respond
-- **Low effort for user**: security-auditor already prepared the issue text, user just confirms
-
-### Why parallel via sub-agents
-
-- N selected items × ~10s sequential audit = 60-90s wait
-- Parallel via sub-agents = ~10-15s wall-clock (slowest item wins)
-- Each sub-agent has isolated context — security-check's WebFetch + gh api calls don't pollute init's main log buffer
-- Each returns ONE structured verdict JSON
-
-**Log: append section 8 to `$LOG_PATH` NOW (do not defer)** — write verdicts as they arrive (in any order), then aggregate.
-
-### MANDATORY log content — section 8 (security audit + reports)
-
-```markdown
-## 8. Antivirus security audit (security-auditor sub-agents)
-
-Dispatched: <N> agents in parallel
-Wall-clock: <T>s
-Model: sonnet (alias — host platform resolves to current Sonnet family; declared in security-auditor frontmatter)
-Total files scanned: <sum of files_scanned across agents>
-Total bytes scanned: <sum of total_bytes_scanned>
-
-### GREEN (<N>) — silent install
-| Item | Source repo | Files scanned | Auditor reasoning (first sentence) |
-
-### YELLOW (<M>) — install with awareness
-| Item | Top flag (severity/category/file) | User decision |
-
-### RED (<K>) — block-and-warn
-| Item | Top 2 flags | Alternative suggested | User decision (alt/force/skip/report) |
-
-### Reports filed (<P>)
-| Item | Repo | Issue URL | Filed at (ISO timestamp) |
-```
+**Log section 8 NOW — do not defer.** Write verdicts as they arrive (any order),
+then aggregate. Format: [log-format.md §8](references/log-format.md).
 
 ## Step 9: Execute install
 
-Two paths run in sequence:
+Two paths run in sequence — **vendor** (skills + agents) then **plugin** (whole
+plugins). Vendor = fetch the item via `gh api`, write to `.claude/skills/<name>/`
+or `.claude/agents/<name>.md`, inject the `<!-- ievo:start -->` overlay marker,
+and create the `.ievo/evolution/<scope>/<name>.md` overlay (with source repo +
+commit SHA frontmatter). Plugin = merge `extraKnownMarketplaces` + `enabledPlugins`
+into `.claude/settings.json` (committed → teammates auto-install on pull). Full
+protocol incl. exact marker/frontmatter/JSON shapes:
+**[install-protocol.md](references/install-protocol.md)**.
 
-### 9a — Vendor path (skills + agents)
+Per-item failure handling: if any step fails, report and continue with the next —
+do NOT abort the flow.
 
-For each item in `final_vendor_list`:
-
-**Skill:**
-1. Determine source path in upstream repo (from index-repos output).
-2. Fetch the SKILL.md file + supporting dirs (scripts/, references/, assets/) via `gh api`. Write tree to `<project>/.claude/skills/<name>/`.
-3. Inject overlay marker at top of SKILL.md (after frontmatter):
-   ```markdown
-   <!-- ievo:start -->
-   **Before applying the instructions below**, read `.ievo/evolution/skills/<name>.md`
-   if it exists and apply all rules from its sections.
-   <!-- ievo:end -->
-   ```
-4. Create overlay file `.ievo/evolution/skills/<name>.md` with frontmatter:
-   ```markdown
-   ---
-   source:
-     repo: <owner>/<repo>
-     path: <source-path-in-repo>
-     commit_sha: <short-sha from gh api>
-     fetched_at: <ISO-timestamp>
-   ---
-
-   # <name> — Evolution Overlay
-
-   ## <date> — Vendored from <owner>/<repo>
-   **Trigger:** /ievo:init step 9
-   Initial copy. No customizations yet.
-   ```
-
-**Agent:**
-Same as skill but:
-- File path: `<project>/.claude/agents/<name>.md`
-- Overlay marker inserted in agent body (after frontmatter)
-- Overlay file path: `.ievo/evolution/agents/<name>.md`
-
-### 9b — Plugin install path (whole plugins)
-
-For each item in `final_plugin_list`:
-
-1. Read or create `.claude/settings.json`.
-2. Merge into `extraKnownMarketplaces` (key = marketplace name from index, source = `{source: "github", repo: "<owner>/<repo>"}`):
-   ```json
-   "extraKnownMarketplaces": {
-     "<marketplace-name>": {
-       "source": { "source": "github", "repo": "<owner>/<repo>" }
-     }
-   }
-   ```
-3. Merge into `enabledPlugins`:
-   ```json
-   "enabledPlugins": {
-     "<plugin-name>@<marketplace-name>": true
-   }
-   ```
-4. Write the merged JSON back, preserving formatting and other keys.
-
-This file gets committed to git → teammates `git pull` → Claude Code prompts them to trust the folder → plugin auto-installs on their side too.
-
-### Failure handling
-
-Per existing convention: if any install step fails, report and continue with the next. Do NOT abort the whole flow.
-
-**Log: append section 9 to `$LOG_PATH` NOW (do not defer) after EACH install** — not after the entire batch. Each install line written as it completes so the user sees progress live in `tail -f`.
+**Log section 9 NOW — after EACH install (not the batch)** — each line written as
+it completes so progress shows live in `tail -f`. Format: [log-format.md §9](references/log-format.md).
 
 ## Step 10: Add `.ievo/` to .gitignore (selectively)
 

@@ -6,6 +6,10 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.28.0
+
+Split `init/SKILL.md` (951 lines, ~190% of the agentskills.io ≤500-line recommendation — the flagship orchestrator and the only spec-violating skill) into progressive-disclosure references. Moved provably-static content out of the body — the seven run-log output templates (→ `references/log-format.md`), the manifest + category lookup tables (→ `references/reference-tables.md`), the rare RED-verdict report-to-source flow (→ `references/security-report-flow.md`), and the Step 9 install mechanics (→ `references/install-protocol.md`) — while keeping ALL happy-path execution, decision points, and the inline "log section N NOW — do not defer" cues in the body (the cues were deliberate anti-skip emphasis; only the verbose templates moved). Body now 638 lines (−33%). Note: literal ≤500 was not pursued — reaching it requires relocating execution-coupled instructions (interview shapes, permission logic) behind references, which would make the issue's own motivating case (a context-pressured agent skipping the load) WORSE; 638 is the floor before that trade. Closes #172.
+
 ## v0.27.0
 
 Fix the issue-discussion trigger handle: `@ievo` -> `@ievo-ai`. `@ievo` is not our handle (it is a squat-able/foreign GitHub username); ours is the `ievo-ai` org. The `issue-discussion.yml` trigger matched `@ievo` (which works only as an accidental substring of `@ievo-ai`), and the docs/prompt instructed mentioning `@ievo` — every such mention pinged a foreign user instead of us. Updated the trigger condition, the workflow header comments, AGENTS.md Phase-1 docs, and the handler prompt to use `@ievo-ai`. Behavioural change: the discussion bot now triggers on `@ievo-ai`, not bare `@ievo`.

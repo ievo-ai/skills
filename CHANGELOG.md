@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.25.0
+
+Add `effort:` frontmatter validation to `validate_agents.mjs` (parity with `validate_skills.mjs`, which already validates the field). `effort:` overrides the session effort level for a sub-agent (values: `low`/`medium`/`high`/`xhigh`/`max`); a mistyped value (`effort: medium-high`, `effort: fast`) silently does nothing at runtime and previously passed validation. The validator now errors on an invalid value. Scoped deliberately to **validate-if-present** (an absent `effort:` is fine), mirroring how this script already treats `model:` — rather than warning on absent like `validate_skills.mjs`, which would emit persistent non-actionable warnings on every agent file and require changing the script's exit semantics. Exports `VALID_EFFORT_VALUES` + `checkEffortField()`. 100% coverage maintained. Partially addresses #163 (the invalid-value gap; the optional absent-nudge is left for when `effort:` is added to agent files).
+
+---
+
 ## v0.24.0
 
 Document the complete set of model-bypass vectors in AGENTS.md § Security model. The section previously covered only `CLAUDE_CODE_SUBAGENT_MODEL`; three more settings can silently route `security-auditor` below its Sonnet-tier minimum: `availableModels` (the only hard enforcement — a managed allowlist excluding Sonnet silently drops `model: sonnet` to the inherited model; subagent overrides covered since v2.1.172), `enforceAvailableModels` (v2.1.175, locks the picker Default to the allowlist), and `fallbackModel` (v2.1.166, availability fallback that can degrade a scan mid-run when Sonnet is rate-limited). Adds a verified mechanism/effect/mitigation table with the operator-side guarantee (managed `availableModels` must include `sonnet`/`opus`). All facts verified against the official model-config docs (2026-06-27). Closes #238, #180, #195, #197.

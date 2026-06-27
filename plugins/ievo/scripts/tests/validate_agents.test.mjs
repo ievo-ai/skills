@@ -13,9 +13,11 @@ import {
   ALLOWED_MODELS,
   FORBIDDEN_MODEL_PATTERNS,
   REQUIRED_FIELDS,
+  VALID_EFFORT_VALUES,
   parseArgs,
   parseFrontmatter,
   checkModelField,
+  checkEffortField,
   validateAgent,
   validateAgentContent,
   main,
@@ -29,6 +31,10 @@ describe("constants", () => {
 
   it("REQUIRED_FIELDS lists name and description", () => {
     assert.deepEqual(REQUIRED_FIELDS, ["name", "description"]);
+  });
+
+  it("VALID_EFFORT_VALUES contains the five agentskills.io effort levels", () => {
+    assert.deepEqual([...VALID_EFFORT_VALUES].sort(), ["high", "low", "max", "medium", "xhigh"]);
   });
 
   it("FORBIDDEN_MODEL_PATTERNS covers vendor-specific + version-pinned IDs", () => {
@@ -196,6 +202,31 @@ describe("checkModelField", () => {
   });
 });
 
+describe("checkEffortField", () => {
+  it("returns empty array for each valid effort level", () => {
+    for (const level of VALID_EFFORT_VALUES) {
+      assert.deepEqual(checkEffortField(level), [], `${level} should be valid`);
+    }
+  });
+
+  it("returns empty array when effort is absent (undefined)", () => {
+    assert.deepEqual(checkEffortField(undefined), []);
+  });
+
+  it("returns empty array when effort is an empty string", () => {
+    assert.deepEqual(checkEffortField(""), []);
+  });
+
+  it("errors on an invalid effort value", () => {
+    const v = checkEffortField("medium-high");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].severity, "error");
+    assert.equal(v[0].rule, "invalid-effort-value");
+    assert.match(v[0].message, /medium-high/);
+    assert.match(v[0].message, /low, medium, high, xhigh, max/);
+  });
+});
+
 describe("validateAgentContent", () => {
   it("passes a valid minimal agent", () => {
     const content = "---\nname: foo\ndescription: bar\n---\nBody";
@@ -205,6 +236,18 @@ describe("validateAgentContent", () => {
   it("passes valid agent with allowed model alias", () => {
     const content = "---\nname: foo\ndescription: bar\nmodel: sonnet\n---";
     assert.deepEqual(validateAgentContent(content), []);
+  });
+
+  it("passes a valid agent with a valid effort value", () => {
+    const content = "---\nname: foo\ndescription: bar\neffort: high\n---";
+    assert.deepEqual(validateAgentContent(content), []);
+  });
+
+  it("flags an invalid effort value", () => {
+    const content = "---\nname: foo\ndescription: bar\neffort: fast\n---";
+    const v = validateAgentContent(content);
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "invalid-effort-value");
   });
 
   it("flags missing frontmatter", () => {

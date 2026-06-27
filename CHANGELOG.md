@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.24.0
+
+Document the complete set of model-bypass vectors in AGENTS.md § Security model. The section previously covered only `CLAUDE_CODE_SUBAGENT_MODEL`; three more settings can silently route `security-auditor` below its Sonnet-tier minimum: `availableModels` (the only hard enforcement — a managed allowlist excluding Sonnet silently drops `model: sonnet` to the inherited model; subagent overrides covered since v2.1.172), `enforceAvailableModels` (v2.1.175, locks the picker Default to the allowlist), and `fallbackModel` (v2.1.166, availability fallback that can degrade a scan mid-run when Sonnet is rate-limited). Adds a verified mechanism/effect/mitigation table with the operator-side guarantee (managed `availableModels` must include `sonnet`/`opus`). All facts verified against the official model-config docs (2026-06-27). Closes #238, #180, #195, #197.
+
+---
+
 ## v0.23.0
 
 Add the upstream `check-merge-conflict` hook (`pre-commit/pre-commit-hooks` `rev: v6.0.0`) to `.pre-commit-config.yaml`. The config previously had no guard against leftover merge-conflict markers (`<<<<<<<` / `=======` / `>>>>>>>`) reaching a commit — a real gap surfaced while landing the v0.20–v0.22 version-chain, which required several manual rebase conflict resolutions. Configured with `--assume-in-merge` so it fires after **rebase** resolutions too (`git rebase` does not set `MERGE_HEAD`), not only `git merge` conflicts. Runs in both the local hook and the `pre-commit-gate.yml` CI, so it cannot be bypassed with `--no-verify`. No script, skill, or workflow logic changed.

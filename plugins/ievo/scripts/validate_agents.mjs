@@ -200,7 +200,7 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
 
   if (totalViolations > 0) {
     log("");
-    log("Fix: see AGENTS.md → 'Agent model frontmatter' for the rule and rationale.");
+    log("Fix: see AGENTS.md → agent frontmatter rules (model + effort) for the rule and rationale.");
     return exit(1);
   }
   return exit(0);

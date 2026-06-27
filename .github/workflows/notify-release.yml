@@ -1,0 +1,86 @@
+name: Notify Release
+
+# On merge to main, if the plugin version changed, announce the new
+# ievo-ai/skills release to the iEvo community via Eva's Telegram bot —
+# WITHOUT holding the Telegram token in this public repo.
+#
+# We fire repository_dispatch(event_type=child-release) into ievo-ai/eva;
+# eva's publish-evolution.yml owns TELEGRAM_BOT_TOKEN and performs the send.
+# The merged==true guard lives HERE (the dispatch source), per eva's
+# documented cross-repo design ("a per-child workflow that calls this one via
+# repository_dispatch + explicit merged==true guard at the dispatch source").
+#
+# Why not notify from this repo directly: TELEGRAM_BOT_TOKEN would have to live
+# in a PUBLIC repo's secrets — wider attack surface, against the no-sensitive-
+# in-public rule. The App token minted here is scoped to eva and only carries
+# the dispatch.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (HEAD + previous main, to detect a version change)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 2
+
+      - name: Detect plugin version change
+        id: ver
+        run: |
+          # Announce only on an actual version bump — not every merge to main.
+          new=$(python3 -c "import json;print(json.load(open('plugins/ievo/.claude-plugin/plugin.json')).get('version',''))" 2>/dev/null || true)
+          old=$(git show HEAD^1:plugins/ievo/.claude-plugin/plugin.json 2>/dev/null \
+                | python3 -c "import sys,json;print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          if [ -n "$new" ] && [ "$new" != "$old" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Plugin version ${old:-<none>} -> ${new} — announcing release"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No plugin version change (${old:-<none>} -> ${new:-<none>}) — skipping announce"
+          fi
+
+      - name: Generate App token (scoped to eva, for the dispatch only)
+        if: steps.ver.outputs.changed == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ievo-ai
+          repositories: eva
+
+      - name: Dispatch child-release to ievo-ai/eva
+        if: steps.ver.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.ver.outputs.new }}
+          # Untrusted (PR author controls the title) — escaped via jq --arg below,
+          # never interpolated into the shell or JSON directly.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          jq -n \
+            --arg title "ievo-ai/skills v${VERSION}" \
+            --arg desc "$PR_TITLE" \
+            --arg url "$PR_URL" \
+            '{event_type:"child-release",
+              client_payload:{
+                title:       $title,
+                type:        "milestone",
+                agent:       "eva",
+                target:      "ievo-ai/skills",
+                description: $desc,
+                pr_url:      $url
+              }}' \
+          | gh api repos/ievo-ai/eva/dispatches --input -
+          echo "Dispatched child-release for v${VERSION} to ievo-ai/eva"

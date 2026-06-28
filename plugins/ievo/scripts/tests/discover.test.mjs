@@ -891,6 +891,28 @@ describe("main", () => {
     }
   });
 
+  it("threads codexExec through to the CLI output (codex candidate end-to-end)", async () => {
+    const run = makeRun();
+    const stream = Readable.from(['{"languages":["python"]}']);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
+    const codexExec = async () =>
+      JSON.stringify({ available: [{ pluginId: "cx/p", name: "p", marketplaceSource: { source: "codex/x" } }] });
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, codexExec);
+      assert.equal(run.exitCode, 0);
+      const output = JSON.parse(run.logs.join("\n"));
+      const codexSource = output.sources.find((s) => s.name === "codex-marketplace");
+      assert.equal(codexSource.available, true);
+      assert.equal(codexSource.raw_results, 1);
+      const cand = output.candidates.find((c) => c.id === "cx/p");
+      assert.ok(cand, "codex candidate should appear in CLI output");
+      assert.equal(cand.source_origin, "codex-marketplace");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
   it("exits 4 + FATAL stderr when ALL skills.sh queries fail (silent-failure fix)", async () => {
     const run = makeRun();
     const stream = Readable.from(['{"languages":["python"]}']);

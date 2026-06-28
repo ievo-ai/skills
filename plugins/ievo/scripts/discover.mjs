@@ -525,7 +525,7 @@ Usage:
   }
   if (errorCount > 0) {
     // Partial failure — warn but continue. Candidates may still be useful.
-    const failedQueries = output.sources[0].error_details.map((e) => e.query).join(", ");
+    const failedQueries = (output.sources?.[0]?.error_details ?? []).map((e) => e.query).join(", ");
     errLog(`[discover.mjs] WARN: ${errorCount}/${queryCount} skills.sh queries failed: ${failedQueries}`);
   }
   if (output.error) {

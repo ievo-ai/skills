@@ -7,9 +7,11 @@ IMPORTANT: Use Opus-level depth and thoroughness. Max effort.
 
 ## Phase 0 — Acknowledge
 
-Post a neutral comment so the issue author knows the handler picked it up:
+Post a neutral comment so the issue author knows the handler picked it up.
+(This job runs from two paths — an explicit `/implement` comment, or the
+router's auto-implement verdict — so keep the wording trigger-agnostic.)
 
-  echo "Received /implement. Checking discussion thread..." | \
+  echo "Starting implementation for #$ISSUE_NUMBER. Checking discussion thread..." | \
     gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
 
 ## Phase 0.5 — Discussion Thread Validation

@@ -45,17 +45,46 @@ Read in order (stop when you have enough):
 - Check .github/ if the issue touches infrastructure.
 - Understand the full impact. If the issue mentions a tool/library behavior, verify via docs.
 
-## Step 4 — Post structured analysis
+## Step 4 — Decide the routing verdict (do this BEFORE writing the comment)
+
+Decide whether the privileged implement job should auto-run now, or whether to
+hold for an explicit member `/implement`. Emit `implement` ONLY when BOTH gates
+are true:
+
+1. **Requirements are clear** — your ### Questions section will be exactly
+   "None — requirements are clear." (zero open questions).
+2. **Low risk** — ALL of:
+   - The change is scoped to `plugins/ievo/` (skills, agents, or `scripts/*.mjs`).
+   - It does NOT modify `.github/workflows/`, `.github/scripts/`, `.github/prompts/`,
+     root config, or the security model.
+   - It does NOT change a public output schema or break backwards compatibility.
+   - The surface is small-to-moderate (a focused fix or a self-contained feature),
+     not a sweeping refactor or a multi-subsystem change.
+   - You found no unresolved Conflicts or high Risks.
+
+Otherwise the verdict is `hold`. DEFAULT TO `hold` whenever you are unsure —
+auto-implementation is the privileged, expensive path and must clear both gates
+unambiguously. A wrong `hold` costs one member click; a wrong `implement` spends a
+full build on the wrong thing.
+
+## Step 5 — Post structured analysis (carries the verdict)
 
 Write the analysis to /tmp/analysis.md, then post it. Every section is required —
 if a section has nothing, write "None identified".
 
-The comment MUST start with this marker on its own line (the implement job
-machine-parses it):
+The comment MUST begin with these TWO marker lines, each on its own line, before
+any other content (the implement job machine-parses BOTH):
 
   <!-- ievo-discussion-analysis -->
+  <!-- ievo-verdict: implement -->
 
-Structure (exact headings, after the marker):
+Use `<!-- ievo-verdict: implement -->` ONLY when Step 4 cleared both gates;
+otherwise emit `<!-- ievo-verdict: hold -->`. The verdict travels in the comment
+(not a file) so it is independent of runner/filesystem details. If you emit
+`hold` on a CLEAR-but-not-low-risk issue, end the comment by inviting a member to
+run `/implement` to proceed.
+
+Structure (exact headings, after the two markers):
 
   ### Understanding
 
@@ -84,39 +113,11 @@ Structure (exact headings, after the marker):
 
   Edge cases, backwards compatibility, CI/CD implications, security concerns.
 
-Post the comment:
+Post the comment (the two marker lines from Step 5 must be at the very top):
 
   gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file /tmp/analysis.md
 
-## Step 5 — Routing verdict (REQUIRED — write the verdict file last)
-
-Decide whether the privileged implement job should auto-run now, or whether to
-hold for an explicit member `/implement`. Write EXACTLY one word to the verdict
-file — `implement` or `hold`:
-
-  echo "implement" > /tmp/ievo-verdict     # only if BOTH gates below pass
-  # otherwise:
-  echo "hold" > /tmp/ievo-verdict
-
-Emit `implement` ONLY when BOTH are true:
-
-1. **Requirements are clear** — your ### Questions section is exactly
-   "None — requirements are clear." (zero open questions).
-2. **Low risk** — ALL of:
-   - The change is scoped to `plugins/ievo/` (skills, agents, or `scripts/*.mjs`).
-   - It does NOT modify `.github/workflows/`, `.github/scripts/`, `.github/prompts/`,
-     root config, or the security model.
-   - It does NOT change a public output schema or break backwards compatibility.
-   - The surface is small-to-moderate (a focused fix or a self-contained feature),
-     not a sweeping refactor or a multi-subsystem change.
-   - You found no unresolved Conflicts or high Risks in Step 4.
-
-Otherwise emit `hold`. When you hold a CLEAR-but-not-low-risk issue, end your
-analysis comment by inviting a member to run `/implement` to proceed.
-
-DEFAULT TO `hold` whenever you are unsure. Auto-implementation is the privileged,
-expensive path — it must clear both gates unambiguously. A wrong `hold` costs one
-member click; a wrong `implement` spends a full build on the wrong thing.
-
-If you cannot write the verdict file for any reason, that is fine — the workflow
-treats a missing verdict as `hold` (fail-safe).
+The workflow reads the verdict back from this comment. If the comment is missing
+or carries no `<!-- ievo-verdict: implement -->` marker, the workflow defaults to
+`hold` (fail-safe) — so posting the analysis with the correct marker is what
+authorizes the implement job.

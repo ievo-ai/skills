@@ -143,20 +143,37 @@ jobs:
             --allowedTools "Bash,Read,Glob,Grep,WebFetch,WebSearch"
           prompt: ${{ env.ROUTER_PROMPT }}
 
-      # Read the verdict the router wrote to /tmp/ievo-verdict (same runner, so it
-      # persists across steps). Anything other than the literal "implement" —
-      # including a missing or garbled file — is treated as "hold" (fail-safe:
-      # the expensive, privileged implement path must be explicitly earned).
+      # Read the verdict back from the router's analysis comment, not the
+      # filesystem — independent of how claude-code-action runs (container vs
+      # composite). We look at the LATEST bot-authored comment carrying the
+      # analysis marker and check for the implement verdict marker. Trust basis:
+      # only [bot] comments are considered, so a non-member cannot forge a verdict
+      # (same trust model as the handler's marker protocol). Anything else —
+      # missing comment, no marker, hold marker — is treated as "hold" (fail-safe:
+      # the expensive, privileged implement path must be explicitly earned). A
+      # short retry covers GitHub API read-after-write lag on the just-posted comment.
       - name: Export verdict
         id: verdict
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          DECISION=$(tr -d '[:space:]' < /tmp/ievo-verdict 2>/dev/null || true)
-          if [ "$DECISION" = "implement" ]; then
-            echo "decision=implement" >> "$GITHUB_OUTPUT"
-          else
-            echo "decision=hold" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Router verdict: ${DECISION:-<none → hold>}"
+          DECISION="hold"
+          for attempt in 1 2 3 4 5 6; do
+            BODY=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" --paginate \
+              --jq '[.[] | select((.user.login | endswith("[bot]")) and (.body | contains("<!-- ievo-discussion-analysis -->")))] | last.body // ""' \
+              2>/dev/null || true)
+            if [ -n "$BODY" ]; then
+              if printf '%s' "$BODY" | grep -qF '<!-- ievo-verdict: implement -->'; then
+                DECISION="implement"
+              fi
+              break
+            fi
+            sleep 5
+          done
+          echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+          echo "Router verdict: $DECISION"
 
   # ---------------------------------------------------------------------------
   # implement — privileged build flow (branch → TDD → PR → review loop)

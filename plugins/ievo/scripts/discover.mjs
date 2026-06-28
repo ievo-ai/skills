@@ -441,7 +441,7 @@ export async function runDiscover(stack, options = {}) {
   }
 
   // skills.sh and codex are independent sources — fetch them concurrently so a
-  // slow codex (up to its 10s timeout) overlaps with the skills.sh queries
+  // slow codex (up to its 5s timeout) overlaps with the skills.sh queries
   // instead of being added to wall-clock time after they finish.
   const [allResults, codex] = await Promise.all([
     mapWithConcurrency(queries, (q) => searchSkillsSh(q, perQuery, fetchImpl), concurrency),

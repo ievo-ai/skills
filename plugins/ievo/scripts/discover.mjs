@@ -345,7 +345,10 @@ export function rankCandidates(allResults) {
     }
   }
 
-  // Compute rank_score for each candidate
+  // Compute rank_score for each candidate. NOTE: source sentinels are still
+  // present in matched_queries at this point (they're stripped only after this
+  // loop) — so a codex-only candidate's breadth bonus is computed from size 1
+  // (the lone sentinel = neutral bonus), not size 0.
   for (const entry of byId.values()) {
     // Base score = installs (log-scaled to avoid dominance by mega-popular skills)
     // Math.max with 1 guards against log10(0) = -Infinity.
@@ -445,6 +448,9 @@ export async function runDiscover(stack, options = {}) {
     concurrency = DEFAULT_CONCURRENCY,
     perQuery = DEFAULT_PER_QUERY_LIMIT,
     fetchImpl = fetch,
+    // codexExec: () => Promise<string|null> — a codex *runner* (defaultCodexExec's
+    // signature), NOT the inner (cmd, args, opts) execFile-style fn. Tests return
+    // the raw JSON string or null; returning a {stdout} object would silently fail.
     codexExec = defaultCodexExec,
   } = options;
 

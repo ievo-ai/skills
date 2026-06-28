@@ -675,6 +675,19 @@ describe("runDiscover", () => {
     assert.equal(codexSource.error, null);
   });
 
+  it("gracefully handles a throwing codexExec at the runDiscover level", async () => {
+    const out = await runDiscover(
+      { languages: ["python"] },
+      {
+        fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }),
+        codexExec: async () => { throw new Error("unexpected"); },
+      },
+    );
+    const codexSource = out.sources.find((s) => s.name === CODEX_SOURCE);
+    assert.equal(codexSource.available, false);     // inner try/catch absorbed it
+    assert.ok(out.candidates.some((c) => c.id === "a/b/c"));  // skills.sh results survive
+  });
+
   it("merges codex candidates into the ranked output with source_origin label", async () => {
     const codexExec = async () =>
       JSON.stringify({

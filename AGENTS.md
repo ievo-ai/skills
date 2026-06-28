@@ -153,7 +153,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.32.0):**
+**Current compliance ledger (v0.33.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -172,6 +172,7 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - To avoid race with parallel PRs: query main's CURRENT version at push time via `gh api`, check open PRs for claimed versions, pick next free slot.
 - The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block.
+- **Codex discovery schema** — `discover.mjs` reads `codex plugin list --json` → `available[]` with the fields `pluginId` / `name` / `marketplaceName` / `marketplaceSource.source`. Manually validated against **codex-cli 0.142.3**. The code degrades gracefully on schema drift (missing fields → fallback id or filtered out), but re-verify these field names on a major Codex CLI update.
 
 ### Branch + commit conventions
 - Feature branches: `feat/<description>` or `fix/<description>` (no version number — auto-bump assigns it)

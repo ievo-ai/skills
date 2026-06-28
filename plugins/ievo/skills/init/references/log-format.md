@@ -67,14 +67,15 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 
 ### Sources
 - skills.sh API: <queries_executed> queries, <raw_results> results, <errors.length> errors
-- (future v0.7+: GitHub search for agent/plugin discovery)
+- codex-marketplace: available=<true|false>, <raw_results> plugins<, error: ... if any>
+- (future: GitHub search for agent/plugin discovery)
 
 ### Queries generated
 <comma-separated list>
 
 ### Candidates after dedup + ranking (top <N>)
-| Rank | Name | Source repo | Installs | Quality | Matched queries | Score |
-|------|------|-------------|----------|---------|-----------------|-------|
+| Rank | Name | Origin | Source repo | Installs | Quality | Matched queries | Score |
+|------|------|--------|-------------|----------|---------|-----------------|-------|
 
 ### Dropped — already installed (<N>)
 <list with reason "matches installed <type>: <name>">

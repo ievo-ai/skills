@@ -25,12 +25,23 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
-export const SCRIPT_VERSION = "0.32.0";
+const execFileAsync = promisify(execFile);
+
+export const SCRIPT_VERSION = "0.33.0";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
 export const DEFAULT_CONCURRENCY = 8;
+
+// Reserved prefix for synthetic source-grouping sentinels (e.g.
+// `__codex-marketplace__`). buildQueries rejects any real query starting with
+// it; rankCandidates uses it to keep sentinels out of the breadth bonus and
+// strip them from the serialized matched_queries. Single source of truth so a
+// future source's sentinel stays consistent.
+export const SENTINEL_PREFIX = "__";
 
 // Owner reputation boost for ranking (NOT a security signal).
 // Sourced from find-skills SKILL.md "trusted sources" guidance.
@@ -41,6 +52,12 @@ export const REPUTATION_BOOST_OWNERS = new Set([
   "wshobson", "github",
 ]);
 export const REPUTATION_BOOST_FACTOR = 1.5;
+
+// Visibility floor for Codex marketplace candidates (which carry no install
+// count). log10(10) = 1.0 — equivalent to a ~10-install skill: enough to surface
+// mid-pack rather than be sliced off by --limit, low enough that any 100+ install
+// skills.sh skill still outranks. See rankCandidates for the rationale.
+export const CODEX_VISIBILITY_FLOOR = 1.0;
 
 // Install-count quality tiers (from find-skills SKILL.md).
 export function qualityTier(installs) {
@@ -69,6 +86,11 @@ export const CATEGORY_QUERIES = {
 // Query generation
 // ---------------------------------------------------------------------------
 
+// NOTE: generated query strings must NOT start with `__`. That prefix is
+// reserved for synthetic source sentinels (e.g. `__codex-marketplace__`) which
+// rankCandidates treats specially and strips from matched_queries. Natural
+// search terms never start with `__`; the fail-fast guard at the end of this
+// function enforces the invariant rather than trusting it.
 export function buildQueries(stack) {
   const queries = new Set();
 
@@ -116,7 +138,14 @@ export function buildQueries(stack) {
   if (depSet.has("stripe")) queries.add("payments integration");
   if (depSet.has("opentelemetry")) queries.add("observability tracing");
 
-  return [...queries].filter(Boolean);
+  const out = [...queries].filter(Boolean);
+  // Fail-fast guard for the `__` sentinel invariant (see the note above): a real
+  // query must never start with `__`, or it would be mistaken for a synthetic
+  // source key in rankCandidates and silently corrupt breadth-bonus filtering.
+  for (const q of out) {
+    if (q.startsWith(SENTINEL_PREFIX)) throw new Error(`query sentinel collision: '${q}' — queries must not start with '${SENTINEL_PREFIX}'`);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,10 +158,119 @@ export async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LI
     const res = await fetchImpl(url);
     if (!res.ok) return { query, results: [], error: `HTTP ${res.status}` };
     const data = await res.json();
-    return { query, results: data.skills ?? [], searchType: data.searchType };
+    // Tag every result with its origin explicitly so the field is set at the
+    // source, not inferred via fallback downstream. (rankCandidates keeps a
+    // defensive `?? "skills.sh"` for callers that pass raw, untagged objects.)
+    const results = (data.skills ?? []).map((s) => ({ ...s, source_origin: "skills.sh" }));
+    return { query, results, searchType: data.searchType };
   } catch (err) {
     return { query, results: [], error: err.message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Codex marketplace source (optional — only when the `codex` CLI is present)
+//
+// Codex `plugin list --json` (rust-v0.138.0+) returns { installed[], available[] }.
+// `available[]` is the discoverable catalog — uninstalled plugins from the user's
+// configured Codex marketplaces, the candidates iEvo can run through its
+// security-auditor before install. NOTE: the discovery command is `codex plugin
+// list`, NOT `codex plugin marketplace` (which manages marketplace *configs*, not
+// plugins). Absent codex / non-zero exit / unparseable output → silently skip
+// (no error, no behaviour change for Claude Code-only users — universal
+// positioning preserved).
+// ---------------------------------------------------------------------------
+
+export const CODEX_SOURCE = "codex-marketplace";
+
+// quality_tier for codex candidates — they have no install count, so the
+// install-based tiers (qualityTier) don't apply. Exported so downstream
+// consumers match on the constant rather than a hard-coded string.
+export const CODEX_QUALITY_TIER = "unranked";
+
+export async function defaultCodexExec(execImpl = execFileAsync) {
+  // Returns `codex plugin list --json` stdout, or null if codex is unavailable /
+  // failed. Async (execFile, not spawnSync) so a slow/hung codex never blocks the
+  // event loop. execFile rejects on a missing binary (ENOENT), non-zero exit, or
+  // the timeout — all land in the graceful-skip catch. 5s timeout: this is a
+  // best-effort source running concurrently with skills.sh, so its ceiling caps
+  // the worst-case discovery stall — keep it well under the typical skills.sh
+  // wall-clock. execImpl is injectable for tests.
+  try {
+    // Only stdout is consumed — any codex stderr (deprecation/diagnostic
+    // warnings) is intentionally discarded; this source is best-effort and must
+    // never surface noise on the main discovery path.
+    // maxBuffer 10 MB (vs Node's 1 MB default): a large marketplace catalog would
+    // otherwise throw ERR_CHILD_PROCESS_STDIO_MAXBUFFER → caught below → indistinguishable
+    // from "codex absent". 10 MB is far above any realistic plugin-list JSON.
+    const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 5000, maxBuffer: 10 * 1024 * 1024 });
+    // Truthy stdout = "codex ran and emitted output" (→ available: true). Whether
+    // that output is parseable is fetchCodexMarketplace's call: it reports a parse
+    // failure as available: true + error, not as absent (available: false).
+    return stdout || null;
+  } catch {
+    // Deliberate uniform skip: ENOENT (codex absent), non-zero exit (codex
+    // present but `plugin list` failed / unsupported subcommand), and timeout all
+    // collapse to null → available: false, no error. This is a best-effort source
+    // whose contract is "zero noise for non-Codex users"; we trade per-cause
+    // diagnostics for that silence. If debuggability ever outweighs it, branch on
+    // err.code === "ENOENT" here and surface the others as available: false + error.
+    return null;
+  }
+}
+
+// codexRunner is the `(execImpl?) => Promise<string|null>` codex runner
+// (defaultCodexExec) — called here with no args. Distinct from the
+// `(cmd, args, opts)` execFile-style fn that defaultCodexExec itself takes:
+// different signatures, different layers.
+export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
+  let stdout;
+  try {
+    stdout = await codexRunner();
+  } catch {
+    // The default codexRunner (defaultCodexExec) never throws — it catches
+    // internally and returns null. This guard is for a custom/injected runner
+    // that may reject; covered by the "returns available:false when exec throws"
+    // test which passes a directly-throwing runner.
+    return { source: CODEX_SOURCE, available: false, results: [] };
+  }
+  if (!stdout) return { source: CODEX_SOURCE, available: false, results: [] };
+
+  let data;
+  try {
+    data = JSON.parse(stdout);
+  } catch {
+    return { source: CODEX_SOURCE, available: true, results: [], error: "unparseable codex output" };
+  }
+
+  // filter(Boolean) drops null/undefined array elements before the map — a null
+  // entry would throw on `.pluginId` and crash the whole run (mainSafe → exit 2),
+  // breaking the graceful-degradation guarantee for a malformed codex payload.
+  const avail = Array.isArray(data?.available) ? data.available.filter(Boolean) : [];
+  const results = avail
+    .map((p) => ({
+      // `||` (not `??`) so an empty-string pluginId is treated as absent and
+      // falls through to the marketplaceName/name-derived id — an empty id would
+      // collide with every other empty-id entry under dedup.
+      id: p.pluginId || (p.name ? `${p.marketplaceName || CODEX_SOURCE}/${p.name}` : null),
+      name: p.name,
+      // discover's ranker reads `source` as the source repo/origin.
+      // `||` (not `??`) so an empty-string marketplaceName/source falls through
+      // rather than producing `""` / `"/name"`.
+      source: p.marketplaceSource?.source || p.marketplaceName || CODEX_SOURCE,
+      source_origin: CODEX_SOURCE,
+      // Codex plugins carry no install count (the codex-cli 0.142.3 schema has
+      // no install field), so installs is always 0; the ranker lifts their
+      // rank_score to CODEX_VISIBILITY_FLOOR (see rankCandidates) so they surface
+      // mid-pack rather than sort dead-last, and they're tagged via source_origin
+      // downstream.
+      installs: 0,
+    }))
+    // Require string id+name. typeof guards against a future codex output shape
+    // emitting a non-string name (e.g. a number) slipping through a truthy check.
+    .filter((c) => typeof c.id === "string" && typeof c.name === "string");
+
+  return { source: CODEX_SOURCE, available: true, results };
 }
 
 export async function mapWithConcurrency(items, fn, concurrency) {
@@ -172,30 +310,68 @@ export function rankCandidates(allResults) {
         ? skill.installs
         : 0;
 
-      if (!byId.has(skill.id)) {
+      // First-seen wins on id collision. runDiscover feeds skills.sh groups
+      // before the codex group, so a codex plugin sharing an id with a skills.sh
+      // skill is absorbed into the skills.sh entry (its source_origin dropped) —
+      // skills.sh is the more authoritative, install-ranked source, so this is
+      // the intended tie-break.
+      const isNew = !byId.has(skill.id);
+      if (isNew) {
         byId.set(skill.id, {
           id: skill.id,
           name: skill.name,
           source_repo: skill.source,
+          // searchSkillsSh and fetchCodexMarketplace both tag results at the
+          // source, so this fallback only fires for a raw/legacy caller that
+          // passed untagged objects — it defaults them to "skills.sh".
+          source_origin: skill.source_origin ?? "skills.sh",
           installs,
-          quality_tier: qualityTier(installs),
+          // Codex plugins expose no install count, so the install-based tiers
+          // ("low-confidence" etc.) are meaningless and would contradict their
+          // visibility-floor ranking. Tag them "unranked" instead.
+          quality_tier: skill.source_origin === CODEX_SOURCE ? CODEX_QUALITY_TIER : qualityTier(installs),
           matched_queries: new Set(),
           rank_score: 0,
         });
       }
       const entry = byId.get(skill.id);
-      entry.matched_queries.add(query);
+      // Synthetic source sentinels (e.g. `__codex-marketplace__`) count only as
+      // the lone query for a codex-only candidate (the entry they created). Never
+      // add one to a pre-existing skills.sh winner — that would hand it an
+      // unearned breadth bonus just for also appearing in the codex catalog.
+      if (isNew || !query.startsWith(SENTINEL_PREFIX)) {
+        entry.matched_queries.add(query);
+      }
     }
   }
 
-  // Compute rank_score for each candidate
+  // Compute rank_score for each candidate. NOTE: source sentinels are still
+  // present in matched_queries at this point (they're stripped only after this
+  // loop) — so a codex-only candidate's breadth bonus is computed from size 1
+  // (the lone sentinel = neutral bonus), not size 0.
   for (const entry of byId.values()) {
     // Base score = installs (log-scaled to avoid dominance by mega-popular skills)
     // Math.max with 1 guards against log10(0) = -Infinity.
-    const installScore = Math.log10(Math.max(entry.installs, 1));
+    // Codex marketplace plugins expose no install metric (installs=0 → score 0),
+    // which would sort them dead-last and slice them off under --limit in any rich
+    // stack — making the codex source a silent no-op for the users it targets. Give
+    // them a visibility floor (≈ a 10-install skill: log10(10)=1) so a handful
+    // surface mid-pack: visible, never dominant (100+ install skills still outrank).
+    // The inner log10(max(installs,1)) is 0 today (codex installs is always 0) and
+    // the floor wins — but it's kept forward-safe: if codex ever exposes install
+    // counts, a popular plugin would score above the floor on its own merit.
+    const installScore = entry.source_origin === CODEX_SOURCE
+      ? Math.max(Math.log10(Math.max(entry.installs, 1)), CODEX_VISIBILITY_FLOOR)
+      : Math.log10(Math.max(entry.installs, 1));
 
     // Reputation boost (NOT a security shortcut — just visibility aid)
     // Case-insensitive: GitHub owner slugs aren't case-sensitive.
+    // For codex candidates source_repo is the marketplace source (a path or URL),
+    // so the first segment is rarely a trusted owner — a URL like
+    // `https://…` yields `https:` (no false boost). If a codex marketplace ever
+    // emits an `owner/repo`-shaped source under a trusted owner, the boost stacks
+    // on top of the visibility floor (e.g. anthropics → 1.0 × 1.5 = 1.5); that's
+    // an intended "trusted host" signal, consistent with the skills.sh treatment.
     const owner = (entry.source_repo ?? "").split("/")[0].toLowerCase();
     const repBoost = REPUTATION_BOOST_OWNERS.has(owner) ? REPUTATION_BOOST_FACTOR : 1.0;
 
@@ -205,9 +381,14 @@ export function rankCandidates(allResults) {
     entry.rank_score = installScore * repBoost * breadthBonus;
   }
 
-  // Convert matched_queries Set to Array for JSON serialization
+  // Convert matched_queries Set to Array for JSON serialization. Drop synthetic
+  // source sentinels (e.g. `__codex-marketplace__`) — they're internal grouping
+  // keys, not real query terms, and would mislead downstream readers of the
+  // public schema. Source provenance is carried by `source_origin`. Filtered
+  // only here (after scoring) so the breadth bonus still treats the sentinel as
+  // the one query that matched a codex-only candidate.
   for (const entry of byId.values()) {
-    entry.matched_queries = [...entry.matched_queries];
+    entry.matched_queries = [...entry.matched_queries].filter((q) => !q.startsWith(SENTINEL_PREFIX));
   }
 
   const sorted = [...byId.values()].sort((a, b) => b.rank_score - a.rank_score);
@@ -267,12 +448,20 @@ export async function runDiscover(stack, options = {}) {
     concurrency = DEFAULT_CONCURRENCY,
     perQuery = DEFAULT_PER_QUERY_LIMIT,
     fetchImpl = fetch,
+    // codexExec: () => Promise<string|null> — a codex *runner* (defaultCodexExec's
+    // signature), NOT the inner (cmd, args, opts) execFile-style fn. Tests return
+    // the raw JSON string or null; returning a {stdout} object would silently fail.
+    codexExec = defaultCodexExec,
   } = options;
 
   const startTime = Date.now();
   const queries = buildQueries(stack);
 
   if (queries.length === 0) {
+    // sources: [] is intentional for this early-return — no source is queried.
+    // Callers get exit 5 (error set) and abort before reading sources, so the
+    // "codex-marketplace entry always emitted" guarantee applies only to runs
+    // that actually reach the fetch stage below.
     return {
       script_version: SCRIPT_VERSION,
       sources: [],
@@ -281,34 +470,47 @@ export async function runDiscover(stack, options = {}) {
     };
   }
 
-  const allResults = await mapWithConcurrency(
-    queries,
-    (q) => searchSkillsSh(q, perQuery, fetchImpl),
-    concurrency,
-  );
+  // skills.sh and codex are independent sources — fetch them concurrently so a
+  // slow codex (up to its 5s timeout) overlaps with the skills.sh queries
+  // instead of being added to wall-clock time after they finish.
+  const [allResults, codex] = await Promise.all([
+    mapWithConcurrency(queries, (q) => searchSkillsSh(q, perQuery, fetchImpl), concurrency),
+    fetchCodexMarketplace(codexExec),
+  ]);
 
   const totalResults = allResults.reduce((s, r) => s + r.results.length, 0);
   const errors = allResults.filter((r) => r.error).map((r) => ({ query: r.query, error: r.error }));
+  const groups = codex.results.length
+    ? [...allResults, { query: `${SENTINEL_PREFIX}${CODEX_SOURCE}${SENTINEL_PREFIX}`, results: codex.results }]
+    : allResults;
 
-  const ranked = rankCandidates(allResults).slice(0, limit);
+  const ranked = rankCandidates(groups).slice(0, limit);
 
   return {
     script_version: SCRIPT_VERSION,
     elapsed_ms: Date.now() - startTime,
     stack_input: stack,
-    sources: [{
-      name: "skills.sh",
-      queries_executed: queries.length,
-      raw_results: totalResults,
-      errors: errors.length,
-      error_details: errors,
-    }],
+    sources: [
+      {
+        name: "skills.sh",
+        queries_executed: queries.length,
+        raw_results: totalResults,
+        errors: errors.length,
+        error_details: errors,
+      },
+      {
+        name: CODEX_SOURCE,
+        available: codex.available,
+        raw_results: codex.results.length,
+        error: codex.error ?? null,
+      },
+    ],
     queries,
     candidates: ranked,
   };
 }
 
-export async function main(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
+export async function main(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit, codexExec = defaultCodexExec) {
   if (argv.includes("--version")) {
     log(SCRIPT_VERSION);
     return exit(0);
@@ -370,6 +572,7 @@ Usage:
     limit: args.limit,
     concurrency: args.concurrency,
     perQuery: args.perQuery,
+    codexExec,
   });
 
   // Always print the JSON to stdout (callers parse it).
@@ -377,8 +580,11 @@ Usage:
 
   // Surface discovery problems to stderr — init's Bash invocation captures
   // stderr separately from stdout. Don't bury failures in JSON only.
-  const errorCount = output.sources?.[0]?.errors ?? 0;
-  const queryCount = output.sources?.[0]?.queries_executed ?? 0;
+  // Look the skills.sh source up by name, not index — robust if sources[] order
+  // ever changes (codex is always a second entry now).
+  const skillsSh = output.sources?.find((s) => s.name === "skills.sh");
+  const errorCount = skillsSh?.errors ?? 0;
+  const queryCount = skillsSh?.queries_executed ?? 0;
   if (queryCount > 0 && errorCount === queryCount) {
     // Total failure — all queries errored. Exit non-zero so init can branch.
     errLog(`[discover.mjs] FATAL: all ${queryCount} skills.sh queries failed. Network down / API outage / DNS / TLS issue. Candidates list will be empty.`);
@@ -386,8 +592,16 @@ Usage:
   }
   if (errorCount > 0) {
     // Partial failure — warn but continue. Candidates may still be useful.
-    const failedQueries = output.sources[0].error_details.map((e) => e.query).join(", ");
+    const failedQueries = (skillsSh?.error_details ?? []).map((e) => e.query).join(", ");
     errLog(`[discover.mjs] WARN: ${errorCount}/${queryCount} skills.sh queries failed: ${failedQueries}`);
+  }
+  // Surface a codex error (e.g. unparseable output) on stderr too — symmetric
+  // with the skills.sh WARN above, so a Codex user debugging "why no marketplace
+  // plugins?" sees a hint instead of having to read the raw JSON. Absent codex
+  // (error: null) stays silent — the zero-noise contract for non-Codex users.
+  const codexSource = output.sources?.find((s) => s.name === CODEX_SOURCE);
+  if (codexSource?.error) {
+    errLog(`[discover.mjs] WARN: codex: ${codexSource.error}`);
   }
   if (output.error) {
     // Stack input issue (no queries derived) — communicate via exit code too
@@ -398,12 +612,13 @@ Usage:
   return exit(0);
 }
 
-export async function mainSafe(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
+export async function mainSafe(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit, codexExec = defaultCodexExec) {
   // Defensive wrapper — main() has internal try/catch around every known
   // throwing path, but this catches anything future code might add without
-  // wrapping. Testable via mock exit/errLog.
+  // wrapping. Testable via mock exit/errLog. Forwards codexExec so tests can
+  // inject a stub and stay independent of a host codex binary.
   try {
-    return await main(argv, stdinStream, log, errLog, exit);
+    return await main(argv, stdinStream, log, errLog, exit, codexExec);
   } catch (err) {
     errLog(`fatal: ${err.message}`);
     return exit(2);

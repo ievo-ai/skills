@@ -18,6 +18,7 @@ import {
   DEFAULT_CONCURRENCY,
   REPUTATION_BOOST_OWNERS,
   REPUTATION_BOOST_FACTOR,
+  CODEX_VISIBILITY_FLOOR,
   CATEGORY_QUERIES,
   qualityTier,
   buildQueries,
@@ -27,10 +28,18 @@ import {
   parseArgs,
   readStdin,
   runDiscover,
+  CODEX_SOURCE,
+  CODEX_QUALITY_TIER,
+  defaultCodexExec,
+  fetchCodexMarketplace,
   main,
   mainSafe,
   isCliEntry,
 } from "../discover.mjs";
+
+// Shared codex stub yielding no catalog — keeps discovery-path tests
+// deterministic regardless of whether a `codex` binary exists on the host.
+const noCodex = async () => null;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -110,6 +119,15 @@ describe("qualityTier", () => {
 describe("buildQueries", () => {
   it("returns empty array for empty stack", () => {
     assert.deepEqual(buildQueries({}), []);
+  });
+
+  it("throws on a query that collides with the `__` sentinel prefix", () => {
+    // Defends the sentinel invariant: a `__`-prefixed input must fail fast,
+    // not silently corrupt rankCandidates' breadth-bonus filtering.
+    assert.throws(
+      () => buildQueries({ languages: ["__codex-marketplace__"] }),
+      /sentinel collision/,
+    );
   });
 
   it("includes language fundamentals", () => {
@@ -222,6 +240,16 @@ describe("searchSkillsSh", () => {
     assert.equal(r.searchType, "fuzzy");
   });
 
+  it("tags each result with source_origin: 'skills.sh'", async () => {
+    const mockFetch = makeMockFetch({
+      skills: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }],
+    });
+    const r = await searchSkillsSh("test", 10, mockFetch);
+    assert.equal(r.results[0].source_origin, "skills.sh");
+    // Original fields preserved alongside the tag.
+    assert.equal(r.results[0].id, "a/b/c");
+  });
+
   it("returns empty results on non-ok response", async () => {
     const mockFetch = makeMockFetch(null, 500, false);
     const r = await searchSkillsSh("test", 10, mockFetch);
@@ -316,6 +344,45 @@ describe("rankCandidates", () => {
     const ranked = rankCandidates(results);
     assert.equal(ranked[0].name, "high");
     assert.equal(ranked[1].name, "low");
+  });
+
+  it("applies the codex visibility floor so install-less codex plugins still surface", () => {
+    // A codex plugin (installs 0) would score 0 and sort dead-last without the
+    // floor. With it, it outranks a <10-install skills.sh skill but stays below
+    // popular ones.
+    const results = [
+      { query: "__codex-marketplace__", results: [
+        { id: "cx/plugin", name: "codexPlugin", source: "codex/official", source_origin: "codex-marketplace", installs: 0 },
+      ] },
+      { query: "q1", results: [
+        { id: "x/y/tiny", name: "tiny", source: "x/y", installs: 3 },     // log10(3)≈0.48 < floor
+        { id: "x/y/big", name: "big", source: "x/y", installs: 100000 },  // log10(1e5)=5 > floor
+      ] },
+    ];
+    const ranked = rankCandidates(results);
+    const codex = ranked.find((c) => c.name === "codexPlugin");
+    const tiny = ranked.find((c) => c.name === "tiny");
+    const big = ranked.find((c) => c.name === "big");
+    assert.equal(codex.rank_score, CODEX_VISIBILITY_FLOOR);
+    assert.ok(codex.rank_score > tiny.rank_score, "codex plugin outranks a sub-floor skill");
+    assert.ok(big.rank_score > codex.rank_score, "a popular skill still outranks the codex floor");
+  });
+
+  it("does not grant a breadth bonus when a codex sentinel collides with a skills.sh winner", () => {
+    // skills.sh entry matched by one real query, then the codex group hits the
+    // same id. The sentinel must NOT inflate the winner's breadth bonus.
+    const results = [
+      { query: "testing", results: [{ id: "a/b/dup", name: "dup", source: "a/b", installs: 100 }] },
+      { query: "__codex-marketplace__", results: [
+        { id: "a/b/dup", name: "dup", source: "codex/x", source_origin: "codex-marketplace", installs: 0 },
+      ] },
+    ];
+    const ranked = rankCandidates(results);
+    const dup = ranked.find((c) => c.id === "a/b/dup");
+    // First-seen (skills.sh) wins; sentinel skipped → single real matched query, breadth bonus 1.
+    assert.equal(dup.source_origin, "skills.sh");
+    assert.deepEqual(dup.matched_queries, ["testing"]);
+    assert.equal(dup.rank_score, Math.log10(100)); // installScore × 1 (no breadth inflation)
   });
 
   it("applies REPUTATION_BOOST_FACTOR for trusted owners", () => {
@@ -550,7 +617,7 @@ describe("runDiscover", () => {
   }
 
   it("returns error when no queries derived from empty stack", async () => {
-    const out = await runDiscover({}, { fetchImpl: makeFakeFetch({}) });
+    const out = await runDiscover({}, { fetchImpl: makeFakeFetch({}), codexExec: noCodex });
     assert.match(out.error, /no queries derived/);
     assert.deepEqual(out.candidates, []);
   });
@@ -558,7 +625,7 @@ describe("runDiscover", () => {
   it("produces structured output with sources + queries + candidates", async () => {
     const out = await runDiscover(
       { languages: ["python"] },
-      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }) },
+      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }), codexExec: noCodex },
     );
     // out.script_version is emitted from the same SCRIPT_VERSION constant covered
     // by the constants test above — re-checking against the same constant here
@@ -577,7 +644,7 @@ describe("runDiscover", () => {
     }));
     const out = await runDiscover(
       { languages: ["python"] },
-      { limit: 5, fetchImpl: makeFakeFetch({ _default: many }) },
+      { limit: 5, fetchImpl: makeFakeFetch({ _default: many }), codexExec: noCodex },
     );
     assert.equal(out.candidates.length, 5);
   });
@@ -588,10 +655,168 @@ describe("runDiscover", () => {
     };
     const out = await runDiscover(
       { languages: ["python"] },
-      { fetchImpl: failingFetch },
+      { fetchImpl: failingFetch, codexExec: noCodex },
     );
-    assert.ok(out.sources[0].errors > 0);
-    assert.ok(out.sources[0].error_details.length > 0);
+    // Name-based lookup — robust to future reordering of sources[].
+    const skillsSh = out.sources.find((s) => s.name === "skills.sh");
+    assert.ok(skillsSh.errors > 0);
+    assert.ok(skillsSh.error_details.length > 0);
+  });
+
+  it("reports an absent codex source as available:false with zero raw_results", async () => {
+    const out = await runDiscover(
+      { languages: ["python"] },
+      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }), codexExec: noCodex },
+    );
+    const codexSource = out.sources.find((s) => s.name === CODEX_SOURCE);
+    assert.ok(codexSource);
+    assert.equal(codexSource.available, false);
+    assert.equal(codexSource.raw_results, 0);
+    assert.equal(codexSource.error, null);
+  });
+
+  it("gracefully handles a throwing codexExec at the runDiscover level", async () => {
+    const out = await runDiscover(
+      { languages: ["python"] },
+      {
+        fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }),
+        codexExec: async () => { throw new Error("unexpected"); },
+      },
+    );
+    const codexSource = out.sources.find((s) => s.name === CODEX_SOURCE);
+    assert.equal(codexSource.available, false);     // inner try/catch absorbed it
+    assert.ok(out.candidates.some((c) => c.id === "a/b/c"));  // skills.sh results survive
+  });
+
+  it("merges codex candidates into the ranked output with source_origin label", async () => {
+    const codexExec = async () =>
+      JSON.stringify({
+        available: [{ pluginId: "cx/sec-audit", name: "sec-audit", marketplaceSource: { source: "codex/official" } }],
+      });
+    const out = await runDiscover(
+      { languages: ["python"] },
+      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }), codexExec },
+    );
+    const codexSource = out.sources.find((s) => s.name === CODEX_SOURCE);
+    assert.equal(codexSource.available, true);
+    assert.equal(codexSource.raw_results, 1);
+    assert.equal(codexSource.error, null); // no stale .error on the happy path
+    const codexCand = out.candidates.find((c) => c.id === "cx/sec-audit");
+    assert.ok(codexCand, "codex candidate should appear in ranked output");
+    assert.equal(codexCand.source_origin, CODEX_SOURCE);
+    assert.equal(codexCand.source_repo, "codex/official");
+    // No install count → tagged unranked, not a misleading install-based tier.
+    assert.equal(codexCand.quality_tier, CODEX_QUALITY_TIER);
+    // The synthetic `__codex-marketplace__` grouping key must NOT leak into the
+    // public matched_queries schema — source provenance is in source_origin.
+    assert.deepEqual(codexCand.matched_queries, []);
+    assert.ok(!codexCand.matched_queries.some((q) => q.startsWith("__")));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codex marketplace source
+// ---------------------------------------------------------------------------
+
+describe("fetchCodexMarketplace", () => {
+  it("maps available[] plugins to ranked-candidate shape", async () => {
+    const exec = async () =>
+      JSON.stringify({
+        installed: [{ pluginId: "x/installed", name: "installed" }],
+        available: [
+          { pluginId: "x/alpha", name: "alpha", marketplaceSource: { source: "owner/repo" } },
+          { name: "beta", marketplaceName: "mkt" },
+        ],
+      });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.source, CODEX_SOURCE);
+    assert.equal(out.available, true);
+    assert.equal(out.results.length, 2);
+    const [alpha, beta] = out.results;
+    assert.equal(alpha.id, "x/alpha");
+    assert.equal(alpha.source, "owner/repo");
+    assert.equal(alpha.source_origin, CODEX_SOURCE);
+    assert.equal(alpha.installs, 0);
+    // No pluginId → id derived from marketplaceName/name; source falls back to marketplaceName.
+    assert.equal(beta.id, "mkt/beta");
+    assert.equal(beta.source, "mkt");
+  });
+
+  it("derives id/source from CODEX_SOURCE when both pluginId and marketplaceName are absent", async () => {
+    const exec = async () => JSON.stringify({ available: [{ name: "gamma" }] });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.results[0].id, `${CODEX_SOURCE}/gamma`);
+    assert.equal(out.results[0].source, CODEX_SOURCE);
+  });
+
+  it("treats an empty-string marketplaceName as absent (|| not ??)", async () => {
+    const exec = async () => JSON.stringify({ available: [{ name: "x", marketplaceName: "" }] });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.results[0].id, `${CODEX_SOURCE}/x`);  // not "/x"
+    assert.equal(out.results[0].source, CODEX_SOURCE);     // not ""
+  });
+
+  it("filters out entries with a missing or non-string id/name", async () => {
+    const exec = async () =>
+      JSON.stringify({ available: [
+        null,                                  // null element → filtered before map (no crash)
+        { pluginId: "x/noname" },              // no name → dropped
+        { name: null },                        // null name → dropped
+        { pluginId: "x/num", name: 42 },       // numeric name → dropped (typeof guard)
+        { pluginId: "", name: "empty" },       // empty pluginId → derived id "codex-marketplace/empty"
+        { pluginId: "x/ok", name: "ok" },      // kept
+      ] });
+    const out = await fetchCodexMarketplace(exec);
+    // null element is filtered (not a crash); empty pluginId falls through to the name-derived id.
+    assert.deepEqual(out.results.map((r) => r.id), ["codex-marketplace/empty", "x/ok"]);
+  });
+
+  it("treats a missing available[] array as an empty catalog", async () => {
+    const exec = async () => JSON.stringify({ installed: [] });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.available, true);
+    assert.deepEqual(out.results, []);
+  });
+
+  it("returns available:false when exec yields null (codex absent)", async () => {
+    const out = await fetchCodexMarketplace(async () => null);
+    assert.equal(out.available, false);
+    assert.deepEqual(out.results, []);
+  });
+
+  it("returns available:false when exec throws", async () => {
+    const out = await fetchCodexMarketplace(async () => {
+      throw new Error("spawn failed");
+    });
+    assert.equal(out.available, false);
+    assert.deepEqual(out.results, []);
+  });
+
+  it("reports an error (but stays available) on unparseable output", async () => {
+    const out = await fetchCodexMarketplace(async () => "not json{");
+    assert.equal(out.available, true);
+    assert.deepEqual(out.results, []);
+    assert.match(out.error, /unparseable/);
+  });
+
+  it("treats whitespace-only stdout as unparseable (truthy but not JSON)", async () => {
+    // `stdout || null` keeps "   \n" (whitespace is truthy); JSON.parse then throws.
+    const out = await fetchCodexMarketplace(async () => "   \n");
+    assert.equal(out.available, true);
+    assert.deepEqual(out.results, []);
+    assert.match(out.error, /unparseable/);
+  });
+
+  it("invokes the codex binary via injectable async execFile", async () => {
+    // success → stdout
+    assert.equal(
+      await defaultCodexExec(async () => ({ stdout: '{"available":[]}' })),
+      '{"available":[]}',
+    );
+    // rejection (ENOENT / non-zero exit — execFile throws both) → null
+    assert.equal(await defaultCodexExec(async () => { throw new Error("ENOENT"); }), null);
+    // empty stdout → null
+    assert.equal(await defaultCodexExec(async () => ({ stdout: "" })), null);
   });
 });
 
@@ -602,6 +827,11 @@ describe("runDiscover", () => {
 describe("main", () => {
   const tmpDir = join(tmpdir(), `discover-cli-test-${Date.now()}`);
   mkdirSync(tmpDir, { recursive: true });
+
+  // Discovery-path tests pass the shared module-level `noCodex` stub as main()'s
+  // 6th arg so they never spawn the real `codex` binary. Early-exit tests omit
+  // it, covering main()'s `codexExec = defaultCodexExec` default without ever
+  // reaching the codex call.
 
   function makeRun() {
     const logs = [];
@@ -677,7 +907,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await main(["node", "discover.mjs", "--stack-file", stackPath], Readable.from([""]), run.log, run.errLog, run.exit);
+      await main(["node", "discover.mjs", "--stack-file", stackPath], Readable.from([""]), run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
       const output = JSON.parse(run.logs.join("\n"));
       assert.equal(output.stack_input.languages[0], "go");
@@ -692,10 +922,47 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
       const output = JSON.parse(run.logs.join("\n"));
       assert.equal(output.stack_input.languages[0], "rust");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("threads codexExec through to the CLI output (codex candidate end-to-end)", async () => {
+    const run = makeRun();
+    const stream = Readable.from(['{"languages":["python"]}']);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
+    const codexExec = async () =>
+      JSON.stringify({ available: [{ pluginId: "cx/p", name: "p", marketplaceSource: { source: "codex/x" } }] });
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, codexExec);
+      assert.equal(run.exitCode, 0);
+      const output = JSON.parse(run.logs.join("\n"));
+      const codexSource = output.sources.find((s) => s.name === "codex-marketplace");
+      assert.equal(codexSource.available, true);
+      assert.equal(codexSource.raw_results, 1);
+      const cand = output.candidates.find((c) => c.id === "cx/p");
+      assert.ok(cand, "codex candidate should appear in CLI output");
+      assert.equal(cand.source_origin, "codex-marketplace");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("surfaces a codex error on stderr (symmetric with skills.sh WARN)", async () => {
+    const run = makeRun();
+    const stream = Readable.from(['{"languages":["python"]}']);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
+    const codexExec = async () => "not json{"; // codex ran but emitted garbage
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, codexExec);
+      assert.equal(run.exitCode, 0);
+      assert.match(run.errs.join("\n"), /WARN: codex: .*unparseable/);
     } finally {
       globalThis.fetch = origFetch;
     }
@@ -707,7 +974,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => { throw new Error("network down"); };
     try {
-      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 4);
       assert.match(run.errs.join("\n"), /FATAL.*skills\.sh queries failed/);
     } finally {
@@ -727,7 +994,7 @@ describe("main", () => {
       return { ok: true, json: async () => ({ skills: [{ id: "a/b/c", name: "c", source: "a/b", installs: 100 }] }) };
     };
     try {
-      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
       assert.match(run.errs.join("\n"), /WARN.*1\/\d+.*skills\.sh queries failed/);
     } finally {
@@ -793,7 +1060,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await mainSafe(["node", "discover.mjs"], Readable.from(['{"languages":["go"]}']), run.log, run.errLog, run.exit);
+      await mainSafe(["node", "discover.mjs"], Readable.from(['{"languages":["go"]}']), run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
     } finally {
       globalThis.fetch = origFetch;

@@ -79,6 +79,10 @@ export const CATEGORY_QUERIES = {
 // Query generation
 // ---------------------------------------------------------------------------
 
+// NOTE: generated query strings must NOT start with `__`. That prefix is
+// reserved for synthetic source sentinels (e.g. `__codex-marketplace__`) which
+// rankCandidates treats specially and strips from matched_queries. Natural
+// search terms never start with `__`, so this is safe today — keep it that way.
 export function buildQueries(stack) {
   const queries = new Set();
 
@@ -266,6 +270,9 @@ export function rankCandidates(allResults) {
           id: skill.id,
           name: skill.name,
           source_repo: skill.source,
+          // searchSkillsSh and fetchCodexMarketplace both tag results at the
+          // source, so this fallback only fires for a raw/legacy caller that
+          // passed untagged objects — it defaults them to "skills.sh".
           source_origin: skill.source_origin ?? "skills.sh",
           installs,
           // Codex plugins expose no install count, so the install-based tiers

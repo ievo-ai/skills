@@ -726,9 +726,14 @@ describe("fetchCodexMarketplace", () => {
     assert.equal(out.results[0].source, CODEX_SOURCE);
   });
 
-  it("filters out entries missing id or name", async () => {
+  it("filters out entries with a missing or non-string id/name", async () => {
     const exec = async () =>
-      JSON.stringify({ available: [{ pluginId: "x/noname" }, { name: null }, { pluginId: "x/ok", name: "ok" }] });
+      JSON.stringify({ available: [
+        { pluginId: "x/noname" },              // no name → dropped
+        { name: null },                        // null name → dropped
+        { pluginId: "x/num", name: 42 },       // numeric name → dropped (typeof guard)
+        { pluginId: "x/ok", name: "ok" },      // kept
+      ] });
     const out = await fetchCodexMarketplace(exec);
     assert.deepEqual(out.results.map((r) => r.id), ["x/ok"]);
   });

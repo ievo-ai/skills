@@ -25,7 +25,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export const SCRIPT_VERSION = "0.33.0";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
@@ -136,7 +139,11 @@ export async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LI
     const res = await fetchImpl(url);
     if (!res.ok) return { query, results: [], error: `HTTP ${res.status}` };
     const data = await res.json();
-    return { query, results: data.skills ?? [], searchType: data.searchType };
+    // Tag every result with its origin explicitly so the field is set at the
+    // source, not inferred via fallback downstream. (rankCandidates keeps a
+    // defensive `?? "skills.sh"` for callers that pass raw, untagged objects.)
+    const results = (data.skills ?? []).map((s) => ({ ...s, source_origin: "skills.sh" }));
+    return { query, results, searchType: data.searchType };
   } catch (err) {
     return { query, results: [], error: err.message };
   }
@@ -157,13 +164,18 @@ export async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LI
 
 export const CODEX_SOURCE = "codex-marketplace";
 
-export function defaultCodexExec(spawnImpl = spawnSync) {
+export async function defaultCodexExec(execImpl = execFileAsync) {
   // Returns `codex plugin list --json` stdout, or null if codex is unavailable /
-  // failed. spawnSync sets `error` (e.g. ENOENT) when the binary is missing —
-  // that is the graceful-skip path. spawnImpl is injectable for tests.
-  const r = spawnImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 10000 });
-  if (r.error || r.status !== 0 || !r.stdout) return null;
-  return r.stdout;
+  // failed. Async (execFile, not spawnSync) so a slow/hung codex never blocks the
+  // event loop for the full timeout. execFile rejects on a missing binary
+  // (ENOENT) or non-zero exit — both land in the graceful-skip catch. execImpl is
+  // injectable for tests.
+  try {
+    const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 10000 });
+    return stdout || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchCodexMarketplace(execImpl = defaultCodexExec) {
@@ -242,8 +254,9 @@ export function rankCandidates(allResults) {
       // before the codex group, so a codex plugin sharing an id with a skills.sh
       // skill is absorbed into the skills.sh entry (its source_origin dropped) —
       // skills.sh is the more authoritative, install-ranked source, so this is
-      // the intended tie-break. The codex query still registers in matched_queries.
-      if (!byId.has(skill.id)) {
+      // the intended tie-break.
+      const isNew = !byId.has(skill.id);
+      if (isNew) {
         byId.set(skill.id, {
           id: skill.id,
           name: skill.name,
@@ -256,7 +269,13 @@ export function rankCandidates(allResults) {
         });
       }
       const entry = byId.get(skill.id);
-      entry.matched_queries.add(query);
+      // Synthetic source sentinels (e.g. `__codex-marketplace__`) count only as
+      // the lone query for a codex-only candidate (the entry they created). Never
+      // add one to a pre-existing skills.sh winner — that would hand it an
+      // unearned breadth bonus just for also appearing in the codex catalog.
+      if (isNew || !query.startsWith("__")) {
+        entry.matched_queries.add(query);
+      }
     }
   }
 

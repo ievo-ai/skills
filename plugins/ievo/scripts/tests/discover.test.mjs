@@ -344,6 +344,23 @@ describe("rankCandidates", () => {
     assert.ok(big.rank_score > codex.rank_score, "a popular skill still outranks the codex floor");
   });
 
+  it("does not grant a breadth bonus when a codex sentinel collides with a skills.sh winner", () => {
+    // skills.sh entry matched by one real query, then the codex group hits the
+    // same id. The sentinel must NOT inflate the winner's breadth bonus.
+    const results = [
+      { query: "testing", results: [{ id: "a/b/dup", name: "dup", source: "a/b", installs: 100 }] },
+      { query: "__codex-marketplace__", results: [
+        { id: "a/b/dup", name: "dup", source: "codex/x", source_origin: "codex-marketplace", installs: 0 },
+      ] },
+    ];
+    const ranked = rankCandidates(results);
+    const dup = ranked.find((c) => c.id === "a/b/dup");
+    // First-seen (skills.sh) wins; sentinel skipped → single real matched query, breadth bonus 1.
+    assert.equal(dup.source_origin, "skills.sh");
+    assert.deepEqual(dup.matched_queries, ["testing"]);
+    assert.equal(dup.rank_score, Math.log10(100)); // installScore × 1 (no breadth inflation)
+  });
+
   it("applies REPUTATION_BOOST_FACTOR for trusted owners", () => {
     const results = [
       { query: "q1", results: [
@@ -620,8 +637,10 @@ describe("runDiscover", () => {
       { languages: ["python"] },
       { fetchImpl: failingFetch, codexExec: noCodex },
     );
-    assert.ok(out.sources[0].errors > 0);
-    assert.ok(out.sources[0].error_details.length > 0);
+    // Name-based lookup — robust to future reordering of sources[].
+    const skillsSh = out.sources.find((s) => s.name === "skills.sh");
+    assert.ok(skillsSh.errors > 0);
+    assert.ok(skillsSh.error_details.length > 0);
   });
 
   it("reports an absent codex source as available:false with zero raw_results", async () => {
@@ -729,15 +748,16 @@ describe("fetchCodexMarketplace", () => {
     assert.match(out.error, /unparseable/);
   });
 
-  it("defaults to the codex binary via injectable spawn", async () => {
-    const ok = defaultCodexExec(() => ({ status: 0, stdout: '{"available":[]}', error: null }));
-    assert.equal(ok, '{"available":[]}');
-    // error set (ENOENT-style) → null
-    assert.equal(defaultCodexExec(() => ({ error: new Error("ENOENT") })), null);
-    // non-zero exit → null
-    assert.equal(defaultCodexExec(() => ({ status: 1, stdout: "x" })), null);
+  it("invokes the codex binary via injectable async execFile", async () => {
+    // success → stdout
+    assert.equal(
+      await defaultCodexExec(async () => ({ stdout: '{"available":[]}' })),
+      '{"available":[]}',
+    );
+    // rejection (ENOENT / non-zero exit — execFile throws both) → null
+    assert.equal(await defaultCodexExec(async () => { throw new Error("ENOENT"); }), null);
     // empty stdout → null
-    assert.equal(defaultCodexExec(() => ({ status: 0, stdout: "" })), null);
+    assert.equal(await defaultCodexExec(async () => ({ stdout: "" })), null);
   });
 });
 

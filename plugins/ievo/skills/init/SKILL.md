@@ -320,7 +320,7 @@ The script:
 2. Parallel-fetches `https://skills.sh/api/search?q=<q>&limit=10` for each
 3. **If the `codex` CLI is present**, also reads its marketplace catalog (`codex plugin list --json` → `available[]`) and merges those uninstalled plugins as extra candidates. Absent codex / non-zero exit / unparseable output → silently skipped (no behaviour change for Claude Code-only users).
 4. Deduplicates by skill `id`, computes `rank_score` (log10(installs) × reputation_boost × match_breadth_bonus). Codex plugins carry no install count → get a visibility floor (≈ a 10-install skill) so they surface mid-pack instead of being sliced off by `--limit`, and are tagged `source_origin: codex-marketplace`.
-5. Returns JSON: `{sources, queries, candidates: [{id, name, source_repo, source_origin, installs, quality_tier, matched_queries, rank_score}]}`. `sources[]` carries one entry per origin — `skills.sh` and `codex-marketplace` (with `available` / `raw_results` / `error`).
+5. Returns JSON: `{sources, queries, candidates: [{id, name, source_repo, source_origin, installs, quality_tier, matched_queries, rank_score}]}`. `sources[]` carries one entry per origin — `skills.sh` and `codex-marketplace` (with `available` / `raw_results` / `error`). The `codex-marketplace` entry is **always** emitted (transparent about what was attempted) — when codex is absent it reads `available: false, raw_results: 0`.
 
 Typical wall-clock: 3-6 seconds for a rich stack.
 

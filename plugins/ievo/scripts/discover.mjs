@@ -190,8 +190,10 @@ export async function fetchCodexMarketplace(execImpl = defaultCodexExec) {
       // discover's ranker reads `source` as the source repo/origin.
       source: p.marketplaceSource?.source ?? p.marketplaceName ?? CODEX_SOURCE,
       source_origin: CODEX_SOURCE,
-      // Codex plugins carry no install count — they rank at 0 (visible, not
-      // dominant) and surface via the source_origin label downstream.
+      // Codex plugins carry no install count. installs stays 0 here; the ranker
+      // lifts their rank_score to CODEX_VISIBILITY_FLOOR (see rankCandidates) so
+      // they surface mid-pack rather than sort dead-last, and they're tagged via
+      // source_origin downstream.
       installs: 0,
     }))
     .filter((c) => c.id && c.name);
@@ -236,6 +238,11 @@ export function rankCandidates(allResults) {
         ? skill.installs
         : 0;
 
+      // First-seen wins on id collision. runDiscover feeds skills.sh groups
+      // before the codex group, so a codex plugin sharing an id with a skills.sh
+      // skill is absorbed into the skills.sh entry (its source_origin dropped) —
+      // skills.sh is the more authoritative, install-ranked source, so this is
+      // the intended tie-break. The codex query still registers in matched_queries.
       if (!byId.has(skill.id)) {
         byId.set(skill.id, {
           id: skill.id,
@@ -277,9 +284,14 @@ export function rankCandidates(allResults) {
     entry.rank_score = installScore * repBoost * breadthBonus;
   }
 
-  // Convert matched_queries Set to Array for JSON serialization
+  // Convert matched_queries Set to Array for JSON serialization. Drop synthetic
+  // source sentinels (e.g. `__codex-marketplace__`) — they're internal grouping
+  // keys, not real query terms, and would mislead downstream readers of the
+  // public schema. Source provenance is carried by `source_origin`. Filtered
+  // only here (after scoring) so the breadth bonus still treats the sentinel as
+  // the one query that matched a codex-only candidate.
   for (const entry of byId.values()) {
-    entry.matched_queries = [...entry.matched_queries];
+    entry.matched_queries = [...entry.matched_queries].filter((q) => !q.startsWith("__"));
   }
 
   const sorted = [...byId.values()].sort((a, b) => b.rank_score - a.rank_score);
@@ -396,7 +408,7 @@ export async function runDiscover(stack, options = {}) {
   };
 }
 
-export async function main(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
+export async function main(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit, codexExec = defaultCodexExec) {
   if (argv.includes("--version")) {
     log(SCRIPT_VERSION);
     return exit(0);
@@ -458,6 +470,7 @@ Usage:
     limit: args.limit,
     concurrency: args.concurrency,
     perQuery: args.perQuery,
+    codexExec,
   });
 
   // Always print the JSON to stdout (callers parse it).

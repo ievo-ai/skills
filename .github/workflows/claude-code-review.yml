@@ -37,7 +37,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Allow review on PRs created by known bot actors:
-          # - claude[bot]: issue-handler workflow opens PRs via the org App token
+          # - claude[bot]: issue-pipeline implement job opens PRs via the org App token
           # - ievo-eva[bot]: release-please creates Release PRs via the same App
           allowed_bots: 'claude[bot],ievo-eva[bot]'
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'

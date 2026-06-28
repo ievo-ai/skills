@@ -1,0 +1,289 @@
+# Issue Pipeline — member-gated, auto-analyze, implement-on-flag
+#
+# Replaces the mention-gated entry points (issue-discussion.yml +
+# issue-handler.yml). A single pipeline with two jobs:
+#
+#   route     — read-only analysis. Runs automatically when an org MEMBER/OWNER
+#               opens an issue, or comments `@ievo-ai`. Posts a structured
+#               analysis (same format the old discussion bot used) and emits a
+#               routing verdict: `implement` (clear + low-risk) or `hold`.
+#   implement — the privileged build flow (branch → TDD → PR → review loop).
+#               Runs when route's verdict is `implement`, OR when a MEMBER/OWNER
+#               comments `/implement` directly (manual override; route skipped).
+#
+# Decision (operator, recorded in ievo-ai/skills#260): "analyze auto, implement
+# on flag" — auto-implementation fires ONLY when the router clears BOTH gates
+# (requirements clear AND low-risk). Everything else holds for an explicit
+# /implement. The verdict file is fail-safe: a missing/garbled verdict → hold.
+#
+# Member gate: author_association MEMBER/OWNER AND user.type == User. This
+# excludes bots (the Eva App posts proposals as a CONTRIBUTOR bot — those stay
+# as triage backlog, never auto-build) and external users (NONE/CONTRIBUTOR).
+#
+# Security (inherited from issue-handler.yml):
+#   - GHA shell injection: untrusted issue title/body never reach run: blocks via
+#     ${{ }} interpolation; Claude receives them via `gh issue view` inside the
+#     agent subprocess.
+#   - Indirect prompt injection: the raw issue body reaches Claude as tool output.
+#     Mitigated by (1) the MEMBER/OWNER+User gate (trusted authors only),
+#     (2) scope-lock prompt rules, (3) no auto-merge — human gate on every PR,
+#     (4) bot-loop block, (5) per-issue concurrency.
+#   - Auth: org App token (APP_ID + APP_PRIVATE_KEY), not GITHUB_TOKEN, so
+#     handler-created PRs trigger downstream checks.
+#
+# Tracked as ievo-ai/skills#260 (supersedes #65 / #153).
+
+name: "Issue Pipeline"
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+# Workflow-level concurrency: one in-flight pipeline per issue. cancel-in-progress
+# false so a new comment never kills an implement job mid-build.
+concurrency:
+  group: issue-pipeline-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # route — read-only analysis + routing verdict
+  # ---------------------------------------------------------------------------
+  route:
+    name: "Analyze & Route"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Run on: a MEMBER/OWNER (real User, not bot) opening an issue, OR a
+    # MEMBER/OWNER `@ievo-ai` comment. NOT on `/implement` — that bypasses
+    # routing and goes straight to the implement job below.
+    if: >
+      !github.event.issue.pull_request &&
+      (
+        (github.event_name == 'issues' &&
+         github.event.issue.user.type == 'User' &&
+         (github.event.issue.author_association == 'MEMBER' ||
+          github.event.issue.author_association == 'OWNER'))
+        ||
+        (github.event_name == 'issue_comment' &&
+         github.event.comment.user.type == 'User' &&
+         !endsWith(github.event.comment.user.login, '[bot]') &&
+         contains(github.event.comment.body, '@ievo-ai') &&
+         !startsWith(github.event.comment.body, '/implement') &&
+         !startsWith(github.event.comment.body, '/fix') &&
+         (github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'OWNER'))
+      )
+
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+
+    outputs:
+      decision: ${{ steps.verdict.outputs.decision }}
+
+    steps:
+      # All actions pinned to commit SHA (not floating tags) — public repo +
+      # App private key handling = supply-chain surface. Comment = version at pin.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # Acknowledge the triggering @ievo-ai comment with 👀 (comment events only;
+      # an opened issue has no comment to react to). Non-fatal.
+      - name: Acknowledge with 👀 reaction
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes \
+            || echo "::warning::could not add 👀 reaction (non-fatal)"
+
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Load router prompt
+        run: |
+          if [ ! -f .github/prompts/issue-router.md ]; then
+            echo "::error::issue-router.md not found"
+            exit 1
+          fi
+          if grep -qxF 'ROUTER_PROMPT_EOF' .github/prompts/issue-router.md; then
+            echo "::error::issue-router.md contains the heredoc delimiter"
+            exit 1
+          fi
+          {
+            echo "ROUTER_PROMPT<<ROUTER_PROMPT_EOF"
+            cat .github/prompts/issue-router.md
+            echo ""
+            echo "ROUTER_PROMPT_EOF"
+          } >> "$GITHUB_ENV"
+
+      # Stamp the time just before the router runs. The verdict reader below only
+      # accepts an analysis comment created AFTER this — so if the router fails to
+      # post a fresh comment, a STALE verdict from a prior run (e.g. an earlier
+      # `implement` on issue-open, then a later `@ievo-ai` re-run) is NOT picked up,
+      # and the fail-safe `hold` applies instead of re-firing the build.
+      - name: Record router start time
+        id: started
+        run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Run Router
+        uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model opus
+            --allowedTools "Bash,Read,Glob,Grep,WebFetch,WebSearch"
+          prompt: ${{ env.ROUTER_PROMPT }}
+
+      # Read the verdict back from the router's analysis comment, not the
+      # filesystem — independent of how claude-code-action runs (container vs
+      # composite). We look at the LATEST bot-authored comment carrying the
+      # analysis marker and check for the implement verdict marker. Trust basis:
+      # only [bot] comments are considered, so a non-member cannot forge a verdict
+      # (same trust model as the handler's marker protocol). Anything else —
+      # missing comment, no marker, hold marker — is treated as "hold" (fail-safe:
+      # the expensive, privileged implement path must be explicitly earned). A
+      # short retry covers GitHub API read-after-write lag on the just-posted comment.
+      - name: Export verdict
+        id: verdict
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          STARTED: ${{ steps.started.outputs.ts }}
+        run: |
+          DECISION="hold"
+          for attempt in 1 2 3 4 5 6; do
+            # Only THIS run's analysis comment counts: [bot]-authored, carries the
+            # analysis marker, AND created after the router started (created_at is
+            # ISO-8601 UTC, lexicographically comparable to STARTED). Guards against
+            # reading a stale verdict when the router failed to post a fresh comment.
+            BODY=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" --paginate \
+              --jq --arg started "$STARTED" '[.[] | select((.user.login | endswith("[bot]")) and (.body | contains("<!-- ievo-discussion-analysis -->")) and (.created_at > $started))] | last.body // ""' \
+              2>/dev/null || true)
+            if [ -n "$BODY" ]; then
+              if printf '%s' "$BODY" | grep -qF '<!-- ievo-verdict: implement -->'; then
+                DECISION="implement"
+              fi
+              break
+            fi
+            sleep 5
+          done
+          echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+          echo "Router verdict: $DECISION"
+
+  # ---------------------------------------------------------------------------
+  # implement — privileged build flow (branch → TDD → PR → review loop)
+  # ---------------------------------------------------------------------------
+  implement:
+    name: "Implement"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [route]
+
+    # Runs when EITHER:
+    #   (a) route cleared both gates (decision == implement), OR
+    #   (b) a MEMBER/OWNER commented `/implement` directly (manual override —
+    #       route is skipped for /implement, so always() lets this still evaluate).
+    # always() is required because `needs: [route]` would otherwise skip this job
+    # whenever route is skipped (the /implement path) or holds.
+    if: >
+      always() &&
+      !github.event.issue.pull_request &&
+      (
+        (needs.route.result == 'success' && needs.route.outputs.decision == 'implement')
+        ||
+        (github.event_name == 'issue_comment' &&
+         github.event.comment.user.type == 'User' &&
+         github.event.comment.body == '/implement' &&
+         !endsWith(github.event.comment.user.login, '[bot]') &&
+         (github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'OWNER'))
+      )
+
+    permissions:
+      contents: write       # push branches + commits during the fix loop
+      issues: write         # acknowledgment / completion / exhaustion comments
+      pull-requests: write  # create PRs, comment, read review state
+      actions: read         # Phase 5 polls `gh pr checks`
+      id-token: write       # REQUIRED by claude-code-action's internal OIDC startup
+
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # 👀 on the /implement comment (manual-override path only). Non-fatal.
+      - name: Acknowledge with 👀 reaction
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes \
+            || echo "::warning::could not add 👀 reaction (non-fatal)"
+
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "20"
+
+      # CONSTRAINT: issue-handler.md must never contain the literal string
+      # "PROMPT_DELIMITER_EOF" on a line by itself — that is the heredoc delimiter.
+      - name: Load handler prompt
+        run: |
+          if grep -qxF 'PROMPT_DELIMITER_EOF' .github/prompts/issue-handler.md; then
+            echo "::error::issue-handler.md contains the heredoc delimiter on its own line"
+            exit 1
+          fi
+          {
+            echo "HANDLER_PROMPT<<PROMPT_DELIMITER_EOF"
+            cat .github/prompts/issue-handler.md
+            echo ""
+            echo "PROMPT_DELIMITER_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Run Issue Handler
+        uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Attribute implementation commits to the iEvo App bot, not claude[bot].
+          bot_id: "264606751"
+          bot_name: "ievo-eva[bot]"
+          claude_args: |
+            --model opus
+            --allowedTools "Bash,Edit,Read,Write,Glob,Grep,WebFetch,WebSearch"
+          prompt: ${{ env.HANDLER_PROMPT }}

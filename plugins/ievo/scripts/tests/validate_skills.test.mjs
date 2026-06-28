@@ -63,8 +63,8 @@ describe("constants", () => {
     assert.deepEqual([...VALID_EFFORT_VALUES].sort(), ["high", "low", "max", "medium", "xhigh"]);
   });
 
-  it("ALLOWED_MODELS contains the four canonical aliases", () => {
-    assert.deepEqual([...ALLOWED_MODELS].sort(), ["haiku", "inherit", "opus", "sonnet"]);
+  it("ALLOWED_MODELS contains the five canonical aliases", () => {
+    assert.deepEqual([...ALLOWED_MODELS].sort(), ["fable", "haiku", "inherit", "opus", "sonnet"]);
   });
 
   it("FORBIDDEN_MODEL_PATTERNS covers vendor-specific + version-pinned IDs", () => {

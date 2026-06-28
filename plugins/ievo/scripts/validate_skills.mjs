@@ -31,7 +31,7 @@ export const COMPATIBILITY_MAX_LENGTH = 500;
 
 export const VALID_EFFORT_VALUES = new Set(["low", "medium", "high", "xhigh", "max"]);
 
-export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "inherit"]);
+export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "fable", "inherit"]);
 
 export const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^claude-/, why: "Anthropic-specific ID" },

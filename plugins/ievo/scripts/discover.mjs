@@ -180,6 +180,9 @@ export async function defaultCodexExec(execImpl = execFileAsync) {
   // (ENOENT) or non-zero exit — both land in the graceful-skip catch. execImpl is
   // injectable for tests.
   try {
+    // Only stdout is consumed — any codex stderr (deprecation/diagnostic
+    // warnings) is intentionally discarded; this source is best-effort and must
+    // never surface noise on the main discovery path.
     const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 10000 });
     return stdout || null;
   } catch {
@@ -187,9 +190,10 @@ export async function defaultCodexExec(execImpl = execFileAsync) {
   }
 }
 
-// codexRunner is the no-arg `() => Promise<string|null>` codex runner
-// (defaultCodexExec), NOT the (cmd, args, opts) execFile-style fn that
-// defaultCodexExec itself takes — distinct signatures, distinct layers.
+// codexRunner is the `(execImpl?) => Promise<string|null>` codex runner
+// (defaultCodexExec) — called here with no args. Distinct from the
+// `(cmd, args, opts)` execFile-style fn that defaultCodexExec itself takes:
+// different signatures, different layers.
 export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
   let stdout;
   try {
@@ -406,6 +410,10 @@ export async function runDiscover(stack, options = {}) {
   const queries = buildQueries(stack);
 
   if (queries.length === 0) {
+    // sources: [] is intentional for this early-return — no source is queried.
+    // Callers get exit 5 (error set) and abort before reading sources, so the
+    // "codex-marketplace entry always emitted" guarantee applies only to runs
+    // that actually reach the fetch stage below.
     return {
       script_version: SCRIPT_VERSION,
       sources: [],

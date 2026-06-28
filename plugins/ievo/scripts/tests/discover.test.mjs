@@ -769,6 +769,14 @@ describe("fetchCodexMarketplace", () => {
     assert.match(out.error, /unparseable/);
   });
 
+  it("treats whitespace-only stdout as unparseable (truthy but not JSON)", async () => {
+    // `stdout || null` keeps "   \n" (whitespace is truthy); JSON.parse then throws.
+    const out = await fetchCodexMarketplace(async () => "   \n");
+    assert.equal(out.available, true);
+    assert.deepEqual(out.results, []);
+    assert.match(out.error, /unparseable/);
+  });
+
   it("invokes the codex binary via injectable async execFile", async () => {
     // success → stdout
     assert.equal(

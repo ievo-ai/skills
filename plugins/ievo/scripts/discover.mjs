@@ -194,6 +194,9 @@ export async function defaultCodexExec(execImpl = execFileAsync) {
     // warnings) is intentionally discarded; this source is best-effort and must
     // never surface noise on the main discovery path.
     const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 5000 });
+    // Truthy stdout = "codex ran and emitted output" (→ available: true). Whether
+    // that output is parseable is fetchCodexMarketplace's call: it reports a parse
+    // failure as available: true + error, not as absent (available: false).
     return stdout || null;
   } catch {
     return null;
@@ -229,10 +232,12 @@ export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
       // `||` (not `??`) so an empty-string pluginId is treated as absent and
       // falls through to the marketplaceName/name-derived id — an empty id would
       // collide with every other empty-id entry under dedup.
-      id: p.pluginId || (p.name ? `${p.marketplaceName ?? CODEX_SOURCE}/${p.name}` : null),
+      id: p.pluginId || (p.name ? `${p.marketplaceName || CODEX_SOURCE}/${p.name}` : null),
       name: p.name,
       // discover's ranker reads `source` as the source repo/origin.
-      source: p.marketplaceSource?.source ?? p.marketplaceName ?? CODEX_SOURCE,
+      // `||` (not `??`) so an empty-string marketplaceName/source falls through
+      // rather than producing `""` / `"/name"`.
+      source: p.marketplaceSource?.source || p.marketplaceName || CODEX_SOURCE,
       source_origin: CODEX_SOURCE,
       // Codex plugins carry no install count. installs stays 0 here; the ranker
       // lifts their rank_score to CODEX_VISIBILITY_FLOOR (see rankCandidates) so

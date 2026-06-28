@@ -736,6 +736,13 @@ describe("fetchCodexMarketplace", () => {
     assert.equal(out.results[0].source, CODEX_SOURCE);
   });
 
+  it("treats an empty-string marketplaceName as absent (|| not ??)", async () => {
+    const exec = async () => JSON.stringify({ available: [{ name: "x", marketplaceName: "" }] });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.results[0].id, `${CODEX_SOURCE}/x`);  // not "/x"
+    assert.equal(out.results[0].source, CODEX_SOURCE);     // not ""
+  });
+
   it("filters out entries with a missing or non-string id/name", async () => {
     const exec = async () =>
       JSON.stringify({ available: [

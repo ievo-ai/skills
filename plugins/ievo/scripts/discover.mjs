@@ -168,6 +168,11 @@ export async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LI
 
 export const CODEX_SOURCE = "codex-marketplace";
 
+// quality_tier for codex candidates — they have no install count, so the
+// install-based tiers (qualityTier) don't apply. Exported so downstream
+// consumers match on the constant rather than a hard-coded string.
+export const CODEX_QUALITY_TIER = "unranked";
+
 export async function defaultCodexExec(execImpl = execFileAsync) {
   // Returns `codex plugin list --json` stdout, or null if codex is unavailable /
   // failed. Async (execFile, not spawnSync) so a slow/hung codex never blocks the
@@ -204,7 +209,10 @@ export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
   const avail = Array.isArray(data?.available) ? data.available : [];
   const results = avail
     .map((p) => ({
-      id: p.pluginId ?? (p.name ? `${p.marketplaceName ?? CODEX_SOURCE}/${p.name}` : null),
+      // `||` (not `??`) so an empty-string pluginId is treated as absent and
+      // falls through to the marketplaceName/name-derived id — an empty id would
+      // collide with every other empty-id entry under dedup.
+      id: p.pluginId || (p.name ? `${p.marketplaceName ?? CODEX_SOURCE}/${p.name}` : null),
       name: p.name,
       // discover's ranker reads `source` as the source repo/origin.
       source: p.marketplaceSource?.source ?? p.marketplaceName ?? CODEX_SOURCE,
@@ -278,7 +286,7 @@ export function rankCandidates(allResults) {
           // Codex plugins expose no install count, so the install-based tiers
           // ("low-confidence" etc.) are meaningless and would contradict their
           // visibility-floor ranking. Tag them "unranked" instead.
-          quality_tier: skill.source_origin === CODEX_SOURCE ? "unranked" : qualityTier(installs),
+          quality_tier: skill.source_origin === CODEX_SOURCE ? CODEX_QUALITY_TIER : qualityTier(installs),
           matched_queries: new Set(),
           rank_score: 0,
         });
@@ -516,8 +524,11 @@ Usage:
 
   // Surface discovery problems to stderr — init's Bash invocation captures
   // stderr separately from stdout. Don't bury failures in JSON only.
-  const errorCount = output.sources?.[0]?.errors ?? 0;
-  const queryCount = output.sources?.[0]?.queries_executed ?? 0;
+  // Look the skills.sh source up by name, not index — robust if sources[] order
+  // ever changes (codex is always a second entry now).
+  const skillsSh = output.sources?.find((s) => s.name === "skills.sh");
+  const errorCount = skillsSh?.errors ?? 0;
+  const queryCount = skillsSh?.queries_executed ?? 0;
   if (queryCount > 0 && errorCount === queryCount) {
     // Total failure — all queries errored. Exit non-zero so init can branch.
     errLog(`[discover.mjs] FATAL: all ${queryCount} skills.sh queries failed. Network down / API outage / DNS / TLS issue. Candidates list will be empty.`);
@@ -525,7 +536,7 @@ Usage:
   }
   if (errorCount > 0) {
     // Partial failure — warn but continue. Candidates may still be useful.
-    const failedQueries = (output.sources?.[0]?.error_details ?? []).map((e) => e.query).join(", ");
+    const failedQueries = (skillsSh?.error_details ?? []).map((e) => e.query).join(", ");
     errLog(`[discover.mjs] WARN: ${errorCount}/${queryCount} skills.sh queries failed: ${failedQueries}`);
   }
   if (output.error) {

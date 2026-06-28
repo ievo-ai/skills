@@ -29,6 +29,7 @@ import {
   readStdin,
   runDiscover,
   CODEX_SOURCE,
+  CODEX_QUALITY_TIER,
   defaultCodexExec,
   fetchCodexMarketplace,
   main,
@@ -682,8 +683,8 @@ describe("runDiscover", () => {
     assert.ok(codexCand, "codex candidate should appear in ranked output");
     assert.equal(codexCand.source_origin, CODEX_SOURCE);
     assert.equal(codexCand.source_repo, "codex/official");
-    // No install count → tagged "unranked", not a misleading install-based tier.
-    assert.equal(codexCand.quality_tier, "unranked");
+    // No install count → tagged unranked, not a misleading install-based tier.
+    assert.equal(codexCand.quality_tier, CODEX_QUALITY_TIER);
     // The synthetic `__codex-marketplace__` grouping key must NOT leak into the
     // public matched_queries schema — source provenance is in source_origin.
     assert.deepEqual(codexCand.matched_queries, []);
@@ -732,10 +733,12 @@ describe("fetchCodexMarketplace", () => {
         { pluginId: "x/noname" },              // no name → dropped
         { name: null },                        // null name → dropped
         { pluginId: "x/num", name: 42 },       // numeric name → dropped (typeof guard)
+        { pluginId: "", name: "empty" },       // empty pluginId → derived id "codex-marketplace/empty"
         { pluginId: "x/ok", name: "ok" },      // kept
       ] });
     const out = await fetchCodexMarketplace(exec);
-    assert.deepEqual(out.results.map((r) => r.id), ["x/ok"]);
+    // Empty pluginId falls through to the name-derived id (not "").
+    assert.deepEqual(out.results.map((r) => r.id), ["codex-marketplace/empty", "x/ok"]);
   });
 
   it("treats a missing available[] array as an empty catalog", async () => {

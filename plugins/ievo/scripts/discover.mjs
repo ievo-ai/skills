@@ -25,8 +25,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
-export const SCRIPT_VERSION = "0.32.0";
+export const SCRIPT_VERSION = "0.33.0";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
@@ -41,6 +42,12 @@ export const REPUTATION_BOOST_OWNERS = new Set([
   "wshobson", "github",
 ]);
 export const REPUTATION_BOOST_FACTOR = 1.5;
+
+// Visibility floor for Codex marketplace candidates (which carry no install
+// count). log10(10) = 1.0 — equivalent to a ~10-install skill: enough to surface
+// mid-pack rather than be sliced off by --limit, low enough that any 100+ install
+// skills.sh skill still outranks. See rankCandidates for the rationale.
+export const CODEX_VISIBILITY_FLOOR = 1.0;
 
 // Install-count quality tiers (from find-skills SKILL.md).
 export function qualityTier(installs) {
@@ -135,6 +142,63 @@ export async function searchSkillsSh(query, perQueryLimit = DEFAULT_PER_QUERY_LI
   }
 }
 
+// ---------------------------------------------------------------------------
+// Codex marketplace source (optional — only when the `codex` CLI is present)
+//
+// Codex `plugin list --json` (rust-v0.138.0+) returns { installed[], available[] }.
+// `available[]` is the discoverable catalog — uninstalled plugins from the user's
+// configured Codex marketplaces, the candidates iEvo can run through its
+// security-auditor before install. NOTE: the discovery command is `codex plugin
+// list`, NOT `codex plugin marketplace` (which manages marketplace *configs*, not
+// plugins). Absent codex / non-zero exit / unparseable output → silently skip
+// (no error, no behaviour change for Claude Code-only users — universal
+// positioning preserved).
+// ---------------------------------------------------------------------------
+
+export const CODEX_SOURCE = "codex-marketplace";
+
+export function defaultCodexExec(spawnImpl = spawnSync) {
+  // Returns `codex plugin list --json` stdout, or null if codex is unavailable /
+  // failed. spawnSync sets `error` (e.g. ENOENT) when the binary is missing —
+  // that is the graceful-skip path. spawnImpl is injectable for tests.
+  const r = spawnImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 10000 });
+  if (r.error || r.status !== 0 || !r.stdout) return null;
+  return r.stdout;
+}
+
+export async function fetchCodexMarketplace(execImpl = defaultCodexExec) {
+  let stdout;
+  try {
+    stdout = await execImpl();
+  } catch {
+    return { source: CODEX_SOURCE, available: false, results: [] };
+  }
+  if (!stdout) return { source: CODEX_SOURCE, available: false, results: [] };
+
+  let data;
+  try {
+    data = JSON.parse(stdout);
+  } catch {
+    return { source: CODEX_SOURCE, available: true, results: [], error: "unparseable codex output" };
+  }
+
+  const avail = Array.isArray(data?.available) ? data.available : [];
+  const results = avail
+    .map((p) => ({
+      id: p.pluginId ?? (p.name ? `${p.marketplaceName ?? CODEX_SOURCE}/${p.name}` : null),
+      name: p.name,
+      // discover's ranker reads `source` as the source repo/origin.
+      source: p.marketplaceSource?.source ?? p.marketplaceName ?? CODEX_SOURCE,
+      source_origin: CODEX_SOURCE,
+      // Codex plugins carry no install count — they rank at 0 (visible, not
+      // dominant) and surface via the source_origin label downstream.
+      installs: 0,
+    }))
+    .filter((c) => c.id && c.name);
+
+  return { source: CODEX_SOURCE, available: true, results };
+}
+
 export async function mapWithConcurrency(items, fn, concurrency) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -177,6 +241,7 @@ export function rankCandidates(allResults) {
           id: skill.id,
           name: skill.name,
           source_repo: skill.source,
+          source_origin: skill.source_origin ?? "skills.sh",
           installs,
           quality_tier: qualityTier(installs),
           matched_queries: new Set(),
@@ -192,7 +257,14 @@ export function rankCandidates(allResults) {
   for (const entry of byId.values()) {
     // Base score = installs (log-scaled to avoid dominance by mega-popular skills)
     // Math.max with 1 guards against log10(0) = -Infinity.
-    const installScore = Math.log10(Math.max(entry.installs, 1));
+    // Codex marketplace plugins expose no install metric (installs=0 → score 0),
+    // which would sort them dead-last and slice them off under --limit in any rich
+    // stack — making the codex source a silent no-op for the users it targets. Give
+    // them a visibility floor (≈ a 10-install skill: log10(10)=1) so a handful
+    // surface mid-pack: visible, never dominant (100+ install skills still outrank).
+    const installScore = entry.source_origin === CODEX_SOURCE
+      ? Math.max(Math.log10(Math.max(entry.installs, 1)), CODEX_VISIBILITY_FLOOR)
+      : Math.log10(Math.max(entry.installs, 1));
 
     // Reputation boost (NOT a security shortcut — just visibility aid)
     // Case-insensitive: GitHub owner slugs aren't case-sensitive.
@@ -267,6 +339,7 @@ export async function runDiscover(stack, options = {}) {
     concurrency = DEFAULT_CONCURRENCY,
     perQuery = DEFAULT_PER_QUERY_LIMIT,
     fetchImpl = fetch,
+    codexExec = defaultCodexExec,
   } = options;
 
   const startTime = Date.now();
@@ -290,19 +363,34 @@ export async function runDiscover(stack, options = {}) {
   const totalResults = allResults.reduce((s, r) => s + r.results.length, 0);
   const errors = allResults.filter((r) => r.error).map((r) => ({ query: r.query, error: r.error }));
 
-  const ranked = rankCandidates(allResults).slice(0, limit);
+  // Optional Codex marketplace source — merged as an extra result group so its
+  // candidates flow through the same ranker (dedup by id, source_origin label).
+  const codex = await fetchCodexMarketplace(codexExec);
+  const groups = codex.results.length
+    ? [...allResults, { query: `__${CODEX_SOURCE}__`, results: codex.results }]
+    : allResults;
+
+  const ranked = rankCandidates(groups).slice(0, limit);
 
   return {
     script_version: SCRIPT_VERSION,
     elapsed_ms: Date.now() - startTime,
     stack_input: stack,
-    sources: [{
-      name: "skills.sh",
-      queries_executed: queries.length,
-      raw_results: totalResults,
-      errors: errors.length,
-      error_details: errors,
-    }],
+    sources: [
+      {
+        name: "skills.sh",
+        queries_executed: queries.length,
+        raw_results: totalResults,
+        errors: errors.length,
+        error_details: errors,
+      },
+      {
+        name: CODEX_SOURCE,
+        available: codex.available,
+        raw_results: codex.results.length,
+        error: codex.error ?? null,
+      },
+    ],
     queries,
     candidates: ranked,
   };

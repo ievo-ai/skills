@@ -18,6 +18,7 @@ import {
   DEFAULT_CONCURRENCY,
   REPUTATION_BOOST_OWNERS,
   REPUTATION_BOOST_FACTOR,
+  CODEX_VISIBILITY_FLOOR,
   CATEGORY_QUERIES,
   qualityTier,
   buildQueries,
@@ -27,6 +28,9 @@ import {
   parseArgs,
   readStdin,
   runDiscover,
+  CODEX_SOURCE,
+  defaultCodexExec,
+  fetchCodexMarketplace,
   main,
   mainSafe,
   isCliEntry,
@@ -318,6 +322,28 @@ describe("rankCandidates", () => {
     assert.equal(ranked[1].name, "low");
   });
 
+  it("applies the codex visibility floor so install-less codex plugins still surface", () => {
+    // A codex plugin (installs 0) would score 0 and sort dead-last without the
+    // floor. With it, it outranks a <10-install skills.sh skill but stays below
+    // popular ones.
+    const results = [
+      { query: "__codex-marketplace__", results: [
+        { id: "cx/plugin", name: "codexPlugin", source: "codex/official", source_origin: "codex-marketplace", installs: 0 },
+      ] },
+      { query: "q1", results: [
+        { id: "x/y/tiny", name: "tiny", source: "x/y", installs: 3 },     // log10(3)≈0.48 < floor
+        { id: "x/y/big", name: "big", source: "x/y", installs: 100000 },  // log10(1e5)=5 > floor
+      ] },
+    ];
+    const ranked = rankCandidates(results);
+    const codex = ranked.find((c) => c.name === "codexPlugin");
+    const tiny = ranked.find((c) => c.name === "tiny");
+    const big = ranked.find((c) => c.name === "big");
+    assert.equal(codex.rank_score, CODEX_VISIBILITY_FLOOR);
+    assert.ok(codex.rank_score > tiny.rank_score, "codex plugin outranks a sub-floor skill");
+    assert.ok(big.rank_score > codex.rank_score, "a popular skill still outranks the codex floor");
+  });
+
   it("applies REPUTATION_BOOST_FACTOR for trusted owners", () => {
     const results = [
       { query: "q1", results: [
@@ -549,8 +575,12 @@ describe("runDiscover", () => {
     };
   }
 
+  // codexExec stub that yields no codex catalog — keeps runDiscover tests
+  // deterministic regardless of whether a `codex` binary exists on the host.
+  const noCodex = async () => null;
+
   it("returns error when no queries derived from empty stack", async () => {
-    const out = await runDiscover({}, { fetchImpl: makeFakeFetch({}) });
+    const out = await runDiscover({}, { fetchImpl: makeFakeFetch({}), codexExec: noCodex });
     assert.match(out.error, /no queries derived/);
     assert.deepEqual(out.candidates, []);
   });
@@ -558,7 +588,7 @@ describe("runDiscover", () => {
   it("produces structured output with sources + queries + candidates", async () => {
     const out = await runDiscover(
       { languages: ["python"] },
-      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }) },
+      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }), codexExec: noCodex },
     );
     // out.script_version is emitted from the same SCRIPT_VERSION constant covered
     // by the constants test above — re-checking against the same constant here
@@ -577,7 +607,7 @@ describe("runDiscover", () => {
     }));
     const out = await runDiscover(
       { languages: ["python"] },
-      { limit: 5, fetchImpl: makeFakeFetch({ _default: many }) },
+      { limit: 5, fetchImpl: makeFakeFetch({ _default: many }), codexExec: noCodex },
     );
     assert.equal(out.candidates.length, 5);
   });
@@ -588,10 +618,122 @@ describe("runDiscover", () => {
     };
     const out = await runDiscover(
       { languages: ["python"] },
-      { fetchImpl: failingFetch },
+      { fetchImpl: failingFetch, codexExec: noCodex },
     );
     assert.ok(out.sources[0].errors > 0);
     assert.ok(out.sources[0].error_details.length > 0);
+  });
+
+  it("reports an absent codex source as available:false with zero raw_results", async () => {
+    const out = await runDiscover(
+      { languages: ["python"] },
+      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }), codexExec: noCodex },
+    );
+    const codexSource = out.sources.find((s) => s.name === CODEX_SOURCE);
+    assert.ok(codexSource);
+    assert.equal(codexSource.available, false);
+    assert.equal(codexSource.raw_results, 0);
+    assert.equal(codexSource.error, null);
+  });
+
+  it("merges codex candidates into the ranked output with source_origin label", async () => {
+    const codexExec = async () =>
+      JSON.stringify({
+        available: [{ pluginId: "cx/sec-audit", name: "sec-audit", marketplaceSource: { source: "codex/official" } }],
+      });
+    const out = await runDiscover(
+      { languages: ["python"] },
+      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }), codexExec },
+    );
+    const codexSource = out.sources.find((s) => s.name === CODEX_SOURCE);
+    assert.equal(codexSource.available, true);
+    assert.equal(codexSource.raw_results, 1);
+    const codexCand = out.candidates.find((c) => c.id === "cx/sec-audit");
+    assert.ok(codexCand, "codex candidate should appear in ranked output");
+    assert.equal(codexCand.source_origin, CODEX_SOURCE);
+    assert.equal(codexCand.source_repo, "codex/official");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codex marketplace source
+// ---------------------------------------------------------------------------
+
+describe("fetchCodexMarketplace", () => {
+  it("maps available[] plugins to ranked-candidate shape", async () => {
+    const exec = async () =>
+      JSON.stringify({
+        installed: [{ pluginId: "x/installed", name: "installed" }],
+        available: [
+          { pluginId: "x/alpha", name: "alpha", marketplaceSource: { source: "owner/repo" } },
+          { name: "beta", marketplaceName: "mkt" },
+        ],
+      });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.source, CODEX_SOURCE);
+    assert.equal(out.available, true);
+    assert.equal(out.results.length, 2);
+    const [alpha, beta] = out.results;
+    assert.equal(alpha.id, "x/alpha");
+    assert.equal(alpha.source, "owner/repo");
+    assert.equal(alpha.source_origin, CODEX_SOURCE);
+    assert.equal(alpha.installs, 0);
+    // No pluginId → id derived from marketplaceName/name; source falls back to marketplaceName.
+    assert.equal(beta.id, "mkt/beta");
+    assert.equal(beta.source, "mkt");
+  });
+
+  it("derives id/source from CODEX_SOURCE when both pluginId and marketplaceName are absent", async () => {
+    const exec = async () => JSON.stringify({ available: [{ name: "gamma" }] });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.results[0].id, `${CODEX_SOURCE}/gamma`);
+    assert.equal(out.results[0].source, CODEX_SOURCE);
+  });
+
+  it("filters out entries missing id or name", async () => {
+    const exec = async () =>
+      JSON.stringify({ available: [{ pluginId: "x/noname" }, { name: null }, { pluginId: "x/ok", name: "ok" }] });
+    const out = await fetchCodexMarketplace(exec);
+    assert.deepEqual(out.results.map((r) => r.id), ["x/ok"]);
+  });
+
+  it("treats a missing available[] array as an empty catalog", async () => {
+    const exec = async () => JSON.stringify({ installed: [] });
+    const out = await fetchCodexMarketplace(exec);
+    assert.equal(out.available, true);
+    assert.deepEqual(out.results, []);
+  });
+
+  it("returns available:false when exec yields null (codex absent)", async () => {
+    const out = await fetchCodexMarketplace(async () => null);
+    assert.equal(out.available, false);
+    assert.deepEqual(out.results, []);
+  });
+
+  it("returns available:false when exec throws", async () => {
+    const out = await fetchCodexMarketplace(async () => {
+      throw new Error("spawn failed");
+    });
+    assert.equal(out.available, false);
+    assert.deepEqual(out.results, []);
+  });
+
+  it("reports an error (but stays available) on unparseable output", async () => {
+    const out = await fetchCodexMarketplace(async () => "not json{");
+    assert.equal(out.available, true);
+    assert.deepEqual(out.results, []);
+    assert.match(out.error, /unparseable/);
+  });
+
+  it("defaults to the codex binary via injectable spawn", async () => {
+    const ok = defaultCodexExec(() => ({ status: 0, stdout: '{"available":[]}', error: null }));
+    assert.equal(ok, '{"available":[]}');
+    // error set (ENOENT-style) → null
+    assert.equal(defaultCodexExec(() => ({ error: new Error("ENOENT") })), null);
+    // non-zero exit → null
+    assert.equal(defaultCodexExec(() => ({ status: 1, stdout: "x" })), null);
+    // empty stdout → null
+    assert.equal(defaultCodexExec(() => ({ status: 0, stdout: "" })), null);
   });
 });
 

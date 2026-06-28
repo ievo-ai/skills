@@ -1,7 +1,7 @@
 # Review Fixer — auto-fix claude-review findings on handler-authored PRs
 #
 # Triggers when Claude Code Review completes. If the reviewed PR was
-# created by the issue-handler (author = claude[bot]) and the review
+# created by the issue-pipeline implement job (author = claude[bot]) and the review
 # posted findings, this workflow checks out the PR branch, runs Claude
 # to fix the findings, and pushes. The push re-triggers claude-review,
 # which re-triggers this workflow if findings remain — up to 5 rounds.

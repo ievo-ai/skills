@@ -171,6 +171,7 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - Also add a `## vX.Y.Z` entry in `CHANGELOG.md` (reverse-chronological).
 - To avoid race with parallel PRs: query main's CURRENT version at push time via `gh api`, check open PRs for claimed versions, pick next free slot.
 - The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
+- **Infra-only PRs do NOT bump the version.** Changes confined to `.github/` (workflows, prompts, CI scripts) or repo docs (`AGENTS.md`, `README.md`) with **no** edit to plugin files (`plugins/ievo/**`, `.claude-plugin/**`) leave the version untouched. The version represents the *plugin* — bumping it for a CI/docs change would fire `notify-release` (a false release announcement) and misrepresent the changelog. The coupling test still passes (SCRIPT_VERSION == plugin.json, both unchanged).
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block.
 - **Codex discovery schema** — `discover.mjs` reads `codex plugin list --json` → `available[]` with the fields `pluginId` / `name` / `marketplaceName` / `marketplaceSource.source`. Manually validated against **codex-cli 0.142.3**. The code degrades gracefully on schema drift (missing fields → fallback id or filtered out), but re-verify these field names on a major Codex CLI update.
 
@@ -179,15 +180,17 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - Commit footer: `Co-Authored-By: iEVO <noreply@ievo.ai>` (NOT the default Claude/Anthropic footer)
 - Merge strategy: merge commit (`--merge --delete-branch`), never squash
 
-### Issue lifecycle — two-phase discussion + implementation
+### Issue lifecycle — member-gated auto-pipeline (skills#260)
 
-Issues follow a two-phase lifecycle (skills#153):
+`issue-pipeline.yml` is the single entry point (it superseded the mention-gated `issue-discussion.yml` + `issue-handler.yml`). Two jobs, member-gated, "analyze auto, implement on flag":
 
-**Phase 1 — Discussion (`@ievo-ai` triggered):** `issue-discussion.yml` triggers when an org member (MEMBER/OWNER) mentions `@ievo-ai` in an issue comment. Claude (Opus) does deep research on the codebase and posts a structured analysis (Understanding, Approach, Questions, Conflicts, Risks). The bot does NOT create branches, open PRs, or modify files. Operators iterate via `@ievo-ai` follow-up comments until requirements are clear. Edit and Write tools are excluded from --allowedTools to enforce read-only at the tool level.
+**Member gate:** `author_association ∈ {MEMBER, OWNER}` **AND** `user.type == User`. This excludes bots (the Eva App posts proposals as a CONTRIBUTOR bot — those stay as triage backlog, never auto-build) and external users.
 
-**Phase 2 — Implementation (`/implement` triggered):** `issue-handler.yml` triggers when an org member comments exactly `/implement` on an issue. Claude reads the discussion thread, validates that all questions are resolved, then either closes the issue with explanation or implements a fix/feature PR with full test coverage. After creating the PR, it monitors `claude-code-review` and iterates on feedback (max 5 attempts) until the review is green. Never auto-merges — human must review and merge.
+**`route` (auto, read-only):** runs automatically when a member **opens** an issue, or comments `@ievo-ai`. Claude (Opus) does deep research and posts a structured analysis (Understanding, Approach, Questions, Conflicts, Risks — same format as the old discussion bot, same `<!-- ievo-discussion-analysis -->` / `<!-- ievo-open-questions -->` markers). It then emits a routing verdict to `/tmp/ievo-verdict`: `implement` only when BOTH gates clear — requirements clear (zero open questions) AND low-risk (scoped to `plugins/ievo/`, no workflow/CI/security/schema-breaking changes, small-to-moderate surface). Otherwise `hold`. Read-only: never creates branches/PRs/files.
 
-The discussion phase is optional — `/implement` works without prior `@ievo-ai` discussion. Both workflows use a GitHub App token (org-level App credentials) so that PRs trigger downstream workflows. See skills#65 and skills#153 for the full design.
+**`implement` (privileged):** runs when route's verdict is `implement`, OR when a member comments exactly `/implement` (manual override — route is skipped for `/implement`, so the job uses `always()` + a direct-comment clause). Same flow as the old handler: branch → TDD → PR → `claude-code-review` loop (max 5 attempts) until green. Never auto-merges.
+
+**Fail-safe:** a missing/garbled verdict file → `hold`. Auto-implementation is the privileged, expensive path and must clear both gates unambiguously; a wrong `hold` costs one member click, a wrong `implement` spends a full build. The App token (org-level App credentials) is used so handler-created PRs trigger downstream workflows. See skills#260 (supersedes #65 / #153).
 
 **After merging infra fixes (workflow, CI config) into main** — immediately rebase open handler PRs that depend on the fix. A workflow fix in main is inert until dependent branches pull it in. Check `gh pr list --state open --author app/claude` and rebase any that would benefit.
 

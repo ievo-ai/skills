@@ -7,7 +7,8 @@
 //      no leading/trailing hyphens), must match parent directory basename
 //   3. `description`: required, ≤1024 chars
 //   4. `compatibility`: optional, but if present ≤500 chars
-//   5. No `model:` vendor-specific IDs (skills should not declare model preferences)
+//   5. `model:`, if present, must be a vendor-neutral family alias
+//      (sonnet | opus | haiku | fable | inherit) — never a vendor-pinned ID
 //   6. `effort:` optional but recommended; warns on absent, errors on invalid value
 //
 // Exit codes:
@@ -94,7 +95,7 @@ export function checkModelField(model) {
       return [{
         severity: "error",
         rule: "model-vendor-locked",
-        message: `\`model: ${model}\` is forbidden — ${why}. Skills should not declare model preferences; use agent-level \`model:\` instead.`,
+        message: `\`model: ${model}\` is forbidden — ${why}. Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
       }];
     }
   }
@@ -102,7 +103,7 @@ export function checkModelField(model) {
   return [{
     severity: "error",
     rule: "model-not-allowed",
-    message: `\`model: ${model}\` not in allowed aliases (${[...ALLOWED_MODELS].join(", ")}). Skills should not declare model preferences.`,
+    message: `\`model: ${model}\` not in allowed aliases (${[...ALLOWED_MODELS].join(", ")}). Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
   }];
 }
 

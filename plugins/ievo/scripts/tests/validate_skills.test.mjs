@@ -175,6 +175,18 @@ describe("checkModelField", () => {
     }
   });
 
+  it("accepts fable (parity with validate_agents.mjs v0.21.0)", () => {
+    assert.deepEqual(checkModelField("fable"), []);
+  });
+
+  it("rejects fable5 as not-allowed (no vendor-prefix match, routes to allowlist check)", () => {
+    const v = checkModelField("fable5");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "model-not-allowed");
+    assert.match(v[0].message, /not in allowed aliases/);
+    assert.match(v[0].message, /fable/);
+  });
+
   it("rejects claude-* vendor-specific IDs", () => {
     const v = checkModelField("claude-sonnet-4-6");
     assert.equal(v.length, 1);

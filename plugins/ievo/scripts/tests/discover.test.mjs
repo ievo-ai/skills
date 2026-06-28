@@ -671,6 +671,8 @@ describe("runDiscover", () => {
     assert.ok(codexCand, "codex candidate should appear in ranked output");
     assert.equal(codexCand.source_origin, CODEX_SOURCE);
     assert.equal(codexCand.source_repo, "codex/official");
+    // No install count → tagged "unranked", not a misleading install-based tier.
+    assert.equal(codexCand.quality_tier, "unranked");
     // The synthetic `__codex-marketplace__` grouping key must NOT leak into the
     // public matched_queries schema — source provenance is in source_origin.
     assert.deepEqual(codexCand.matched_queries, []);
@@ -965,7 +967,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await mainSafe(["node", "discover.mjs"], Readable.from(['{"languages":["go"]}']), run.log, run.errLog, run.exit);
+      await mainSafe(["node", "discover.mjs"], Readable.from(['{"languages":["go"]}']), run.log, run.errLog, run.exit, codexNo);
       assert.equal(run.exitCode, 0);
     } finally {
       globalThis.fetch = origFetch;

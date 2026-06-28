@@ -263,7 +263,10 @@ export function rankCandidates(allResults) {
           source_repo: skill.source,
           source_origin: skill.source_origin ?? "skills.sh",
           installs,
-          quality_tier: qualityTier(installs),
+          // Codex plugins expose no install count, so the install-based tiers
+          // ("low-confidence" etc.) are meaningless and would contradict their
+          // visibility-floor ranking. Tag them "unranked" instead.
+          quality_tier: skill.source_origin === CODEX_SOURCE ? "unranked" : qualityTier(installs),
           matched_queries: new Set(),
           rank_score: 0,
         });
@@ -385,18 +388,16 @@ export async function runDiscover(stack, options = {}) {
     };
   }
 
-  const allResults = await mapWithConcurrency(
-    queries,
-    (q) => searchSkillsSh(q, perQuery, fetchImpl),
-    concurrency,
-  );
+  // skills.sh and codex are independent sources — fetch them concurrently so a
+  // slow codex (up to its 10s timeout) overlaps with the skills.sh queries
+  // instead of being added to wall-clock time after they finish.
+  const [allResults, codex] = await Promise.all([
+    mapWithConcurrency(queries, (q) => searchSkillsSh(q, perQuery, fetchImpl), concurrency),
+    fetchCodexMarketplace(codexExec),
+  ]);
 
   const totalResults = allResults.reduce((s, r) => s + r.results.length, 0);
   const errors = allResults.filter((r) => r.error).map((r) => ({ query: r.query, error: r.error }));
-
-  // Optional Codex marketplace source — merged as an extra result group so its
-  // candidates flow through the same ranker (dedup by id, source_origin label).
-  const codex = await fetchCodexMarketplace(codexExec);
   const groups = codex.results.length
     ? [...allResults, { query: `__${CODEX_SOURCE}__`, results: codex.results }]
     : allResults;
@@ -518,12 +519,13 @@ Usage:
   return exit(0);
 }
 
-export async function mainSafe(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit) {
+export async function mainSafe(argv = process.argv, stdinStream = process.stdin, log = console.log, errLog = console.error, exit = process.exit, codexExec = defaultCodexExec) {
   // Defensive wrapper — main() has internal try/catch around every known
   // throwing path, but this catches anything future code might add without
-  // wrapping. Testable via mock exit/errLog.
+  // wrapping. Testable via mock exit/errLog. Forwards codexExec so tests can
+  // inject a stub and stay independent of a host codex binary.
   try {
-    return await main(argv, stdinStream, log, errLog, exit);
+    return await main(argv, stdinStream, log, errLog, exit, codexExec);
   } catch (err) {
     errLog(`fatal: ${err.message}`);
     return exit(2);

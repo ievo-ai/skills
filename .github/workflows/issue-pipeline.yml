@@ -68,6 +68,7 @@ jobs:
           github.event.issue.author_association == 'OWNER'))
         ||
         (github.event_name == 'issue_comment' &&
+         github.event.comment.user.type == 'User' &&
          !endsWith(github.event.comment.user.login, '[bot]') &&
          contains(github.event.comment.body, '@ievo-ai') &&
          !startsWith(github.event.comment.body, '/implement') &&
@@ -130,6 +131,15 @@ jobs:
             echo "ROUTER_PROMPT_EOF"
           } >> "$GITHUB_ENV"
 
+      # Stamp the time just before the router runs. The verdict reader below only
+      # accepts an analysis comment created AFTER this — so if the router fails to
+      # post a fresh comment, a STALE verdict from a prior run (e.g. an earlier
+      # `implement` on issue-open, then a later `@ievo-ai` re-run) is NOT picked up,
+      # and the fail-safe `hold` applies instead of re-firing the build.
+      - name: Record router start time
+        id: started
+        run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Run Router
         uses: anthropics/claude-code-action@537ffff2eff706bd7e3e1c3daf2d4b39067a9f85  # v1.0.133
         env:
@@ -158,11 +168,16 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          STARTED: ${{ steps.started.outputs.ts }}
         run: |
           DECISION="hold"
           for attempt in 1 2 3 4 5 6; do
+            # Only THIS run's analysis comment counts: [bot]-authored, carries the
+            # analysis marker, AND created after the router started (created_at is
+            # ISO-8601 UTC, lexicographically comparable to STARTED). Guards against
+            # reading a stale verdict when the router failed to post a fresh comment.
             BODY=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" --paginate \
-              --jq '[.[] | select((.user.login | endswith("[bot]")) and (.body | contains("<!-- ievo-discussion-analysis -->")))] | last.body // ""' \
+              --jq --arg started "$STARTED" '[.[] | select((.user.login | endswith("[bot]")) and (.body | contains("<!-- ievo-discussion-analysis -->")) and (.created_at > $started))] | last.body // ""' \
               2>/dev/null || true)
             if [ -n "$BODY" ]; then
               if printf '%s' "$BODY" | grep -qF '<!-- ievo-verdict: implement -->'; then
@@ -197,6 +212,7 @@ jobs:
         (needs.route.result == 'success' && needs.route.outputs.decision == 'implement')
         ||
         (github.event_name == 'issue_comment' &&
+         github.event.comment.user.type == 'User' &&
          github.event.comment.body == '/implement' &&
          !endsWith(github.event.comment.user.login, '[bot]') &&
          (github.event.comment.author_association == 'MEMBER' ||

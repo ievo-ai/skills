@@ -36,6 +36,13 @@ export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
 export const DEFAULT_CONCURRENCY = 8;
 
+// Reserved prefix for synthetic source-grouping sentinels (e.g.
+// `__codex-marketplace__`). buildQueries rejects any real query starting with
+// it; rankCandidates uses it to keep sentinels out of the breadth bonus and
+// strip them from the serialized matched_queries. Single source of truth so a
+// future source's sentinel stays consistent.
+export const SENTINEL_PREFIX = "__";
+
 // Owner reputation boost for ranking (NOT a security signal).
 // Sourced from find-skills SKILL.md "trusted sources" guidance.
 // Stored lowercase — GitHub owner slugs are case-insensitive, and skills.sh
@@ -136,7 +143,7 @@ export function buildQueries(stack) {
   // query must never start with `__`, or it would be mistaken for a synthetic
   // source key in rankCandidates and silently corrupt breadth-bonus filtering.
   for (const q of out) {
-    if (q.startsWith("__")) throw new Error(`query sentinel collision: '${q}' — queries must not start with '__'`);
+    if (q.startsWith(SENTINEL_PREFIX)) throw new Error(`query sentinel collision: '${q}' — queries must not start with '${SENTINEL_PREFIX}'`);
   }
   return out;
 }
@@ -239,10 +246,11 @@ export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
       // rather than producing `""` / `"/name"`.
       source: p.marketplaceSource?.source || p.marketplaceName || CODEX_SOURCE,
       source_origin: CODEX_SOURCE,
-      // Codex plugins carry no install count. installs stays 0 here; the ranker
-      // lifts their rank_score to CODEX_VISIBILITY_FLOOR (see rankCandidates) so
-      // they surface mid-pack rather than sort dead-last, and they're tagged via
-      // source_origin downstream.
+      // Codex plugins carry no install count (the codex-cli 0.142.3 schema has
+      // no install field), so installs is always 0; the ranker lifts their
+      // rank_score to CODEX_VISIBILITY_FLOOR (see rankCandidates) so they surface
+      // mid-pack rather than sort dead-last, and they're tagged via source_origin
+      // downstream.
       installs: 0,
     }))
     // Require string id+name. typeof guards against a future codex output shape
@@ -318,7 +326,7 @@ export function rankCandidates(allResults) {
       // the lone query for a codex-only candidate (the entry they created). Never
       // add one to a pre-existing skills.sh winner — that would hand it an
       // unearned breadth bonus just for also appearing in the codex catalog.
-      if (isNew || !query.startsWith("__")) {
+      if (isNew || !query.startsWith(SENTINEL_PREFIX)) {
         entry.matched_queries.add(query);
       }
     }
@@ -361,7 +369,7 @@ export function rankCandidates(allResults) {
   // only here (after scoring) so the breadth bonus still treats the sentinel as
   // the one query that matched a codex-only candidate.
   for (const entry of byId.values()) {
-    entry.matched_queries = [...entry.matched_queries].filter((q) => !q.startsWith("__"));
+    entry.matched_queries = [...entry.matched_queries].filter((q) => !q.startsWith(SENTINEL_PREFIX));
   }
 
   const sorted = [...byId.values()].sort((a, b) => b.rank_score - a.rank_score);
@@ -451,7 +459,7 @@ export async function runDiscover(stack, options = {}) {
   const totalResults = allResults.reduce((s, r) => s + r.results.length, 0);
   const errors = allResults.filter((r) => r.error).map((r) => ({ query: r.query, error: r.error }));
   const groups = codex.results.length
-    ? [...allResults, { query: `__${CODEX_SOURCE}__`, results: codex.results }]
+    ? [...allResults, { query: `${SENTINEL_PREFIX}${CODEX_SOURCE}${SENTINEL_PREFIX}`, results: codex.results }]
     : allResults;
 
   const ranked = rankCandidates(groups).slice(0, limit);

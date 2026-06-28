@@ -819,7 +819,7 @@ describe("main", () => {
   // (deterministic regardless of the host). Early-exit tests omit the 6th arg,
   // which covers main()'s `codexExec = defaultCodexExec` default without ever
   // reaching the codex call.
-  const codexNo = async () => null;
+  const noCodex = async () => null;
 
   function makeRun() {
     const logs = [];
@@ -895,7 +895,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await main(["node", "discover.mjs", "--stack-file", stackPath], Readable.from([""]), run.log, run.errLog, run.exit, codexNo);
+      await main(["node", "discover.mjs", "--stack-file", stackPath], Readable.from([""]), run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
       const output = JSON.parse(run.logs.join("\n"));
       assert.equal(output.stack_input.languages[0], "go");
@@ -910,7 +910,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, codexNo);
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
       const output = JSON.parse(run.logs.join("\n"));
       assert.equal(output.stack_input.languages[0], "rust");
@@ -947,7 +947,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => { throw new Error("network down"); };
     try {
-      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, codexNo);
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 4);
       assert.match(run.errs.join("\n"), /FATAL.*skills\.sh queries failed/);
     } finally {
@@ -967,7 +967,7 @@ describe("main", () => {
       return { ok: true, json: async () => ({ skills: [{ id: "a/b/c", name: "c", source: "a/b", installs: 100 }] }) };
     };
     try {
-      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, codexNo);
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
       assert.match(run.errs.join("\n"), /WARN.*1\/\d+.*skills\.sh queries failed/);
     } finally {
@@ -1033,7 +1033,7 @@ describe("main", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await mainSafe(["node", "discover.mjs"], Readable.from(['{"languages":["go"]}']), run.log, run.errLog, run.exit, codexNo);
+      await mainSafe(["node", "discover.mjs"], Readable.from(['{"languages":["go"]}']), run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
     } finally {
       globalThis.fetch = origFetch;

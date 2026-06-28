@@ -37,6 +37,10 @@ import {
   isCliEntry,
 } from "../discover.mjs";
 
+// Shared codex stub yielding no catalog — keeps discovery-path tests
+// deterministic regardless of whether a `codex` binary exists on the host.
+const noCodex = async () => null;
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -612,10 +616,6 @@ describe("runDiscover", () => {
     };
   }
 
-  // codexExec stub that yields no codex catalog — keeps runDiscover tests
-  // deterministic regardless of whether a `codex` binary exists on the host.
-  const noCodex = async () => null;
-
   it("returns error when no queries derived from empty stack", async () => {
     const out = await runDiscover({}, { fetchImpl: makeFakeFetch({}), codexExec: noCodex });
     assert.match(out.error, /no queries derived/);
@@ -815,11 +815,10 @@ describe("main", () => {
   const tmpDir = join(tmpdir(), `discover-cli-test-${Date.now()}`);
   mkdirSync(tmpDir, { recursive: true });
 
-  // Inject into discovery-path tests so they never spawn the real `codex` binary
-  // (deterministic regardless of the host). Early-exit tests omit the 6th arg,
-  // which covers main()'s `codexExec = defaultCodexExec` default without ever
+  // Discovery-path tests pass the shared module-level `noCodex` stub as main()'s
+  // 6th arg so they never spawn the real `codex` binary. Early-exit tests omit
+  // it, covering main()'s `codexExec = defaultCodexExec` default without ever
   // reaching the codex call.
-  const noCodex = async () => null;
 
   function makeRun() {
     const logs = [];

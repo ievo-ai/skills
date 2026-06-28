@@ -206,6 +206,12 @@ export async function defaultCodexExec(execImpl = execFileAsync) {
     // failure as available: true + error, not as absent (available: false).
     return stdout || null;
   } catch {
+    // Deliberate uniform skip: ENOENT (codex absent), non-zero exit (codex
+    // present but `plugin list` failed / unsupported subcommand), and timeout all
+    // collapse to null → available: false, no error. This is a best-effort source
+    // whose contract is "zero noise for non-Codex users"; we trade per-cause
+    // diagnostics for that silence. If debuggability ever outweighs it, branch on
+    // err.code === "ENOENT" here and surface the others as available: false + error.
     return null;
   }
 }

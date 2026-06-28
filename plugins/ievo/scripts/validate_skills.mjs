@@ -95,7 +95,7 @@ export function checkModelField(model) {
       return [{
         severity: "error",
         rule: "model-vendor-locked",
-        message: `\`model: ${model}\` is forbidden — ${why}. Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
+        message: `\`model: ${model}\` is forbidden — ${why}. Use only vendor-neutral family aliases (${[...ALLOWED_MODELS].join(", ")}) for turn-level pins; omit \`model:\` for skills without pinning needs.`,
       }];
     }
   }

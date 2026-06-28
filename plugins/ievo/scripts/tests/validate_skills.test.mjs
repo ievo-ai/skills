@@ -180,11 +180,14 @@ describe("checkModelField", () => {
   });
 
   it("rejects fable5 as not-allowed (no vendor-prefix match, routes to allowlist check)", () => {
+    // fable5 matches none of FORBIDDEN_MODEL_PATTERNS (no -N-N pair, no
+    // ^claude-/^gpt-/^gemini-/^o\d prefix), so it falls through to the
+    // generic allowlist branch — pin the rule label, not vendor-locked.
     const v = checkModelField("fable5");
     assert.equal(v.length, 1);
     assert.equal(v[0].rule, "model-not-allowed");
     assert.match(v[0].message, /not in allowed aliases/);
-    assert.match(v[0].message, /fable/);
+    assert.match(v[0].message, /model: fable5/);
   });
 
   it("rejects claude-* vendor-specific IDs", () => {

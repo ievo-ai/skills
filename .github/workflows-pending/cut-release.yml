@@ -32,6 +32,16 @@ on:
 permissions:
   contents: write
 
+# Serialize on the workflow name — two simultaneous version-bump merges would
+# otherwise both pass the `gh release view` idempotency pre-check and race to
+# `gh release create`, where the second loses with a duplicate-tag error.
+# Queueing (`cancel-in-progress: false`) keeps the second run alive; once the
+# first finishes the pre-check sees the release and cleanly no-ops. Version
+# bumps are infrequent so this is defensive, not load-bearing.
+concurrency:
+  group: cut-release
+  cancel-in-progress: false
+
 jobs:
   cut:
     # workflow_dispatch always runs; pull_request only on a merged PR (mirrors notify-release.yml).
@@ -114,12 +124,15 @@ jobs:
           VERSION: ${{ steps.ver.outputs.new }}
         run: |
           set -euo pipefail
-          # Capture from `## vX.Y.Z` (anchored exact match) through the line
-          # before the next `## v` heading. Then drop standalone `---` lines
-          # (CHANGELOG separators between version entries) and trim leading +
-          # trailing blank lines so the Release body reads cleanly.
+          # Capture from `## vX.Y.Z` (heading + optional trailing subtitle)
+          # through the line before the next `## v` heading. Then drop
+          # standalone `---` lines (CHANGELOG separators between version
+          # entries) and trim leading + trailing blank lines so the Release
+          # body reads cleanly. `index()` + `substr()` avoid regex-escaping
+          # the dots in the version (a regex `^## v0.33.0` would match
+          # `## v0e33e0` too); we want literal-prefix + word-boundary.
           body=$(awk -v ver="## v${VERSION}" '
-            $0 == ver { capture = 1; next }
+            index($0, ver) == 1 && (length($0) == length(ver) || substr($0, length(ver) + 1, 1) == " ") { capture = 1; next }
             capture && /^## v[0-9]/ { exit }
             capture { print }
           ' CHANGELOG.md | sed '/^---$/d' | awk '

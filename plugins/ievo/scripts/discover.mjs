@@ -178,10 +178,13 @@ export async function defaultCodexExec(execImpl = execFileAsync) {
   }
 }
 
-export async function fetchCodexMarketplace(execImpl = defaultCodexExec) {
+// codexRunner is the no-arg `() => Promise<string|null>` codex runner
+// (defaultCodexExec), NOT the (cmd, args, opts) execFile-style fn that
+// defaultCodexExec itself takes — distinct signatures, distinct layers.
+export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
   let stdout;
   try {
-    stdout = await execImpl();
+    stdout = await codexRunner();
   } catch {
     return { source: CODEX_SOURCE, available: false, results: [] };
   }
@@ -208,7 +211,9 @@ export async function fetchCodexMarketplace(execImpl = defaultCodexExec) {
       // source_origin downstream.
       installs: 0,
     }))
-    .filter((c) => c.id && c.name);
+    // Require string id+name. typeof guards against a future codex output shape
+    // emitting a non-string name (e.g. a number) slipping through a truthy check.
+    .filter((c) => typeof c.id === "string" && typeof c.name === "string");
 
   return { source: CODEX_SOURCE, available: true, results };
 }
@@ -297,6 +302,12 @@ export function rankCandidates(allResults) {
 
     // Reputation boost (NOT a security shortcut — just visibility aid)
     // Case-insensitive: GitHub owner slugs aren't case-sensitive.
+    // For codex candidates source_repo is the marketplace source (a path or URL),
+    // so the first segment is rarely a trusted owner — a URL like
+    // `https://…` yields `https:` (no false boost). If a codex marketplace ever
+    // emits an `owner/repo`-shaped source under a trusted owner, the boost stacks
+    // on top of the visibility floor (e.g. anthropics → 1.0 × 1.5 = 1.5); that's
+    // an intended "trusted host" signal, consistent with the skills.sh treatment.
     const owner = (entry.source_repo ?? "").split("/")[0].toLowerCase();
     const repBoost = REPUTATION_BOOST_OWNERS.has(owner) ? REPUTATION_BOOST_FACTOR : 1.0;
 

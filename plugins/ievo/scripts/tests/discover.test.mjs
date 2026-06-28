@@ -226,6 +226,16 @@ describe("searchSkillsSh", () => {
     assert.equal(r.searchType, "fuzzy");
   });
 
+  it("tags each result with source_origin: 'skills.sh'", async () => {
+    const mockFetch = makeMockFetch({
+      skills: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }],
+    });
+    const r = await searchSkillsSh("test", 10, mockFetch);
+    assert.equal(r.results[0].source_origin, "skills.sh");
+    // Original fields preserved alongside the tag.
+    assert.equal(r.results[0].id, "a/b/c");
+  });
+
   it("returns empty results on non-ok response", async () => {
     const mockFetch = makeMockFetch(null, 500, false);
     const r = await searchSkillsSh("test", 10, mockFetch);
@@ -667,6 +677,7 @@ describe("runDiscover", () => {
     const codexSource = out.sources.find((s) => s.name === CODEX_SOURCE);
     assert.equal(codexSource.available, true);
     assert.equal(codexSource.raw_results, 1);
+    assert.equal(codexSource.error, null); // no stale .error on the happy path
     const codexCand = out.candidates.find((c) => c.id === "cx/sec-audit");
     assert.ok(codexCand, "codex candidate should appear in ranked output");
     assert.equal(codexCand.source_origin, CODEX_SOURCE);

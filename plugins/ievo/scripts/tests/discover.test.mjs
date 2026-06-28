@@ -117,6 +117,15 @@ describe("buildQueries", () => {
     assert.deepEqual(buildQueries({}), []);
   });
 
+  it("throws on a query that collides with the `__` sentinel prefix", () => {
+    // Defends the sentinel invariant: a `__`-prefixed input must fail fast,
+    // not silently corrupt rankCandidates' breadth-bonus filtering.
+    assert.throws(
+      () => buildQueries({ languages: ["__codex-marketplace__"] }),
+      /sentinel collision/,
+    );
+  });
+
   it("includes language fundamentals", () => {
     const q = buildQueries({ languages: ["python", "typescript"] });
     assert.ok(q.includes("python"));

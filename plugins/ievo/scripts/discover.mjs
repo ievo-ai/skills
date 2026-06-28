@@ -82,7 +82,8 @@ export const CATEGORY_QUERIES = {
 // NOTE: generated query strings must NOT start with `__`. That prefix is
 // reserved for synthetic source sentinels (e.g. `__codex-marketplace__`) which
 // rankCandidates treats specially and strips from matched_queries. Natural
-// search terms never start with `__`, so this is safe today — keep it that way.
+// search terms never start with `__`; the fail-fast guard at the end of this
+// function enforces the invariant rather than trusting it.
 export function buildQueries(stack) {
   const queries = new Set();
 
@@ -130,7 +131,14 @@ export function buildQueries(stack) {
   if (depSet.has("stripe")) queries.add("payments integration");
   if (depSet.has("opentelemetry")) queries.add("observability tracing");
 
-  return [...queries].filter(Boolean);
+  const out = [...queries].filter(Boolean);
+  // Fail-fast guard for the `__` sentinel invariant (see the note above): a real
+  // query must never start with `__`, or it would be mistaken for a synthetic
+  // source key in rankCandidates and silently corrupt breadth-bonus filtering.
+  for (const q of out) {
+    if (q.startsWith("__")) throw new Error(`query sentinel collision: '${q}' — queries must not start with '__'`);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,14 +184,16 @@ export const CODEX_QUALITY_TIER = "unranked";
 export async function defaultCodexExec(execImpl = execFileAsync) {
   // Returns `codex plugin list --json` stdout, or null if codex is unavailable /
   // failed. Async (execFile, not spawnSync) so a slow/hung codex never blocks the
-  // event loop for the full timeout. execFile rejects on a missing binary
-  // (ENOENT) or non-zero exit — both land in the graceful-skip catch. execImpl is
-  // injectable for tests.
+  // event loop. execFile rejects on a missing binary (ENOENT), non-zero exit, or
+  // the timeout — all land in the graceful-skip catch. 5s timeout: this is a
+  // best-effort source running concurrently with skills.sh, so its ceiling caps
+  // the worst-case discovery stall — keep it well under the typical skills.sh
+  // wall-clock. execImpl is injectable for tests.
   try {
     // Only stdout is consumed — any codex stderr (deprecation/diagnostic
     // warnings) is intentionally discarded; this source is best-effort and must
     // never surface noise on the main discovery path.
-    const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 10000 });
+    const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 5000 });
     return stdout || null;
   } catch {
     return null;

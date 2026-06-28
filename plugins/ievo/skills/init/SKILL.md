@@ -322,7 +322,7 @@ The script:
 4. Deduplicates by skill `id`, computes `rank_score` (log10(installs) × reputation_boost × match_breadth_bonus). Codex plugins carry no install count → get a visibility floor (≈ a 10-install skill) so they surface mid-pack instead of being sliced off by `--limit`, and are tagged `source_origin: codex-marketplace`.
 5. Returns JSON: `{sources, queries, candidates: [{id, name, source_repo, source_origin, installs, quality_tier, matched_queries, rank_score}]}`. `sources[]` carries one entry per origin — `skills.sh` and `codex-marketplace` (with `available` / `raw_results` / `error`). The `codex-marketplace` entry is **always** emitted (transparent about what was attempted) — when codex is absent it reads `available: false, raw_results: 0`. Note: `available` means "the codex CLI ran successfully", **not** "plugins were found" (`raw_results` is the plugin count). Codex candidates carry `quality_tier: "unranked"` — they have no install count, so the install-based tiers don't apply.
 
-Typical wall-clock: 3-6 seconds for a rich stack.
+Typical wall-clock: 3-6 seconds for a rich stack. The codex source runs concurrently with the skills.sh queries (`Promise.all`), so it usually overlaps — but a hung codex binary is capped at its 10 s timeout, which becomes the wall-clock ceiling in that worst case.
 
 ### Step 5b1 — Handle discover.mjs exit codes
 

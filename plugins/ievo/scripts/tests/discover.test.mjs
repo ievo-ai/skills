@@ -730,6 +730,7 @@ describe("fetchCodexMarketplace", () => {
   it("filters out entries with a missing or non-string id/name", async () => {
     const exec = async () =>
       JSON.stringify({ available: [
+        null,                                  // null element → filtered before map (no crash)
         { pluginId: "x/noname" },              // no name → dropped
         { name: null },                        // null name → dropped
         { pluginId: "x/num", name: 42 },       // numeric name → dropped (typeof guard)
@@ -737,7 +738,7 @@ describe("fetchCodexMarketplace", () => {
         { pluginId: "x/ok", name: "ok" },      // kept
       ] });
     const out = await fetchCodexMarketplace(exec);
-    // Empty pluginId falls through to the name-derived id (not "").
+    // null element is filtered (not a crash); empty pluginId falls through to the name-derived id.
     assert.deepEqual(out.results.map((r) => r.id), ["codex-marketplace/empty", "x/ok"]);
   });
 

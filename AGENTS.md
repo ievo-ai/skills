@@ -172,6 +172,7 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - To avoid race with parallel PRs: query main's CURRENT version at push time via `gh api`, check open PRs for claimed versions, pick next free slot.
 - The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block.
+- **Codex discovery schema** — `discover.mjs` reads `codex plugin list --json` → `available[]` with the fields `pluginId` / `name` / `marketplaceName` / `marketplaceSource.source`. Manually validated against **codex-cli 0.142.3**. The code degrades gracefully on schema drift (missing fields → fallback id or filtered out), but re-verify these field names on a major Codex CLI update.
 
 ### Branch + commit conventions
 - Feature branches: `feat/<description>` or `fix/<description>` (no version number — auto-bump assigns it)

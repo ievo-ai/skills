@@ -210,7 +210,10 @@ export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
     return { source: CODEX_SOURCE, available: true, results: [], error: "unparseable codex output" };
   }
 
-  const avail = Array.isArray(data?.available) ? data.available : [];
+  // filter(Boolean) drops null/undefined array elements before the map — a null
+  // entry would throw on `.pluginId` and crash the whole run (mainSafe → exit 2),
+  // breaking the graceful-degradation guarantee for a malformed codex payload.
+  const avail = Array.isArray(data?.available) ? data.available.filter(Boolean) : [];
   const results = avail
     .map((p) => ({
       // `||` (not `??`) so an empty-string pluginId is treated as absent and

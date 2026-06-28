@@ -200,7 +200,10 @@ export async function defaultCodexExec(execImpl = execFileAsync) {
     // Only stdout is consumed — any codex stderr (deprecation/diagnostic
     // warnings) is intentionally discarded; this source is best-effort and must
     // never surface noise on the main discovery path.
-    const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 5000 });
+    // maxBuffer 10 MB (vs Node's 1 MB default): a large marketplace catalog would
+    // otherwise throw ERR_CHILD_PROCESS_STDIO_MAXBUFFER → caught below → indistinguishable
+    // from "codex absent". 10 MB is far above any realistic plugin-list JSON.
+    const { stdout } = await execImpl("codex", ["plugin", "list", "--json"], { encoding: "utf-8", timeout: 5000, maxBuffer: 10 * 1024 * 1024 });
     // Truthy stdout = "codex ran and emitted output" (→ available: true). Whether
     // that output is parseable is fetchCodexMarketplace's call: it reports a parse
     // failure as available: true + error, not as absent (available: false).

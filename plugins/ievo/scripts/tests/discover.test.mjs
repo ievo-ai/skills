@@ -940,6 +940,21 @@ describe("main", () => {
     }
   });
 
+  it("surfaces a codex error on stderr (symmetric with skills.sh WARN)", async () => {
+    const run = makeRun();
+    const stream = Readable.from(['{"languages":["python"]}']);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
+    const codexExec = async () => "not json{"; // codex ran but emitted garbage
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, codexExec);
+      assert.equal(run.exitCode, 0);
+      assert.match(run.errs.join("\n"), /WARN: codex: .*unparseable/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
   it("exits 4 + FATAL stderr when ALL skills.sh queries fail (silent-failure fix)", async () => {
     const run = makeRun();
     const stream = Readable.from(['{"languages":["python"]}']);

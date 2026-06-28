@@ -225,6 +225,10 @@ export async function fetchCodexMarketplace(codexRunner = defaultCodexExec) {
   try {
     stdout = await codexRunner();
   } catch {
+    // The default codexRunner (defaultCodexExec) never throws — it catches
+    // internally and returns null. This guard is for a custom/injected runner
+    // that may reject; covered by the "returns available:false when exec throws"
+    // test which passes a directly-throwing runner.
     return { source: CODEX_SOURCE, available: false, results: [] };
   }
   if (!stdout) return { source: CODEX_SOURCE, available: false, results: [] };
@@ -347,6 +351,9 @@ export function rankCandidates(allResults) {
     // stack — making the codex source a silent no-op for the users it targets. Give
     // them a visibility floor (≈ a 10-install skill: log10(10)=1) so a handful
     // surface mid-pack: visible, never dominant (100+ install skills still outrank).
+    // The inner log10(max(installs,1)) is 0 today (codex installs is always 0) and
+    // the floor wins — but it's kept forward-safe: if codex ever exposes install
+    // counts, a popular plugin would score above the floor on its own merit.
     const installScore = entry.source_origin === CODEX_SOURCE
       ? Math.max(Math.log10(Math.max(entry.installs, 1)), CODEX_VISIBILITY_FLOOR)
       : Math.log10(Math.max(entry.installs, 1));
@@ -578,6 +585,14 @@ Usage:
     // Partial failure — warn but continue. Candidates may still be useful.
     const failedQueries = (skillsSh?.error_details ?? []).map((e) => e.query).join(", ");
     errLog(`[discover.mjs] WARN: ${errorCount}/${queryCount} skills.sh queries failed: ${failedQueries}`);
+  }
+  // Surface a codex error (e.g. unparseable output) on stderr too — symmetric
+  // with the skills.sh WARN above, so a Codex user debugging "why no marketplace
+  // plugins?" sees a hint instead of having to read the raw JSON. Absent codex
+  // (error: null) stays silent — the zero-noise contract for non-Codex users.
+  const codexSource = output.sources?.find((s) => s.name === CODEX_SOURCE);
+  if (codexSource?.error) {
+    errLog(`[discover.mjs] WARN: codex: ${codexSource.error}`);
   }
   if (output.error) {
     // Stack input issue (no queries derived) — communicate via exit code too

@@ -147,13 +147,17 @@ jobs:
           VERSION: ${{ steps.ver.outputs.new }}
         run: |
           set -euo pipefail
-          # `gh release create` creates the tag (at the workflow's checked-out
-          # SHA) and the GitHub Release in a single API call — atomic, no
-          # separate `git tag` / `git push` step. Never `--force`; the default
-          # failure on a duplicate tag is the second guard behind the
-          # idempotency check above.
+          # `gh release create` creates the tag and the GitHub Release in a
+          # single API call — atomic, no separate `git tag` / `git push` step.
+          # `--target "$GITHUB_SHA"` pins the tag to the workflow's checked-out
+          # commit; without it the GitHub Releases API defaults
+          # `target_commitish` to the default branch's HEAD at API-call time,
+          # which races a concurrent merge (the tag could land on a commit
+          # this workflow never saw). Never `--force`; the default failure on
+          # a duplicate tag is the second guard behind the idempotency check.
           gh release create "v${VERSION}" \
             --repo "$REPO" \
             --title "v${VERSION}" \
-            --notes-file /tmp/release-body.md
+            --notes-file /tmp/release-body.md \
+            --target "$GITHUB_SHA"
           echo "Cut v${VERSION} release at ${GITHUB_SHA}"

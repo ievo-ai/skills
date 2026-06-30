@@ -35,11 +35,16 @@
 
 name: "Issue Pipeline"
 
+# DISABLED (eva#106 Phase 2 / D-004): issue triage + implementation moved to the
+# private Eva brain — see forward-to-eva.yml, which relays issue events to
+# ievo-ai/eva. The auto-triggers (issues:opened, issue_comment:created) are
+# removed so Eva and this v1 pipeline don't double-process the same issue (and so
+# Eva's own analysis comment doesn't re-trigger this handler). Left as
+# workflow_dispatch-only — dormant, not deleted; the full v1 removal (this file +
+# claude.yml / review-fixer.yml / fix-command.yml / conflict-resolver.yml +
+# prompts) lands after Eva's path is validated end-to-end on skills.
 on:
-  issues:
-    types: [opened]
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
 
 # Workflow-level concurrency: one in-flight pipeline per issue. cancel-in-progress
 # false so a new comment never kills an implement job mid-build.

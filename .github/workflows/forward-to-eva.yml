@@ -1,0 +1,97 @@
+# Forward member-authored issue events to Eva (the private cross-repo brain).
+# D-004 / eva#106 Phase 2 — thin forwarder, zero prompts, zero logic.
+#
+# skills is public, so it mints a short-lived GitHub App token (org App
+# credentials are reachable here) and dispatches with that — no long-lived
+# broad token sitting in a public repo. The dispatch's triggering actor becomes
+# the App bot; the eva-side Router and eva-implement both allow that bot.
+#
+# Two relays, both repository_dispatch to ievo-ai/eva:
+#   - issues:opened           → new-issue       → Eva's Router triages this issue
+#                                                  cross-repo via the API.
+#   - issues:labeled=approved → implement-issue → Eva builds the PR here.
+#
+# Security — the member-gate is the real anti-injection defense (D-004):
+#   - author_association ∈ {MEMBER, OWNER}: a non-member's issue body never
+#     reaches Eva's token-holding agents (eva-implement re-gates anyway).
+#   - user.type == 'User': excludes bots (anti-recursion). triggered_by is the
+#     human author, so Eva's own bot-filed issues never re-forward.
+# The implement relay gates on the LABEL NAME (== 'approved'), not the labeler.
+# No untrusted title/body crosses into a run: shell — only the issue number +
+# author handle; Eva reads the body via the API in her agent sandbox.
+name: Forward to Eva
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  new-issue:
+    name: Dispatch new-issue to Eva
+    runs-on: ubuntu-latest
+    if: >
+      github.event.action == 'opened' &&
+      (github.event.issue.author_association == 'MEMBER' ||
+       github.event.issue.author_association == 'OWNER') &&
+      github.event.issue.user.type == 'User'
+    steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ievo-ai
+          repositories: eva
+      - name: Dispatch new-issue
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          repository: ievo-ai/eva
+          event-type: new-issue
+          client-payload: >
+            {
+              "repo": "${{ github.repository }}",
+              "issue_number": ${{ github.event.issue.number }},
+              "event": "issues",
+              "action": "opened",
+              "author_association": "${{ github.event.issue.author_association }}",
+              "triggered_by": "${{ github.event.issue.user.login }}"
+            }
+
+  implement-issue:
+    name: Dispatch implement-issue to Eva
+    runs-on: ubuntu-latest
+    if: >
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'approved' &&
+      (github.event.issue.author_association == 'MEMBER' ||
+       github.event.issue.author_association == 'OWNER') &&
+      github.event.issue.user.type == 'User'
+    steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ievo-ai
+          repositories: eva
+      - name: Dispatch implement-issue
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          repository: ievo-ai/eva
+          event-type: implement-issue
+          client-payload: >
+            {
+              "repo": "${{ github.repository }}",
+              "issue_number": ${{ github.event.issue.number }},
+              "event": "issues",
+              "action": "labeled",
+              "author_association": "${{ github.event.issue.author_association }}",
+              "triggered_by": "${{ github.event.issue.user.login }}"
+            }

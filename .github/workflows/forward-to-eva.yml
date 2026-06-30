@@ -32,6 +32,7 @@ jobs:
   new-issue:
     name: Dispatch new-issue to Eva
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: >
       github.event.action == 'opened' &&
       (github.event.issue.author_association == 'MEMBER' ||
@@ -65,6 +66,13 @@ jobs:
   implement-issue:
     name: Dispatch implement-issue to Eva
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Removing + re-adding `approved` can fire this twice; collapse rapid
+    # re-dispatches per issue (Eva's claim already no-ops duplicates, but make it
+    # explicit at the forwarder too).
+    concurrency:
+      group: forward-implement-${{ github.event.issue.number }}
+      cancel-in-progress: false
     if: >
       github.event.action == 'labeled' &&
       github.event.label.name == 'approved' &&

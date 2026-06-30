@@ -13,6 +13,21 @@ iEvo is a **universal discovery + safety + evolution layer** on top of [skills.s
 
 **Cross-platform skills** inside the plugin are portable via the [agentskills.io specification](https://agentskills.io/specification) — adopted by Claude Code, Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, and 30+ other agent platforms. Platform-specific bits (slash commands, sub-agents via Task tool) work on Claude Code and Codex.
 
+## Contents
+
+- [Quick start](#quick-start)
+- [The pipeline](#the-pipeline)
+- [Commands & Skills](#commands--skills)
+- [The overlay model](#the-overlay-model)
+- [Project-side layout](#project-side-layout)
+- [Security model](#security-model-v052--senior-security-engineer-vulnerability-assessment)
+- [Install paths](#install-paths)
+- [Repository structure](#repository-structure)
+- [Standards compliance](#standards-compliance)
+- [Roadmap](#roadmap)
+- [Acknowledgments](#acknowledgments)
+- [License](#license)
+
 ## Quick start
 
 ### Claude Code

@@ -1,6 +1,6 @@
 # iEvo — Self-Evolving Plugin for AI Coding Agents
 
-> ⚠️ **Alpha** — iEvo is in active early development (current line: `v0.6.x`). The pipeline works end-to-end and individual skills are tested, but APIs, file layouts, and behaviour can change between minor versions. Pin to a specific `marketplace.json` version if you need stability. v1.0 will be the first stable release.
+> ⚠️ **Alpha** — iEvo is in active early development (current line: `v0.34.x`). The pipeline works end-to-end and individual skills are tested, but APIs, file layouts, and behaviour can change between minor versions. Pin to a specific `marketplace.json` version if you need stability. v1.0 will be the first stable release.
 
 > Discover relevant skills + agents for your project, audit them via senior-security-engineer review (deep content scan + threat modeling, no owner-based trust shortcuts), install with project-scope portability. Capture lessons as overlays that survive upstream updates. Works on Claude Code, Codex, and any platform that supports the [agentskills.io](https://agentskills.io) standard.
 

@@ -25,6 +25,11 @@ jobs:
     name: Dispatch review-pr to Eva
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Both gates finish close together and each re-fires this workflow; collapse
+    # concurrent runs for the same head SHA so Eva isn't dispatched twice.
+    concurrency:
+      group: notify-eva-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
@@ -46,23 +51,22 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          # Find the open PR for this head SHA.
-          PR_NUM=$(gh api "repos/$REPO/pulls?state=open" \
-            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
-          if [ -z "$PR_NUM" ]; then
-            echo "No open PR for $HEAD_SHA — skip"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          # Find the non-draft open PR for this head SHA. The commits/{sha}/pulls
+          # endpoint resolves it directly (robust vs. paginating all open PRs).
+          PR=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --jq 'first(.[] | select(.state == "open" and (.draft | not))) // empty')
+          if [ -z "$PR" ]; then
+            echo "No non-draft open PR for $HEAD_SHA — skip"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-
-          DRAFT=$(gh api "repos/$REPO/pulls/$PR_NUM" --jq '.draft')
-          if [ "$DRAFT" = "true" ]; then
-            echo "PR #$PR_NUM is draft — skip"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
+          PR_NUM=$(printf '%s' "$PR" | jq -r '.number')
 
           # Merge-safety gate: BOTH product gates must be green for this SHA
           # (this forwarder fires on either gate; the other's completion re-fires
-          # it). Take the latest run per gate name.
+          # it). check-run `.name` is the JOB id (no `name:` on those jobs), not
+          # the workflow name — so match "coverage-gate"/"pre-commit-gate". Take
+          # the latest run per gate.
           CONCS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --paginate \
-            --jq '[.check_runs[] | select(.name == "Coverage Gate" or .name == "Pre-commit Gate")]
+            --jq '[.check_runs[] | select(.name == "coverage-gate" or .name == "pre-commit-gate")]
                   | group_by(.name) | map(max_by(.started_at) | .conclusion) | sort | join(",")')
           if [ "$CONCS" != "success,success" ]; then
             echo "Not all product gates green yet (got: [$CONCS]) — skip; the other gate's completion will re-check"

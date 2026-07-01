@@ -25,8 +25,13 @@ jobs:
     name: Dispatch review-pr to Eva
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Both gates finish close together and each re-fires this workflow; collapse
-    # concurrent runs for the same head SHA so Eva isn't dispatched twice.
+    # Both gates finish close together and each re-fires this workflow; serialize
+    # runs for the same head SHA. This prevents OVERLAPPING execution, not a
+    # second dispatch — if both gate-completion runs observe all-green they both
+    # dispatch. That's tolerable: eva-review-pr is keyed per-PR with
+    # cancel-in-progress:true (last dispatch wins) and the merge is idempotent
+    # (the PR is already merged/closed by the first), so the worst case is one
+    # redundant review comment, never a double merge.
     concurrency:
       group: notify-eva-${{ github.event.workflow_run.head_sha }}
       cancel-in-progress: false
@@ -65,7 +70,10 @@ jobs:
           # it). check-run `.name` is the JOB id (no `name:` on those jobs), not
           # the workflow name — so match "coverage-gate"/"pre-commit-gate". Take
           # the latest run per gate.
-          CONCS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --paginate \
+          # per_page=100 (not --paginate): a single page holds all of a PR's
+          # check-runs, and `--paginate` would apply the --jq filter per-page,
+          # which could malform the result if checks ever spanned pages.
+          CONCS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" \
             --jq '[.check_runs[] | select(.name == "coverage-gate" or .name == "pre-commit-gate")]
                   | group_by(.name) | map(max_by(.started_at) | .conclusion) | sort | join(",")')
           if [ "$CONCS" != "success,success" ]; then

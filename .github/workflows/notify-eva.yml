@@ -1,0 +1,89 @@
+# Request Eva review when a PR's product CI passes — she reviews and (for
+# Eva-authored PRs) auto-merges. D-004 / eva#106 Phase 2, PR-review half.
+#
+# skills has TWO product gates (Coverage Gate + Pre-commit Gate) and NO branch
+# protection, and eva-review-pr trusts the forwarder to only dispatch on green
+# (it doesn't re-check CI). So this forwarder fires when either gate completes,
+# then verifies BOTH gates are green for the head SHA before dispatching — that
+# all-green check is the merge-safety gate for an unprotected repo.
+#
+# Public repo → mints a short-lived App token (no long-lived PAT at rest). The
+# dispatch actor becomes the App bot; eva-review-pr's loop filter carves out
+# eva-impl/* branches so App-authored PRs still get reviewed.
+name: Request Eva Review
+
+on:
+  workflow_run:
+    workflows: ["Coverage Gate", "Pre-commit Gate"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Dispatch review-pr to Eva
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.owner.login == 'ievo-ai'
+    steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ievo-ai
+          repositories: eva,skills
+
+      - name: Resolve PR + verify both gates green
+        id: gate
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # Find the open PR for this head SHA.
+          PR_NUM=$(gh api "repos/$REPO/pulls?state=open" \
+            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
+          if [ -z "$PR_NUM" ]; then
+            echo "No open PR for $HEAD_SHA — skip"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          DRAFT=$(gh api "repos/$REPO/pulls/$PR_NUM" --jq '.draft')
+          if [ "$DRAFT" = "true" ]; then
+            echo "PR #$PR_NUM is draft — skip"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # Merge-safety gate: BOTH product gates must be green for this SHA
+          # (this forwarder fires on either gate; the other's completion re-fires
+          # it). Take the latest run per gate name.
+          CONCS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --paginate \
+            --jq '[.check_runs[] | select(.name == "Coverage Gate" or .name == "Pre-commit Gate")]
+                  | group_by(.name) | map(max_by(.started_at) | .conclusion) | sort | join(",")')
+          if [ "$CONCS" != "success,success" ]; then
+            echo "Not all product gates green yet (got: [$CONCS]) — skip; the other gate's completion will re-check"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          echo "Both gates green for PR #$PR_NUM — dispatch"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch review-pr
+        if: steps.gate.outputs.skip != 'true'
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697  # v4.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          repository: ievo-ai/eva
+          event-type: review-pr
+          client-payload: >
+            {
+              "repo": "${{ github.repository }}",
+              "pr_number": ${{ steps.gate.outputs.pr_number }},
+              "head_sha": "${{ github.event.workflow_run.head_sha }}",
+              "triggered_by": "${{ github.event.workflow_run.triggering_actor.login }}"
+            }

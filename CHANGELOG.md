@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.35.0
+
+Document the `Notification` hook in `hooks-setup/SKILL.md` — closes #281 (member-authored re-file of Eva proposal #278). Claude Code v2.1.198 added background-agent notifications for `claude agents` sessions: a session that needs input or finishes now fires the `Notification` hook with matcher `agent_needs_input` / `agent_completed` (verified verbatim against the v2.1.198 GitHub release notes). Adds a new "Step 5.6" subsection after the Step 5.5 Stop-hook flow — matcher-value table, a worked desktop-notification example that surfaces the actionable `agent_needs_input` case (sound + "action needed" title) more prominently than the informational `agent_completed` case (silent banner), macOS `osascript` + Linux `notify-send -u critical/-u low` variants, and a merge/dedup-by-matcher step for `hooks.Notification[]`. An explicit scope note draws the distinction the issue asked for: Step 5.5 covers Task-tool sub-agents dispatched *within* one session (read-side Stop-hook polling that can't separate "still running" from "blocked waiting on input"), while Step 5.6 covers separate `claude agents` background sessions (per-transition Notification hook that can). The `compatibility` frontmatter gains a `v2.1.198+` clause and `## References` gains the v2.1.198 release-notes link. Doc-only change to the skill body + frontmatter — no scripts touched, so the 100% coverage gate is unaffected.
+
+---
+
 ## v0.34.0
 
 `validate_skills.mjs` parity with `validate_agents.mjs` — closes #258. `ALLOWED_MODELS` in the SKILL.md linter now accepts `fable` alongside `sonnet`/`opus`/`haiku`/`inherit`, mirroring the v0.21.0 change to the agent validator. The two `model:` error messages (`model-vendor-locked` + `model-not-allowed`) were both rewritten — the trailing "Skills should not declare model preferences" sentence was accurate before v0.32.0 but became misleading once turn-level pins like `model: sonnet` on `security-check` / `vuln-scan` / `deep-review` became an intentional pattern. New wording: "Use only vendor-neutral family aliases for turn-level pins; omit `model:` for skills without pinning needs." Pure allowlist widening — nothing that previously passed will now fail. The three existing `model: sonnet` security-tier pins were intentionally left as-is per the routing discussion.

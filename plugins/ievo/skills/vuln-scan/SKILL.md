@@ -3,11 +3,6 @@ name: vuln-scan
 description: CWE-aware deep source code vulnerability scan for a single module or file set, inspired by Project Glasswing. Uses AI reasoning (not regex) to trace data flows, detect vulnerabilities, and validate findings via complete exploit chains. Every finding requires an attack narrative (entry point, data flow, impact); no chain means no finding. Applied per-module by the vuln-scanner agent, orchestrated by the /ievo:vuln-scan command. Covers OWASP top 10, CWE-anchored threat taxonomy (injection, auth bypass, crypto misuse, data exposure, race conditions, deserialization, path traversal, SSRF, business logic, supply chain).
 license: MIT
 effort: high
-# Heavyweight skill — 4-phase exploit-chain scanner that dispatches parallel
-# sub-agents, so it is user-invoke only. Prevents costly auto-activation on
-# description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
-# firing it. Explicit `/ievo:vuln-scan` still works.
-disable-model-invocation: true
 # Turn-level model pin (per-turn override; session model resumes next prompt) —
 # forces the scan turn to Sonnet on direct invocation. Haiku lacks the depth for
 # exploit-chain validation.

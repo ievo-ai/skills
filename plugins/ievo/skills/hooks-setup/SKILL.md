@@ -1,6 +1,6 @@
 ---
 name: hooks-setup
-description: "Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, evolution captured, and (optional) all-background-agents-complete via a Stop hook. Writes PostToolUse and Stop hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks \"notify me when ievo finishes\", \"add hooks for ievo\", \"set up ievo notifications\", \"tell me when background agents are done\", or \"configure ievo lifecycle hooks\". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal. The optional Stop hook for background-complete requires v2.1.145+ for the `background_tasks` and `session_crons` fields in the Stop hook input."
+description: "Configure Claude Code lifecycle hooks for iEvo pipeline events — init complete, security RED verdict, evolution captured, and (optional) all-background-agents-complete via a Stop hook. Writes PostToolUse and Stop hook entries to `.claude/settings.json` using exec-form (`args: string[]`) and optionally `terminalSequence` for desktop notifications. Use when the user asks \"notify me when ievo finishes\", \"add hooks for ievo\", \"set up ievo notifications\", \"tell me when background agents are done\", or \"configure ievo lifecycle hooks\". Requires Claude Code v2.1.139+ (for `args` exec-form); `terminalSequence` notifications further require v2.1.141+ and an iTerm2/WezTerm-class terminal. The optional Stop hook for background-complete requires v2.1.145+ for the `background_tasks` and `session_crons` fields in the Stop hook input. Also installs an optional fail-silent SessionStart nudge when the installed iEvo plugin is behind latest — asked \"nudge me when ievo is out of date\"."
 license: MIT
 effort: low
 allowed-tools:
@@ -11,6 +11,7 @@ allowed-tools:
   - Bash(test*)
   - Bash(chmod*)
   - Bash(claude*)
+  - Bash(echo*)
 compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear); v2.1.198+ (`Notification`, `claude agents`: `agent_needs_input`/`agent_completed`). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema."
 metadata:
   author: ievo-ai
@@ -40,7 +41,7 @@ Options (multi-select):
 - "evolution-captured"  — when /ievo:evolution captures a lesson overlay
 ```
 
-If user picks nothing, do NOT exit yet — Steps 5.5 and 5.6 below offer independent hook flows (a Stop hook and a `claude agents` Notification hook). Only exit once Step 5.6 is done, and only if Step 1, Step 5.5, and Step 5.6 all produced zero hook entries.
+If user picks nothing, do NOT exit yet — Steps 5.5, 5.6, and 5.7 below offer independent hook flows (a Stop hook, a `claude agents` Notification hook, and a SessionStart version-check nudge). Only exit once Step 5.7 is done, and only if Step 1, Step 5.5, Step 5.6, and Step 5.7 all produced zero hook entries.
 
 ## Step 2: Ask for notification preference
 
@@ -135,7 +136,7 @@ Configure background-agents-complete notification (read-side Stop hook)?
 - "no"   — skip (you can re-run /ievo:hooks-setup later)
 ```
 
-If "no" → skip to Step 5.6 (with whatever signal-file entries Step 5 built). The graceful "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later." exit is deferred to Step 5.6.1, the final opt-in.
+If "no" → skip to Step 5.6 (with whatever signal-file entries Step 5 built). The graceful "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later." exit is deferred to Step 5.7.1, the final opt-in.
 
 ### Step 5.5.2: Ask for notification command
 
@@ -236,7 +237,7 @@ Configure claude-agents background-session notifications (Notification hook, req
 - "no"   — skip (you can re-run /ievo:hooks-setup later)
 ```
 
-If "no" → skip to Step 6 (with whatever entries Steps 5 and 5.5 built; if all of Step 5, Step 5.5, and Step 5.6 produced zero entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later.").
+If "no" → skip to Step 5.7 (with whatever entries Steps 5 and 5.5 built). The graceful "No hooks configured" exit is deferred to Step 5.7.1, the final opt-in.
 
 Run `claude --version` via Bash: if it is below **v2.1.198**, warn the user that the `Notification` matchers `agent_needs_input`/`agent_completed` are unavailable on their version — offer to skip, since the entries would never fire.
 
@@ -276,6 +277,137 @@ The prominence difference is deliberate: `agent_needs_input` carries a sound + a
 
 For Step 6, ensure `hooks.Notification` exists as an array (create if missing), then for each of the two entries dedup by **`matcher`**: if an entry with the same `matcher` (`agent_needs_input` / `agent_completed`) already exists in `hooks.Notification`, do not duplicate — print "Notification hook for `<matcher>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append. The entries then flow through Step 7's confirmation and Step 8's apply like any other.
 
+## Step 5.7: Optional — SessionStart version-check nudge (iEvo behind latest)
+
+**A different trigger from every hook above.** Steps 5 / 5.5 / 5.6 all fire on iEvo *pipeline* events (a signal-file Write, a session Stop, a `claude agents` transition). This one fires on **session start** and answers a different question: *is the installed iEvo plugin behind the marketplace's latest version?* It exists for users who keep native plugin **auto-update off** (third-party marketplaces default to off — see README § "Keep iEvo up to date"); users who enable auto-update don't need it, because Claude Code then updates iEvo at startup natively.
+
+Mechanism (verified against the [SessionStart hook reference](https://code.claude.com/docs/en/hooks), 2026-07-02):
+
+- **SessionStart is context-only** — it *cannot* block or delay startup (exit code is ignored for flow control). A `command` hook's job is to optionally emit `hookSpecificOutput.additionalContext`, which is injected into the model's context before the first prompt. So the hook must be fast and **fail-silent**: any error (offline, missing tool, parse failure, up-to-date) emits nothing and exits 0.
+- **Throttle (required).** SessionStart runs every session, so the script self-throttles the *network* call to **≤ once per 24h** via a cache file (`${XDG_CACHE_HOME:-$HOME/.cache}/ievo/version-check.json` holding `{checked_at, latest_version}`). On a cache hit within 24h it uses the cached latest and makes **no network call**; the compare is a cheap local read, so the cache-hit path adds no measurable startup latency.
+- **Source of truth** for "latest" is the marketplace manifest on the default branch — `plugins[0].version` in `https://raw.githubusercontent.com/ievo-ai/skills/main/.claude-plugin/marketplace.json` (a single unauthenticated `GET`; the once/day cache keeps well under GitHub's unauthenticated rate limit). "Installed" is `.version` from the plugin's own `plugin.json`.
+
+### Step 5.7.1: Ask whether to configure
+
+```
+Configure a SessionStart version-check nudge (reminds you at most once/day when iEvo is behind latest)?
+- "yes"  — write .ievo/hooks/scripts/version-check.sh + register a SessionStart hook entry
+- "no"   — skip
+```
+
+If "no" → proceed to Step 6 with whatever entries Steps 5, 5.5, and 5.6 built. If **all** of Step 5, Step 5.5, Step 5.6, and Step 5.7 produced zero entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later." and stop.
+
+**Recommend enabling native auto-update instead / as well.** Tell the user the higher-leverage fix is to turn on native plugin auto-update (`/plugin` → **Marketplaces** → `ievo-skills` → **Enable auto-update**); this nudge is the fallback for when they deliberately keep it off. Both can coexist — if auto-update is on, the installed version stays current and the nudge simply never fires.
+
+### Step 5.7.2: Resolve and bake the plugin.json path
+
+The generated script reads the installed version from the plugin's `plugin.json`. A hook in the **user's** `settings.json` does **not** get `CLAUDE_PLUGIN_ROOT` set at fire time (that variable is only populated for hooks shipped inside a plugin), so resolve the absolute path **now**, at setup time, while this skill *is* running inside the plugin, and bake it into the script as a string literal.
+
+Run via Bash (both allowed by this skill's `allowed-tools`):
+
+```bash
+test -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" && echo "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"
+```
+
+Use the printed absolute path as `<plugin-json-abs-path>` in the template below. If the `test` fails (empty output), the plugin root couldn't be resolved — tell the user the nudge can't be configured right now and skip to Step 6 (do not write a script with an unresolved path).
+
+### Step 5.7.3: Write the version-check script
+
+Use the Write tool to create `.ievo/hooks/scripts/version-check.sh` (Write creates parent dirs). Substitute `<plugin-json-abs-path>` with the Step 5.7.2 result — a **write-time placeholder**, embedded as a literal, NOT a runtime `$VAR`:
+
+```sh
+#!/bin/sh
+# iEvo SessionStart version-check nudge — reminds you when the installed iEvo
+# plugin is behind the marketplace's latest version.
+#
+# CONTRACT (see hooks-setup/SKILL.md Step 5.7):
+#   - Fail-silent: any error or "up to date" => emit nothing, exit 0. SessionStart
+#     is context-only and cannot block startup; this hook never delays a session.
+#   - Network throttled to <= once / 24h via a cache file. Cache-hit path makes
+#     NO network call and adds no measurable latency.
+#   - NO `set -e`: every fallible step is individually guarded so `exit 0` is
+#     always reachable and a partial failure never surfaces to the user.
+
+MARKETPLACE_URL="https://raw.githubusercontent.com/ievo-ai/skills/main/.claude-plugin/marketplace.json"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ievo"
+CACHE="$CACHE_DIR/version-check.json"
+TTL=86400  # 24h, in seconds
+
+# Prefer a runtime CLAUDE_PLUGIN_ROOT if present; else the path baked at setup.
+PLUGIN_JSON="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json}"
+[ -n "$PLUGIN_JSON" ] && [ -f "$PLUGIN_JSON" ] || PLUGIN_JSON="<plugin-json-abs-path>"
+
+# jq is a hard dependency of gh, which iEvo already requires; bail silently if absent.
+installed=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null) || exit 0
+[ -n "$installed" ] || exit 0
+
+now=$(date +%s 2>/dev/null) || exit 0
+case "$now" in ""|*[!0-9]*) exit 0 ;; esac
+
+latest=""
+# Cache hit within TTL -> use cached latest, NO network call.
+if [ -f "$CACHE" ]; then
+  checked_at=$(jq -r '.checked_at // 0' "$CACHE" 2>/dev/null || echo 0)
+  case "$checked_at" in ""|*[!0-9]*) checked_at=0 ;; esac
+  age=$((now - checked_at))
+  if [ "$age" -ge 0 ] && [ "$age" -lt "$TTL" ]; then
+    latest=$(jq -r '.latest_version // empty' "$CACHE" 2>/dev/null || echo "")
+  fi
+fi
+
+# Cache miss / stale -> one throttled network fetch, then refresh the cache.
+if [ -z "$latest" ]; then
+  latest=$(curl -fsS --max-time 5 "$MARKETPLACE_URL" 2>/dev/null \
+    | jq -r '.plugins[0].version // empty' 2>/dev/null || echo "")
+  [ -n "$latest" ] || exit 0
+  mkdir -p "$CACHE_DIR" 2>/dev/null || true
+  printf '{"checked_at":%s,"latest_version":"%s"}\n' "$now" "$latest" \
+    > "$CACHE" 2>/dev/null || true
+fi
+
+[ -n "$latest" ] || exit 0
+
+# Behind? Numeric semver compare (installed < latest) in awk — portable, no `sort -V`
+# (macOS BSD sort lacked -V for years). Prints 1 iff installed is strictly older.
+behind=$(awk -v a="$installed" -v b="$latest" 'BEGIN{
+  na=split(a,x,"."); nb=split(b,y,".");
+  n=(na>nb)?na:nb;
+  for(i=1;i<=n;i++){ai=(i<=na)?x[i]+0:0; bi=(i<=nb)?y[i]+0:0;
+    if(ai<bi){print 1; exit} if(ai>bi){print 0; exit}}
+  print 0}' 2>/dev/null || echo 0)
+
+[ "$behind" = "1" ] || exit 0
+
+# Behind -> inject a nudge as SessionStart additionalContext. The message is
+# read by the model, which relays it to the user. ASCII only + no double quotes,
+# so the values interpolate safely into the JSON string below.
+msg="iEvo plugin update available: installed ${installed}, latest ${latest}. Tell the user they can enable native plugin auto-update (/plugin -> Marketplaces -> ievo-skills -> Enable auto-update) so Claude Code keeps iEvo current automatically, or update now by re-running /plugin install ievo@ievo-skills, then /reload-plugins."
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
+exit 0
+```
+
+Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/version-check.sh`.
+
+### Step 5.7.4: Build the SessionStart hook entry
+
+For Step 6's merge stage, build this entry (added to `hooks.SessionStart[]`). Matcher `startup` targets brand-new sessions — the least-noisy signal; `resume`/`clear`/`compact` are deliberately excluded so a mid-work compaction never injects the nudge:
+
+```json
+{
+  "matcher": "startup",
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["sh", ".ievo/hooks/scripts/version-check.sh"]
+    }
+  ]
+}
+```
+
+Dedup at merge time by checking whether an existing `hooks.SessionStart` entry has both the same `matcher` (`startup`) and the same inner `args`.
+
+**Scope note (like the Stop hook):** the check is machine-level (the plugin install and the `~/.cache/ievo` throttle file are per-user, not per-project), so **global scope suits it best** — recommend it if the user chose `project` in Step 3. The generated `version-check.sh` lives under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10), so a project-scoped SessionStart entry would reference a script teammates don't have — Claude Code logs a cosmetic hook-launch error (SessionStart is non-blocking, so session flow is unaffected). Each teammate re-runs `/ievo:hooks-setup` once per clone to write their own copy.
+
 ## Step 6: Merge entries into settings.json
 
 Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing comments and key order on Claude Code's tolerant JSON parser). Pseudo-procedure:
@@ -283,6 +415,7 @@ Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing com
 1. Read current settings.json (from Step 4, or `{}` if absent).
 2. For signal-file entries (Step 5): ensure `hooks.PostToolUse` exists as an array; create if missing. For each new entry, check if `matcher` already exists in `hooks.PostToolUse`. If yes, **do not duplicate** — print "Hook for `<event>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append.
 3. For the Stop hook entry (Step 5.5, if Step 5.5.1 = "yes"): ensure `hooks.Stop` exists as an array; create if missing. Stop hook entries have no `matcher`, so dedup by comparing the inner `hooks[0].args` array — if an existing entry's args matches `["sh", ".ievo/hooks/scripts/on-stop.sh"]`, skip with "Stop hook already configured; skipping." Otherwise append.
+4. For the SessionStart entry (Step 5.7, if Step 5.7.1 = "yes"): ensure `hooks.SessionStart` exists as an array; create if missing. Dedup on both `matcher` (`startup`) and inner `hooks[0].args` (`["sh", ".ievo/hooks/scripts/version-check.sh"]`) — if a matching entry exists, skip with "Version-check nudge already configured; skipping." Otherwise append.
 
 ## Step 7: Confirm with the user
 
@@ -318,6 +451,11 @@ Hooks fire on these signal-file writes (PostToolUse):
 Stop hook (read-side, .ievo/hooks/scripts/on-stop.sh):
   fires once per session-stop, ONLY when background_tasks=0 AND session_crons=0
   (i.e. all parallel subagents from /ievo:init are done; requires Claude Code v2.1.145+)
+[If Step 5.7 configured:]
+SessionStart hook (.ievo/hooks/scripts/version-check.sh, matcher=startup):
+  fires on new sessions; fail-silent; checks the marketplace <=once/24h and nudges
+  ONLY when the installed iEvo plugin is behind latest. Enable native auto-update
+  (/plugin -> Marketplaces -> ievo-skills) to keep iEvo current without the nudge.
 Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f` / `grep` it).
 ```
 
@@ -327,6 +465,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - **Project scope is recommended** for team-shared signal (the same hooks fire for everyone on the team after pulling). Global scope is for personal-machine-wide preferences.
 - **Logs go to `.ievo/log/hooks/`** even when `none` is selected as the notification — silent operation, but the audit trail is still available.
 - **Signal files are written by other iEvo skills** (init, evolution, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
+- **Version-check nudge is fail-silent + throttled.** `.ievo/hooks/scripts/version-check.sh` emits nothing on any error or when up to date, makes at most one network call per 24h (cache-hit path is offline), and — SessionStart being context-only — can never block or delay a session. Recommend native plugin auto-update as the primary fix; the nudge is the keep-auto-update-off fallback. Its `plugin.json` path is baked at setup time because a user-`settings.json` hook has no `CLAUDE_PLUGIN_ROOT`.
 - **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
 - **Stop hook script is local, not team-shared.** Notification commands are OS- and preference-specific (macOS osascript vs Linux notify-send vs custom path), so `.ievo/hooks/scripts/on-stop.sh` is intentionally written under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10). The Stop hook entry in `settings.json` is project-scope-tracked, but the script it references is not — when a team member pulls a project that uses the Stop hook, Claude Code will log a hook-launch error if their `.ievo/hooks/scripts/on-stop.sh` is absent. The error is cosmetic (Stop hook is non-blocking by design; the missing-script `sh` exit is also non-blocking on session flow). To activate the hook locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copy of the script.
 
@@ -343,4 +482,6 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - [Claude Code v2.1.143 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.143) — `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` env var (default 8) for blocking Stop hooks
 - [Claude Code v2.1.145 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.145) — Stop + SubagentStop hook input gains `background_tasks` and `session_crons` fields
 - [Claude Code v2.1.198 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.198) — `Notification` hook fires for `claude agents` background sessions with matchers `agent_needs_input` / `agent_completed`
+- [Claude Code hooks reference — SessionStart](https://code.claude.com/docs/en/hooks) — `command`/`mcp_tool` only, context-only (cannot block), `hookSpecificOutput.additionalContext` injected before the first prompt; matchers `startup`/`resume`/`clear`/`compact` (Step 5.7 version-check nudge)
+- [Claude Code plugins — configure auto-updates](https://code.claude.com/docs/en/discover-plugins#configure-auto-updates) — third-party marketplaces default auto-update OFF; the Step 5.7 nudge is the fallback for users who keep it off
 - Signal-file trigger pattern (`PostToolUse` + `Write(<path>)` matcher) is portable across any host that matches Write-tool calls to a path pattern

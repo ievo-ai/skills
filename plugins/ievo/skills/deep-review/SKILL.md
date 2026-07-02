@@ -12,6 +12,20 @@ disable-model-invocation: true
 # gap-detection review needs reasoning depth beyond Haiku on direct invocation.
 model: sonnet
 compatibility: "Requires git CLI for diff generation. Subagent dispatch (Task tool) available on Claude Code and Codex with the iEvo plugin — other agentskills.io-compatible platforms execute the deep-reviewer steps inline. Designed for Sonnet-tier reasoning via the deep-reviewer agent frontmatter and this skill's own `model: sonnet` pin."
+disallowed-tools:
+  - Write
+  - Edit
+  - Bash(rm*)
+  - Bash(mv*)
+  - Bash(cp*)
+  - Bash(curl*)
+  - Bash(wget*)
+  - Bash(sudo*)
+  - Bash(chmod*)
+  # WebSearch works in sub-agents as of CC v2.1.183 — a read-only review must never
+  # web-search about the diff it is analyzing (a diff carrying prompt injection
+  # could turn it into an exfiltration channel).
+  - WebSearch
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

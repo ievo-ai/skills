@@ -5,6 +5,30 @@ model: sonnet
 tools:
   - Read
   - Grep
+# Defense-in-depth denylist (camelCase per Claude Code sub-agent frontmatter —
+# distinct from the kebab-case `disallowed-tools` in deep-review/SKILL.md). A
+# skill's `disallowed-tools` does NOT propagate to a Task-tool-dispatched
+# sub-agent (AGENTS.md § Security model), so this read-only reviewer self-enforces
+# — mirroring `security-auditor.md`. The `tools:` allowlist above already limits
+# this agent to Read + Grep; this denylist is the belt-and-suspenders guard so a
+# future PR that widens `tools:` (e.g. adding `Edit` for auto-fixup) can't silently
+# grant destructive or exfiltration-capable access. `Edit`/`Write` are denied (the
+# reviewer only reads, never writes); destructive shell is denied; `WebSearch` is
+# denied because a diff under review could carry adversarial content — web search
+# would turn that into an exfiltration channel (same rationale security-auditor.md
+# cites). (`WebFetch` is left off this list per the issue's operator-decision open
+# question; it is not in the `tools:` allowlist either.)
+disallowedTools:
+  - Edit
+  - Write
+  - Bash(rm*)
+  - Bash(mv*)
+  - Bash(cp*)
+  - Bash(curl*)
+  - Bash(wget*)
+  - Bash(sudo*)
+  - Bash(chmod*)
+  - WebSearch
 ---
 
 # Deep Reviewer — independent gap-detection subagent

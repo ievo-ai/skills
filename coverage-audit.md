@@ -28,7 +28,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Detect 5 markdown/text hygiene anti-patterns at commit time | `pre-commit-gate.yml` workflow + `.pre-commit-config.yaml` | `.github/scripts/validators/*.mjs` | covered | nested-fences, machine-local-paths, crlf-frontmatter, placeholder-leakage, validate-agents |
 | Surface a code-review verdict on every PR | `notify-eva.yml` workflow (Eva-side review) | — | covered | Dispatches a review request to the private Eva repo once both product gates are green; Eva posts the review and auto-merges Eva-authored PRs (D-004 Phase 2, skills#274/#277) |
 | Generate a domain-specific MVP harness blueprint for a new agent project | — | — | **gap** | iEvo discovers + audits + installs existing skills; doesn't generate new skill bodies from a domain prompt. Out of scope for v0.6.x; could be a future `/ievo:scaffold` skill. |
-| Pin a release with auto-generated changelog from commits | `release-please.yml` workflow | — | covered | Automated via release-please (shipped v0.7.0+): conventional commit prefixes (`feat:` → minor, `fix:` → patch) drive a persistent Release PR that bumps all 4 version files atomically. |
+| Pin a versioned release with a matching tag + changelog | `cut-release.yml` + `notify-release.yml` workflows | — | covered | Version is bumped in the PR alongside a matching `## vX.Y.Z` `CHANGELOG.md` section. On merge to `main`, if the plugin version changed, `cut-release.yml` cuts the matching `vX.Y.Z` git tag + GitHub Release using that CHANGELOG section as the body, and `notify-release.yml` announces the release to the iEvo community. The changelog is authored in-PR, not generated from commits — there is no release-please bot or persistent Release PR. |
 | Cortex A/B validation gate for evolution proposals | — | — | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
 | GitHub search source in `discover.mjs` for agent-only / plugin-only repos | — | (`discover.mjs` extension) | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
 | Schedule periodic iEvo operations via Claude Code Routines | `/ievo:schedule` | — | covered | Guided wizard: operation type + frequency + routine creation. Falls back to CI cron when Routines unavailable. Claude Code only (Routines require Pro/Max/Team/Enterprise + v2.1.149+). |
@@ -58,7 +58,8 @@ ievo-ai/skills/
       notify-eva.yml
       coverage-gate.yml
       pre-commit-gate.yml
-      release-please.yml
+      cut-release.yml
+      notify-release.yml
     scripts/
       check-coverage.mjs
       validators/

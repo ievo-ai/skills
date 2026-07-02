@@ -61,6 +61,36 @@ cd <your-project>
 
 Codex support added in v0.3.3 — same plugin content, separate marketplace manifests (`.claude-plugin/marketplace.json` vs `.codex-plugin/marketplace.json`).
 
+### Keep iEvo up to date
+
+iEvo ships as a Claude Code / Codex **plugin**, so let the host keep it current instead of manually re-installing.
+
+**Claude Code — enable native auto-update (recommended).** Third-party marketplaces like iEvo have plugin auto-update **disabled by default** — only Anthropic's official marketplace auto-updates out of the box ([plugins docs](https://code.claude.com/docs/en/discover-plugins#configure-auto-updates)). Turn it on once and Claude Code refreshes the marketplace and updates the iEvo plugin at startup, then prompts you to run `/reload-plugins`:
+
+1. Run `/plugin`
+2. Open the **Marketplaces** tab
+3. Select the `ievo-skills` marketplace
+4. Choose **Enable auto-update**
+
+For **team / managed installs**, an administrator can set `"autoUpdate": true` on the iEvo entry in `extraKnownMarketplaces` (managed settings) so everyone gets updates without toggling:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "ievo-skills": {
+      "source": { "source": "github", "repo": "ievo-ai/skills" },
+      "autoUpdate": true
+    }
+  }
+}
+```
+
+With auto-update off you can still update manually by re-running `/plugin install ievo@ievo-skills` (then `/reload-plugins`). To keep plugin auto-updates while disabling Claude Code's own updater, set `FORCE_AUTOUPDATE_PLUGINS=1` alongside `DISABLE_AUTOUPDATER`.
+
+> **Optional nudge.** If you prefer to keep auto-update off, `/ievo:hooks-setup` can install a fail-silent `SessionStart` hook that checks the marketplace at most once per day and — only when your installed version is behind — reminds you to update. See [hooks-setup](plugins/ievo/skills/hooks-setup/SKILL.md).
+
+**Codex** tracks plugin versions via git refs/tags in the marketplace `source` block — re-run the marketplace add/install to pick up a newer ref.
+
 **Cross-platform skills inside the plugin** are fully portable via [agentskills.io](https://agentskills.io) spec. Slash commands and sub-agents work on Claude Code; Codex's own command/agent semantics may differ — refer to your platform's docs for exact behavior of the commands.
 
 `/ievo:init` will ask you to add Bash permissions for `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval.

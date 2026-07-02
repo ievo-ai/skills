@@ -617,10 +617,17 @@ Skipped (security): <P>
 
 Now run: /reload-plugins
 
+To keep iEvo itself current (recommended):
+  Enable native plugin auto-update — /plugin → Marketplaces → ievo-skills → Enable auto-update.
+  Third-party marketplaces have auto-update OFF by default; once on, Claude Code updates
+  iEvo at startup and prompts /reload-plugins. (Managed installs: set "autoUpdate": true on
+  the ievo-skills entry in extraKnownMarketplaces.) Prefer to keep it off? /ievo:hooks-setup
+  can add a fail-silent, once-a-day SessionStart nudge when your version is behind.
+
 To capture lessons going forward:
   /ievo:evolution "<rule>"
 
-To update later:
+To update vendored skills/agents later:
   /ievo:update
 
 Diagnostic log: .ievo/log/init-<timestamp>.md

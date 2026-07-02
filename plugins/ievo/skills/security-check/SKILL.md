@@ -3,6 +3,11 @@ name: security-check
 description: Vulnerability assessment by a senior application security engineer for a skill, agent, or plugin (Claude Code or Codex marketplace item) before installation. Domain expertise — prompt injection, credential exfiltration, supply-chain compromise, hook abuse, indirection attacks, encoded payloads, social engineering in technical artifacts, tool-model bypass. Deep content review across SKILL.md/agent.md body + ALL dependencies (scripts/, references/, assets/, bundled plugin files). Threat detection by expert reasoning, not regex. Returns structured verdict (GREEN/YELLOW/RED) with cited evidence (file + excerpt + concern). Invoked by the security-auditor agent in parallel per selected item. Use before installing ANY third-party skill, agent, or plugin.
 license: MIT
 effort: high
+# Heavyweight skill — dispatches parallel security-auditor sub-agents and makes
+# external URL fetches per candidate, so it is user-invoke only. Prevents costly
+# auto-activation on description match, and (Claude Code v2.1.196+) blocks
+# scheduled tasks from firing it. Explicit `/ievo:security-check` still works.
+disable-model-invocation: true
 # Turn-level model pin: when this skill is invoked DIRECTLY (not via the
 # security-auditor agent, which already declares model: sonnet), this forces the
 # audit turn to Sonnet — Haiku is insufficient (misses indirection attacks). Note

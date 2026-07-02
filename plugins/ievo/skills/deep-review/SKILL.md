@@ -3,6 +3,11 @@ name: deep-review
 description: Structured 11-point gap-detection review of a diff before commit. Spawns a deep-reviewer subagent for independent eyes (fresh context, separate token budget). Catches issues that survive pre-commit hooks, linters, and test suites but surface in human PR review — completeness gaps, test/impl drift, dead code from partial refactors, naming/behaviour mismatch, doc-paraphrase drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, concurrency/state, and leaked secrets. Supports scope modes — staged changes (default), working tree, or arbitrary git range. Use before committing significant changes, after a refactor, or when you want a second opinion on a diff.
 license: MIT
 effort: medium
+# Heavyweight skill — dispatches a deep-reviewer sub-agent in fresh context
+# (separate token budget), so it is user-invoke only. Prevents costly
+# auto-activation on description match, and (Claude Code v2.1.196+) blocks
+# scheduled tasks from firing it. Explicit `/ievo:deep-review` still works.
+disable-model-invocation: true
 # Turn-level model pin (per-turn override; reverts next prompt) — the 11-point
 # gap-detection review needs reasoning depth beyond Haiku on direct invocation.
 model: sonnet

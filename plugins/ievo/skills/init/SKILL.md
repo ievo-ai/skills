@@ -3,6 +3,11 @@ name: init
 description: "Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem (via own discover.mjs script, no prereq install), audit them for safety via senior-security-engineer review, install through an interactive interview. Composes two lower-level skills (index-repos, security-check) plus discover.mjs + repo-indexer + security-auditor sub-agents into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks \"set up iEvo here\" / \"find skills for this project\"."
 license: MIT
 effort: max
+# Heavyweight skill — 6-stage install pipeline that dispatches sub-agents and
+# makes external calls, so it is user-invoke only. Prevents costly auto-activation
+# on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
+# firing it. Explicit `/ievo:init` still works.
+disable-model-invocation: true
 compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). The skills inside the pipeline are cross-platform via agentskills.io; the init orchestrator itself is Claude Code/Codex-specific. v0.6.0+: no longer requires the find-skills prereq install — uses own discover.mjs script."
 metadata:
   author: ievo-ai

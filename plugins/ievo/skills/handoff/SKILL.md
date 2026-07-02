@@ -24,6 +24,16 @@ Produce a self-contained Markdown document that lets a fresh agent session conti
 - User wants to parallelize — spin off a subtask to a sibling session while the current one continues
 - User explicitly invokes `/ievo:handoff <purpose>`
 
+## When not to use — lighter alternatives
+
+Not every context problem needs a handoff. Reach for the lightest tool that fits — a handoff creates a NEW session capsule, so it can't recover context you lost in the CURRENT one.
+
+| Situation | Better tool |
+|-----------|-------------|
+| You ran `/clear` accidentally and want the context back | `/rewind` (Claude Code v2.1.191+) — restores the conversation to its pre-`/clear` state in the **same session**; `/ievo:handoff` cannot help here (it would capsule the now-cleared state) |
+| Context is deep but you want to keep going in the same session | `/compact` — lossy summarization; stays in the current session |
+| You want to branch, parallelize, or carry curated context to a NEW session | `/ievo:handoff` — this skill |
+
 ## Inputs
 
 - **Required:** purpose of the next session (from user argument or conversation context)

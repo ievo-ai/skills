@@ -67,7 +67,7 @@ Use generic descriptions instead: *"GitHub App token"*, *"org-level secrets"*, *
 
 **Workflow files** themselves are public (they `${{ secrets.NAME }}` openly — GitHub masks values, names are by-design visible), but **prose about them** in CHANGELOG / README / merged-PR bodies should describe the *mechanism*, not enumerate the secret names. The workflow declaration is the authoritative spec; the prose is reference for humans and shouldn't duplicate the secret allowlist into a public-grep-able paragraph.
 
-**Test before commit/comment**: would this paragraph help an attacker plan a credential-stuffing or supply-chain attack? Would removing the specific name lose any signal for an honest reader? If "yes / no" → strip. claude-review reads this section and will flag PRs that violate it; pre-empt the review by self-checking.
+**Test before commit/comment**: would this paragraph help an attacker plan a credential-stuffing or supply-chain attack? Would removing the specific name lose any signal for an honest reader? If "yes / no" → strip. Eva's PR review reads this section and will flag PRs that violate it; pre-empt the review by self-checking.
 
 ### Changelog goes in `CHANGELOG.md`, NOT this file
 
@@ -180,37 +180,21 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - Commit footer: `Co-Authored-By: iEVO <noreply@ievo.ai>` (NOT the default Claude/Anthropic footer)
 - Merge strategy: merge commit (`--merge --delete-branch`), never squash
 
-### Issue lifecycle — member-gated auto-pipeline (skills#260)
+### Issue lifecycle — Eva-brokered (D-004 Phase 2, skills#271/#277)
 
-`issue-pipeline.yml` is the single entry point (it superseded the mention-gated `issue-discussion.yml` + `issue-handler.yml`). Two jobs, member-gated, "analyze auto, implement on flag":
+Issue triage and implementation are handled by the private Eva orchestration repo; this repo keeps only thin event forwarders. The v1 in-repo pipeline (`issue-pipeline.yml` route/implement, `review-fixer.yml`, `fix-command.yml`, `conflict-resolver.yml`, the `@`-mention responder, the in-repo code-review workflow, and `.github/prompts/`) was paused in skills#271 and removed in skills#277.
 
-**Member gate:** `author_association ∈ {MEMBER, OWNER}` **AND** `user.type == User`. This excludes bots (the Eva App posts proposals as a CONTRIBUTOR bot — those stay as triage backlog, never auto-build) and external users.
+**`forward-to-eva.yml`** relays member-authored issue events via `repository_dispatch`: `issues: opened` → Eva triages; `issues: labeled = approved` → Eva builds the PR. Member gate (`author_association ∈ {MEMBER, OWNER}` **AND** `user.type == User`) is enforced in the forwarder and re-checked on the Eva side; no untrusted free-text crosses into a shell. Eva-authored PRs arrive App-authored, built fresh from `main`.
 
-**`route` (auto, read-only):** runs automatically when a member **opens** an issue, or comments `@ievo-ai`. Claude (Opus) does deep research and posts a structured analysis (Understanding, Approach, Questions, Conflicts, Risks — same format as the old discussion bot, same `<!-- ievo-discussion-analysis -->` / `<!-- ievo-open-questions -->` markers). It then embeds the routing verdict as a marker at the top of that same analysis comment — `<!-- ievo-verdict: implement -->` only when BOTH gates clear (requirements clear — zero open questions — AND low-risk: scoped to `plugins/ievo/`, no workflow/CI/security/schema-breaking changes, small-to-moderate surface), otherwise `<!-- ievo-verdict: hold -->`. The verdict travels in the comment (not a file) so it's independent of runner/filesystem details. Read-only: never creates branches/PRs/files.
+**`notify-eva.yml`** requests Eva's PR review once BOTH product gates (Coverage Gate + Pre-commit Gate) are green for the head SHA — that all-green check is the merge-safety gate. Eva reviews every PR; for Eva-authored PRs she also auto-merges after her APPROVE (merge-method fallback handles the repo ruleset — eva#129/#130).
 
-**`implement` (privileged):** runs when route's verdict is `implement`, OR when a member comments exactly `/implement` (manual override — route is skipped for `/implement`, so the job uses `always()` + a direct-comment clause). Same flow as the old handler: branch → TDD → PR → `claude-code-review` loop (max 5 attempts) until green. Never auto-merges.
-
-**Fail-safe:** the implement job reads the verdict marker back from the latest `[bot]`-authored analysis comment created during the current run (timestamp-guarded against stale verdicts); a missing comment or marker → `hold`. Auto-implementation is the privileged, expensive path and must clear both gates unambiguously; a wrong `hold` costs one member click, a wrong `implement` spends a full build. The App token (org-level App credentials) is used so handler-created PRs trigger downstream workflows. See skills#260 (supersedes #65 / #153).
-
-**After merging infra fixes (workflow, CI config) into main** — immediately rebase open handler PRs that depend on the fix. A workflow fix in main is inert until dependent branches pull it in. Check `gh pr list --state open --author app/claude` and rebase any that would benefit.
-
-### Conflict resolver — auto-rebase DIRTY handler PRs
-
-`conflict-resolver.yml` triggers on every push to main (and every 6 hours as a safety net). When main advances, open handler PRs may become DIRTY (merge conflicts) — GitHub Actions skips CI on DIRTY PRs, so the review-fixer never triggers. This workflow bridges the gap:
-
-1. Lists all open PRs by `app/claude` / `claude[bot]` with `mergeStateStatus == "DIRTY"`
-2. For each, rebases onto latest main
-3. `.github/prompts/*.md` conflicts → auto-resolved (take main's version, same as issue-handler Phase 4h)
-4. Non-infra conflicts → escalate to a PR comment for operator review
-5. Force-with-lease push triggers fresh CI
-
-No LLM needed — pure git rebase operations. Never auto-merges. Also supports `workflow_dispatch` for manual operator invocation.
+**Retired without replacement (accepted loss):** v1's conflict-resolver auto-rebased long-lived DIRTY handler PRs. Eva PRs are built fresh from `main` and merge within minutes of green gates, so the DIRTY window shrank from days to minutes; a stale Eva PR is rebuilt from the issue rather than rebased in place.
 
 ### PR workflow — wait for in-progress reviews before merging
 
-**Do NOT merge while any review check is `IN_PROGRESS`** — even with `--admin` override. Run `gh pr view <N> --json statusCheckRollup` and confirm no check is in flight before invoking `gh pr merge`. The `claude-review` automation typically completes in 2–5 minutes; that window is cheap insurance.
+**Do NOT merge while any review check is `IN_PROGRESS`** — even with `--admin` override. Run `gh pr view <N> --json statusCheckRollup` and confirm no check is in flight before invoking `gh pr merge`. Eva's review typically lands within a few minutes of both gates going green; that window is cheap insurance.
 
-**Exception:** the check is *known to fail by-design* for structural reasons (e.g. workflow-validation rejection when the PR modifies the very workflow being reviewed — the Claude GitHub App refuses to mint a token against a diverged workflow file). In that case `--admin` is acceptable, but document the reason in the merge chat / commit message.
+**Exception:** the check is *known to fail by-design* for structural reasons. In that case `--admin` is acceptable, but document the reason in the merge chat / commit message.
 
 **Why:** v0.6.1 was merged with `--admin` while `claude-review` was `IN_PROGRESS`; the review completed 2 minutes later with two valid findings (basename-collision bypass in lcov, Windows-broken file URLs in tests). Both fixable, but had to ship as a follow-up v0.6.2 PR instead of being folded into the original. Burned a review cycle. The fix landed in v0.6.2 + this rule landed in v0.6.3 to prevent recurrence across any agent working in this repo.
 

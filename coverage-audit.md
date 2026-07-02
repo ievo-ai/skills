@@ -26,7 +26,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Validate SKILL.md frontmatter (agentskills.io spec constraints) | (CI gate + local pre-commit) | `validate_skills.mjs` | covered | 100% test coverage; enforces name format/length, description ≤1024, compatibility ≤500, no vendor model IDs |
 | Enforce 100% test coverage on all Node scripts | `coverage-gate.yml` workflow | `check-coverage.mjs` | covered | All three scripts (`discover.mjs`, `validate_agents.mjs`, `scan_repo.mjs`) at literal 100/100/100 as of v0.6.7; `CARVE_OUTS` map empty |
 | Detect 5 markdown/text hygiene anti-patterns at commit time | `pre-commit-gate.yml` workflow + `.pre-commit-config.yaml` | `.github/scripts/validators/*.mjs` | covered | nested-fences, machine-local-paths, crlf-frontmatter, placeholder-leakage, validate-agents |
-| Surface a code-review verdict on every PR | `claude-code-review.yml` workflow | — | covered | sticky-comment + track_progress, posts inline + summary |
+| Surface a code-review verdict on every PR | `notify-eva.yml` workflow (Eva-side review) | — | covered | Dispatches a review request to the private Eva repo once both product gates are green; Eva posts the review and auto-merges Eva-authored PRs (D-004 Phase 2, skills#274/#277) |
 | Generate a domain-specific MVP harness blueprint for a new agent project | — | — | **gap** | iEvo discovers + audits + installs existing skills; doesn't generate new skill bodies from a domain prompt. Out of scope for v0.6.x; could be a future `/ievo:scaffold` skill. |
 | Pin a release with auto-generated changelog from commits | `release-please.yml` workflow | — | covered | Automated via release-please (shipped v0.7.0+): conventional commit prefixes (`feat:` → minor, `fix:` → patch) drive a persistent Release PR that bumps all 4 version files atomically. |
 | Cortex A/B validation gate for evolution proposals | — | — | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
@@ -55,7 +55,7 @@ ievo-ai/skills/
   coverage-audit.md            ← this file
   .github/
     workflows/
-      claude-code-review.yml
+      notify-eva.yml
       coverage-gate.yml
       pre-commit-gate.yml
       release-please.yml

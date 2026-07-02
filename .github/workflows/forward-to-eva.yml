@@ -11,12 +11,21 @@
 #                                                  cross-repo via the API.
 #   - issues:labeled=approved → implement-issue → Eva builds the PR here.
 #
-# Security — the member-gate is the real anti-injection defense (D-004):
-#   - author_association ∈ {MEMBER, OWNER}: a non-member's issue body never
-#     reaches Eva's token-holding agents (eva-implement re-gates anyway).
-#   - user.type == 'User': excludes bots (anti-recursion). triggered_by is the
-#     human author, so Eva's own bot-filed issues never re-forward.
-# The implement relay gates on the LABEL NAME (== 'approved'), not the labeler.
+# Security — the trust gate is the real anti-injection defense (D-004, eva#132).
+# Auto-execution sources are EXACTLY two (kept identical to eva-implement's
+# consuming-side gate — trust is re-verified there, never trusted from here):
+#   - human MEMBER/OWNER (author_association + user.type == 'User'): a
+#     non-member's issue body never reaches Eva's token-holding agents.
+#   - the exact ievo-eva App (issue author login `ievo-eva[bot]`): Eva's own
+#     audit findings, routed into the Router's adversarial skeptic mode
+#     (default reject; self-approve only on the safe-path tier, capped).
+#     We pin the exact App login, NEVER a general `user.type` relaxation —
+#     otherwise any installed bot becomes an autonomous-build source.
+# The implement relay additionally forwards WHO applied `approved`
+# (approved_by_login + approved_by_association, resolved via the collaborators
+# API): for a bot-authored issue the label sender must be a human MEMBER/OWNER
+# (one-click adoption) or the App itself (skeptic self-approve) — eva-implement
+# re-verifies this precisely on its side.
 # No untrusted title/body crosses into a run: shell — only the issue number +
 # author handle; Eva reads the body via the API in her agent sandbox.
 name: Forward to Eva
@@ -35,9 +44,13 @@ jobs:
     timeout-minutes: 5
     if: >
       github.event.action == 'opened' &&
-      (github.event.issue.author_association == 'MEMBER' ||
-       github.event.issue.author_association == 'OWNER') &&
-      github.event.issue.user.type == 'User'
+      (
+        ((github.event.issue.author_association == 'MEMBER' ||
+          github.event.issue.author_association == 'OWNER') &&
+         github.event.issue.user.type == 'User')
+        ||
+        github.event.issue.user.login == 'ievo-eva[bot]'
+      )
     steps:
       - name: Generate App token
         id: app-token
@@ -60,6 +73,7 @@ jobs:
               "event": "issues",
               "action": "opened",
               "author_association": "${{ github.event.issue.author_association }}",
+              "issue_author_login": "${{ github.event.issue.user.login }}",
               "triggered_by": "${{ github.event.issue.user.login }}"
             }
 
@@ -76,9 +90,15 @@ jobs:
     if: >
       github.event.action == 'labeled' &&
       github.event.label.name == 'approved' &&
-      (github.event.issue.author_association == 'MEMBER' ||
-       github.event.issue.author_association == 'OWNER') &&
-      github.event.issue.user.type == 'User'
+      (
+        ((github.event.issue.author_association == 'MEMBER' ||
+          github.event.issue.author_association == 'OWNER') &&
+         github.event.issue.user.type == 'User')
+        ||
+        (github.event.issue.user.login == 'ievo-eva[bot]' &&
+         (github.event.sender.type == 'User' ||
+          github.event.sender.login == 'ievo-eva[bot]'))
+      )
     steps:
       - name: Generate App token
         id: app-token
@@ -87,7 +107,33 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ievo-ai
-          repositories: eva
+          repositories: eva,skills
+      - name: Resolve approved-by trust
+        id: approver
+        # The issues:labeled webhook carries no sender association, so resolve
+        # the labeler's repo permission via the API and map it to the
+        # association value eva-implement's dispatch gate expects. Fail-safe:
+        # any error or <write permission → NONE (eva-implement refuses).
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          SENDER: ${{ github.event.sender.login }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
+        run: |
+          assoc="NONE"
+          if [ "$SENDER" = "ievo-eva[bot]" ]; then
+            # The App's own skeptic-mode self-approve; eva-implement admits it
+            # via approved_by_login, association stays NONE.
+            assoc="NONE"
+          elif [ "$SENDER_TYPE" = "User" ]; then
+            perm=$(gh api "repos/$REPO/collaborators/$SENDER/permission" \
+              --jq '.permission' 2>/dev/null || echo "none")
+            case "$perm" in
+              admin) assoc="OWNER" ;;
+              write) assoc="MEMBER" ;;
+            esac
+          fi
+          echo "association=$assoc" >> "$GITHUB_OUTPUT"
       - name: Dispatch implement-issue
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697  # v4.0.1
         with:
@@ -101,5 +147,8 @@ jobs:
               "event": "issues",
               "action": "labeled",
               "author_association": "${{ github.event.issue.author_association }}",
+              "issue_author_login": "${{ github.event.issue.user.login }}",
+              "approved_by_login": "${{ github.event.sender.login }}",
+              "approved_by_association": "${{ steps.approver.outputs.association }}",
               "triggered_by": "${{ github.event.issue.user.login }}"
             }

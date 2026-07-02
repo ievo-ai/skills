@@ -11,7 +11,7 @@ allowed-tools:
   - Bash(test*)
   - Bash(chmod*)
   - Bash(claude*)
-compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema."
+compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear); v2.1.198+ (`Notification`, `claude agents`: `agent_needs_input`/`agent_completed`). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -40,7 +40,7 @@ Options (multi-select):
 - "evolution-captured"  — when /ievo:evolution captures a lesson overlay
 ```
 
-If user picks nothing, do NOT exit yet — Step 5.5 below offers an independent Stop hook flow. Only exit at the end of Step 5.5 if both Step 1 and Step 5.5 produced zero hook entries.
+If user picks nothing, do NOT exit yet — Steps 5.5 and 5.6 below offer independent hook flows (a Stop hook and a `claude agents` Notification hook). Only exit once Step 5.6 is done, and only if Step 1, Step 5.5, and Step 5.6 all produced zero hook entries.
 
 ## Step 2: Ask for notification preference
 
@@ -135,7 +135,7 @@ Configure background-agents-complete notification (read-side Stop hook)?
 - "no"   — skip (you can re-run /ievo:hooks-setup later)
 ```
 
-If "no" → skip to Step 6 (with whatever signal-file entries Step 5 built; if Step 5 also produced zero entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later.").
+If "no" → skip to Step 5.6 (with whatever signal-file entries Step 5 built). The graceful "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later." exit is deferred to Step 5.6.1, the final opt-in.
 
 ### Step 5.5.2: Ask for notification command
 
@@ -212,6 +212,70 @@ For Step 6's merge stage, build this entry (to be added to `hooks.Stop[]`):
 
 Stop hook entries don't have a `matcher` field — Claude Code calls every Stop hook on every stop, the script itself decides whether to act. Dedup at merge time by checking whether an existing entry has the same `args` array.
 
+## Step 5.6: Optional — Notification hook for `claude agents` background sessions
+
+**Different agent-dispatch model from Step 5.5 — read this scope note first.** Step 5.5's Stop hook and this Notification hook are NOT interchangeable; they cover two genuinely different dispatch models:
+
+- **Step 5.5 (Stop hook)** applies to **Task-tool sub-agents dispatched *within* one session** (e.g. the `security-auditor` / `repo-indexer` that `/ievo:init` fans out). It is *read-side polling at session-stop*: Claude Code hands the hook the current session's `background_tasks`/`session_crons` queues and the hook fires only when both are empty. It sees a single point in time and cannot tell "still running" apart from "blocked waiting on input".
+- **Step 5.6 (Notification hook)** applies to **background sessions launched with `claude agents`** — separate sessions, not Task-tool sub-agents of the current one. Claude Code v2.1.198+ ([release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.198)) fires the `Notification` hook *per transition* for these sessions, with a matcher that separates the actionable case from the informational one — the distinction the Stop hook's single "queue empty?" check cannot draw.
+
+Keep Step 5.5 for in-session Task sub-agents; use Step 5.6 for `claude agents` background sessions. They can coexist.
+
+**Matcher values** (Notification hook, v2.1.198+):
+
+| Matcher | Fires when | Actionable? |
+|---------|------------|-------------|
+| `agent_needs_input` | a `claude agents` background session is blocked waiting on input | **Yes** — the session is stalled until you respond |
+| `agent_completed`   | a `claude agents` background session finishes | No — informational status update |
+
+### Step 5.6.1: Ask whether to configure
+
+```
+Configure claude-agents background-session notifications (Notification hook, requires Claude Code v2.1.198+)?
+- "yes"  — register Notification hook entries for agent_needs_input / agent_completed
+- "no"   — skip (you can re-run /ievo:hooks-setup later)
+```
+
+If "no" → skip to Step 6 (with whatever entries Steps 5 and 5.5 built; if all of Step 5, Step 5.5, and Step 5.6 produced zero entries, exit gracefully with "No hooks configured. Re-run `/ievo:hooks-setup` to pick events later.").
+
+Run `claude --version` via Bash: if it is below **v2.1.198**, warn the user that the `Notification` matchers `agent_needs_input`/`agent_completed` are unavailable on their version — offer to skip, since the entries would never fire.
+
+### Step 5.6.2: Build the Notification hook entries
+
+Register **one entry per matcher** under `hooks.Notification[]` (a top-level key alongside `hooks.PostToolUse` and `hooks.Stop`). Surface `agent_needs_input` **more prominently** than `agent_completed`: the first needs you *now* and the session is blocked until you act; the second is a status update you can glance at later.
+
+macOS example (`osascript`) — the actionable entry plays a sound and titles itself "action needed"; the informational entry is a plain, silent banner:
+
+````json
+{
+  "matcher": "agent_needs_input",
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) agent_needs_input\" >> .ievo/log/hooks/events.log && osascript -e 'display notification \"A claude agents session is waiting on your input\" with title \"iEvo — action needed\" sound name \"Ping\"' || true"]
+    }
+  ]
+}
+````
+
+````json
+{
+  "matcher": "agent_completed",
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["sh", "-c", "mkdir -p .ievo/log/hooks && echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) agent_completed\" >> .ievo/log/hooks/events.log && osascript -e 'display notification \"A claude agents session finished\" with title \"iEvo\"' || true"]
+    }
+  ]
+}
+````
+
+The prominence difference is deliberate: `agent_needs_input` carries a sound + an "action needed" title so it interrupts; `agent_completed` is a quiet banner (log line + plain notification, no sound). Linux equivalents keep the same split via `notify-send` urgency: `notify-send -u critical "iEvo — action needed" "A claude agents session is waiting on your input"` for `agent_needs_input` vs `notify-send -u low "iEvo" "A claude agents session finished"` for `agent_completed`. Both entries end with `|| true` so a missing `osascript`/`notify-send` never turns the hook into a non-zero exit (the notification is best-effort; the log line is the durable record). As in Step 5, each `args` line first appends a timestamped entry to the shared `.ievo/log/hooks/events.log`.
+
+### Step 5.6.3: Merge the Notification entries
+
+For Step 6, ensure `hooks.Notification` exists as an array (create if missing), then for each of the two entries dedup by **`matcher`**: if an entry with the same `matcher` (`agent_needs_input` / `agent_completed`) already exists in `hooks.Notification`, do not duplicate — print "Notification hook for `<matcher>` already configured; skipping. Edit `settings.json` manually to overwrite it." Otherwise append. The entries then flow through Step 7's confirmation and Step 8's apply like any other.
+
 ## Step 6: Merge entries into settings.json
 
 Use the Read + Edit tools (NOT shell-based JSON edits — preserves existing comments and key order on Claude Code's tolerant JSON parser). Pseudo-procedure:
@@ -278,4 +342,5 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - [Claude Code v2.1.141 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.141) — `terminalSequence` desktop-notification field
 - [Claude Code v2.1.143 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.143) — `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` env var (default 8) for blocking Stop hooks
 - [Claude Code v2.1.145 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.145) — Stop + SubagentStop hook input gains `background_tasks` and `session_crons` fields
+- [Claude Code v2.1.198 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.198) — `Notification` hook fires for `claude agents` background sessions with matchers `agent_needs_input` / `agent_completed`
 - Signal-file trigger pattern (`PostToolUse` + `Write(<path>)` matcher) is portable across any host that matches Write-tool calls to a path pattern

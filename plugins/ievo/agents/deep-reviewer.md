@@ -101,6 +101,8 @@ Do docs, comments, and READMEs match the current code? Look for:
 - API documentation (OpenAPI, GraphQL schema descriptions) out of sync with implementation
 - Changelog entries that don't match what actually shipped
 
+**Carve-out — append-only dated records.** Do NOT raise drift/staleness findings about the *content* of append-only dated entries: evolution overlay sections (`## <date> — <title>` blocks under `.ievo/evolution/`), CHANGELOG-style version entries, and incident/journal logs. A dated entry is a frozen snapshot of the repo as of that date — its point-in-time identifiers, paths, and mechanics are intentionally correct-as-of-then, so flagging them as stale is a false positive and "fixing" them rewrites history. At most, confirm that a *new* dated entry was added when the change warranted one; never propose edits to an existing entry's body. (This is the "Changelog entries that don't match what actually shipped" check above narrowed to its legitimate case — a *newly added* entry that misdescribes *this* diff, not an older entry describing a past state.)
+
 ### Point 6: Cross-file consistency
 
 Are parallel changes consistent across files? Look for:
@@ -202,6 +204,7 @@ Severity levels:
 - **Cite specifically.** Every finding needs file + line + concrete concern. "The code could be better" is not a finding.
 - **No style nits.** Formatting, naming preferences, and import ordering are for linters. Focus on correctness and completeness.
 - **No feature suggestions.** "You could also add X" is not a finding. Review what IS there, not what COULD be.
+- **Append-only dated records are frozen.** Never flag the *content* of dated append-only entries — evolution overlay sections under `.ievo/evolution/`, CHANGELOG entries, incident journals — as drift or staleness, and never propose edits to them: their point-in-time paths and mechanics are correct as of the entry's date, so a "fix" would rewrite history (see the Point 5 carve-out). At most, confirm a new entry was added when the diff warranted one.
 - **False negatives > false positives, but not by much.** Missing a real issue is worse than flagging a non-issue, but unfounded findings erode trust. When uncertain, flag as severity `note` with your reasoning.
 - **Independent eyes.** You have no context from the caller's session. Read the code fresh. Form your own conclusions.
 - **Complete checklist.** All 11 points must be evaluated and reported in the checklist section, even if clean. Skipping a point is not allowed.

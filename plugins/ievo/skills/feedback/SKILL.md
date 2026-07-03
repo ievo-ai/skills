@@ -161,8 +161,8 @@ Look at the user's freeform text from Step 2 and any clarification answers from 
 ### Output format
 
 Hold two versions:
-- `body_en` — the English translation, used as the primary body
-- `body_original` — the user's original text verbatim, included in collapsed `<details>` for context
+- `body_en` — the English translation, used as the **only** body posted to the public issue
+- `body_original` — the user's original text verbatim, retained **local-only** for the audit trail (Step 6). It is NEVER included in the public issue body — English is the only language that reaches GitHub.
 
 If no translation was needed, `body_original` is empty and only `body_en` is used.
 
@@ -193,15 +193,6 @@ If user picks `Don't attach` or no log exists, skip.
 ## Feedback
 
 <body_en — English translation from step 3.75, or the original if it was already English>
-
-<if body_original is non-empty, also include:>
-
-<details>
-<summary>Original (untranslated)</summary>
-
-<body_original — user's verbatim text in source language>
-
-</details>
 
 ---
 
@@ -245,15 +236,6 @@ recommendation quality (both for iEvo and upstream skills.sh).
 
 ### Note from user
 <freeform_en — translated if needed, or "(none)">
-
-<if freeform_original is non-empty (user wrote in non-English), also include:>
-
-<details>
-<summary>Original note (untranslated)</summary>
-
-<freeform_original verbatim>
-
-</details>
 
 ---
 
@@ -308,9 +290,18 @@ Title format:
 # Step A — Write tool (NOT Bash):
 #   file_path: <project>/.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md
 #   content:   <body from step 4>   (literal string, no shell expansion)
+#
+# Step A2 — LOCAL-ONLY original (ONLY if Step 3.75 translated, i.e. body_original
+#           is non-empty) — Write tool (NOT Bash):
+#   file_path: <project>/.ievo/log/pending-reports/feedback-original-<YYYYMMDDTHHMMSSZ>.md
+#   content:   <body_original — user's verbatim source-language text>
+#   This file is the local translation-QA reference. It is NEVER passed to
+#   `gh issue create` (--body-file below points only at the feedback-body-*.md
+#   from Step A), so the untranslated original stays on the user's machine and
+#   never reaches the public issue.
 ```
 
-Use ISO-8601 basic format for the timestamp (no colons — Windows-safe): `YYYYMMDDTHHMMSSZ`.
+Use ISO-8601 basic format for the timestamp (no colons — Windows-safe): `YYYYMMDDTHHMMSSZ`. Reuse the SAME `<YYYYMMDDTHHMMSSZ>` value for both files so the body and its original pair up.
 
 ```bash
 # Step B — file the issue via gh, passing the body file.
@@ -361,7 +352,7 @@ fi
 
 If the labels had to be dropped (B2 fallback fired), tell the user in Step 7 which labels couldn't be applied and that the classification is preserved in the title/body — so triage can restore them.
 
-The `pending-reports/` directory doubles as an audit trail — the filed body is preserved locally even after successful submission.
+The `pending-reports/` directory doubles as an audit trail — the filed body (and, when a translation happened, the local-only `feedback-original-*.md` from Step A2) is preserved locally even after successful submission. The `feedback-original-*.md` file is deliberately excluded from what `gh issue create` uploads — it exists only so a maintainer can verify the translation locally, never in the public issue.
 
 If `gh` is not installed or not authenticated:
 - Catch the error
@@ -387,7 +378,7 @@ On failure (gh missing or network):
 ## Rules
 
 - **Public posting requires explicit confirm.** Never skip step 5. Feedback is public on the internet; no surprises.
-- **Verbatim user text — preserved in `<details>` block.** Do not paraphrase, "improve", or sanitize the user's words. If the original is non-English, translate the primary body to English (Step 3.75) but include the verbatim original in a collapsed `<details>` block so maintainers can verify the translation or fall back to it.
+- **English-only in public issues; verbatim original kept local-only.** Do not paraphrase, "improve", or sanitize the user's words. If the original is non-English, translate the body to English (Step 3.75) and post **only** the English version to the public issue — never echo the source-language text into the issue body. The verbatim original is preserved for translation verification in `.ievo/log/pending-reports/feedback-original-*.md` (local audit trail only, Step 6), never on GitHub.
 - **No secrets leak.** The auto-collect list is closed — version, OS, manifest names only. Do not include git remote URLs, branch names, or anything from environment variables.
 - **Best-effort context.** If any Bash command in step 3 fails, omit that line. Never block submission on metadata collection.
 - **Graceful gh-CLI fallback.** If `gh` is missing/unauthenticated, give the user a way to post manually — don't just say "failed".

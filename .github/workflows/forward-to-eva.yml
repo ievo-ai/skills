@@ -6,10 +6,14 @@
 # triggering actor becomes the App bot; the eva-side Router and eva-implement
 # both allow that bot.
 #
-# Two relays, both repository_dispatch to ievo-ai/eva:
+# Three relays, all repository_dispatch to ievo-ai/eva:
 #   - issues:opened           → new-issue       → Eva's Router triages this issue
 #                                                  cross-repo via the API.
 #   - issues:labeled=approved → implement-issue → Eva builds the PR here.
+#   - issue_comment:created   → re-triage-issue → Eva re-reads a still-held
+#     (on a needs-discussion issue,               (needs-discussion) issue + its
+#      by a human MEMBER/OWNER)                    full thread and re-judges the
+#                                                  open questions (eva#143).
 #
 # Security — the trust gate is the real anti-injection defense (D-004, eva#132).
 # Auto-execution sources are EXACTLY two (kept identical to eva-implement's
@@ -33,6 +37,8 @@ name: Forward to Eva
 on:
   issues:
     types: [opened, labeled]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
@@ -151,4 +157,62 @@ jobs:
               "approved_by_login": "${{ github.event.sender.login }}",
               "approved_by_association": "${{ steps.approver.outputs.association }}",
               "triggered_by": "${{ github.event.issue.user.login }}"
+            }
+
+  re-triage-issue:
+    name: Dispatch re-triage-issue to Eva
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # A trusted human MEMBER/OWNER commenting on a still-held (needs-discussion)
+    # issue re-opens the Router conversation (eva#143). Gated HARD — comments are
+    # the cheapest injection surface:
+    #   - ISSUE comment only, never a PR comment (issue.pull_request absent).
+    #   - commenter is a human MEMBER/OWNER (association + user.type == 'User').
+    #     That User check alone excludes every bot, incl. ievo-eva[bot] (type
+    #     Bot) — the Router's own analysis comments must NEVER re-dispatch or we
+    #     loop; the explicit login exclusion is belt-and-braces.
+    #   - the issue still carries `needs-discussion` — re-triage only makes sense
+    #     for held issues; every other label state is noise.
+    # Rapid answer-comments can fire this several times; collapse per issue (the
+    # eva side also has a cheap coalescing guard — eva#143 answer Q1).
+    concurrency:
+      group: forward-retriage-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    if: >
+      github.event.action == 'created' &&
+      !github.event.issue.pull_request &&
+      (github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'OWNER') &&
+      github.event.comment.user.type == 'User' &&
+      github.event.comment.user.login != 'ievo-eva[bot]' &&
+      contains(github.event.issue.labels.*.name, 'needs-discussion')
+    steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ievo-ai
+          repositories: eva
+      - name: Dispatch re-triage-issue
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697  # v4.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          repository: ievo-ai/eva
+          event-type: re-triage-issue
+          # Same payload discipline as the other two relays: only the issue number,
+          # the commenter login, and the triggering comment's timestamp cross the
+          # boundary — NO comment/title/body text ever enters a run: shell. Eva
+          # reads the thread via the API in her agent sandbox. comment_created_at is
+          # metadata (an ISO8601 timestamp, not free text) the eva-side burst-
+          # coalescing guard uses to identify this run's triggering comment.
+          client-payload: >
+            {
+              "repo": "${{ github.repository }}",
+              "issue_number": ${{ github.event.issue.number }},
+              "event": "issue_comment",
+              "action": "created",
+              "triggered_by": "${{ github.event.comment.user.login }}",
+              "comment_created_at": "${{ github.event.comment.created_at }}"
             }

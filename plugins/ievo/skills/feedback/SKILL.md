@@ -313,19 +313,53 @@ Title format:
 Use ISO-8601 basic format for the timestamp (no colons — Windows-safe): `YYYYMMDDTHHMMSSZ`.
 
 ```bash
-# Step B — file the issue via gh, passing the body file:
-gh issue create \
-  --repo ievo-ai/skills \
-  --title "<title>" \
-  --body-file <project>/.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md \
-  --label "<bug|enhancement|idea|question>" \
-  --label "feedback"
+# Step B — file the issue via gh, passing the body file.
+#
+# The labels below are hard-coded, but nothing guarantees they exist in the
+# target repo (a fresh clone/fork, or a label deleted upstream, reintroduces
+# the gap). Two defenses, in order:
+#   B1. Best-effort provision the labels that have been missing.
+#   B2. If `gh issue create` still rejects the label set, retry WITHOUT labels
+#       so the feedback text is never lost.
+
+BODY_FILE="<project>/.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md"
+
+# B1 — idempotent label provisioning. `|| true` swallows both "already exists"
+# (label present → keep its current definition) and the permission error a
+# non-maintainer hits when filing against ievo-ai/skills (they can't create
+# labels, but B2 still lets their issue land). Only the two labels observed
+# missing are provisioned here; existing labels (bug/enhancement/question/
+# feedback) need no action.
+gh label create "idea" --repo ievo-ai/skills \
+  --color "d4c5f9" --description "General suggestion or design thought (via /ievo:feedback)" 2>/dev/null || true
+gh label create "registry-quality" --repo ievo-ai/skills \
+  --color "fbca04" --description "Signal to improve skill-registry recommendation quality" 2>/dev/null || true
+
+# B2 — create the issue. Flow A: TYPE_LABEL is bug|enhancement|idea|question
+# (from Step 1). Flow B: TYPE_LABEL is idea, plus registry-quality.
+LABEL_ARGS=(--label "<bug|enhancement|idea|question>" --label "feedback")   # flow B: also add --label "registry-quality"
+
+# Try with labels first; on ANY non-zero exit (unknown label, missing label,
+# or no label-add permission) retry once with no labels so the submission
+# survives. The title (`[bug]`/`[feature]`/…) and body already carry the
+# classification, so a maintainer can re-apply labels during triage.
+if ! ISSUE_URL=$(gh issue create \
+      --repo ievo-ai/skills \
+      --title "<title>" \
+      --body-file "$BODY_FILE" \
+      "${LABEL_ARGS[@]}" 2>&1); then
+  echo "Label step failed — retrying without labels so the report still lands:" >&2
+  echo "$ISSUE_URL" >&2
+  ISSUE_URL=$(gh issue create \
+    --repo ievo-ai/skills \
+    --title "<title>" \
+    --body-file "$BODY_FILE")
+fi
+# $ISSUE_URL is the created issue URL (report it in Step 7). If this second
+# call also fails, fall through to the gh-unavailable handling below.
 ```
 
-For flow B add an extra label to Step B:
-```bash
-  --label "registry-quality"
-```
+If the labels had to be dropped (B2 fallback fired), tell the user in Step 7 which labels couldn't be applied and that the classification is preserved in the title/body — so triage can restore them.
 
 The `pending-reports/` directory doubles as an audit trail — the filed body is preserved locally even after successful submission.
 
@@ -342,6 +376,10 @@ On success:
 - Confirm: `✓ Submitted as <url>`
 - Brief thanks: `Thanks — this will help iEvo evolve. The repo is at github.com/ievo-ai/skills.`
 
+On success but with labels dropped (Step 6 B2 fallback fired):
+- Still report `✓ Submitted as <url>` — the issue landed.
+- Add: `Note: couldn't apply labels (they may not exist in the repo or you lack label permission). The type is in the title/body, so a maintainer can re-label during triage.`
+
 On failure (gh missing or network):
 - Show the user the body to copy/paste manually
 - Show the URL to create issues: https://github.com/ievo-ai/skills/issues/new
@@ -353,3 +391,4 @@ On failure (gh missing or network):
 - **No secrets leak.** The auto-collect list is closed — version, OS, manifest names only. Do not include git remote URLs, branch names, or anything from environment variables.
 - **Best-effort context.** If any Bash command in step 3 fails, omit that line. Never block submission on metadata collection.
 - **Graceful gh-CLI fallback.** If `gh` is missing/unauthenticated, give the user a way to post manually — don't just say "failed".
+- **A missing label never loses a submission.** Labels are best-effort metadata; the feedback text is the value. Provision missing labels idempotently, and if `gh issue create` still rejects the label set, retry without labels rather than dropping the report (Step 6, B1/B2).

@@ -15,7 +15,7 @@ Post user feedback as a GitHub issue in `ievo-ai/skills` so we can fix bugs, pri
 
 ## Step 0: Detect invocation context
 
-This skill has two flows:
+This skill has three flows:
 
 **(A) Generic feedback** — default. User invoked `/ievo:feedback` or expressed feedback intent freely. Go to Step 1.
 
@@ -27,9 +27,11 @@ submit as feedback to ievo-ai/skills, copying reasons forward as
 registry-improvement signal that can be relayed to vercel-labs/skills.
 ```
 
-If invoked in flow (B), **skip Step 1** (type is implicitly "Idea" / registry-improvement) and **jump to Step 1b** below. Otherwise proceed with Step 1.
+**(C) Evolution handoff** — invoked from `/ievo:evolution` Step 5.6 after a lesson was captured that looks like it's about the iEvo plugin itself. The caller passes the **verbatim lesson text already known** (the same text appended to the overlay, in the user's original language). Because the feedback text is already in hand, flow C **skips Step 2** (collect feedback text) — but runs everything else normally: Step 1 (classify type — a plugin gap is usually `Bug` or `Feature`/`Idea`), Step 3 (environment), Step 3.5 (clarify — usually skipped, the lesson is already specific), Step 3.75 (translate the lesson to English **once, here** — evolution does not pre-translate), Step 4 (build body, flow-A format), and — critically — Step 5 (public-posting confirmation gate) **unchanged**. Nothing is posted until the user clears that gate.
 
-## Step 1: Classify the feedback type (flow A only)
+If invoked in flow (B), **skip Step 1** (type is implicitly "Idea" / registry-improvement) and **jump to Step 1b** below. If invoked in flow (C), **skip Step 2** (feedback text is the pre-filled lesson) and otherwise proceed normally from Step 1. Otherwise (flow A) proceed with Step 1.
+
+## Step 1: Classify the feedback type (flows A and C)
 
 Ask the user using `AskUserQuestion`:
 
@@ -69,6 +71,8 @@ If user picks `Yes, add a note`, collect freeform text per Step 2.
 Use **type = idea** and **labels = feedback, registry-quality** for flow B.
 
 ## Step 2: Collect the feedback text
+
+**Flow C (evolution handoff): skip this step** — the feedback text is the pre-filled verbatim lesson the caller already passed in. Use it as-is (don't re-ask) and go to Step 3.
 
 Ask the user for the actual feedback. Use a clear prompt like:
 

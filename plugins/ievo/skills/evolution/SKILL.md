@@ -224,6 +224,41 @@ Use the Write tool (NOT Bash) so the matcher fires:
 
 Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
 
+## Step 5.6: Offer to escalate the lesson upstream (optional)
+
+After the overlay append (Step 4) and signal file (Step 5.5) succeed, decide — with a cheap, signal-word heuristic (no sub-agent dispatch, same lightweight style as Step 1) — whether this lesson is worth sharing upstream as feedback to the iEvo plugin repo. This keeps the capture fast: the default is silent, and you only ever prompt once.
+
+**Classify upstream relevance. Default: local — and when local, do NOT prompt.**
+
+The lesson is **upstream-relevant** only when it describes a gap, bug, or missing capability in the **iEvo plugin itself** — its skills, agents, commands, or overlay/marker mechanics — that would help *any* iEvo user, not just this project. Signals (need at least one, and it must be about iEvo's *own* behavior):
+
+- It names an iEvo capability — a `/ievo:*` command, a bundled skill or agent (`evolution`, `feedback`, `deep-review`, `deep-reviewer`, `init`, `overlay-status`, …), the overlay/marker mechanics, or a `.ievo/` path — **and** frames a shortcoming or wish about *its* behavior ("didn't", "doesn't", "should", "missing", "can't", "no option to", "bug").
+- The vendored target (Step 2) resolved to an iEvo plugin file (the overlay's `source.repo` is `ievo-ai/skills`) **and** the lesson is about that shipped capability itself, not a project-local tweak of it.
+
+The lesson is **local** (the default) when it is a project convention, tech-stack fact, team role, or a mistake specific to this codebase — even when it lives on an iEvo agent/skill overlay (e.g. "in our repo the spec-writer must cite ticket IDs" targets the `spec-writer` overlay but is a project rule, not an iEvo gap). **When in doubt, stay local:** the offer is a nicety, not a gate, and a false nag undercuts the low-effort capture design.
+
+**If local:** skip straight to Step 6. Ask nothing, write nothing.
+
+**If upstream-relevant:** offer once via `AskUserQuestion` (never auto-post):
+
+- **Question:** `This lesson looks like it's about the iEvo plugin itself. Also share it as feedback to the plugin repo?`
+- **Header:** `Share upstream`
+- **Options** (single-select):
+  - `Share as feedback (Recommended)` — description: `Hands off to /ievo:feedback with this lesson pre-filled. You still review and explicitly confirm before anything is posted publicly.`
+  - `Skip` — description: `Keep the lesson local to this project. Nothing is posted.`
+
+If the user picks **Skip** (or the platform can't prompt / has no `feedback` skill available): proceed to Step 6. Nothing is posted.
+
+If the user picks **Share as feedback:** hand off to the `feedback` skill (`/ievo:feedback`) with the lesson **pre-filled** — this is flow **(C) Evolution handoff** in `feedback/SKILL.md` Step 0:
+
+- Pass the **verbatim lesson text** (the same text appended to the overlay, in the user's original language) as the feedback body, so `feedback` **skips its Step 2** (collect feedback text — already known).
+- Do **not** translate here. If the lesson is non-English, `feedback`'s Step 3.75 translates it **once**, at the feedback stage — never duplicate translation in this skill.
+- `feedback` still runs its Step 1 (classify type), Step 3 (environment context), Step 3.5 (clarify — usually skipped, the lesson is already specific), Step 4 (build body), and — critically — **Step 5 (public-posting confirmation gate) unchanged**. Public posting stays behind that explicit `Submit` / `Cancel` gate; this skill never posts anything itself.
+
+Then continue to Step 6. The overlay capture is already complete and stands regardless of the feedback outcome (share, skip, or cancel at the gate).
+
+> When the capture was delegated to the `evolution` sub-agent (see "On Claude Code with the iEvo plugin" above), the sub-agent performs Steps 1–5.5 and reports its upstream-relevance verdict + the verbatim lesson back to you; a dispatched sub-agent has no way to prompt or launch another skill, so you (the caller) run this Step 5.6 — the offer and the `/ievo:feedback` handoff — in the main session.
+
 ## Step 6: Report
 
 Output a short summary to the user:
@@ -232,6 +267,7 @@ Output a short summary to the user:
 - **Overlay file:** path
 - **Marker injected:** yes (first evolution for this target) | no (already present)
 - **Section title added:** "<title>"
+- **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Next:** "Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."
 
 ## Rules
@@ -260,3 +296,4 @@ The overlay file is also a self-contained record: anyone reading `<name>.md` see
 
 - `overlay-status/SKILL.md` — `/ievo:overlay-status` lists every overlay this skill has built up in the current project, grouped by scope (Project / agents / skills) with last-modified dates and one-line summaries. Use it after a `/ievo:evolution` capture to confirm the new lesson landed where you expected, or at session start to see what rules are already active.
 - `hooks-setup/SKILL.md` — `/ievo:hooks-setup` configures a Claude Code hook that fires when the signal file `.ievo/hooks/evolution-captured` is written by Step 5.5 above (lets you get a desktop notification on every capture).
+- `feedback/SKILL.md` — `/ievo:feedback` files a lesson upstream as a public GitHub issue in `ievo-ai/skills`. Step 5.6 above hands off to it (flow C, lesson pre-filled) when a captured lesson looks like it's about the iEvo plugin itself; public posting stays behind that skill's explicit confirmation gate (its Step 5).

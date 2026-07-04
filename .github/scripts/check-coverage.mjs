@@ -28,6 +28,7 @@ const REQUIRED = new Set([
   "validate_agents.mjs",
   "validate_skills.mjs",
   "scan_repo.mjs",
+  "evolution_candidates.mjs",
 ]);
 
 // Carve-outs: pre-existing scripts grandfathered against the rule with a

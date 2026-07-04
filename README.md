@@ -262,7 +262,7 @@ After `/ievo:init` with some skills/agents vendored and some plugins installed:
 4. **Time bombs** — date/counter/env-flag-based conditional execution
 5. **Encoded payloads** — long base64/hex strings, dynamic command construction
 6. **Broad/destructive bash** — `Bash(*)`, `Bash(rm:*)`, `Bash(sudo:*)`, `Bash(curl:*)`
-7. **Hook abuse** — PreToolUse/UserPromptSubmit with suspicious command
+7. **Hook abuse** — PreToolUse/UserPromptSubmit with suspicious command (iEvo's own flag-gated correction-capture hook is a documented exception — it only writes under `.ievo/`)
 8. **Runtime download** — scripts pulling additional code at runtime
 9. **Social engineering** — legitimate name + malicious body
 10. **Tool model bypass** — instructions to disable safety checks

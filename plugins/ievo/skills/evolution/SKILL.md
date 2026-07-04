@@ -26,6 +26,36 @@ If the lesson is too vague (e.g. "be better"), ask for clarification first.
 
 If the `evolution` sub-agent is available, delegate via Task tool with `subagent_type: "evolution"`. Pass the lesson verbatim. Otherwise execute the steps below directly.
 
+## Step 0: Auto-evolution candidate intake (optional)
+
+Run this step **only** when reviewing the auto-evolution backlog — e.g. the user
+is responding to the SessionStart nudge ("N evolution candidates pending —
+review?") from `/ievo:evo-auto-enable`, or explicitly asks to review captured
+candidates. For an ordinary single-lesson capture, skip straight to Step 1.
+
+When `.ievo/evo-auto.flag` exists, corrections captured in earlier sessions live
+in per-session accumulator files under `.ievo/evolution-candidates/`. List them
+with the accumulator (path: `<plugin>/scripts/evolution_candidates.mjs`):
+
+```
+node <plugin>/scripts/evolution_candidates.mjs list
+```
+
+For **each** candidate's `text`, run it through Steps 1–5 as its own lesson, with
+the auto-mode reconciliation constraint (per the mode contract):
+
+- **Auto-write only unambiguous project-wide lessons** to `.ievo/evolution/project.md`.
+- If scope is **ambiguous** or resolves to an **agent/skill or user-level-only**
+  target, do **not** write the overlay silently — append the candidate to
+  `.ievo/evolution-candidates/pending.md` for manual review instead (Step 1.5's
+  human-in-the-loop reconciliation still governs those).
+- After a candidate is folded into an overlay (or parked in `pending.md`),
+  **consume it**: remove its line from its session `.jsonl` file so it is not
+  re-surfaced next session. Retention (last 10 sessions) is handled by the
+  SessionStart hook's `prune`; consuming on write keeps the count honest.
+
+Then continue to Step 1 for the current candidate.
+
 ## Step 1: Classify scope
 
 Three possible scopes:

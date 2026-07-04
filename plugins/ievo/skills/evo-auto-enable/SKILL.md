@@ -3,7 +3,7 @@ name: evo-auto-enable
 description: "Enable auto-evolution mode for this project — iEvo accumulates \"corrections from the user\" as evolution candidates during a session and surfaces them for review via /ievo:evolution, without the user having to invoke evolution explicitly. Sets the project-local flag `.ievo/evo-auto.flag` and prepares the pending-candidate queue at `.ievo/evolution-candidates/`. Auto-mode writes ONLY unambiguous project-wide overlays; ambiguous or user-level matches are parked for manual review, never written silently. Trigger words — \"turn on auto evolution\", \"auto-evolve\", \"capture lessons automatically\", \"evo auto on\", \"evolve without asking\"."
 license: MIT
 effort: low
-compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Requires write access to `.ievo/`, POSIX shell (bash/zsh) or the Write tool. Paired with `/ievo:evo-auto-disable`. The correction-capture hook and periodic-analysis nudge that populate and drain the queue ship as a follow-up; this skill establishes the flag and queue they read."
+compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Requires write access to `.ievo/`, POSIX shell (bash/zsh) or the Write tool. Paired with `/ievo:evo-auto-disable`. Installs a UserPromptSubmit correction-capture hook + a SessionStart analysis nudge into `.claude/settings.json` (Claude Code hook schema; the hook scripts need `node` and `jq`, both already required by iEvo)."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -101,6 +101,162 @@ Each parked candidate is appended below as:
 - Correction: <verbatim user correction / lesson text>
 ```
 
+### 3.5 Install the correction-capture + analysis hooks
+
+This is what makes auto-evolution actually capture and surface corrections. Two
+hooks are wired into the project's `.claude/settings.json`, both **gated on
+`.ievo/evo-auto.flag`** so they are no-ops the moment the mode is off (or
+`/ievo:evo-auto-disable` removes the flag), and both **fail-silent and
+non-blocking**. They follow `/ievo:hooks-setup`'s conventions — exec-form
+`args: string[]`, `additionalContext` emitted from the hook command's stdout
+JSON, no `set -e`. Verified against the [Claude Code hooks
+reference](https://code.claude.com/docs/en/hooks) (UserPromptSubmit +
+SessionStart both support `hookSpecificOutput.additionalContext`; SessionStart is
+context-only and cannot block startup).
+
+The hooks call the per-session accumulator
+`plugins/ievo/scripts/evolution_candidates.mjs` (Node, stdlib-only) for
+`append` / `count` / `prune`. It only ACCUMULATES — it never classifies scope or
+writes overlays; analysis is deferred to the next session (Step 3.5.4 / the
+contract below).
+
+#### 3.5.1 Resolve and bake the accumulator path
+
+A hook in the project's `.claude/settings.json` does **not** get
+`CLAUDE_PLUGIN_ROOT` set at fire time, so resolve the accumulator's absolute path
+**now**, while this skill is running inside the plugin, and bake it into the
+scripts as a string literal. Run via Bash:
+
+```
+test -f "${CLAUDE_PLUGIN_ROOT}/scripts/evolution_candidates.mjs" && echo "${CLAUDE_PLUGIN_ROOT}/scripts/evolution_candidates.mjs"
+```
+
+Use the printed path as `<accumulator-abs-path>` below. If the `test` fails
+(empty output), the plugin root couldn't be resolved — tell the user auto-mode's
+capture hooks can't be configured right now, and skip to Step 4 (the flag + queue
+from Steps 2–3 still stand; the user can re-run once resolved).
+
+#### 3.5.2 Write the correction-capture hook (UserPromptSubmit)
+
+Use the Write tool to create `.ievo/hooks/scripts/correction-capture.sh`
+(substitute `<accumulator-abs-path>` with the Step 3.5.1 result):
+
+```sh
+#!/bin/sh
+# iEvo auto-evolution — correction-capture nudge (UserPromptSubmit).
+# Fires on each user prompt WHEN auto-evolution mode is ON (.ievo/evo-auto.flag
+# present). Injects a conservative self-assessment nudge as additionalContext so
+# the agent can decide whether the user's message is a correction and, if so,
+# record it VERBATIM via the accumulator. It does NOT classify scope or write
+# overlays -- analysis is deferred to the next SessionStart.
+#
+# CONTRACT: fail-silent (mode off / any error => emit nothing, exit 0),
+# non-blocking, ASCII-only additionalContext (no double quotes). NO `set -e`.
+
+[ -f .ievo/evo-auto.flag ] || exit 0
+
+# Prefer a runtime CLAUDE_PLUGIN_ROOT if present; else the path baked at setup.
+ACC="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/evolution_candidates.mjs}"
+[ -n "$ACC" ] && [ -f "$ACC" ] || ACC="<accumulator-abs-path>"
+
+# session_id comes from the hook's stdin JSON. jq is a hard dependency of gh,
+# which iEvo already requires; fall back to "unknown" if absent/unparseable.
+sid=$(cat | jq -r '.session_id // "unknown"' 2>/dev/null || echo unknown)
+case "$sid" in "") sid="unknown" ;; esac
+
+msg="iEvo auto-evolution is ON. If the message you are about to answer is a genuine correction of your prior approach or output (the user telling you a rule or preference you got wrong -- e.g. 'no, we always X here', 'stop doing Y'), then AFTER you respond, record it verbatim as an evolution candidate by running: node ${ACC} append --session ${sid} --text '<the correction in one line>'. Do NOT classify scope or write overlays now -- that happens at the next session's review. Capture ONLY genuine corrections; ignore routine questions, clarifications, and normal back-and-forth. If it was not a correction, do nothing and do not mention this."
+printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$msg"
+exit 0
+```
+
+Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/correction-capture.sh`.
+
+#### 3.5.3 Write the SessionStart analysis nudge
+
+Use the Write tool to create `.ievo/hooks/scripts/evo-analysis-nudge.sh` (same
+`<accumulator-abs-path>` substitution):
+
+```sh
+#!/bin/sh
+# iEvo auto-evolution — SessionStart analysis nudge.
+# On a NEW session, when auto-evolution is ON, prune to the last 10 sessions and,
+# if any candidates are pending, nudge the agent to review them via
+# /ievo:evolution. No LLM work happens here -- this only counts + surfaces.
+#
+# CONTRACT: fail-silent, context-only (SessionStart cannot block startup),
+# ASCII-only additionalContext. NO `set -e`.
+
+[ -f .ievo/evo-auto.flag ] || exit 0
+
+ACC="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/evolution_candidates.mjs}"
+[ -n "$ACC" ] && [ -f "$ACC" ] || ACC="<accumulator-abs-path>"
+
+# Retention: keep the last 10 sessions of candidates (best-effort).
+node "$ACC" prune --keep 10 >/dev/null 2>&1 || true
+
+n=$(node "$ACC" count 2>/dev/null || echo 0)
+case "$n" in ""|*[!0-9]*) exit 0 ;; esac
+[ "$n" -gt 0 ] || exit 0
+
+msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evolution to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Remove each candidate from its session file as you consume it."
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
+exit 0
+```
+
+Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/evo-analysis-nudge.sh`.
+
+#### 3.5.4 Wire both hooks into `.claude/settings.json`
+
+Read the project's `.claude/settings.json` first (treat absent as `{}`); if it
+exists but is **not valid JSON**, halt without writing (do not clobber manual
+edits) and tell the user to fix it. Merge with the **Read + Edit** tools (not
+shell JSON edits — preserves comments and key order), appending these two entries
+and deduping by the inner `args` array (skip if an identical entry already
+exists), exactly as `/ievo:hooks-setup` Step 6 describes:
+
+Under `hooks.UserPromptSubmit[]` (no `matcher` — fires on every prompt; the
+script itself gates on the flag):
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["sh", ".ievo/hooks/scripts/correction-capture.sh"]
+    }
+  ]
+}
+```
+
+Under `hooks.SessionStart[]` with `matcher: "startup"` (new sessions only, so a
+mid-work resume/compact never re-injects the nudge):
+
+```json
+{
+  "matcher": "startup",
+  "hooks": [
+    {
+      "type": "command",
+      "args": ["sh", ".ievo/hooks/scripts/evo-analysis-nudge.sh"]
+    }
+  ]
+}
+```
+
+The generated scripts live under `.ievo/hooks/` (gitignored by `/ievo:init`
+Step 10) — machine-local, like `/ievo:hooks-setup`'s scripts. If `.ievo/hooks/`
+is not yet in `.gitignore` (init never ran), offer to add it. Because the scripts
+are local, each teammate who wants auto-mode active re-runs `/ievo:evo-auto-enable`
+once per clone; the committed flag (Step 2) shares the *intent*, the local scripts
+do the *work*.
+
+**A note on `security-check`:** a `UserPromptSubmit` hook is one of the patterns
+`/ievo:security-check` flags when auditing *third-party* plugins (it can prompt-
+inject). This is iEvo's own first-party, flag-gated hook that only injects a
+self-assessment nudge and writes solely under `.ievo/` — a known, purpose-built
+exception, documented in `security-check/SKILL.md` so iEvo's own tooling does not
+self-flag it.
+
 ### 4. Offer to gitignore the candidate queue
 
 Captured candidates can contain verbatim conversation snippets. On first enable in
@@ -119,11 +275,15 @@ Print:
 
 Flag: .ievo/evo-auto.flag (commit to share the setting with teammates)
 Pending queue: .ievo/evolution-candidates/pending.md
+Hooks (local, in .claude/settings.json):
+  UserPromptSubmit → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
+  SessionStart      → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
 
 From now on, corrections you make during a session are captured as evolution
-candidates. Unambiguous project-wide lessons are written to the overlay
-automatically; ambiguous or user-level ones are parked in the pending queue for
-review via /ievo:evolution — never written silently.
+candidates. At the next session start you'll be nudged to review them: unambiguous
+project-wide lessons are written to the overlay automatically; ambiguous or
+user-level ones are parked in the pending queue for review via /ievo:evolution —
+never written silently.
 
 Review parked candidates any time: /ievo:evolution
 Turn off: /ievo:evo-auto-disable
@@ -131,17 +291,20 @@ Turn off: /ievo:evo-auto-disable
 
 ## What auto-evolution mode does while `evo-auto.flag` exists
 
-This is the contract the correction-capture hook and periodic-analysis nudge honor
-(the same way other iEvo skills honor `debug.flag`). Components that participate in
-auto-evolution MUST:
+This is the contract the correction-capture hook
+(`.ievo/hooks/scripts/correction-capture.sh`) and the SessionStart analysis nudge
+(`.ievo/hooks/scripts/evo-analysis-nudge.sh`) honor, both backed by the
+`evolution_candidates.mjs` accumulator (the same way other iEvo skills honor
+`debug.flag`). Components that participate in auto-evolution MUST:
 
-1. **Accumulate, don't reason at teardown.** A session-teardown signal only
-   *appends* candidate corrections to the per-session accumulator under
-   `.ievo/evolution-candidates/` — no LLM analysis at session end.
-2. **Analyze at the next session, with fresh context.** A `SessionStart` nudge
-   ("N evolution candidates pending — review?") surfaces the backlog and folds
-   review into `/ievo:evolution`'s existing Step 1 scope classification — the same
-   nudge pattern `/ievo:hooks-setup`'s version-check uses.
+1. **Accumulate, don't reason at teardown.** In-session capture only *appends*
+   candidate corrections (verbatim) to the per-session accumulator under
+   `.ievo/evolution-candidates/<session-id>.jsonl` via the accumulator's `append`
+   — no scope classification, no overlay write, no LLM analysis mid-capture.
+2. **Analyze at the next session, with fresh context.** The `SessionStart` nudge
+   ("N evolution candidates pending — review?") counts via the accumulator and
+   folds review into `/ievo:evolution`'s existing Step 1 scope classification —
+   the same nudge pattern `/ievo:hooks-setup`'s version-check uses.
 3. **Write project-wide only; park the rest.** Only an unambiguously project-wide
    candidate may be written to `.ievo/evolution/project.md` automatically. Ambiguous
    or user-level-only candidates go to `pending.md` for manual review. Silent

@@ -34,6 +34,7 @@ ievo-ai/skills/
     │   ├── discover.mjs               # skills.sh API discovery (parallel queries)
     │   ├── scan_repo.mjs              # Deterministic repo scanner (Node, stdlib)
     │   ├── validate_agents.mjs        # Vendor-neutral `model:` frontmatter validator
+    │   ├── evolution_candidates.mjs   # Auto-evolution per-session candidate accumulator (append/count/prune)
     │   └── tests/                     # node:test suites + fixtures (100% coverage gate)
     └── skills/                        # agentskills.io-compliant — cross-platform
         ├── init/SKILL.md              # /ievo:init — orchestrator
@@ -157,11 +158,12 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.44.0):**
+**Current compliance ledger (v0.45.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
 - ✅ `validate_skills.mjs` — 100 / 100 / 100. Same gate as above. Enforces agentskills.io spec constraints on SKILL.md frontmatter (name format/length, description ≤1024, compatibility ≤500, no vendor model IDs, `effort:` field validation — warning on absent, error on invalid value).
+- ✅ `evolution_candidates.mjs` — 100 / 100 / 100. Same gate as above. Added in v0.45.0 (auto-evolution PR 2) following the `isCliEntry` / injected-fs-deps pattern from `discover.mjs`: pure parse/path helpers, dependency-injected `append`/`list`/`count`/`prune`, `main()` end-to-end via injected io, and a subprocess suite covering the CLI entry guard.
 - ⏳ Any new script added to `plugins/ievo/scripts/` after v0.6.0 — 100% coverage in the same PR, no exceptions.
 
 No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` is under the 100% gate. The `CARVE_OUTS` map in `.github/scripts/check-coverage.mjs` is empty; keep it as the canonical place to grandfather any future legitimate exception.

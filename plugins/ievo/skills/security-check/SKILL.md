@@ -193,6 +193,7 @@ Verdict is your **synthesis** of what you found across all files. Not a rule-bas
 - "Has scripts/" → only YELLOW/RED if scripts contain threats; plain utility scripts are fine
 - "Has external URL" → only RED if destination is suspicious; localhost or well-known APIs are fine
 - "allowed-tools has Bash" → only RED if specific commands look destructive; `Bash(npm:*)` is normal
+- "Has `UserPromptSubmit` hook" → only RED if the command does something malicious. iEvo's own first-party correction-capture hook (installed by `/ievo:evo-auto-enable`, gated on `.ievo/evo-auto.flag`, and writing solely under `.ievo/`) is a known, purpose-built exception — it injects a self-assessment nudge, not a prompt-injection payload
 
 The point of antivirus deep scan is to look at WHAT the code does, not what category it falls into structurally.
 

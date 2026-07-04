@@ -75,7 +75,13 @@ Use generic descriptions instead: *"GitHub App token"*, *"org-level secrets"*, *
 
 ### Changelog goes in `CHANGELOG.md`, NOT this file
 
-Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — reverse-chronological, one `## vX.Y.Z` section per release with a paragraph (or short bullet list) describing what changed and why. **Never add shipped-version entries to `AGENTS.md`** — this file is the contract for AI agents working on the repo and must describe *current* conventions, not accumulate history that dilutes the convention surface.
+Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — reverse-chronological, one `## vX.Y.Z` section per release. Each section has a **required structure** — `cut-release.yml` copies the matching section verbatim into the public GitHub Release body (#259), so a single dense wall-of-text paragraph becomes an unreadable Releases page (#306). Author every `## vX.Y.Z` section as:
+
+1. **Summary line** — the first line is one sentence stating what shipped plus the closed-issue reference (e.g. `Add a /ievo:version skill … — closes #291.`). Keep it to a single sentence, hard-capped at ~240 characters; do NOT inline `**(1)**`/`**(2)**` component markers here.
+2. **Blank line** separating the summary from the list.
+3. **Bullet list** — one top-level `-` bullet per component/change, with indented sub-bullets where a component needs detail. What used to be inline `**(1)**`/`**(2)**` markers become top-level bullets. Reflow the same rationale, coverage/version-bump, and validator notes into bullets — restructure for scannability, never drop information.
+
+**Never add shipped-version entries to `AGENTS.md`** — this file is the contract for AI agents working on the repo and must describe *current* conventions, not accumulate history that dilutes the convention surface.
 
 - Forward-looking roadmap (planned items) stays in `AGENTS.md` § Roadmap.
 - Shipped-version history lives in `CHANGELOG.md`.

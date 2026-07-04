@@ -147,6 +147,17 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$body" > /tmp/release-body.md
+          # Format guard (warn, not fail) — a well-formed entry per AGENTS.md
+          # § "Changelog goes in CHANGELOG.md" is a summary line + a markdown
+          # bullet list, and this section becomes the public Release body
+          # verbatim. A section with zero list items is the old wall-of-text
+          # shape (#306) that renders as an unreadable Releases page. Warn so
+          # the regression is visible in the run log without blocking an
+          # otherwise-valid release (the `if !` guard keeps `set -e` happy on
+          # grep's no-match exit 1).
+          if ! grep -qE '^[[:space:]]*[-*] ' /tmp/release-body.md; then
+            echo "::warning::CHANGELOG section for v${VERSION} has no markdown list items — the Release body may render as a wall of text. See AGENTS.md changelog entry structure (#306)."
+          fi
           echo "CHANGELOG section for v${VERSION}:"
           echo "---"
           cat /tmp/release-body.md

@@ -73,12 +73,19 @@ If not, insert this block right after the YAML frontmatter (after the closing `-
 
 Where `<scope>` is `agents` or `skills` and `<name>` is the target name. The marker block is **unified** — same pattern as project-wide marker in CLAUDE.md/AGENTS.md.
 
-For project-wide lessons, the marker goes in CLAUDE.md (or AGENTS.md fallback):
+For project-wide lessons, host the marker in the project root instruction file. Pick the host by priority:
+
+1. **Thin-pointer first.** If `CLAUDE.md` exists but is a short redirect stub that delegates to `AGENTS.md` as the single source of truth — content ≤ ~20 lines **and** references `AGENTS.md` (case-insensitive), not a substantive rules file that merely mentions it — host the marker in `AGENTS.md`. Codex reads `AGENTS.md`, not `CLAUDE.md`, so a marker in a redirect-stub `CLAUDE.md` is invisible on Codex; `AGENTS.md` is the one file both platforms effectively read (Codex directly; Claude Code via the pointer). No dual-inject.
+2. Else `CLAUDE.md` if it exists, else `AGENTS.md` if it exists, else create `CLAUDE.md`.
+
+Before injecting, check **both** `CLAUDE.md` and `AGENTS.md` for an existing `<!-- ievo:start -->` marker — if *either* already has one, skip (preserves the single-host guarantee even if `CLAUDE.md` changed shape between captures). Otherwise append the block to the chosen host, creating that host if it does not yet exist.
+
+Marker block (explicit natural-language instruction — same style as the agent/skill marker above; NOT a bare `@.ievo/evolution/project.md` import, since Codex has no `@include` resolution, [openai/codex#17401](https://github.com/openai/codex/issues/17401)):
 
 ```markdown
 
 <!-- ievo:start -->
-@.ievo/evolution/project.md
+**Before applying the instructions below**, read `.ievo/evolution/project.md` if it exists, and apply ALL rules from its sections IN ADDITION to the project's instructions.
 <!-- ievo:end -->
 ```
 

@@ -167,20 +167,25 @@ description: ...
 
 ### Project-wide (`CLAUDE.md` or `AGENTS.md`)
 
-Find project root instruction file. Priority:
-- `CLAUDE.md` if exists
-- Else `AGENTS.md` if exists
-- Else create `CLAUDE.md` (empty if needed)
+Find the project root instruction file to host the marker. Priority:
 
-If the file already contains `<!-- ievo:start -->` marker → skip.
-If no marker → append to end of file:
+1. **Thin-pointer detection (check first).** If `CLAUDE.md` exists but is a *thin pointer* that delegates to `AGENTS.md` as the single source of truth, host the marker in `AGENTS.md` instead. Treat `CLAUDE.md` as a thin pointer when it is short (≤ ~20 lines of content) **and** references `AGENTS.md` (case-insensitive match on `AGENTS.md`) as where the rules live — i.e. its whole purpose is to redirect to `AGENTS.md`, not a substantive rules file that merely mentions `AGENTS.md` in passing. Both conditions must hold, to avoid a false positive on a real `CLAUDE.md` that happens to cite `AGENTS.md`. This matters for cross-platform reach: **Codex reads `AGENTS.md`, not `CLAUDE.md`**, so a marker parked in a redirect-stub `CLAUDE.md` is invisible to Codex sessions — while Claude Code still reaches the overlay via the pointer to `AGENTS.md`. When the thin-pointer pattern holds, `AGENTS.md` is the one file BOTH platforms effectively read: single host, zero drift, **no dual-inject**.
+2. Else `CLAUDE.md` if it exists (a substantive rules file).
+3. Else `AGENTS.md` if it exists.
+4. Else create `CLAUDE.md` (empty if needed).
+
+Before injecting, check **both** `CLAUDE.md` and `AGENTS.md` for an existing `<!-- ievo:start -->` marker — if *either* already carries one, **skip** (the project already has a project-wide overlay pointer). Checking both, not just the currently-selected host, preserves the single-host guarantee even if `CLAUDE.md` changed shape between captures (e.g. a thin pointer that later grew into a substantive rules file): without this, a second capture could inject a duplicate marker into the other file.
+
+If neither file has a marker → append the block below to the end of the chosen host, **creating that host if it does not yet exist** (e.g. a `CLAUDE.md` that points at an `AGENTS.md` which is not on disk yet):
 
 ```markdown
 
 <!-- ievo:start -->
-@.ievo/evolution/project.md
+**Before applying the instructions below**, read `.ievo/evolution/project.md` if it exists, and apply ALL rules from its sections IN ADDITION to the project's instructions.
 <!-- ievo:end -->
 ```
+
+The project marker uses an **explicit natural-language instruction** (mirroring the agent/skill markers above), NOT a bare `@.ievo/evolution/project.md` import line: Codex has no `@include` resolution ([openai/codex#17401](https://github.com/openai/codex/issues/17401)), so an explicit instruction is platform-neutral — Claude Code follows it just as well, so nothing is lost.
 
 ## Step 4: Append the lesson to the overlay file
 

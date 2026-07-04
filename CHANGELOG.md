@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.46.1
+
+Fix `/ievo:evolution`'s project-wide marker so Codex can read it: detect a thin-pointer `CLAUDE.md` and host the marker in `AGENTS.md`, and use an explicit, platform-neutral instruction instead of a bare `@import` — closes #304.
+
+- **Bug** — the marker host-selection rule was `CLAUDE.md` → `AGENTS.md` → create `CLAUDE.md`, so on a project whose `CLAUDE.md` is a thin pointer that redirects to `AGENTS.md` (a common convention), the overlay marker was injected into `CLAUDE.md`. Codex reads `AGENTS.md`, not `CLAUDE.md`, so the marker — and every accumulated project-wide lesson behind it — was invisible to Codex sessions, breaking iEvo's cross-platform promise.
+- **Host selection** — add a thin-pointer heuristic ahead of the existing priority: treat `CLAUDE.md` as a redirect stub (host the marker in `AGENTS.md` instead) only when it is short (≤ ~20 lines) **and** references `AGENTS.md` as the source of truth. Both conditions are required to avoid a false positive on a substantive `CLAUDE.md` that merely cites `AGENTS.md`. Single host, no dual-inject — `AGENTS.md` is the one file both platforms effectively read (Codex directly; Claude Code via the pointer).
+- **Marker content** — replace the bare `@.ievo/evolution/project.md` import line with the explicit natural-language instruction already used by the agent/skill overlay markers ("read `.ievo/evolution/project.md` if it exists, and apply its rules"). Codex has no `@include` resolution (openai/codex#17401, still open), so the explicit instruction is platform-neutral and Claude Code follows it identically — nothing is lost.
+- **Single-host guard** — because the host is re-derived from `CLAUDE.md`'s current shape on every capture, injection now checks **both** `CLAUDE.md` and `AGENTS.md` for an existing marker and skips if *either* has one. This keeps the no-dual-inject guarantee even when a `CLAUDE.md` grows from a thin pointer into a substantive file between two captures. The chosen host is also created if it does not yet exist.
+- **Both dispatch paths fixed** — the same host-selection + marker change is applied to `plugins/ievo/skills/evolution/SKILL.md` (inline fallback) **and** `plugins/ievo/agents/evolution.md` (the `evolution` sub-agent that performs the injection on the Claude Code / Codex Task-dispatch path). Fixing only the skill would leave the primary sub-agent path still injecting the old bare marker into `CLAUDE.md`.
+- **Not in scope** — projects already onboarded with the old bare-import marker in `CLAUDE.md` are not auto-migrated (injection stays skip-if-present); clearing a stale old marker there remains a manual step. New captures and new projects get the corrected behaviour.
+- **Validation & version** — additive/edited instruction prose plus the version-string bump; no `plugins/ievo/scripts/` logic change, so the 100% coverage gate is untouched (`discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` bumped in lockstep with `plugin.json` to satisfy the coupling tests). Version bump per AGENTS.md rules; ledger header updated.
+
+---
+
 ## v0.46.0
 
 Close the feedback → evolution direction of the two-way bridge, so a bug filed about a specific agent or skill can also capture a local mitigation — closes #305.

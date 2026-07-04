@@ -6,6 +6,21 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.46.2
+
+Realign `/ievo:schedule` with the documented Routines surface — in-session `/schedule` replaces the nonexistent `claude schedule` shell CLI; adds one-off runs, the 1-hour cron minimum, and a connectors scope-down warning — closes #310.
+
+- **Live-CLI verification (the proposal's acceptance step)** — on Claude Code v2.1.201, `schedule` is not a registered subcommand: `claude schedule --help` falls through to the top-level help (no `schedule` in the Commands list) and `claude schedule list` is parsed as a session *prompt*, not a management command. The skill's primary wizard path could therefore never work — every invocation was routed to the fallback (or, on a logged-in machine, silently started a junk session). Per the proposal's decision rule, the shell path is removed entirely rather than kept as a fallback.
+- **Step 1 (availability probe)** — the `claude schedule list` probe is replaced by a preflight over the documented `/schedule` hide-causes: CLI older than v2.1.81 (`claude --version`), API-key-auth precedence (the two auth env vars and the `apiKeyHelper` setting, which override the required claude.ai login), and the four telemetry/feature-flag variables from the official troubleshooting list — checked both in the shell environment and in the `env` block of the user/project `settings.json`. The env check prints variable names only, never values. Causes not detectable from the session (plan tier, org-wide Routines toggle, web session) are enumerated in the fallback text; when blocked, the user picks Web UI / CI cron / cancel — the web UI works regardless of CLI configuration.
+- **Step 6 (creation)** — hands off to in-session `/schedule`: the agent supplies the wizard-assembled name, schedule, and prompt when the conversational flow activates instead of re-asking, and notes `/schedule` creates scheduled routines only (API/GitHub triggers are web-side). Fallbacks: claude.ai/code/routines copy-paste block, then the Step 1b CI template. Monthly and custom-cron frequencies use the documented closest-preset-then-`/schedule update` path.
+- **Step 3 (frequency)** — adds a one-off option (fires once, auto-disables, exempt from the daily routine run cap) and validates custom cron against the documented 1-hour minimum interval (minute field must be a single fixed value). Timezone framing corrected from "all times UTC" to the documented local-wall-clock conversion, with a per-routine stagger note.
+- **Step 5 (confirm)** — new heads-up block: ALL account connectors attach by default with write access and no permission prompts (scope them down), pushes are restricted to `claude/`-prefixed branches by default, and recurring runs count against a daily per-account cap.
+- **Step 7 + Rules** — management handed off via the documented `/schedule list` / `/schedule update` / `/schedule run`; a green run status is explained as infrastructure-success only. A rule pins the verified-absent shell CLI (v2.1.201, 2026-07-04) so it is not reintroduced from stale model memory.
+- **Frontmatter + docs** — `compatibility` now records the research-preview status and the documented v2.1.81+ `/schedule` requirement (was v2.1.149+ with no caveat); `allowed-tools` narrowed to what the flow actually uses (drops `Write` and broad `Bash(claude*)`, adds `Read` and the names-only env probe). The stale version note in `coverage-audit.md`'s schedule row is updated to match.
+- **Version** — bump per AGENTS.md rules (edits plugin files under `plugins/ievo/**`); `discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.46.1
 
 Fix `/ievo:evolution`'s project-wide marker so Codex can read it: detect a thin-pointer `CLAUDE.md` and host the marker in `AGENTS.md`, and use an explicit, platform-neutral instruction instead of a bare `@import` — closes #304.

@@ -47,9 +47,9 @@ env | grep -oE '^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|DISABLE_TELEMETRY|DO_NO
 - `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` — API-key auth takes precedence over the claude.ai subscription login that `/schedule` requires
 - `DISABLE_TELEMETRY` / `DO_NOT_TRACK` / `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` / `DISABLE_GROWTHBOOK` — disable the feature-flag fetching `/schedule` depends on
 
-**3. `apiKeyHelper` setting** — same auth-precedence problem as the API-key variables. If `~/.claude/settings.json` or the project's `.claude/settings.json` exists, Read it and check for an `apiKeyHelper` key.
+**3. `settings.json`** — if `~/.claude/settings.json`, the project's `.claude/settings.json`, or `.claude/settings.local.json` exists, Read it and check for (a) an `apiKeyHelper` key — same auth-precedence problem as the API-key variables — and (b) any of the four feature-flag variables from check 2 inside its `env` block, which hides `/schedule` just like a shell variable does.
 
-**If no blocker is found** — proceed to Step 2. Two causes are not detectable from here: the subscription plan (Routines need Pro/Max/Team/Enterprise with Claude Code on the web enabled), and a Team/Enterprise Owner may have disabled the organization-wide Routines toggle. If `/schedule` still turns out to be hidden at Step 6, those are the remaining suspects — and the web UI at claude.ai/code/routines works regardless of how the CLI is configured.
+**If no blocker is found** — proceed to Step 2. Three causes are not detectable from here: the subscription plan (Routines need Pro/Max/Team/Enterprise with Claude Code on the web enabled), a Team/Enterprise Owner may have disabled the organization-wide Routines toggle, and the session may itself be a Claude Code on the web session (where `/schedule` is hidden — manage routines from the web UI instead). If `/schedule` still turns out to be hidden at Step 6, those are the remaining suspects — and the web UI at claude.ai/code/routines works regardless of how the CLI is configured.
 
 **If a blocker is found** — print which one and how to clear it (unset the variable, remove `apiKeyHelper`, or run `claude update`), note that the web UI still works, then ask via `AskUserQuestion` (single-select):
 
@@ -249,7 +249,7 @@ Build a routine name from the operation:
 - Skill refresh: `ievo-skill-refresh`
 - Custom: `ievo-scheduled`
 
-If a routine with the same name already exists, append a numeric suffix (e.g. `ievo-security-audit-2`).
+If the creation flow reports that a routine with the same name already exists, append a numeric suffix (e.g. `ievo-security-audit-2`). There is no way to enumerate existing routines from this session before the handoff — collision handling happens inside the `/schedule` flow (or on the web form).
 
 **Primary path — in-session `/schedule`.** `/schedule` in the CLI creates scheduled routines only; API and GitHub triggers are added later from the web UI. Ask the user to send the prepared invocation as their next message, for example:
 

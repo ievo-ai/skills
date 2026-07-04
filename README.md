@@ -216,7 +216,7 @@ After `/ievo:init` with some skills/agents vendored and some plugins installed:
 
 ```
 <your-project>/
-├── CLAUDE.md                        # (if first project-wide evolution recorded — gets marker block)
+├── CLAUDE.md                        # (first project-wide evolution — gets marker block; a thin-pointer CLAUDE.md routes it to AGENTS.md instead)
 ├── .claude/
 │   ├── settings.json                # NEW: plugin marketplaces + enabledPlugins (commit for team sync)
 │   ├── agents/

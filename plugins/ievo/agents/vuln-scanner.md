@@ -13,7 +13,7 @@ tools:
 # skill's `disallowed-tools` does NOT propagate to a Task-tool-dispatched
 # sub-agent (AGENTS.md § Security model), so this scanner self-enforces —
 # mirroring `security-auditor.md` / `deep-reviewer.md`. `Edit`/`Write` are
-# denied: the documented output contract (Steps 1-3 above) is a pure JSON
+# denied: the documented output contract (Steps 1-3 below) is a pure JSON
 # response, no legitimate file-write step exists. Destructive shell is denied.
 # `WebSearch` is denied because the scanned source may carry prompt injection —
 # a search call would turn that into an exfiltration channel (same rationale

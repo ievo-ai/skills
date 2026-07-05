@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.46.3
+
+Add `disallowedTools:` to `vuln-scanner.md` for defense-in-depth consistency with its sibling security agents — closes #312.
+
+- **Gap closed** — `vuln-scanner.md` held the broadest raw tool access (`Bash`) of the repo's three security-critical scanning agents, but was the only one without a `disallowedTools:` denylist, despite explicitly anticipating adversarial file content (prompt injection in scanned source) in its own body.
+- **Frontmatter change** — adds `disallowedTools: [Edit, Write, Bash(rm*), Bash(mv*), Bash(cp*), Bash(curl*), Bash(wget*), Bash(sudo*), Bash(chmod*), WebSearch]`, mirroring `security-auditor.md` and `deep-reviewer.md`. `Write` is denied (unlike `security-auditor.md`, which keeps it for one legitimate signal-file write) because `vuln-scanner.md`'s documented output contract is pure structured JSON with no legitimate file-write step.
+- **Why it matters** — closes the same sub-agent tool-isolation gap AGENTS.md § Security model documents: a skill's `disallowed-tools` (kebab-case) does not propagate to a Task-tool-dispatched sub-agent, so `vuln-scanner.md` must self-enforce like its two siblings (skills#226, skills#266).
+- **Version** — bump per AGENTS.md rules (edits `plugins/ievo/agents/vuln-scanner.md`); `discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep (both scripts' versions are coupled to `plugin.json` by their own test assertions). No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
 ## v0.46.2
 
 Realign `/ievo:schedule` with the documented Routines surface — in-session `/schedule` replaces the nonexistent `claude schedule` shell CLI; adds one-off runs, the 1-hour cron minimum, and a connectors scope-down warning — closes #310.

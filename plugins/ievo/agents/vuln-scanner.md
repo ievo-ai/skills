@@ -8,6 +8,27 @@ tools:
   - Glob
   - Grep
   - Skill
+# Defense-in-depth denylist (camelCase per Claude Code sub-agent frontmatter —
+# distinct from the kebab-case `disallowed-tools` in vuln-scan/SKILL.md). A
+# skill's `disallowed-tools` does NOT propagate to a Task-tool-dispatched
+# sub-agent (AGENTS.md § Security model), so this scanner self-enforces —
+# mirroring `security-auditor.md` / `deep-reviewer.md`. `Edit`/`Write` are
+# denied: the documented output contract (Steps 1-3 below) is a pure JSON
+# response, no legitimate file-write step exists. Destructive shell is denied.
+# `WebSearch` is denied because the scanned source may carry prompt injection —
+# a search call would turn that into an exfiltration channel (same rationale
+# security-auditor.md / deep-reviewer.md cite).
+disallowedTools:
+  - Edit
+  - Write
+  - Bash(rm*)
+  - Bash(mv*)
+  - Bash(cp*)
+  - Bash(curl*)
+  - Bash(wget*)
+  - Bash(sudo*)
+  - Bash(chmod*)
+  - WebSearch
 ---
 
 > [!WARNING]

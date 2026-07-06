@@ -30,7 +30,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.46.3";
+export const SCRIPT_VERSION = "0.47.0";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
@@ -81,6 +81,18 @@ export const CATEGORY_QUERIES = {
   "security": ["security", "audit", "vulnerability"],
   "observability": ["logging", "tracing", "metrics", "opentelemetry"],
 };
+
+// Stack-independent meta-tooling queries (skills#315). General-purpose
+// codebase-audit / planning-advisor tools — read-only auditors that survey a
+// codebase and produce prioritized findings/plans, not implementers (e.g.
+// shadcn/improve, ~17.6K skills.sh installs) — exist independent of any
+// project's language, dependency, or framework mix. Unlike every entry in
+// CATEGORY_QUERIES above (each only fires if that category was resolved for
+// the project in Step 4.5), this group is not gated behind a detected
+// category — see the buildQueries layer below.
+export const STACK_INDEPENDENT_QUERIES = [
+  "codebase audit", "improve codebase", "implementation plan", "tech debt audit", "senior advisor",
+];
 
 // ---------------------------------------------------------------------------
 // Query generation
@@ -137,6 +149,19 @@ export function buildQueries(stack) {
   if (fwSet.has("nextjs")) queries.add("nextjs performance");
   if (depSet.has("stripe")) queries.add("payments integration");
   if (depSet.has("opentelemetry")) queries.add("observability tracing");
+
+  // Layer 6 — stack-independent meta-tooling queries (skills#315). Fires
+  // whenever the stack produced ANY real signal, regardless of WHICH
+  // language/dep/category/framework was detected — that's the gap this
+  // closes (CATEGORY_QUERIES entries are each conditional on one specific
+  // category; this layer has no such condition). Guarded on "any signal
+  // present" rather than truly unconditional so a totally empty `{}` stack
+  // (Step 4 manifest detection finding nothing at all) still yields zero
+  // queries — preserving runDiscover's "no queries derived, abort init"
+  // contract for that distinct failure mode.
+  if (languages.length || deps.length || categories.length || frameworks.length) {
+    for (const q of STACK_INDEPENDENT_QUERIES) queries.add(q);
+  }
 
   const out = [...queries].filter(Boolean);
   // Fail-fast guard for the `__` sentinel invariant (see the note above): a real

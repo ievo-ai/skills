@@ -60,6 +60,6 @@ If it fits multiple, pick the **most specific** one.
 | `documentation` | mkdocs-helper, jsdoc-writer, api-doc-gen |
 | `observability` | logger, opentelemetry, sentry-integration |
 | `devops` | docker-helper, kubernetes-pro, github-actions |
-| `agent-tooling` | code-reviewer, refactor-pro, test-writer (general-purpose dev agents) |
+| `agent-tooling` | code-reviewer, refactor-pro, test-writer, codebase-audit/planning-advisor tools like shadcn/improve (general-purpose dev agents — includes read-only auditors that produce plans/findings, not implementers) |
 | `domain-specific` | stripe-pro, openai-pro, slack-bot (specific to a dep in step 4) |
 | `other` | anything not fitting above |

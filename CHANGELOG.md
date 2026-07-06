@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.47.0
+
+Add a fixed stack-independent query group to `/ievo:init`'s discovery so general-purpose codebase-audit/planning-advisor meta-tools surface for any stack — closes #315.
+
+- **Gap closed** — `discover.mjs`'s `buildQueries()` only ever emitted queries gated by detected stack signals (per-language, per-dep, per-category via `CATEGORY_QUERIES`, per-framework); there was no query group for general-purpose codebase-audit / planning-advisor meta-tools (e.g. `shadcn/improve`, ~17.6K skills.sh installs) since that class of skill isn't tied to any specific language, framework, or dependency. A live `/ievo:init` run against a Python/Click stack never surfaced it — none of the 37 stack-derived queries built for that run matched.
+- **Fix** — added `STACK_INDEPENDENT_QUERIES` (`codebase audit`, `improve codebase`, `implementation plan`, `tech debt audit`, `senior advisor`), fired as an unconditional layer in `buildQueries()` whenever the stack produced at least one real signal — not gated behind `categories` the way every other layer is. Guarded on "some signal present" (rather than truly unconditional) so a completely empty `{}` stack — Step 4 manifest detection finding nothing at all — still yields zero queries, preserving `runDiscover`'s existing "no queries derived, abort init" contract for that distinct failure mode.
+- **Categorization** — reused the existing `agent-tooling` category (`reference-tables.md`) rather than inventing a new bucket; Step 7c's per-category top-5 cap applies unchanged. Updated the category row's description to frame these as read-only auditors that produce plans/findings, not implementers, matching `shadcn/improve`'s own positioning, and updated `SKILL.md` Step 5b's query-count description to keep it accurate.
+- **Tests** — added coverage asserting the new query group fires with any single one of languages/deps/categories/frameworks present, and is excluded entirely when the stack is empty. `discover.mjs` stays at 100/100/100 (lines/branches/functions).
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.46.3
 
 Add `disallowedTools:` to `vuln-scanner.md` for defense-in-depth consistency with its sibling security agents — closes #312.

@@ -164,7 +164,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.47.3):**
+**Current compliance ledger (v0.47.4):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -252,6 +252,7 @@ Without the install, the GHA workflow still gates server-side; local hooks just 
   | `fallbackModel` | v2.1.166 | **Availability** fallback only — when the in-use model is overloaded/unavailable, retries the configured model for that turn. A Haiku-class value can degrade a scan mid-run when Sonnet is rate-limited (common under parallel scans). Not enforcement; entries outside `availableModels` are dropped. | set `sonnet`/`opus`, or omit |
 
   The only hard enforcement is `availableModels` — every value above is filtered through it. The model-resolution precedence chain (env var → per-invocation param → frontmatter → main model) governs `CLAUDE_CODE_SUBAGENT_MODEL` and frontmatter `model:`; `enforceAvailableModels` and `fallbackModel` act on adjacent controls (the picker default and availability retry). Operator-side guarantee: managed `availableModels` includes `sonnet` (or `opus`), and `CLAUDE_CODE_SUBAGENT_MODEL` / `fallbackModel` are unset or Sonnet-class. Org-managed model restrictions are exactly this `availableModels` managed-settings mechanism.
+- **External plugin install consent gate (CC platform).** Claude Code v2.1.195 (2026-06-26) fixed a platform-level consent-dialog regression — verified against the [release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.195): "Fixed external plugins enabled only by project `.claude/settings.json` not requiring explicit install consent on every loader path." That's narrower than a blanket "no consent for any external plugin install" bug — it's specifically the `.claude/settings.json`-driven loader path, which is exactly how `/ievo:init`'s **plugin** install branch works (Step 9 merges `extraKnownMarketplaces` + `enabledPlugins` there for team-shared installs). Before v2.1.195, on that path iEvo's own `AskUserQuestion` (Step 7b/8a) was the only consent gate — the CC platform dialog could be silently absent. On v2.1.195+, both gates are active for `.claude/settings.json`-enabled plugins: (1) iEvo's `AskUserQuestion`, then (2) CC's own install consent dialog. Operator minimum for full dual-gate protection on the plugin path: **Claude Code v2.1.195+**. iEvo's **vendor** path (Step 9's direct file-copy for skills/agents) never goes through CC's plugin loader, so it's unaffected either way.
 
 ## Pipeline (`/ievo:init`, v0.6.0+)
 

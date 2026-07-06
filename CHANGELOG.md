@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.47.4
+
+Document Claude Code v2.1.195 as the minimum version for full dual-gate consent on iEvo's `plugin` install path, in `AGENTS.md` § Security model and `init/SKILL.md`'s `compatibility` field — closes #264.
+
+- **Gap closed** — iEvo's security model documented four model-selection bypass vectors but said nothing about the separate CC platform-level install-consent gate that sits alongside iEvo's own `AskUserQuestion` gate on `/ievo:init`'s `plugin` install path (Step 9, `.claude/settings.json`-enabled installs).
+- **Verified against current docs** (`https://github.com/anthropics/claude-code/releases/tag/v2.1.195`, re-fetched during implementation) — the real changelog entry is narrower than the originating proposal (#264) claimed: "Fixed external plugins enabled only by project `.claude/settings.json` not requiring explicit install consent on every loader path," not a blanket "no consent for any external plugin install" bug. Documented the verified, narrower scope rather than the original framing.
+- **Fix** — added a new `AGENTS.md` § Security model bullet (separate paragraph, not the model-bypass-vectors table — the consent gate isn't a model-selection concern) explaining the `.claude/settings.json`-scoped fix, which install path it covers (`plugin`, not `vendor`), and the pre-/post-v2.1.195 gate stack. Extended `init/SKILL.md`'s `compatibility` field with a terse pointer to the same note (trimmed adjacent prose to stay under the 500-char agentskills.io limit).
+- **Scope** — docs-only: one `AGENTS.md` bullet + one `SKILL.md` `compatibility` field. No behavior, tooling, or `allowed-tools` change. `security-check/SKILL.md` intentionally left untouched — it audits candidates, it doesn't install them, so the install-consent gate doesn't apply to it.
+- **Version** — bump per AGENTS.md rules (touches a plugin file under `plugins/ievo/**`); `discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.47.3
 
 Warn that plugin skills always need the full `ievo:` prefix, since a bare name can silently misfire to a reserved Claude Code built-in — closes #325.

@@ -80,7 +80,12 @@ Robustness notes:
 
 ### 5. Render
 
-Suggested format when behind:
+When the install is **behind** (Step 3 found `installed < latest`), first infer the client surface — a **reasoning step**, not a Bash/env-var read, same judgment call as `feedback/SKILL.md` Step 3: based on the tools and context available to you in *this* session (surface-exclusive tool/MCP namespaces, explicit capability-availability/unavailability statements, product-identity signals in ambient context), judge whether this session is confidently `CLI terminal`, confidently non-CLI (`Desktop app` / `IDE extension` / `web`), or `uncertain`.
+
+- **Confidently CLI, or uncertain** — keep today's instruction unchanged (the safe default): `run /plugin update ievo to upgrade`.
+- **Confidently non-CLI** — do not assert a specific menu path (Desktop/VS Code/JetBrains update UI is unverified and platform-specific, and fabricating one is exactly the failure mode to avoid); render a generic, honest instruction instead: `check your Claude client's plugin/extension update mechanism for the latest iEvo release`.
+
+Suggested format when behind (CLI or uncertain surface):
 
 ```
 iEvo version
@@ -88,6 +93,21 @@ iEvo version
 - Installed: 0.41.0 (abc1234)
 - Latest:    0.42.0
 - Status:    1 release behind — run `/plugin update ievo` to upgrade
+
+Changes since your version:
+
+## v0.42.0
+<verbatim changelog body for v0.42.0>
+```
+
+Suggested format when behind (confidently non-CLI surface):
+
+```
+iEvo version
+
+- Installed: 0.41.0 (abc1234)
+- Latest:    0.42.0
+- Status:    1 release behind — check your Claude client's plugin/extension update mechanism for the latest iEvo release
 
 Changes since your version:
 
@@ -126,7 +146,8 @@ Adapt the exact wording as fits the conversation; keep the three facts (installe
 - **Network is optional and throttling-free here.** This is an explicit, user-invoked command, so it fetches on every run (unlike the once/24h-throttled SessionStart nudge). If the network is unavailable, degrade to the installed-version-only report — clearly, not silently.
 - **Compare versions as semver**, field-by-field numerically — never as strings.
 - **Changelog prose is shown verbatim.** Print the intervening `## vX.Y.Z` sections as-is (newest first); don't paraphrase unless asked.
-- **Always name the plugin explicitly in the suggested update command.** Render `/plugin update ievo` (the fully-qualified `/plugin update ievo@ievo-skills` form disambiguates further if a same-named plugin from another marketplace is installed) — never the bare `/plugin update`, which is Claude Code's generic multi-plugin command and leaves a user with more than one plugin installed guessing which one it would touch. `ievo` is this plugin's own `name` from `plugins/ievo/.claude-plugin/plugin.json`; `ievo-skills` is the marketplace `name` from `.claude-plugin/marketplace.json`.
+- **Always name the plugin explicitly in the suggested update command — for the CLI/uncertain-surface branch.** Render `/plugin update ievo` (the fully-qualified `/plugin update ievo@ievo-skills` form disambiguates further if a same-named plugin from another marketplace is installed) — never the bare `/plugin update`, which is Claude Code's generic multi-plugin command and leaves a user with more than one plugin installed guessing which one it would touch. `ievo` is this plugin's own `name` from `plugins/ievo/.claude-plugin/plugin.json`; `ievo-skills` is the marketplace `name` from `.claude-plugin/marketplace.json`.
+- **Surface-aware update instruction, safe-default on uncertainty.** Before rendering the "behind" message (Step 5), infer the client surface as a reasoning step (see Step 5) — never a hardcoded env-var/tool-prefix lookup, since neither platform documents a stable signal for this. Confidently CLI or uncertain → keep `/plugin update ievo` (the safe default, preserves prior behavior). Confidently non-CLI → render the generic `check your Claude client's plugin/extension update mechanism` instruction instead. Never fabricate a specific Desktop/VS Code/JetBrains menu path — that wording hasn't been verified per-surface.
 - **Bash is used only for read-only lookups** — `jq` (parse the two manifests), `curl` (fetch the manifest + changelog from `main`), and a best-effort `git rev-parse` for the SHA. No writes, no destructive commands.
 
 ## See also

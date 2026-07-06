@@ -95,6 +95,10 @@ Gather these via Bash, all best-effort (skip silently if a command fails):
 - **OS** — `uname -srm` (or `sw_vers -productVersion` on macOS)
 - **Project stack** — top-level manifest files present (e.g. `pyproject.toml, package.json`)
 
+Also infer, as a **reasoning step** (not a Bash command or env-var read):
+
+- **Client surface** — based on the tools and context available to you in *this* session (surface-exclusive tool/MCP namespaces, explicit capability-availability/unavailability statements, product-identity signals in ambient context), state your best inference of the invoking client: `CLI terminal` / `Desktop app` / `IDE extension` / `web` / `uncertain`. This is a judgment call, not a lookup table — degrade to `uncertain` honestly whenever the signals are ambiguous or absent, rather than guessing.
+
 Do NOT collect:
 - Project file contents
 - Environment variables (may contain secrets)
@@ -206,6 +210,7 @@ If user picks `Don't attach` or no log exists, skip.
 - Claude Code: <claude --version output>
 - OS: <uname output>
 - Project stack: <manifest list>
+- Client surface: <inference from Step 3, or "uncertain">
 
 <if init log was attached in step 3.85:>
 
@@ -249,6 +254,7 @@ recommendation quality (both for iEvo and upstream skills.sh).
 - Claude Code: <claude --version output>
 - OS: <uname output>
 - Project stack: <manifest list>
+- Client surface: <inference from Step 3, or "uncertain">
 
 > Submitted via `/ievo:feedback` skill (rejections flow from `/ievo:init` final feedback step)
 
@@ -413,7 +419,7 @@ Then report the outcome in one line so the audit trail is complete — e.g. `Loc
 
 - **Public posting requires explicit confirm.** Never skip step 5. Feedback is public on the internet; no surprises.
 - **English-only in public issues; verbatim original kept local-only.** Do not paraphrase, "improve", or sanitize the user's words. If the original is non-English, translate the body to English (Step 3.75) and post **only** the English version to the public issue — never echo the source-language text into the issue body. The verbatim original is preserved for translation verification in `.ievo/log/pending-reports/feedback-original-*.md` (local audit trail only, Step 6), never on GitHub.
-- **No secrets leak.** The auto-collect list is closed — version, OS, manifest names only. Do not include git remote URLs, branch names, or anything from environment variables.
+- **No secrets leak.** The Bash auto-collect list is closed — version, OS, manifest names only. Do not include git remote URLs, branch names, or anything from environment variables. Client surface is the one exception to "Bash only", and it is not an exception to "no env vars": it's a model-reasoning inference from session context, never a `$VAR` read.
 - **Best-effort context.** If any Bash command in step 3 fails, omit that line. Never block submission on metadata collection.
 - **Graceful gh-CLI fallback.** If `gh` is missing/unauthenticated, give the user a way to post manually — don't just say "failed".
 - **A missing label never loses a submission.** Labels are best-effort metadata; the feedback text is the value. Provision missing labels idempotently, and if `gh issue create` still rejects the label set, retry without labels rather than dropping the report (Step 6, B1/B2).

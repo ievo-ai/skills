@@ -319,6 +319,8 @@ iEvo supports two install paths per candidate:
 
 The interview at `/ievo:init` step 7b asks per candidate: vendor specific items OR install whole plugin OR skip.
 
+**CC v2.1.195+ recommended**: earlier versions had a consent-gate bug for plugins enabled only via this `.claude/settings.json` path — see `AGENTS.md` § Security model for the full dual-gate story (iEvo's own `AskUserQuestion` plus CC's platform consent dialog).
+
 ## Repository structure
 
 ```

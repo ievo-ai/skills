@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.49.2
+
+Make `/ievo:version`'s update instruction scope-aware and switch it to the `claude` CLI form — closes #332.
+
+- **Gap closed** — Step 5's render and the Rules section hardcoded `/plugin update ievo` with no `-s/--scope` flag. `-s/--scope` defaults to `user` (per the CLI reference), so an install enabled only at **project** scope — one of `/ievo:init`'s own two documented install paths — made the rendered instruction fail outright. #319/#323 (v0.47.2) fixed the plugin-naming half of this render but missed the scope dimension entirely.
+- **Verified empirically** (`claude plugin update` run live during implementation, matching the issue reporter's own live tests): the bare `ievo` name fails regardless of scope (`Plugin "ievo" not found`); the fully-qualified `ievo@ievo-skills` form succeeds once the correct `-s <scope>` is passed. Also re-verified against the current commands reference (`code.claude.com/docs/en/commands`): the interactive `/plugin` command documents `list`, `install`, `enable`, and `disable` as subcommands that "act directly" on arguments — `update` is not among them — so the previously-rendered `/plugin update ievo` slash form was never a documented, direct-acting command in the first place.
+- **Fix** — `version/SKILL.md` Step 5 now detects the install scope before rendering: checks `.claude/settings.json` (project), `.claude/settings.local.json` (local), then `~/.claude/settings.json` (user), in that precedence order, for an `enabledPlugins` key matching `ievo`/`ievo@<marketplace>` with a `true` value, via the same read-only `jq` pattern the skill already uses (no new `allowed-tools` permission needed). Switches the recommended command from the interactive `/plugin update ievo` slash form to the documented, scope-aware `claude plugin update ievo@ievo-skills -s <scope>` CLI form; project/local-scope renders add a reminder to run it from the project root, since that scope resolves against the shell's cwd. Degrades honestly to a `claude plugin list` + manual-pick fallback when no scope match is found. The confidently-non-CLI branch (#328/v0.49.0) is unchanged — scope detection and the CLI form only apply to the CLI/uncertain branch.
+- **Scope** — left the passive SessionStart version-check nudge (`hooks-setup/SKILL.md` Step 5.7) untouched; the issue's fix sketch scoped this to `version/SKILL.md` only.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.49.1
 
 Document CC v2.1.195's external plugin install consent gate fix as the minimum version for iEvo's dual-gate install protection — closes #264.

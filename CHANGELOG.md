@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.49.0
+
+Make `feedback` and `version` client-surface-aware — closes #328.
+
+- **Feature** — `feedback/SKILL.md` Step 3 now also infers the invoking client surface (`CLI terminal` / `Desktop app` / `IDE extension` / `web` / `uncertain`) and renders it as a new `- Client surface: <...>` line in the auto-collected `## Environment` block (both flow A and flow B report formats).
+- **Feature** — `version/SKILL.md` Step 5 now infers the same signal before rendering the "you're behind" message: a confidently CLI (or uncertain) session keeps today's `run /plugin update ievo` instruction; a confidently non-CLI session instead gets a generic `check your Claude client's plugin/extension update mechanism` instruction.
+- **Design, per the approved issue discussion** — both fixes are a **model-reasoning step**, not a Bash/env-var read or a hardcoded tool-prefix lookup table. Live testing during the issue's research (Codex Desktop, a Claude-Desktop-style wrapper) found neither platform exposes a documented, stable "which surface" signal — both models had to infer their surface from indirect context (tool-namespace availability, capability-unavailability statements, product-identity strings). A reasoning instruction self-updates as platform internals change and degrades honestly to `uncertain` rather than asserting a wrong surface, so this also sidesteps `feedback/SKILL.md`'s existing "Do NOT collect: environment variables" rule entirely — no env var is read, the rule stands untouched.
+- **Non-fabrication guard** — `version/SKILL.md` never asserts a specific unverified Desktop/VS Code/JetBrains menu path for the non-CLI branch, per the issue's explicit caution; the non-CLI instruction stays generic.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor, pre-1.0; adds new plugin-file capability). `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.48.0
 
 Add zero-setup `hooks:` frontmatter to `evo`, `security-check`, and `init` for built-in completion notifications — closes #159.

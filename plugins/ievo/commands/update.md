@@ -59,7 +59,7 @@ After the file's YAML frontmatter `---` closing line, insert:
 
 Where `<scope>` = `agents` or `skills` and `<name>` = the target name.
 
-The marker block is the SAME format as used by `/ievo:evolution` step 3.
+The marker block is the SAME format as used by `/ievo:evo` step 3.
 
 ### 4. Update overlay frontmatter
 

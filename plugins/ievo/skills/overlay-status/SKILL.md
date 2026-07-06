@@ -26,7 +26,7 @@ The legibility principle: *what the agent cannot inspect through approved tools 
 - User asks "what evolutions have I captured", "show my iEvo overlays", "what rules are active", "list installed overlays", "summarize .ievo/evolution"
 - Onboarding a collaborator — they need to see what iEvo state already lives in the project
 - Periodic review — operator wants to spot stale or superseded overlays for cleanup
-- Before a `/ievo:evolution` call — confirm the new lesson isn't already covered by an existing overlay
+- Before a `/ievo:evo` call — confirm the new lesson isn't already covered by an existing overlay
 
 ## Steps
 
@@ -39,9 +39,9 @@ Use TWO Glob calls so the flat `project.md` is enumerated reliably across glob i
 
 Union the two result sets and dedupe by path. Why two calls: on Claude Code (npm `glob` v10) the `**` matches zero or more path segments, so `**/*.md` alone matches `project.md`. But on other agentskills.io-compatible hosts (older minimatch / shell-glob / Python `pathlib`) `**` typically requires at least one intervening directory segment, and `project.md` would be silently excluded. The Project scope would then render `(none)` even when a real project overlay exists. The two-call union is the simplest portable form.
 
-Glob returns an empty array if the directory doesn't exist or contains no `.md` files — no need for a separate existence check. Glob is the only existence-detection path; do NOT use a sentinel file (no skill in iEvo guarantees any specific file's presence — `evolution/SKILL.md` only writes per-scope overlay files as needed).
+Glob returns an empty array if the directory doesn't exist or contains no `.md` files — no need for a separate existence check. Glob is the only existence-detection path; do NOT use a sentinel file (no skill in iEvo guarantees any specific file's presence — `evo/SKILL.md` only writes per-scope overlay files as needed).
 
-Expected layout (defined by `evolution/SKILL.md` Step 4):
+Expected layout (defined by `evo/SKILL.md` Step 4):
 
 ```
 .ievo/evolution/
@@ -61,7 +61,7 @@ No iEvo overlays found in this project.
 
 `.ievo/evolution/` is empty (or doesn't exist).
 
-To capture your first lesson, run `/ievo:evolution "<lesson text>"` —
+To capture your first lesson, run `/ievo:evo "<lesson text>"` —
 it will create the directory and write the appropriate overlay file
 automatically.
 ```
@@ -86,7 +86,7 @@ Unexpected paths (e.g. a user-authored file at `.ievo/evolution/notes.md`) fall 
 For each enumerated file, use the Read tool and pull the summary by this precedence:
 
 1. **YAML frontmatter `description:` field** — if present and non-empty, use it.
-2. **First `##`-level subsection title** when the file's first `# ` heading matches the boilerplate pattern `# <name> — Evolution Overlay` — strip the `##`, use the title. `/ievo:evolution` (defined in `evolution/SKILL.md` Step 4) writes overlays whose first heading is always this boilerplate (e.g. `# coder — Evolution Overlay`); the meaningful content lives in `## YYYY-MM-DD — <short title>` subsections immediately below. Falling through to "first heading" would render every evolution overlay as `"coder — Evolution Overlay"` regardless of content, defeating this skill's purpose. So when boilerplate is detected, skip it and report the most recent (typically the first) `## ` subsection's text — that's the actual lesson title.
+2. **First `##`-level subsection title** when the file's first `# ` heading matches the boilerplate pattern `# <name> — Evolution Overlay` — strip the `##`, use the title. `/ievo:evo` (defined in `evo/SKILL.md` Step 4) writes overlays whose first heading is always this boilerplate (e.g. `# coder — Evolution Overlay`); the meaningful content lives in `## YYYY-MM-DD — <short title>` subsections immediately below. Falling through to "first heading" would render every evolution overlay as `"coder — Evolution Overlay"` regardless of content, defeating this skill's purpose. So when boilerplate is detected, skip it and report the most recent (typically the first) `## ` subsection's text — that's the actual lesson title.
 3. **First Markdown heading** (`# ` or `## ` line) below the frontmatter — strip the `#`s, use the text. (For non-evolution-overlay user files that don't match the boilerplate pattern.)
 4. **First non-blank, non-frontmatter, non-heading line** — use up to its first 120 characters.
 5. **Fallback** — emit `(empty overlay)` if none of the above produces text.
@@ -138,7 +138,7 @@ Group by scope. Suggested format:
 - `architect.md` — "Always check for existing patterns before proposing new abstractions" (last modified: 2026-05-19)
 
 ### skills/ (<N> overlays)
-- `evolution.md` — "Marker injection must be idempotent" (last modified: 2026-05-21)
+- `evo.md` — "Marker injection must be idempotent" (last modified: 2026-05-21)
 
 ### Other (<N> file(s) — unexpected paths)
 - `notes.md` — "Project context notes" *(unexpected location; mtime not captured)*
@@ -146,7 +146,7 @@ Group by scope. Suggested format:
 
 ---
 
-To add an overlay → `/ievo:evolution "<lesson>"`.
+To add an overlay → `/ievo:evo "<lesson>"`.
 To remove an overlay → delete the file under `.ievo/evolution/`.
 To inspect a specific overlay → `cat .ievo/evolution/<scope>/<name>.md` (or `.ievo/evolution/project.md` for project scope).
 ```
@@ -170,7 +170,7 @@ date -u +%Y-%m-%d
 If any overlay's last-modified date is more than 180 days before today, add a footer line:
 
 ```
-⚠ <N> overlay(s) untouched in 180+ days — consider running `/ievo:evolution`
+⚠ <N> overlay(s) untouched in 180+ days — consider running `/ievo:evo`
   again to confirm they're still load-bearing, or delete if superseded.
 ```
 
@@ -182,13 +182,13 @@ This step is best-effort; skip it if mtime is unavailable (Step 4 Windows-fallba
 
 - **Read-only.** This skill NEVER writes, edits, or deletes overlay files. Even on encountering corrupted YAML frontmatter — emit `(unparsable frontmatter)` and move on.
 - **Project scope is a FLAT file**, not a directory. The path is `.ievo/evolution/project.md` — do NOT glob `.ievo/evolution/project/*.md` (no such subdirectory exists).
-- **Use Glob for existence detection**, not a sentinel file. No iEvo skill guarantees the presence of any specific file under `.ievo/evolution/` — only that overlays are written there when `/ievo:evolution` is invoked.
+- **Use Glob for existence detection**, not a sentinel file. No iEvo skill guarantees the presence of any specific file under `.ievo/evolution/` — only that overlays are written there when `/ievo:evo` is invoked.
 - **Empty scopes show `(none)`** — don't hide them. The point is legibility; explicit zero conveys "I checked, nothing's there".
 - **Bash is used only for mtime lookup and OS/date detection** (`stat` for last-modified per file, `uname -s` for OS-branch routing in Step 4, `date -u +%Y-%m-%d` for the today-date comparison in Step 6 if not already in session context). Never for reading file contents or modifying anything. The `allowed-tools` frontmatter declares `Bash(stat*)`, `Bash(uname*)`, and `Bash(date*)` for exactly these three uses — no broader Bash surface.
 
 ## See also
 
-- `evolution/SKILL.md` — writes overlays (the inverse of this skill). Defines the layout convention `.ievo/evolution/{project.md,agents/<name>.md,skills/<name>.md}`.
+- `evo/SKILL.md` — writes overlays (the inverse of this skill). Defines the layout convention `.ievo/evolution/{project.md,agents/<name>.md,skills/<name>.md}`.
 - `init/SKILL.md` — creates the `.ievo/evolution/` directory at install time (Step 9 + Step 10's gitignore configuration).
 
 ## References

@@ -27,7 +27,7 @@ Uses two Claude Code hook features (verified against [v2.1.139](https://github.c
 - **Exec-form `args: string[]`** (v2.1.139+): spawns the command directly without a shell at the *outer* invocation — eliminates the shell-quoting injection surface when paths get interpolated into the matcher → args chain. (We still use `sh -c "..."` *inside* `args` for the `date`/`mkdir`/`echo` pipeline — that's intentional, and there's no user-controlled input in the inner shell string.)
 - **`terminalSequence`** field on hook JSON output (v2.1.141+): emits desktop notifications, window titles, and bells without requiring a controlling terminal.
 
-Hooks trigger on **signal files** that iEvo writes at well-known paths under `.ievo/hooks/`. Init, evolution, and the security-auditor agent each write their respective signal file as a final step (added in v0.6.9 alongside this skill); this skill configures the matching `PostToolUse` `Write(...)` hooks.
+Hooks trigger on **signal files** that iEvo writes at well-known paths under `.ievo/hooks/`. Init, evo, and the security-auditor agent each write their respective signal file as a final step (added in v0.6.9 alongside this skill); this skill configures the matching `PostToolUse` `Write(...)` hooks.
 
 ## Step 1: Ask the user which events to hook
 
@@ -38,7 +38,7 @@ Which iEvo pipeline events should fire hooks?
 Options (multi-select):
 - "init-complete"       — when /ievo:init finishes installing skills
 - "security-red"        — when security-auditor returns a RED verdict
-- "evolution-captured"  — when /ievo:evolution captures a lesson overlay
+- "evolution-captured"  — when /ievo:evo captures a lesson overlay
 ```
 
 If user picks nothing, do NOT exit yet — Steps 5.5, 5.6, and 5.7 below offer independent hook flows (a Stop hook, a `claude agents` Notification hook, and a SessionStart version-check nudge). Only exit once Step 5.7 is done, and only if Step 1, Step 5.5, Step 5.6, and Step 5.7 all produced zero hook entries.
@@ -446,7 +446,7 @@ Print a final confirmation:
 Hooks fire on these signal-file writes (PostToolUse):
   .ievo/hooks/init-complete       → after /ievo:init finishes
   .ievo/hooks/security-red        → after security-auditor returns RED
-  .ievo/hooks/evolution-captured  → after /ievo:evolution writes an overlay
+  .ievo/hooks/evolution-captured  → after /ievo:evo writes an overlay
 [If Step 5.5 configured:]
 Stop hook (read-side, .ievo/hooks/scripts/on-stop.sh):
   fires once per session-stop, ONLY when background_tasks=0 AND session_crons=0
@@ -464,7 +464,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - **Never overwrite** existing `PostToolUse` entries — append only, with the dedup check in Step 6.3.
 - **Project scope is recommended** for team-shared signal (the same hooks fire for everyone on the team after pulling). Global scope is for personal-machine-wide preferences.
 - **Logs go to `.ievo/log/hooks/`** even when `none` is selected as the notification — silent operation, but the audit trail is still available.
-- **Signal files are written by other iEvo skills** (init, evolution, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
+- **Signal files are written by other iEvo skills** (init, evo, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
 - **Version-check nudge is fail-silent + throttled.** `.ievo/hooks/scripts/version-check.sh` emits nothing on any error or when up to date, makes at most one network call per 24h (cache-hit path is offline), and — SessionStart being context-only — can never block or delay a session. Recommend native plugin auto-update as the primary fix; the nudge is the keep-auto-update-off fallback. Its `plugin.json` path is baked at setup time because a user-`settings.json` hook has no `CLAUDE_PLUGIN_ROOT`.
 - **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
 - **Stop hook script is local, not team-shared.** Notification commands are OS- and preference-specific (macOS osascript vs Linux notify-send vs custom path), so `.ievo/hooks/scripts/on-stop.sh` is intentionally written under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10). The Stop hook entry in `settings.json` is project-scope-tracked, but the script it references is not — when a team member pulls a project that uses the Stop hook, Claude Code will log a hook-launch error if their `.ievo/hooks/scripts/on-stop.sh` is absent. The error is cosmetic (Stop hook is non-blocking by design; the missing-script `sh` exit is also non-blocking on session flow). To activate the hook locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copy of the script.
@@ -472,7 +472,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 ## See also
 
 - `init/SKILL.md` **Step 11.5** — writes `.ievo/hooks/init-complete` at the end of the pipeline.
-- `evolution/SKILL.md` **Step 5.5** — writes `.ievo/hooks/evolution-captured` after the overlay append.
+- `evo/SKILL.md` **Step 5.5** — writes `.ievo/hooks/evolution-captured` after the overlay append.
 - `security-auditor.md` agent body **Step 6** — writes `.ievo/hooks/security-red` after returning a RED verdict.
 
 ## References

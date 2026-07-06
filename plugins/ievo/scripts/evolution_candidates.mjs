@@ -7,7 +7,7 @@
 // so, record it verbatim by calling this script's `append` command. The
 // SessionStart analysis nudge calls `count` (to decide whether to surface the
 // backlog) and `prune` (retention). The analysis itself runs through the normal
-// /ievo:evolution flow at the next session — this script only ACCUMULATES; it
+// /ievo:evo flow at the next session — this script only ACCUMULATES; it
 // never classifies scope or writes overlays (per #293 Q3: no LLM work at
 // teardown, analyze at next SessionStart).
 //
@@ -37,7 +37,7 @@ import { fileURLToPath } from "node:url";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.47.3";
+export const SCRIPT_VERSION = "0.47.4";
 export const IEVO_DIR = ".ievo";
 export const CANDIDATES_DIR = "evolution-candidates";
 export const SESSION_EXT = ".jsonl";

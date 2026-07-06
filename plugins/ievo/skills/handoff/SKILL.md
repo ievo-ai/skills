@@ -97,7 +97,7 @@ Auto-detect installed iEvo skills and suggest relevant ones for the next session
 2. If not present, scan for installed skills via Glob:
    - `.claude/skills/*/SKILL.md`
    - `.claude/plugins/*/skills/*/SKILL.md`
-3. From the installed skills list, select those relevant to the next session's purpose. Always include `/ievo:init` if the next session involves a new project, `/ievo:evolution` if it involves capturing lessons, and `/ievo:security-check` if it involves auditing.
+3. From the installed skills list, select those relevant to the next session's purpose. Always include `/ievo:init` if the next session involves a new project, `/ievo:evo` if it involves capturing lessons, and `/ievo:security-check` if it involves auditing.
 4. If no iEvo skills are detected, omit the suggested-skills section entirely rather than suggesting skills that may not be installed.
 
 ### 2e — Active evolution overlays (if relevant)
@@ -230,6 +230,6 @@ accumulated weight of this session's history.
 
 ## See also
 
-- `/ievo:evolution` — if the current session produced lessons worth persisting across ALL future sessions (not just the next one), capture them as evolution overlays before handing off.
+- `/ievo:evo` — if the current session produced lessons worth persisting across ALL future sessions (not just the next one), capture them as evolution overlays before handing off.
 - `/ievo:debug-on` — if the next session needs verbose logging for diagnosis.
 - `/ievo:init` — if the next session targets a project that hasn't been set up with iEvo yet.

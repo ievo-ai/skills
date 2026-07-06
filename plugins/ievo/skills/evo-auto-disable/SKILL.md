@@ -1,6 +1,6 @@
 ---
 name: evo-auto-disable
-description: "Disable auto-evolution mode for this project. Stops iEvo from accumulating \"corrections from the user\" as evolution candidates; reverts to explicit `/ievo:evolution` only. Removes the project-local flag `.ievo/evo-auto.flag`. Non-destructive: already-parked candidates in `.ievo/evolution-candidates/` are preserved for review. Inverse of `/ievo:evo-auto-enable`. Trigger words — \"turn off auto evolution\", \"stop auto-evolve\", \"evo auto off\", \"stop capturing lessons automatically\"."
+description: "Disable auto-evolution mode for this project. Stops iEvo from accumulating \"corrections from the user\" as evolution candidates; reverts to explicit `/ievo:evo` only. Removes the project-local flag `.ievo/evo-auto.flag`. Non-destructive: already-parked candidates in `.ievo/evolution-candidates/` are preserved for review. Inverse of `/ievo:evo-auto-enable`. Trigger words — \"turn off auto evolution\", \"stop auto-evolve\", \"evo auto off\", \"stop capturing lessons automatically\"."
 license: MIT
 effort: low
 compatibility: "Any agentskills.io platform. Inverse of `/ievo:evo-auto-enable`. Uses POSIX shell (`rm -f`) with a Node `fs.unlinkSync` fallback and a Windows `Remove-Item` variant; on Windows run via WSL/Git Bash or use the Node fallback. Removes the flag, the two auto-evolution hook entries from `.claude/settings.json`, and their `.ievo/hooks/scripts/` scripts — the `.ievo/evolution-candidates/` queue is left intact."
@@ -12,7 +12,7 @@ metadata:
 # Evo Auto Disable — turn off auto-evolution mode
 
 Reverts iEvo to **explicit-only** evolution: corrections stop being captured
-automatically and lessons are only recorded when the user runs `/ievo:evolution`.
+automatically and lessons are only recorded when the user runs `/ievo:evo`.
 Removes `.ievo/evo-auto.flag`. Any candidates already parked in
 `.ievo/evolution-candidates/` are **kept** — they remain available for review.
 
@@ -107,11 +107,11 @@ Print:
 🧬 iEvo auto-evolution mode DISABLED
 
 Was enabled: <enabled_at from flag>
-Corrections are no longer captured automatically — use /ievo:evolution to record
+Corrections are no longer captured automatically — use /ievo:evo to record
 lessons manually.
 
 Pending candidates preserved: <count> in .ievo/evolution-candidates/pending.md
-Review them any time with /ievo:evolution.
+Review them any time with /ievo:evo.
 
 Re-enable: /ievo:evo-auto-enable
 ```
@@ -129,6 +129,6 @@ Re-enable: /ievo:evo-auto-enable
 ## See also
 
 - `/ievo:evo-auto-enable` — turn auto-evolution mode back on
-- `/ievo:evolution` — review parked candidates / capture a lesson manually
+- `/ievo:evo` — review parked candidates / capture a lesson manually
 - `.ievo/evolution-candidates/pending.md` — parked candidates, preserved across
   enable/disable

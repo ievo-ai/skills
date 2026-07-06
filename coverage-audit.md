@@ -16,7 +16,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Vendor a skill/agent from a remote repo into the project | (`/ievo:init` install step) | — | covered | `gh api repos/<owner>/<repo>/contents/<path>?ref=<sha>` → Write tool → `.claude/<type>/` + overlay marker + source SHA recorded in `.ievo/evolution/<scope>/<name>.md` |
 | Configure lifecycle notification hooks (init-complete, security-red, evolution-captured) | `/ievo:hooks-setup` | — | covered | exec-form `args: string[]` `Write(...)` matcher hooks; `terminalSequence` for desktop notifications (v2.1.141+); project + global scope |
 | Notify when all background agents are complete (parallel subagents from `/ievo:init`) | `/ievo:hooks-setup` (Step 5.5, optional) | `.ievo/hooks/scripts/on-stop.sh` | covered | Read-side Stop hook using `background_tasks` + `session_crons` (Claude Code v2.1.145+); non-blocking (exits 0); macOS/Linux/bell/custom notification commands; structurally distinct from the three write-side PostToolUse signal-file hooks |
-| Capture a lesson / convention / mistake-prevention rule | `/ievo:evolution "<lesson>"` | — | covered | Appends to `.ievo/evolution/<scope>/<name>.md` overlay file; agent/skill body never modified |
+| Capture a lesson / convention / mistake-prevention rule | `/ievo:evo "<lesson>"` | — | covered | Appends to `.ievo/evolution/<scope>/<name>.md` overlay file; agent/skill body never modified |
 | Submit feedback / bug report / skip-reason as a GitHub issue | `/ievo:feedback` | — | covered | Write tool → `.ievo/log/pending-reports/feedback-body-<ISO>.md` → `gh issue create --body-file <path>` (shell-safe, no inline interpolation surface) |
 | Enable verbose / trace-level logging | `/ievo:debug-on` | — | covered | Writes `.ievo/debug.flag`, creates per-session log dir, future skill invocations log expanded payloads |
 | Disable verbose logging + finalise debug session | `/ievo:debug-off` | — | covered | Removes the flag, archives the session log |
@@ -32,7 +32,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Cortex A/B validation gate for evolution proposals | — | — | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
 | GitHub search source in `discover.mjs` for agent-only / plugin-only repos | — | (`discover.mjs` extension) | **planned (v0.7.0)** | Per the AGENTS.md roadmap |
 | Schedule periodic iEvo operations via Claude Code Routines | `/ievo:schedule` | — | covered | Guided wizard: operation type + frequency + routine creation. Falls back to CI cron when Routines unavailable. Claude Code only (Routines are a research preview; require Pro/Max/Team/Enterprise; /schedule needs v2.1.81+). |
-| Standalone "list installed iEvo overlays" command | `/ievo:overlay-status` | — | covered | Reads `.ievo/evolution/`, groups by scope (Project / agents / skills) matching the actual layout written by `evolution/SKILL.md` (`project.md` flat file, plus `agents/<name>.md` and `skills/<name>.md` subdirs); extracts one-line summary per file with last-modified date; flags overlays untouched 180+ days as candidates for cleanup; pure Read + Glob + `stat` (Bash limited to `stat` for mtime; Windows-without-POSIX hosts gracefully omit dates) |
+| Standalone "list installed iEvo overlays" command | `/ievo:overlay-status` | — | covered | Reads `.ievo/evolution/`, groups by scope (Project / agents / skills) matching the actual layout written by `evo/SKILL.md` (`project.md` flat file, plus `agents/<name>.md` and `skills/<name>.md` subdirs); extracts one-line summary per file with last-modified date; flags overlays untouched 180+ days as candidates for cleanup; pure Read + Glob + `stat` (Bash limited to `stat` for mtime; Windows-without-POSIX hosts gracefully omit dates) |
 | Scan project source code for vulnerabilities (CWE-aware, exploit-chain validated) | `/ievo:vuln-scan` | — (`vuln-scan/SKILL.md` per-module worker + `vuln-scanner` agent dispatched in parallel) | covered | Glasswing-inspired: Step 1 reads all source files, Step 2 maps data flows, Step 3 detects via CWE taxonomy, Step 4 validates with exploit chains (no chain = no finding). Sonnet-tier reasoning required; parallel module dispatch via Task tool. |
 | Inspect a specific skill/repo before running init | `/ievo:inspect` | — (pure SKILL.md, `gh api` for remote data) | covered | Fetches repo tree + key file frontmatter via GitHub API; renders structured capability summary (skills, agents, commands, scripts, hooks, permissions); read-only, no install, no security scan |
 | Standalone "show next-step suggestions based on installed skills" | — | — | gap | Adjacent to evolution capture but discovery-oriented |
@@ -87,7 +87,7 @@ ievo-ai/skills/
       tests/                   ← 100/100/100 enforced by CI
     skills/
       init/SKILL.md
-      evolution/SKILL.md
+      evo/SKILL.md
       feedback/SKILL.md
       debug-on/SKILL.md
       debug-off/SKILL.md

@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.47.4
+
+Rename the "capture a lesson" skill invocation from `/ievo:evolution` to `/ievo:evo` for faster typing — closes #329.
+
+- **Reason** — operator request: "evolution" is slow to type for a skill invoked often (any time a mistake, convention, or pattern is worth recording); a short alias lowers the friction to actually using it.
+- **Fix** — `git mv plugins/ievo/skills/evolution/ plugins/ievo/skills/evo/`, updated its `name:` frontmatter to `evo` and its `# Evolution` heading to `# Evo`. Updated every live `/ievo:evolution` invocation and every `evolution/SKILL.md` path cross-reference to `/ievo:evo` / `evo/SKILL.md` across `README.md`, `AGENTS.md`, `coverage-audit.md`, `plugins/ievo/commands/uninstall.md`, `plugins/ievo/commands/update.md`, `plugins/ievo/skills/{overlay-status,init,feedback,evo-auto-enable,evo-auto-disable,hooks-setup,debug-on,handoff,schedule}/SKILL.md`, `plugins/ievo/agents/evolution.md`, and a comment in `plugins/ievo/scripts/evolution_candidates.mjs`.
+- **Left untouched** — the general `.ievo/evolution/<scope>/<name>.md` overlay-path convention and terminology (directory layout, "evolution overlay"/"evolution candidates"/"auto-evolution mode" prose, the `evolution_candidates.mjs` script name) — a distinct, unrelated meaning of "evolution" that a blind find-and-replace would have corrupted. Also left untouched: the `evolution` sub-agent's own name/frontmatter/filename (`plugins/ievo/agents/evolution.md`, dispatched via `subagent_type: "evolution"`) — already decoupled from its calling skill's name, the same pattern as `security-check` → `security-auditor` and `deep-review` → `deep-reviewer`.
+- **Backwards compatibility** — no alias/redirect added for `/ievo:evolution`. `AGENTS.md` documents no prior skill-rename precedent requiring one, and this is an internal plugin command with no external API contract — a clean rename is acceptable.
+- **Namespace check** — confirmed `/ievo:evo` reads unambiguously alongside `/ievo:evo-auto-enable` / `/ievo:evo-auto-disable`: their descriptions and trigger words describe a distinct concept (toggling background auto-capture mode) from capturing a single lesson now, so no further rename was needed.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits plugin files under `plugins/ievo/**`); `discover.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.47.3
 
 Warn that plugin skills always need the full `ievo:` prefix, since a bare name can silently misfire to a reserved Claude Code built-in — closes #325.

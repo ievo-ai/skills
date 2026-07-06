@@ -189,7 +189,7 @@ Create if missing:
 - `.ievo/log/`
 - `.ievo/log/hooks/` — append-only audit log for lifecycle hook fires (events.log appended by every hook configured via `/ievo:hooks-setup`)
 - `.ievo/cache/index/`
-- `.ievo/hooks/` — signal-file directory for lifecycle hooks; Step 11.5 writes `init-complete` here, evolution/SKILL.md Step 5.5 writes `evolution-captured`, security-auditor.md Step 6 writes `security-red` (RED-only). Created defensively even if `/ievo:hooks-setup` hasn't been run yet
+- `.ievo/hooks/` — signal-file directory for lifecycle hooks; Step 11.5 writes `init-complete` here, evo/SKILL.md Step 5.5 writes `evolution-captured`, security-auditor.md Step 6 writes `security-red` (RED-only). Created defensively even if `/ievo:hooks-setup` hasn't been run yet
 - `.claude/` — root for vendored items
 - `.claude/agents/` — for vendored agents
 - `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add`)
@@ -467,7 +467,7 @@ Options:
 Question: `Vendor <agent-name>?`
 Header: <short tag>
 Options:
-  - "Vendor agent" — description: "Copy <agent-name>.md to .claude/agents/, set up overlay for /ievo:evolution. Source: <owner>/<repo>."
+  - "Vendor agent" — description: "Copy <agent-name>.md to .claude/agents/, set up overlay for /ievo:evo. Source: <owner>/<repo>."
   - "Skip"
 ```
 
@@ -562,7 +562,7 @@ it completes so progress shows live in `tail -f`. Format: [log-format.md §9](re
 Project `.gitignore` should ignore:
 - `.ievo/log/` — diagnostic logs (local-only)
 - `.ievo/cache/` — repo indices (re-derivable)
-- `.ievo/hooks/` — ephemeral one-line signal-file timestamps written by Step 11.5 / evolution Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state)
+- `.ievo/hooks/` — ephemeral one-line signal-file timestamps written by Step 11.5 / evo Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state)
 
 But NOT ignore (must be committed for team portability):
 - `.ievo/evolution/` — overlay files (project-owned evolution data)
@@ -625,7 +625,7 @@ To keep iEvo itself current (recommended):
   can add a fail-silent, once-a-day SessionStart nudge when your version is behind.
 
 To capture lessons going forward:
-  /ievo:evolution "<rule>"
+  /ievo:evo "<rule>"
 
 To update vendored skills/agents later:
   /ievo:update

@@ -149,14 +149,14 @@ Always write — costs nothing, unblocks hook configuration added later. Skip if
 After the overlay append (Step 4) succeeds, use a cheap signal-word heuristic (no sub-dispatch, same style as Step 1) to judge whether the lesson is worth sharing upstream as feedback to the iEvo plugin repo. **Default: local.**
 
 **Upstream-relevant** only when the lesson describes a gap, bug, or missing capability in the **iEvo plugin itself** — its skills, agents, commands, or overlay/marker mechanics — useful to *any* iEvo user. Signals (need at least one, about iEvo's *own* behavior):
-- It names an iEvo capability (`/ievo:*` command; a bundled skill/agent like `evolution`, `feedback`, `deep-review`, `init`; overlay/marker mechanics; a `.ievo/` path) **and** frames a shortcoming/wish about *its* behavior ("didn't", "doesn't", "should", "missing", "can't", "bug").
+- It names an iEvo capability (`/ievo:*` command; a bundled skill/agent like `evo`, `feedback`, `deep-review`, `init`; overlay/marker mechanics; a `.ievo/` path) **and** frames a shortcoming/wish about *its* behavior ("didn't", "doesn't", "should", "missing", "can't", "bug").
 - The vendored target (Step 2) resolved to an iEvo plugin file (overlay `source.repo` is `ievo-ai/skills`) **and** the lesson is about that shipped capability, not a project-local tweak of it.
 
 **Local** (the default) when it is a project convention, tech-stack fact, team role, or a codebase-specific mistake — even if it lives on an iEvo agent/skill overlay. When in doubt, stay local.
 
 You are a dispatched sub-agent: you have **no** tool to prompt the user or launch another skill, so do **not** offer or invoke `/ievo:feedback` yourself. Instead surface the verdict in your Step 5 report:
 - If **local:** report `upstream escalation: not applicable (local lesson)` — nothing more.
-- If **upstream-relevant:** report `upstream escalation: recommended` plus the **verbatim lesson text** (original language, untranslated — the caller's `feedback` flow translates once in its Step 3.75). The caller runs `evolution/SKILL.md` Step 5.6 in the main session: the one-question `AskUserQuestion` offer and, on accept, the pre-filled hand-off to `/ievo:feedback` (flow C), whose explicit Step 5 gate governs any public posting.
+- If **upstream-relevant:** report `upstream escalation: recommended` plus the **verbatim lesson text** (original language, untranslated — the caller's `feedback` flow translates once in its Step 3.75). The caller runs `evo/SKILL.md` Step 5.6 in the main session: the one-question `AskUserQuestion` offer and, on accept, the pre-filled hand-off to `/ievo:feedback` (flow C), whose explicit Step 5 gate governs any public posting.
 
 ## Step 5: Report
 

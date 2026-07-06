@@ -27,7 +27,7 @@ submit as feedback to ievo-ai/skills, copying reasons forward as
 registry-improvement signal that can be relayed to vercel-labs/skills.
 ```
 
-**(C) Evolution handoff** — invoked from `/ievo:evolution` Step 5.6 after a lesson was captured that looks like it's about the iEvo plugin itself. The caller passes the **verbatim lesson text already known** (the same text appended to the overlay, in the user's original language). Because the feedback text is already in hand, flow C **skips Step 2** (collect feedback text) — but runs everything else normally: Step 1 (classify type — a plugin gap is usually `Bug` or `Feature`/`Idea`), Step 3 (environment), Step 3.5 (clarify — usually skipped, the lesson is already specific), Step 3.75 (translate the lesson to English **once, here** — evolution does not pre-translate), Step 4 (build body, flow-A format), and — critically — Step 5 (public-posting confirmation gate) **unchanged**. Nothing is posted until the user clears that gate.
+**(C) Evo handoff** — invoked from `/ievo:evo` Step 5.6 after a lesson was captured that looks like it's about the iEvo plugin itself. The caller passes the **verbatim lesson text already known** (the same text appended to the overlay, in the user's original language). Because the feedback text is already in hand, flow C **skips Step 2** (collect feedback text) — but runs everything else normally: Step 1 (classify type — a plugin gap is usually `Bug` or `Feature`/`Idea`), Step 3 (environment), Step 3.5 (clarify — usually skipped, the lesson is already specific), Step 3.75 (translate the lesson to English **once, here** — evo does not pre-translate), Step 4 (build body, flow-A format), and — critically — Step 5 (public-posting confirmation gate) **unchanged**. Nothing is posted until the user clears that gate.
 
 If invoked in flow (B), **skip Step 1** (type is implicitly "Idea" / registry-improvement) and **jump to Step 1b** below. If invoked in flow (C), **skip Step 2** (feedback text is the pre-filled lesson) and otherwise proceed normally from Step 1. Otherwise (flow A) proceed with Step 1.
 
@@ -72,7 +72,7 @@ Use **type = idea** and **labels = feedback, registry-quality** for flow B.
 
 ## Step 2: Collect the feedback text
 
-**Flow C (evolution handoff): skip this step** — the feedback text is the pre-filled verbatim lesson the caller already passed in. Use it as-is (don't re-ask) and go to Step 3.
+**Flow C (evo handoff): skip this step** — the feedback text is the pre-filled verbatim lesson the caller already passed in. Use it as-is (don't re-ask) and go to Step 3.
 
 Ask the user for the actual feedback. Use a clear prompt like:
 
@@ -379,15 +379,15 @@ On failure (gh missing or network):
 - Show the user the body to copy/paste manually
 - Show the URL to create issues: https://github.com/ievo-ai/skills/issues/new
 
-## Step 7.5: Offer a local evolution handoff (flow A — a Bug about a specific agent or skill)
+## Step 7.5: Offer a local evo handoff (flow A — a Bug about a specific agent or skill)
 
-This is the mirror of the evolution → feedback bridge (`evolution/SKILL.md` Step 5.6, flow **(C)**): once a bug about an agent or skill has been filed upstream, the fix ships on the upstream repo's timeline — but the project stays exposed until then. Offer to capture a **local** workaround/lesson into this project's evolution overlay right now, so the project is protected immediately while the upstream fix is pending. On the next `/ievo:update`, that overlay entry can be revisited once the fixed version ships. Together the two directions form a two-way bridge: a lesson worth sharing goes upstream, and a reported bug gets an immediate local mitigation.
+This is the mirror of the evo → feedback bridge (`evo/SKILL.md` Step 5.6, flow **(C)**): once a bug about an agent or skill has been filed upstream, the fix ships on the upstream repo's timeline — but the project stays exposed until then. Offer to capture a **local** workaround/lesson into this project's evolution overlay right now, so the project is protected immediately while the upstream fix is pending. On the next `/ievo:update`, that overlay entry can be revisited once the fixed version ships. Together the two directions form a two-way bridge: a lesson worth sharing goes upstream, and a reported bug gets an immediate local mitigation.
 
 Run this only **after Step 7 reported a successful submission** (an issue URL exists — if the user cancelled at Step 5, the flow already ended there; if Step 6 failed, let the user finish filing manually first). **Never automatic — same explicit-gate philosophy as the rest of the plugin.** Offer at most once, and only when ALL of these hold:
 
-1. **Flow A only.** Skip entirely in flow **(B)** (rejections — the type is Idea, not a bug) and in flow **(C)** (this feedback was itself invoked from `/ievo:evolution` Step 5.6). The flow-C skip is the **loop guard**: a bug captured via evolution → feedback must not immediately bounce back feedback → evolution. It also breaks the forward loop — a handoff from this step lands in `evolution`, whose own Step 5.6 may offer feedback again as flow **(C)**, where this step is skipped, so the bridge always terminates.
+1. **Flow A only.** Skip entirely in flow **(B)** (rejections — the type is Idea, not a bug) and in flow **(C)** (this feedback was itself invoked from `/ievo:evo` Step 5.6). The flow-C skip is the **loop guard**: a bug captured via evo → feedback must not immediately bounce back feedback → evo. It also breaks the forward loop — a handoff from this step lands in `evo`, whose own Step 5.6 may offer feedback again as flow **(C)**, where this step is skipped, so the bridge always terminates.
 2. **Type == `Bug`** (from Step 1). A Feature / Idea / Question is not a defect to mitigate locally.
-3. **The bug targets a specific agent or skill.** Reuse `evolution/SKILL.md` Step 1's scope-classification signals — the feedback names or clearly describes a specific agent ("the `<x>` agent did/should…") or skill ("the `<x>` skill did/should…", "when working with `<x>`, it…"). A bug with no identifiable agent/skill target (e.g. a generic install or CLI problem) is **not** offered — there is no overlay scope to write into.
+3. **The bug targets a specific agent or skill.** Reuse `evo/SKILL.md` Step 1's scope-classification signals — the feedback names or clearly describes a specific agent ("the `<x>` agent did/should…") or skill ("the `<x>` skill did/should…", "when working with `<x>`, it…"). A bug with no identifiable agent/skill target (e.g. a generic install or CLI problem) is **not** offered — there is no overlay scope to write into.
 
 When any condition fails, **write nothing and ask nothing** — the offer simply wasn't applicable; the skill is done.
 
@@ -396,18 +396,18 @@ When any condition fails, **write nothing and ask nothing** — the offer simply
 - **Question:** `Bug filed. Also capture a local workaround now, so this project is protected while the upstream fix is pending?`
 - **Header:** `Local fix`
 - **Options** (single-select):
-  - `Capture locally (Recommended)` — description: `Hands off to /ievo:evolution to add a mitigation to this project's overlay for the affected agent/skill. You still review and confirm the overlay entry there. Nothing is posted anywhere.`
+  - `Capture locally (Recommended)` — description: `Hands off to /ievo:evo to add a mitigation to this project's overlay for the affected agent/skill. You still review and confirm the overlay entry there. Nothing is posted anywhere.`
   - `Skip` — description: `File the upstream bug only — no local overlay entry.`
 
-If the user picks **Skip** (or the platform can't prompt / has no `evolution` skill available): nothing is captured — the skill is done.
+If the user picks **Skip** (or the platform can't prompt / has no `evo` skill available): nothing is captured — the skill is done.
 
-If the user picks **Capture locally:** hand off to the `evolution` skill (`/ievo:evolution`) with the lesson **pre-filled**:
+If the user picks **Capture locally:** hand off to the `evo` skill (`/ievo:evo`) with the lesson **pre-filled**:
 
 - Pass the **English bug body** (`body_en` from Step 3.75 — already translated, the same text posted to the issue) as the lesson text, and set the **target** to the agent or skill the bug named (condition 3). Do **not** re-translate — `body_en` is already English.
-- `evolution` then runs its **Steps 1–5.6 unchanged**: scope confirmation (Steps 1 / 1.5), overlay append (Step 4), one-time marker injection, and its own Step 5.6 — same "the receiving skill still runs its own gates" pattern the reverse bridge uses. Nothing about this skill's public issue is affected.
+- `evo` then runs its **Steps 1–5.6 unchanged**: scope confirmation (Steps 1 / 1.5), overlay append (Step 4), one-time marker injection, and its own Step 5.6 — same "the receiving skill still runs its own gates" pattern the reverse bridge uses. Nothing about this skill's public issue is affected.
 - The public issue you just filed stands regardless of the local-capture outcome; likewise the local overlay entry (once captured) stands regardless of the issue.
 
-Then report the outcome in one line so the audit trail is complete — e.g. `Local mitigation: captured via /ievo:evolution (skills/<name>)`, or `Local mitigation: offered → skipped`. When the step wasn't applicable (conditions above not met), print nothing about it.
+Then report the outcome in one line so the audit trail is complete — e.g. `Local mitigation: captured via /ievo:evo (skills/<name>)`, or `Local mitigation: offered → skipped`. When the step wasn't applicable (conditions above not met), print nothing about it.
 
 ## Rules
 
@@ -417,4 +417,4 @@ Then report the outcome in one line so the audit trail is complete — e.g. `Loc
 - **Best-effort context.** If any Bash command in step 3 fails, omit that line. Never block submission on metadata collection.
 - **Graceful gh-CLI fallback.** If `gh` is missing/unauthenticated, give the user a way to post manually — don't just say "failed".
 - **A missing label never loses a submission.** Labels are best-effort metadata; the feedback text is the value. Provision missing labels idempotently, and if `gh issue create` still rejects the label set, retry without labels rather than dropping the report (Step 6, B1/B2).
-- **Two-way bridge, gated and loop-safe both ways.** Step 7.5 offers a feedback → evolution *local* capture only for a flow-A `Bug` about a specific agent/skill, and **never in flow (C)** — that single skip is the loop guard for both directions. It mirrors `evolution/SKILL.md` Step 5.6's evolution → feedback offer; both directions are `AskUserQuestion` offers, never automatic, and each receiving skill still runs its own gates.
+- **Two-way bridge, gated and loop-safe both ways.** Step 7.5 offers a feedback → evo *local* capture only for a flow-A `Bug` about a specific agent/skill, and **never in flow (C)** — that single skip is the loop guard for both directions. It mirrors `evo/SKILL.md` Step 5.6's evo → feedback offer; both directions are `AskUserQuestion` offers, never automatic, and each receiving skill still runs its own gates.

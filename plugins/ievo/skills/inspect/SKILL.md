@@ -238,7 +238,7 @@ Aggregate `allowed-tools` across ALL skills into a deduplicated list:
 
 **Next steps:**
 - To install: run `/ievo:init` and select this repo when it appears, or add it manually
-- For a security verdict first: run `/ievo:security-check <owner>/<repo>@<skill-name>` (e.g. `/ievo:security-check ievo-ai/skills@evolution` — here `evolution` is the skill name, not a git branch)
+- For a security verdict first: run `/ievo:security-check <owner>/<repo>@<skill-name>` (e.g. `/ievo:security-check ievo-ai/skills@evo` — here `evo` is the skill name, not a git branch)
 - To index the full repo structure: run `/ievo:index-repos <owner>/<repo>`
 ```
 

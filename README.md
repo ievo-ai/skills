@@ -13,6 +13,8 @@ iEvo is a **universal discovery + safety + evolution layer** on top of [skills.s
 
 **Cross-platform skills** inside the plugin are portable via the [agentskills.io specification](https://agentskills.io/specification) — adopted by Claude Code, Cursor, Codex, Copilot, Gemini CLI, Goose, Junie, and 30+ other agent platforms. Platform-specific bits (slash commands, sub-agents via Task tool) work on Claude Code and Codex.
 
+> **Always type the full `ievo:` prefix** (e.g. `/ievo:feedback`, not a bare `feedback`). Some non-CLI Claude surfaces don't autocomplete-suggest this prefix, and a bare name can silently resolve to an unrelated built-in command instead — e.g. Claude Code's own `/feedback` (aliases `/bug`, `/share`). The qualified name always resolves correctly; a bare name may not.
+
 ## Contents
 
 - [Quick start](#quick-start)
@@ -92,6 +94,8 @@ With auto-update off you can still update manually by re-running `/plugin instal
 **Codex** tracks plugin versions via git refs/tags in the marketplace `source` block — re-run the marketplace add/install to pick up a newer ref.
 
 **Cross-platform skills inside the plugin** are fully portable via [agentskills.io](https://agentskills.io) spec. Slash commands and sub-agents work on Claude Code; Codex's own command/agent semantics may differ — refer to your platform's docs for exact behavior of the commands.
+
+> **Always type the full `ievo:` prefix** (e.g. `/ievo:feedback`) in non-CLI Claude surfaces — autocomplete there doesn't reliably suggest the prefix, and a bare skill name can silently resolve to an unrelated built-in command instead.
 
 `/ievo:init` will ask you to add Bash permissions for `gh` commands on first run — say yes (`Add to .claude/settings.local.json` recommended) to avoid each network call needing manual approval.
 

@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.47.3
+
+Warn that plugin skills always need the full `ievo:` prefix, since a bare name can silently misfire to a reserved Claude Code built-in — closes #325.
+
+- **Gap closed** — a user typed a bare "feedback"-style command in the Claude desktop client; instead of resolving to `ievo:feedback` (or erroring), Claude Code's own built-in `/feedback` fired (aliases `/bug`, `/share`), submitting the report to Anthropic support instead of `ievo-ai/skills` — a real misdirected-submission incident, not just a discoverability nit. Confirmed workaround: typing the fully-qualified `/ievo:feedback` resolves correctly in the same client. Per current docs (`https://code.claude.com/docs/en/commands`), `/feedback` is a documented Claude Code built-in, and plugin skills are always namespaced (`plugin:skill`) precisely to avoid colliding with reserved built-ins — so a bare name typed where autocomplete doesn't surface the `ievo:` prefix was always going to risk this collision.
+- **Fix** — added an explicit warning to `README.md` at the existing cross-platform-skills callouts (Quick start intro and the Codex/Claude Code usage section): always type the full `ievo:` prefix, since some non-CLI Claude surfaces don't autocomplete-suggest it and a bare name can silently resolve to an unrelated built-in instead. Added the same warning to `feedback/SKILL.md`'s `compatibility` field, since it's the skill with a confirmed real-world misfire.
+- **Scope** — docs-only: `README.md` prose (two call-outs) + one `SKILL.md` `compatibility` field. No behavior, tooling, schema, or `allowed-tools` change.
+- **Related** — same underlying autocomplete-discoverability gap as #320/#321/#322/#324 (still held pending confirmation of the exact affected client surface); this fix is scoped to advice that holds regardless of which non-CLI surface is involved.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.47.2
 
 Make `/ievo:version`'s suggested update command name the iEvo plugin explicitly, instead of Claude Code's generic `/plugin update` — closes #319.

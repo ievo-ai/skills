@@ -124,7 +124,7 @@ If user selects "Custom" (or "Other"), ask a follow-up `AskUserQuestion`:
 - **Header:** `Prompt`
 - **Options:**
   - `Run /ievo:init for new skills` — description: `Full discovery + audit + install pipeline.`
-  - `Run /ievo:evolution capture` — description: `Capture pending evolution lessons from recent sessions.`
+  - `Run /ievo:evo capture` — description: `Capture pending evolution lessons from recent sessions.`
 
 The user can select "Other" to type a fully custom prompt.
 

@@ -107,7 +107,7 @@ Already running iEvo on one platform and switching to the other? Your iEvo state
 
 1. On Codex, run `codex /import` (Codex `v0.140.0+`) to bring over your Claude Code project configuration (plugin state, recent context).
 2. Install the iEvo plugin on the new platform if it isn't already (marketplace add + install above).
-3. Your `.ievo/evolution/` overlays and `.ievo/cache/index/` transfer automatically — **skip `/ievo:init`**; run `/ievo:evolution`, `/ievo:security-check`, or `/ievo:index-repos` directly when you want to refresh.
+3. Your `.ievo/evolution/` overlays and `.ievo/cache/index/` transfer automatically — **skip `/ievo:init`**; run `/ievo:evo`, `/ievo:security-check`, or `/ievo:index-repos` directly when you want to refresh.
 
 `/ievo:init` also detects pre-existing `.ievo/evolution/` state on startup and tells you it's already active, so re-running it after a migration won't clobber your overlays.
 
@@ -161,7 +161,7 @@ install (project-scope vendor or plugin)
 | Skill | What it does |
 |-------|--------------|
 | `/ievo:init` | Full pipeline: discover, audit, install |
-| `/ievo:evolution "<lesson>"` | Capture a lesson — append to overlay file. Never modifies agent/skill body. |
+| `/ievo:evo "<lesson>"` | Capture a lesson — append to overlay file. Never modifies agent/skill body. |
 | `/ievo:feedback` | Submit bug/idea/skip-reasons as GitHub issue |
 | `/ievo:debug-on` | Enable verbose / trace-level logging for the iEvo pipeline |
 | `/ievo:debug-off` | Disable verbose logging and finalize the debug session |
@@ -181,7 +181,7 @@ install (project-scope vendor or plugin)
 
 Under v0.2.0, **agent and skill files are never modified by evolution**. Lessons accumulate in separate **overlay files**, read live at every dispatch.
 
-When you vendor an agent (via `/ievo:init`) or evolve it (via `/ievo:evolution`):
+When you vendor an agent (via `/ievo:init`) or evolve it (via `/ievo:evo`):
 
 1. **Local file** (`.claude/agents/<name>.md`) gets a ONE-TIME marker block right after its frontmatter:
    ```markdown
@@ -333,7 +333,7 @@ ievo-ai/skills/
     │   └── update.md
     ├── skills/
     │   ├── init/SKILL.md           # /ievo:init — orchestrator
-    │   ├── evolution/SKILL.md      # /ievo:evolution — overlay capture
+    │   ├── evo/SKILL.md            # /ievo:evo — overlay capture
     │   ├── feedback/SKILL.md       # /ievo:feedback — file GitHub issues
     │   ├── debug-on/SKILL.md       # /ievo:debug-on — enable verbose session logging
     │   ├── debug-off/SKILL.md      # /ievo:debug-off — disable verbose session logging
@@ -342,7 +342,7 @@ ievo-ai/skills/
     │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo
     │   └── security-check/SKILL.md # /ievo:security-check — audit a candidate
     ├── agents/
-    │   ├── evolution.md            # sub-agent dispatched by evolution skill
+    │   ├── evolution.md            # sub-agent dispatched by evo skill
     │   ├── repo-indexer.md         # parallel dispatch — one per repo for indexing (Step 6)
     │   └── security-auditor.md     # parallel dispatch — one per selected item for audit (Step 8)
     └── scripts/

@@ -41,7 +41,7 @@ Found iEvo markers in:
 - Skill overlays: <list, e.g. "pydicom, changelog" or "none">
 
 Preserved (will NOT be deleted):
-- .ievo/evolution/ — your evolution overlays (rules accumulated by /ievo:evolution)
+- .ievo/evolution/ — your evolution overlays (rules accumulated by /ievo:evo)
 - .ievo/log/ — diagnostic logs
 - .ievo/cache/ — repo indices (re-derivable)
 ```

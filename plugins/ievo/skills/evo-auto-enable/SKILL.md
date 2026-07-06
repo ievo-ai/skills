@@ -1,6 +1,6 @@
 ---
 name: evo-auto-enable
-description: "Enable auto-evolution mode for this project — iEvo accumulates \"corrections from the user\" as evolution candidates during a session and surfaces them for review via /ievo:evolution, without the user having to invoke evolution explicitly. Sets the project-local flag `.ievo/evo-auto.flag` and prepares the pending-candidate queue at `.ievo/evolution-candidates/`. Auto-mode writes ONLY unambiguous project-wide overlays; ambiguous or user-level matches are parked for manual review, never written silently. Trigger words — \"turn on auto evolution\", \"auto-evolve\", \"capture lessons automatically\", \"evo auto on\", \"evolve without asking\"."
+description: "Enable auto-evolution mode for this project — iEvo accumulates \"corrections from the user\" as evolution candidates during a session and surfaces them for review via /ievo:evo, without the user having to invoke evo explicitly. Sets the project-local flag `.ievo/evo-auto.flag` and prepares the pending-candidate queue at `.ievo/evolution-candidates/`. Auto-mode writes ONLY unambiguous project-wide overlays; ambiguous or user-level matches are parked for manual review, never written silently. Trigger words — \"turn on auto evolution\", \"auto-evolve\", \"capture lessons automatically\", \"evo auto on\", \"evolve without asking\"."
 license: MIT
 effort: low
 compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Requires write access to `.ievo/`, POSIX shell (bash/zsh) or the Write tool. Paired with `/ievo:evo-auto-disable`. Installs a UserPromptSubmit correction-capture hook + a SessionStart analysis nudge into `.claude/settings.json` (Claude Code hook schema; the hook scripts need `node` and `jq`, both already required by iEvo)."
@@ -14,7 +14,7 @@ metadata:
 Switches on **auto-evolution mode** for this project: iEvo watches for
 **corrections from the user** during a session and accumulates them as evolution
 candidates, so lessons get captured without the user explicitly running
-`/ievo:evolution`. The mode is a project-local setting (lives in
+`/ievo:evo`. The mode is a project-local setting (lives in
 `.ievo/evo-auto.flag`), so it survives sessions and — if committed — is shared
 with teammates in the same repo, exactly like `/ievo:debug-on`'s flag.
 
@@ -29,11 +29,11 @@ Auto-evolution is deliberately conservative — it never guesses at a silent wri
   (non-zero exits, test failures) are intentionally out of scope for now.
 - **Auto-write is project-wide only.** A candidate is written to the overlay
   automatically **only** when its scope is unambiguously **project-wide**
-  (`.ievo/evolution/project.md` — see `/ievo:evolution` Step 1).
+  (`.ievo/evolution/project.md` — see `/ievo:evo` Step 1).
 - **Everything else is parked, never silently written.** When scope is ambiguous
   or the target matches a **user-level-only** agent/skill, the candidate is
   appended to the **pending queue** (`.ievo/evolution-candidates/pending.md`) for
-  manual review through the normal `/ievo:evolution` flow. Auto-mode never asks
+  manual review through the normal `/ievo:evo` flow. Auto-mode never asks
   mid-session and never writes an agent/skill overlay silently.
 
 ## When to use
@@ -41,7 +41,7 @@ Auto-evolution is deliberately conservative — it never guesses at a silent wri
 - User says "turn on auto evolution", "auto-evolve", "capture lessons automatically",
   "evolve without asking", "evo auto on"
 - User wants corrections they make during a session to be remembered without
-  stopping to run `/ievo:evolution` each time
+  stopping to run `/ievo:evo` each time
 - A project where the same corrections keep recurring and should accumulate
 
 ## Steps
@@ -86,9 +86,9 @@ hold parked candidates):
 # Evolution candidates — pending review
 
 Corrections captured while auto-evolution mode is ON, awaiting review via
-`/ievo:evolution`. Auto-mode writes unambiguous project-wide lessons to the
+`/ievo:evo`. Auto-mode writes unambiguous project-wide lessons to the
 overlay directly; anything ambiguous or user-level-only is parked HERE instead of
-being written silently. Review with `/ievo:evolution`, then remove the entries
+being written silently. Review with `/ievo:evo`, then remove the entries
 you have folded into an overlay.
 
 Retention: candidates from the last 10 sessions are kept; older per-session
@@ -181,7 +181,7 @@ Use the Write tool to create `.ievo/hooks/scripts/evo-analysis-nudge.sh` (same
 # iEvo auto-evolution — SessionStart analysis nudge.
 # On a NEW session, when auto-evolution is ON, prune to the last 10 sessions and,
 # if any candidates are pending, nudge the agent to review them via
-# /ievo:evolution. No LLM work happens here -- this only counts + surfaces.
+# /ievo:evo. No LLM work happens here -- this only counts + surfaces.
 #
 # CONTRACT: fail-silent, context-only (SessionStart cannot block startup),
 # ASCII-only additionalContext. NO `set -e`.
@@ -198,7 +198,7 @@ n=$(node "$ACC" count 2>/dev/null || echo 0)
 case "$n" in ""|*[!0-9]*) exit 0 ;; esac
 [ "$n" -gt 0 ] || exit 0
 
-msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evolution to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Remove each candidate from its session file as you consume it."
+msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Remove each candidate from its session file as you consume it."
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
 exit 0
 ```
@@ -264,7 +264,7 @@ a project, ask via `AskUserQuestion` whether to append `.ievo/evolution-candidat
 to `.gitignore` (default: yes — keep pre-review candidates local). The flag itself
 (`.ievo/evo-auto.flag`, intent only) is fine to commit so teammates share the
 setting; reviewed lessons land in the committed `.ievo/evolution/` overlays after
-`/ievo:evolution`.
+`/ievo:evo`.
 
 ### 5. Confirm to user
 
@@ -282,10 +282,10 @@ Hooks (local, in .claude/settings.json):
 From now on, corrections you make during a session are captured as evolution
 candidates. At the next session start you'll be nudged to review them: unambiguous
 project-wide lessons are written to the overlay automatically; ambiguous or
-user-level ones are parked in the pending queue for review via /ievo:evolution —
+user-level ones are parked in the pending queue for review via /ievo:evo —
 never written silently.
 
-Review parked candidates any time: /ievo:evolution
+Review parked candidates any time: /ievo:evo
 Turn off: /ievo:evo-auto-disable
 ```
 
@@ -303,7 +303,7 @@ This is the contract the correction-capture hook
    — no scope classification, no overlay write, no LLM analysis mid-capture.
 2. **Analyze at the next session, with fresh context.** The `SessionStart` nudge
    ("N evolution candidates pending — review?") counts via the accumulator and
-   folds review into `/ievo:evolution`'s existing Step 1 scope classification —
+   folds review into `/ievo:evo`'s existing Step 1 scope classification —
    the same nudge pattern `/ievo:hooks-setup`'s version-check uses.
 3. **Write project-wide only; park the rest.** Only an unambiguously project-wide
    candidate may be written to `.ievo/evolution/project.md` automatically. Ambiguous
@@ -318,7 +318,7 @@ This is the contract the correction-capture hook
 - **Idempotent:** if auto-mode is already on, just refresh `enabled_at` and confirm.
   Never clobber an existing `pending.md`.
 - **Never write silently outside project-wide scope:** ambiguity is parked, not
-  guessed. This preserves `/ievo:evolution`'s human-in-the-loop reconciliation for
+  guessed. This preserves `/ievo:evo`'s human-in-the-loop reconciliation for
   agent/skill and user-level targets.
 - **Corrections only (v1):** do not treat routine back-and-forth as a correction;
   when unsure whether a turn was a correction, do not capture it (a false capture
@@ -330,7 +330,7 @@ This is the contract the correction-capture hook
 ## See also
 
 - `/ievo:evo-auto-disable` — turn auto-evolution mode off (preserves the queue)
-- `/ievo:evolution` — review parked candidates / capture a lesson manually
+- `/ievo:evo` — review parked candidates / capture a lesson manually
 - `/ievo:debug-on` / `/ievo:debug-off` — the paired-toggle + project-local-flag
   pattern this skill follows
 - `.ievo/evolution-candidates/pending.md` — where parked candidates accumulate

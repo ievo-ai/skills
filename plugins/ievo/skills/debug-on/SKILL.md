@@ -1,6 +1,6 @@
 ---
 name: debug-on
-description: "Enable verbose / trace-level logging across the iEvo pipeline. Use when the user wants to debug an init, evolution, or security-audit session — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting). Trigger words — \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\"."
+description: "Enable verbose / trace-level logging across the iEvo pipeline. Use when the user wants to debug an init, evo, or security-audit session — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting). Trigger words — \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\"."
 license: MIT
 effort: low
 compatibility: "Any agentskills.io platform. Flag is project-local (`.ievo/debug.flag`). Requires write access to `.ievo/`, POSIX shell (bash/zsh), `gh`, `git`, `node` (18+). On Windows use Git Bash or WSL."
@@ -16,7 +16,7 @@ Activates trace-level logging for all subsequent iEvo skill invocations in this 
 ## When to use
 
 - User says "turn on debug", "verbose mode", "log everything", "trace level"
-- User reports a bug in init/evolution/security-audit and wants reproducible logs
+- User reports a bug in init/evo/security-audit and wants reproducible logs
 - User wants to share a session for issue filing on ievo-ai/skills
 - User wants to understand iEvo's internal decision-making
 
@@ -88,7 +88,7 @@ Flag: .ievo/debug.flag (commit to git to share session context with teammates)
 
 What gets logged from now on:
 - /ievo:init — full discover.mjs stack JSON input + full raw output, every Task tool dispatch with full prompt, every sub-agent return JSON, every gh api call, every Write/Read
-- /ievo:evolution — full overlay diff, captured lesson + context
+- /ievo:evo — full overlay diff, captured lesson + context
 - /ievo:security-check — full file contents scanned, full reasoning chain, all flag candidates evaluated
 - security-auditor sub-agents — entered fully, not just summary verdict
 

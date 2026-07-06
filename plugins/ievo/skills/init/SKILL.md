@@ -321,7 +321,7 @@ echo '<stack-input-json>' | node "${CLAUDE_PLUGIN_ROOT}/scripts/discover.mjs" --
 ```
 
 The script:
-1. Builds 15-30 queries from the stack (language fundamentals + per-dep + per-category + stack-specific compound)
+1. Builds 15-30 queries from the stack (language fundamentals + per-dep + per-category + stack-specific compound + a fixed stack-independent group for general-purpose codebase-audit/planning-advisor meta-tools — not gated behind any detected category, since that class of skill isn't tied to a language/framework/dep)
 2. Parallel-fetches `https://skills.sh/api/search?q=<q>&limit=10` for each
 3. **If the `codex` CLI is present**, also reads its marketplace catalog (`codex plugin list --json` → `available[]`) and merges those uninstalled plugins as extra candidates. Absent codex / non-zero exit / unparseable output → silently skipped (no behaviour change for Claude Code-only users).
 4. Deduplicates by skill `id`, computes `rank_score` (log10(installs) × reputation_boost × match_breadth_bonus). Codex plugins carry no install count → get a visibility floor (≈ a 10-install skill) so they surface mid-pack instead of being sliced off by `--limit`, and are tagged `source_origin: codex-marketplace`.

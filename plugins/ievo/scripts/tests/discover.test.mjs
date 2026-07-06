@@ -20,6 +20,7 @@ import {
   REPUTATION_BOOST_FACTOR,
   CODEX_VISIBILITY_FLOOR,
   CATEGORY_QUERIES,
+  STACK_INDEPENDENT_QUERIES,
   qualityTier,
   buildQueries,
   searchSkillsSh,
@@ -83,6 +84,13 @@ describe("constants", () => {
     for (const cat of ["testing", "linting", "security", "devops", "documentation"]) {
       assert.ok(CATEGORY_QUERIES[cat], `CATEGORY_QUERIES missing ${cat}`);
       assert.ok(Array.isArray(CATEGORY_QUERIES[cat]));
+    }
+  });
+
+  it("STACK_INDEPENDENT_QUERIES covers the meta-tooling terms from skills#315", () => {
+    assert.ok(Array.isArray(STACK_INDEPENDENT_QUERIES));
+    for (const term of ["codebase audit", "improve codebase", "implementation plan", "tech debt audit", "senior advisor"]) {
+      assert.ok(STACK_INDEPENDENT_QUERIES.includes(term), `STACK_INDEPENDENT_QUERIES missing '${term}'`);
     }
   });
 
@@ -213,6 +221,34 @@ describe("buildQueries", () => {
     const q = buildQueries({ languages: ["python", ""], deps: [null, "fastapi"] });
     assert.ok(!q.includes(""));
     assert.ok(!q.includes(null));
+  });
+
+  it("includes stack-independent meta-tooling queries when languages alone is present (not gated behind category)", () => {
+    const q = buildQueries({ languages: ["python"] });
+    for (const term of STACK_INDEPENDENT_QUERIES) {
+      assert.ok(q.includes(term), `expected stack-independent query '${term}'`);
+    }
+  });
+
+  it("includes stack-independent meta-tooling queries when deps alone is present", () => {
+    const q = buildQueries({ deps: ["pytest"] });
+    assert.ok(q.includes("codebase audit"));
+  });
+
+  it("includes stack-independent meta-tooling queries when categories alone is present", () => {
+    const q = buildQueries({ categories: ["testing"] });
+    assert.ok(q.includes("improve codebase"));
+  });
+
+  it("includes stack-independent meta-tooling queries when frameworks alone is present", () => {
+    const q = buildQueries({ frameworks: ["react"] });
+    assert.ok(q.includes("tech debt audit"));
+  });
+
+  it("excludes stack-independent queries when the entire stack is empty (preserves the no-queries-derived abort contract)", () => {
+    const q = buildQueries({});
+    assert.ok(!q.includes("senior advisor"));
+    assert.equal(q.length, 0);
   });
 });
 

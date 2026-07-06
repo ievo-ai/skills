@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.47.2
+
+Make `/ievo:version`'s suggested update command name the iEvo plugin explicitly, instead of Claude Code's generic `/plugin update` — closes #319.
+
+- **Gap closed** — `version/SKILL.md` correctly reported the installed/latest version delta and told the user to run `/plugin update` when behind, but that's Claude Code's generic, no-argument form. A user with more than one plugin installed had no way to tell from the rendered output whether it would update iEvo specifically or prompt for a choice.
+- **Fix** — Step 5's "Suggested format when behind" render template, the accompanying prose (intro paragraph, "When to use" bullet, and the "Read-only" rule), and the frontmatter `description` now say `/plugin update ievo` instead of the bare `/plugin update`. Added a new Rules bullet stating the skill always names the plugin explicitly, with the fully-qualified `/plugin update ievo@ievo-skills` form noted for the rare case of a same-named plugin from another marketplace.
+- **Verified against current docs** (`https://code.claude.com/docs/en/plugins-reference` and `https://code.claude.com/docs/en/commands`, re-fetched during implementation) — `claude plugin update <plugin> [options]` takes `<plugin>` = plugin name or `plugin-name@marketplace-name`, the same argument form documented for `plugin install`/`enable`/`disable`; the interactive `/plugin [subcommand]` command passes subcommands straight through, and `/plugin install`/`enable`/`disable` are confirmed elsewhere in the docs to accept that identical `plugin-name@marketplace-name` form directly. `ievo` is confirmed as this plugin's own `name` (`plugins/ievo/.claude-plugin/plugin.json`) and `ievo-skills` as the marketplace `name` (`.claude-plugin/marketplace.json`).
+- **Scope** — single-file prose change to `version/SKILL.md`; no behavior, tooling, or `allowed-tools` change (still read-only `jq`/`curl`/`git`).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.47.1
 
 Preload the vuln-scan skill into `vuln-scanner.md` via `skills:` frontmatter, and drop its unrestricted `Skill` tool access — closes #317.

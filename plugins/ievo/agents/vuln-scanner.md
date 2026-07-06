@@ -7,7 +7,18 @@ tools:
   - Read
   - Glob
   - Grep
-  - Skill
+skills:
+  - ievo:vuln-scan
+# Preloads the full vuln-scan/SKILL.md methodology into this sub-agent's context
+# at startup (Claude Code `skills:` subagent frontmatter — see
+# https://code.claude.com/docs/en/sub-agents#preload-skills-into-subagents),
+# instead of relying on a runtime, model-chosen `Skill("ievo:vuln-scan")` call
+# that a future edit could drop or the model could skip. `disable-model-invocation`
+# is not set on vuln-scan/SKILL.md, so it is preload-eligible. `Skill` is
+# deliberately absent from `tools:` above — preloading doesn't require runtime
+# invocation, and dropping it also closes the "can invoke any installed skill"
+# surface per the docs: "To prevent a subagent from invoking skills entirely,
+# omit `Skill` from the tools list or add it to `disallowedTools`."
 # Defense-in-depth denylist (camelCase per Claude Code sub-agent frontmatter —
 # distinct from the kebab-case `disallowed-tools` in vuln-scan/SKILL.md). A
 # skill's `disallowed-tools` does NOT propagate to a Task-tool-dispatched
@@ -53,9 +64,9 @@ You perform a **deep vulnerability scan** of ONE module (directory or file set) 
 
 ## Steps
 
-### 1. Apply vuln-scan skill (deep source code analysis)
+### 1. Apply the preloaded vuln-scan methodology (deep source code analysis)
 
-Invoke the vuln-scan skill via the Skill tool: `Skill("ievo:vuln-scan")`. The Skill tool resolves the plugin path correctly regardless of working directory. Follow ALL its steps:
+The `ievo:vuln-scan` skill is preloaded into your context at startup via this agent's `skills:` frontmatter — its full methodology is already available to you, no runtime tool call needed. Follow ALL its steps:
 
 - **Step 1**: Read all source files in the module — full content, no sampling
 - **Step 2**: Map data flows — sources, transformations, sinks, guards

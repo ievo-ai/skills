@@ -100,7 +100,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 - Required frontmatter: `name`, `description` (≤1024 chars). Optional: `license`, `compatibility`, `metadata`, `allowed-tools`, `disable-model-invocation`
 - Body should be ≤500 lines; split detail into `references/` if more is needed
 - Skills are activated by description match (semantic), so descriptions must clearly state WHAT + WHEN to use
-- `disable-model-invocation: true` (optional, default `false`) makes a skill **user-invoke only** — its description is withheld from the model so it cannot auto-activate on description match. Reserve it for heavyweight skills where accidental activation is costly AND no agent invokes them programmatically; the current set is `init`, `deep-review`. Do NOT set it on skills that sub-agents load via the Skill tool / skills system (`vuln-scan` ← `vuln-scanner`, `security-check` ← `security-auditor`) — a Skill-tool call is a model invocation, so the flag would break those pipelines. As of Claude Code v2.1.196 it also prevents a [scheduled task](https://code.claude.com/docs/en/scheduled-tasks) from firing the skill when the skill is the task's prompt. Explicit `/ievo:<name>` invocation is unaffected.
+- `disable-model-invocation: true` (optional, default `false`) makes a skill **user-invoke only** — its description is withheld from the model so it cannot auto-activate on description match. Reserve it for heavyweight skills where accidental activation is costly AND no agent invokes them programmatically; the current set is `init`, `deep-review`. Do NOT set it on skills that sub-agents load via the Skill tool / skills system (`security-check` ← `security-auditor`) — a Skill-tool call is a model invocation, so the flag would break that pipeline. The same constraint applies to `vuln-scan` for a related reason (v0.47.1+): `vuln-scanner.md` preloads it via `skills:` subagent frontmatter rather than a runtime `Skill()` call, and per Claude Code's docs a skill can't be preloaded either once it sets `disable-model-invocation: true`, since preloading draws from the same set of skills Claude can invoke. As of Claude Code v2.1.196 it also prevents a [scheduled task](https://code.claude.com/docs/en/scheduled-tasks) from firing the skill when the skill is the task's prompt. Explicit `/ievo:<name>` invocation is unaffected.
 
 ### Scripts language
 - **All scripts in `plugins/ievo/scripts/` are Node.js (`.mjs`)** — no Python, no other runtimes
@@ -164,7 +164,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.47.0):**
+**Current compliance ledger (v0.47.1):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.

@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.47.1
+
+Preload the vuln-scan skill into `vuln-scanner.md` via `skills:` frontmatter, and drop its unrestricted `Skill` tool access — closes #317.
+
+- **Gap closed** — `vuln-scanner.md` Step 1 instructed a runtime, model-chosen `Skill("ievo:vuln-scan")` call to load its scan methodology; if the model skipped or mis-invoked it, or a future body edit dropped the instruction, the sub-agent would scan without the documented methodology (source-read → data-flow mapping → CWE detection → exploit-chain validation → structured output) and nothing platform-level would catch it.
+- **Frontmatter change** — adds `skills: [ievo:vuln-scan]`, which preloads the full `vuln-scan/SKILL.md` content into the sub-agent's context at startup regardless of whether the model executes a `Skill()` call. Removes `Skill` from `tools:` — no longer needed once preloaded, and dropping it closes the "can invoke any installed skill" surface, narrowing the agent to its documented single-purpose design.
+- **Verified against current docs** (`https://code.claude.com/docs/en/sub-agents`, `https://code.claude.com/docs/en/skills`, re-fetched during implementation) — `skills:` carries no "ignored for plugin subagents" caveat (unlike `permissionMode`/`mcpServers`/`hooks`, which are); `vuln-scan/SKILL.md` doesn't set `disable-model-invocation: true`, so it's preload-eligible; plugin skills use the documented `plugin-name:skill-name` namespace, confirmed against `plugins/ievo/.claude-plugin/plugin.json`'s `"name": "ievo"` — so `ievo:vuln-scan` is the correct qualified form, not a guess.
+- **Step 1 body** — rewritten to describe the preloaded methodology instead of instructing a runtime `Skill()` call; the five-step methodology summary is unchanged.
+- **Scope** — `security-auditor.md` was checked for the same gap and has none: it's fully self-contained with no `Skill` tool in its `tools:` list, so this change is scoped to `vuln-scanner.md` only.
+- **Version** — bump per AGENTS.md rules (edits `plugins/ievo/agents/vuln-scanner.md`); `discover.mjs` + `evolution_candidates.mjs` `SCRIPT_VERSION` and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.47.0
 
 Add a fixed stack-independent query group to `/ievo:init`'s discovery so general-purpose codebase-audit/planning-advisor meta-tools surface for any stack — closes #315.

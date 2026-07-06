@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.48.0
+
+Add zero-setup `hooks:` frontmatter to `evo`, `security-check`, and `init` for built-in completion notifications — closes #159.
+
+- **Feature** — `evo/SKILL.md` and the `evolution` sub-agent it may delegate to (`agents/evolution.md`) each gained a `PostToolUse` hook that prints a one-line confirmation the moment the evolution signal file (`.ievo/hooks/evolution-captured`) is written; `security-check/SKILL.md` and `init/SKILL.md` each gained a `Stop` hook that prints a completion message when their turn ends. All four require zero configuration — no `/ievo:hooks-setup` run needed — and stay terminal-only (no `osascript`/`notify-send`) so they degrade identically on every platform.
+- **Corrected from the original proposal** (per approval comment) — the drafted JS-style boolean matchers (`"tool_name == 'Write' && ..."`, `"background_tasks.length == 0"`) are not valid; `matcher` only accepts tool names (`"Write"`, `"Edit|Write"`, or a bare regex), verified against the current [hooks reference](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents). Path filtering uses the per-handler `if` field instead (permission-rule syntax, e.g. `if: "Write(.ievo/hooks/evolution-captured)"`); `Stop` hooks take neither `matcher` nor `if` (both are ignored/inert on that event) and fire unconditionally when their carrying skill's turn ends. Target file was also corrected from `evolution/SKILL.md` (renamed to `evo/SKILL.md` in v0.47.4) to the current path.
+- **Added beyond the proposal's file list** — `agents/evolution.md` gained the same `PostToolUse` hook as `evo/SKILL.md`. `evo` delegates its capture to this sub-agent when available, and the actual `.ievo/hooks/evolution-captured` write happens inside that delegated sub-agent's own context — without a matching hook there, the notification would silently never fire on the (default, Claude-Code-with-iEvo) delegated path.
+- **Scope note documented, not fixed** — `security-check`'s `Stop` hook converts to `SubagentStop` when the skill runs inside a parallel `security-auditor` sub-agent (the `/ievo:init` Step 8 path), firing once per candidate scanned rather than once for the whole batch; the existing session-level Stop hook (`hooks-setup/SKILL.md` Step 5.5, `background_tasks`-aware) remains the correct mechanism for a single "all scans done" signal.
+- **`hooks-setup/SKILL.md`** documents the new tier as complementary to its own session-level `settings.json` hooks (richer notification styles, persists across sessions) vs. the new per-skill tier (zero setup, terminal-only, scoped to the carrying skill's lifecycle). Also flags (ticket-link-pending, not fixed here) that Step 5's own existing `PostToolUse` templates write the full `"Write(.ievo/hooks/<event>)"` string into `matcher` rather than `if` — the same invalid pattern the proposal was corrected away from — discovered as a byproduct of this work; fixing it also requires reworking Step 6's dedup-by-`matcher` logic, so it's left as a follow-up rather than bundled into this docs-scoped change.
+- **Verification caveat** — the approval comment asked for each matcher to be verified against a real hook run before merging. This automated build environment has no interactive Claude Code session to fire a live hook in; verification here is against the current official hooks/permissions documentation (cited above) plus internal consistency with this repo's own `hooks-setup/SKILL.md` conventions (signal-file paths, non-blocking `exit 0` semantics). A live-fire check on a real session remains worth doing before broad reliance.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor, pre-1.0; adds new plugin-file capability). `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.47.5
 
 Document CC v2.1.193's `autoMode.classifyAllShell` interaction with `/ievo:init`'s bash-heavy pipeline — closes #257.

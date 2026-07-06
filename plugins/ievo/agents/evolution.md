@@ -9,6 +9,13 @@ tools:
   - Glob
   - Grep
   - Bash
+hooks:
+  PostToolUse:
+    - matcher: "Write"
+      hooks:
+        - type: command
+          if: "Write(.ievo/hooks/evolution-captured)"
+          command: "echo \"iEvo: evolution overlay captured\""
 ---
 
 # Evolution Agent
@@ -143,6 +150,8 @@ Use the Write tool (NOT Bash) so the matcher fires:
 - `content`: `<ISO-8601 UTC timestamp of this capture>`
 
 Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
+
+Zero-setup built-in: this agent's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while this sub-agent is running — covers the delegated path from `evo/SKILL.md` "On Claude Code with the iEvo plugin". `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file.
 
 ## Step 4.6: Classify upstream relevance (for an escalation offer by the caller)
 

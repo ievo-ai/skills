@@ -1,6 +1,6 @@
 ---
 name: version
-description: "Show the installed iEvo plugin version (plus commit SHA when resolvable) and the changelog of what changed between it and the latest published release, so you can decide whether to run `/plugin update`. Reads the installed `version` from the plugin's `plugin.json`, fetches the latest version from the marketplace manifest on `main`, and prints the intervening `CHANGELOG.md` entries. Use when the user asks \"which iEvo version am I on\", \"what iEvo version is installed\", \"am I up to date\", \"how far behind is iEvo\", \"what changed since my iEvo version\", \"show the iEvo changelog\", \"what would /plugin update give me\", or invokes /ievo:version. Read-only — never writes, installs, or updates."
+description: "Show the installed iEvo plugin version (plus commit SHA when resolvable) and the changelog of what changed between it and the latest published release, so you can decide whether to run `/plugin update ievo`. Reads the installed `version` from the plugin's `plugin.json`, fetches the latest version from the marketplace manifest on `main`, and prints the intervening `CHANGELOG.md` entries. Use when the user asks \"which iEvo version am I on\", \"what iEvo version is installed\", \"am I up to date\", \"how far behind is iEvo\", \"what changed since my iEvo version\", \"show the iEvo changelog\", \"what would /plugin update give me\", or invokes /ievo:version. Read-only — never writes, installs, or updates."
 license: MIT
 effort: low
 allowed-tools:
@@ -15,14 +15,14 @@ metadata:
 
 # Version — show installed iEvo version and changelog
 
-Answers "which iEvo version am I running, and what would I gain by updating?" from inside the session — no manual poking at the plugin cache directory. Reports the installed version (and commit SHA when it can be determined), the latest published version, and — when behind — the `CHANGELOG.md` entries for every release in between so the user can decide whether `/plugin update` is worth running.
+Answers "which iEvo version am I running, and what would I gain by updating?" from inside the session — no manual poking at the plugin cache directory. Reports the installed version (and commit SHA when it can be determined), the latest published version, and — when behind — the `CHANGELOG.md` entries for every release in between so the user can decide whether `/plugin update ievo` is worth running.
 
 This complements the passive SessionStart version-check nudge (`hooks-setup` Step 5.7): that nudge only whispers "you're behind" once a day and only if the user opted into hooks. This skill is the on-demand, interactive answer — the full version + changelog, whenever asked.
 
 ## When to use
 
 - User asks "which iEvo version am I on", "what version is installed", "am I up to date", "how far behind is iEvo", "what changed since my version", "show the iEvo changelog", "what would `/plugin update` give me".
-- Before deciding whether to run `/plugin update` — see the concrete list of changes first.
+- Before deciding whether to run `/plugin update ievo` — see the concrete list of changes first.
 - Onboarding / debugging — confirm exactly which iEvo build is active in this session.
 
 ## Steps
@@ -87,7 +87,7 @@ iEvo version
 
 - Installed: 0.41.0 (abc1234)
 - Latest:    0.42.0
-- Status:    1 release behind — run `/plugin update` to upgrade
+- Status:    1 release behind — run `/plugin update ievo` to upgrade
 
 Changes since your version:
 
@@ -120,12 +120,13 @@ Adapt the exact wording as fits the conversation; keep the three facts (installe
 
 ## Rules
 
-- **Read-only.** This skill never writes, edits, installs, or updates anything. It reports state; the user decides whether to run `/plugin update`.
+- **Read-only.** This skill never writes, edits, installs, or updates anything. It reports state; the user decides whether to run `/plugin update ievo`.
 - **Installed version is authoritative from `plugin.json`.** Read it via `jq` on `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`; if it can't be resolved, say so and stop — never fabricate a version.
 - **SHA is best-effort.** An installed plugin cache typically has no `.git`. A missing SHA is "not available", never an error.
 - **Network is optional and throttling-free here.** This is an explicit, user-invoked command, so it fetches on every run (unlike the once/24h-throttled SessionStart nudge). If the network is unavailable, degrade to the installed-version-only report — clearly, not silently.
 - **Compare versions as semver**, field-by-field numerically — never as strings.
 - **Changelog prose is shown verbatim.** Print the intervening `## vX.Y.Z` sections as-is (newest first); don't paraphrase unless asked.
+- **Always name the plugin explicitly in the suggested update command.** Render `/plugin update ievo` (the fully-qualified `/plugin update ievo@ievo-skills` form disambiguates further if a same-named plugin from another marketplace is installed) — never the bare `/plugin update`, which is Claude Code's generic multi-plugin command and leaves a user with more than one plugin installed guessing which one it would touch. `ievo` is this plugin's own `name` from `plugins/ievo/.claude-plugin/plugin.json`; `ievo-skills` is the marketplace `name` from `.claude-plugin/marketplace.json`.
 - **Bash is used only for read-only lookups** — `jq` (parse the two manifests), `curl` (fetch the manifest + changelog from `main`), and a best-effort `git rev-parse` for the SHA. No writes, no destructive commands.
 
 ## See also

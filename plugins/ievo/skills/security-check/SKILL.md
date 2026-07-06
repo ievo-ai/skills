@@ -24,6 +24,11 @@ disallowed-tools:
   # web-search about its target (a candidate carrying prompt injection could turn
   # it into an exfiltration channel).
   - WebSearch
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "echo \"iEvo: security scan complete\""
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -34,6 +39,8 @@ metadata:
 You are a **senior application security engineer** performing a **vulnerability assessment** of a candidate (skill / agent / plugin) before install. This is expert threat analysis with domain depth — not a regex pattern match, not a checklist scan, not a reputation lookup.
 
 Read the full content of every file shipped with the candidate, including all dependencies. Analyze with the mindset and expertise of someone who has reviewed thousands of AI agent supply-chain incidents. No owner-based trust shortcuts. No surface heuristics as the final verdict. **Reputation is not security.**
+
+**Built-in completion notification.** This skill's own `hooks:` frontmatter (above) prints a one-line message via a `Stop` hook when this scan's turn ends, zero setup required. Scope note: when `security-auditor` dispatches this skill from inside a parallel Task-tool sub-agent (`/ievo:init` Step 8), a skill-scoped `Stop` hook is converted to `SubagentStop` and fires once per sub-agent — one message per candidate scanned, not a single "all N scans done" signal. For that batch-level notification, use `/ievo:hooks-setup`'s optional session-level Stop hook (Step 5.5), which reads `background_tasks`/`session_crons` across the whole session.
 
 ## Input
 

@@ -29,6 +29,20 @@ Uses two Claude Code hook features (verified against [v2.1.139](https://github.c
 
 Hooks trigger on **signal files** that iEvo writes at well-known paths under `.ievo/hooks/`. Init, evo, and the security-auditor agent each write their respective signal file as a final step (added in v0.6.9 alongside this skill); this skill configures the matching `PostToolUse` `Write(...)` hooks.
 
+## Two complementary hook tiers — this skill vs. per-skill built-ins
+
+This skill (`/ievo:hooks-setup`) is one of **two** hook tiers iEvo offers; they coexist and don't conflict:
+
+- **Session-level, opt-in (this skill).** Writes durable entries into `.claude/settings.json` (project or global scope) that fire across every future session, with a full menu of notification styles: terminal bell, `terminalSequence` desktop popups (iTerm2/WezTerm), a custom script, the background-agents-complete `Stop` hook (Step 5.5), `claude agents` `Notification` hooks (Step 5.6), and the version-check `SessionStart` nudge (Step 5.7). Requires running this skill once and persists across sessions.
+- **Per-skill, zero-setup (built-in, v0.48.0+).** `evo/SKILL.md` (and the `evolution` sub-agent it may delegate to), `security-check/SKILL.md`, and `init/SKILL.md` each carry their own `hooks:` frontmatter field ([Hooks in skills and agents](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents)) that prints a plain one-line completion message with no configuration at all. These hooks are scoped to the carrying skill's own lifecycle — they only run while that skill (or, for `evo`'s delegated path, the `evolution` sub-agent) is active, and are cleaned up when it finishes. They intentionally stay terminal-only (no `osascript`/`notify-send` popups) so they degrade identically on every platform; use this skill's Step 2 for a richer, popup-style notification on the same signal files.
+
+Practical implications of the per-skill tier's scoping (neither is a bug, both follow directly from how skill/agent-scoped hooks work):
+- `evo`'s `PostToolUse` hook filters with the `if` field (`if: "Write(.ievo/hooks/evolution-captured)"`), not `matcher` — `matcher` only accepts tool names (`"Write"`, `"Edit|Write"`, or a bare regex), never a parenthesized path pattern like `"Write(...)"`; the path filter belongs in `if`, which uses full permission-rule syntax.
+- `Stop` hooks (`security-check`, `init`) never take a `matcher` or `if` — those fields are silently ignored / never run on non-tool events, so the hook fires unconditionally whenever its carrying skill's turn ends, and the command itself must do the deciding.
+- `security-check`'s `Stop` hook is converted to `SubagentStop` when the skill runs inside a `security-auditor` sub-agent (the normal `/ievo:init` Step 8 path) — it fires once per candidate scanned, not once for the whole parallel batch. The batch-level "all scans done" signal is this skill's own Step 5.5 Stop hook, which is genuinely session-scoped and can see `background_tasks` across every dispatched sub-agent.
+
+**Known gap, not addressed here (ticket-link-pending):** the `matcher` restriction above (tool names only, never a parenthesized `Tool(pattern)`) applies to every hook config format — session `settings.json` entries included, not just skill/agent frontmatter. Step 5's own template below predates this constraint and writes the full `"Write(.ievo/hooks/<event>)"` string directly into `matcher`, which the current hooks reference documents as invalid; the per-event `if` field is where that path pattern belongs instead. Fixing it also touches Step 6's dedup-by-`matcher` logic (today's three events share the tool name `"Write"` once `matcher` is corrected, so dedup would need to key on the `if` value instead) — out of scope for this docs-only pass; left as a follow-up.
+
 ## Step 1: Ask the user which events to hook
 
 Use `AskUserQuestion` (`multiSelect: true`) — let the user pick any combination of the three iEvo events:
@@ -484,4 +498,5 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - [Claude Code v2.1.198 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.198) — `Notification` hook fires for `claude agents` background sessions with matchers `agent_needs_input` / `agent_completed`
 - [Claude Code hooks reference — SessionStart](https://code.claude.com/docs/en/hooks) — `command`/`mcp_tool` only, context-only (cannot block), `hookSpecificOutput.additionalContext` injected before the first prompt; matchers `startup`/`resume`/`clear`/`compact` (Step 5.7 version-check nudge)
 - [Claude Code plugins — configure auto-updates](https://code.claude.com/docs/en/discover-plugins#configure-auto-updates) — third-party marketplaces default auto-update OFF; the Step 5.7 nudge is the fallback for users who keep it off
+- [Claude Code hooks reference — Hooks in skills and agents](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents) — the per-skill `hooks:` frontmatter tier documented above (`evo`, `security-check`, `init`); confirms `matcher` is tool-name-only and the per-handler `if` field carries permission-rule path patterns
 - Signal-file trigger pattern (`PostToolUse` + `Write(<path>)` matcher) is portable across any host that matches Write-tool calls to a path pattern

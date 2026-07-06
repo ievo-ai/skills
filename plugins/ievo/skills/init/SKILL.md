@@ -9,6 +9,11 @@ effort: max
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
 compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). Skills inside the pipeline are cross-platform via agentskills.io. v0.6.0+: no longer requires the find-skills prereq install — uses own discover.mjs script. v2.1.193+: Auto Mode's `classifyAllShell: true` routes every bash call through the classifier — see Step 1."
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "echo \"iEvo init complete. Run /reload-plugins to activate installed skills.\""
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -606,6 +611,8 @@ Use the Write tool (NOT Bash) so the matcher in the user's settings.json fires:
 If the user hasn't run `/ievo:hooks-setup`, the file is still written — it's a one-line marker, costs nothing, and unblocks the hook configuration if added later. Don't gate this step on whether hooks are configured.
 
 ## Step 12: Final summary and reload reminder
+
+This skill's own `hooks:` frontmatter (above) already prints a one-line "init complete" message via a `Stop` hook when the pipeline's turn ends, zero setup required — the print below is the full interactive summary, not a duplicate of the hook message.
 
 Print to user:
 

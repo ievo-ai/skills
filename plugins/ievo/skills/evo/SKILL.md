@@ -4,6 +4,13 @@ description: Capture a lesson and add it to the appropriate evolution overlay �
 license: MIT
 effort: low
 compatibility: Works on any agentskills.io-compatible platform. Sub-agent isolation (Task tool dispatch) is available on Claude Code and Codex with the iEvo plugin; other platforms execute steps inline.
+hooks:
+  PostToolUse:
+    - matcher: "Write"
+      hooks:
+        - type: command
+          if: "Write(.ievo/hooks/evolution-captured)"
+          command: "echo \"iEvo: evolution overlay captured\""
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -258,6 +265,8 @@ Use the Write tool (NOT Bash) so the matcher fires:
 - `content`: `<ISO-8601 UTC timestamp of this capture>`
 
 Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
+
+Zero-setup built-in: this skill's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while `evo` is running. When the capture is delegated to the `evolution` sub-agent instead (see "On Claude Code with the iEvo plugin" above), the equivalent frontmatter hook on `agents/evolution.md` covers that path — one or the other fires depending on which one performs this Step, never both. `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file.
 
 ## Step 5.6: Offer to escalate the lesson upstream (optional)
 

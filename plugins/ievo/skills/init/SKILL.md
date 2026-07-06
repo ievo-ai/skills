@@ -8,7 +8,7 @@ effort: max
 # on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
-compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). Skills inside the pipeline are cross-platform via agentskills.io. v0.6.0+: no longer requires the find-skills prereq install — uses own discover.mjs script. v2.1.193+: Auto Mode's `classifyAllShell: true` routes every bash call through the classifier — see Step 1."
+compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, network access. Orchestrator uses Task tool + AskUserQuestion, runs on **Claude Code and Codex**. Skills inside the pipeline are cross-platform via agentskills.io. v0.6.0+: no longer requires find-skills prereq — uses own discover.mjs script. v2.1.193+: Auto Mode's `classifyAllShell: true` routes every bash call through the classifier (Step 1). v2.1.195+: dual-gate plugin install consent (AskUserQuestion + CC dialog) — see AGENTS.md Security model."
 hooks:
   Stop:
     - hooks:

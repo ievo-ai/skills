@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.49.1
+
+Document CC v2.1.195's external plugin install consent gate fix as the minimum version for iEvo's dual-gate install protection — closes #264.
+
+- **Gap closed** — `AGENTS.md` § Security model documented four model-selection bypass vectors but said nothing about install-authorization: iEvo's `/ievo:init` plugin path (Step 9) installs a candidate by merging `extraKnownMarketplaces` + `enabledPlugins` into `.claude/settings.json` — exactly the enablement path Claude Code v2.1.195 fixed a consent bug for.
+- **Verified against the primary source** (`gh api repos/anthropics/claude-code/releases/tags/v2.1.195`, checked during implementation) — the release note is narrower than the initial proposal's paraphrase: it fixes "external plugins enabled only by project `.claude/settings.json` not requiring explicit install consent on every loader path," not a general "any external plugin install" bug. The added documentation uses this precise scope rather than the broader framing.
+- **Fix** — added a new bullet to `AGENTS.md` § Security model (below the model bypass-vectors table, as its own paragraph rather than a table row — the table is model-selection-specific, this is a different concern) distinguishing iEvo's own `AskUserQuestion` consent gate (Step 7b/8) from CC's platform-level consent dialog, and naming **Claude Code v2.1.195+** as the minimum for both gates to be active. Extended `init/SKILL.md`'s `compatibility` frontmatter with a matching `v2.1.195+` note, trimming other clauses in the same field to stay under the agentskills.io 500-char limit (`validate_skills.mjs` enforces this).
+- **Scope** — left `security-check/SKILL.md` unchanged: that skill only audits candidates, it doesn't perform the install step the consent gate protects, consistent with the issue's acceptance criteria.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.49.0
 
 Make `feedback` and `version` client-surface-aware — closes #328.

@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.47.5
+
+Document CC v2.1.193's `autoMode.classifyAllShell` interaction with `/ievo:init`'s bash-heavy pipeline — closes #257.
+
+- **Gap closed** — `init/SKILL.md` documented the Auto Mode classifier's default handling of `gh api`/`gh search` (Step 1's `permissions.allow` recommendation) but said nothing about `autoMode.classifyAllShell: true`, which suspends narrow Bash allow rules entirely while Auto Mode is active. A user with that setting on would have every one of the pipeline's 20+ bash calls routed through the classifier individually, with no indication this skill's existing permission guidance no longer applies. `README.md`'s "Permission pre-setup" section carries the same `permissions.allow` guidance and had the identical gap.
+- **Verified against current docs** (`https://code.claude.com/docs/en/auto-mode-config`, fetched during implementation) — `autoMode.classifyAllShell` only affects Auto Mode sessions (no effect in other permission modes); when `true` it suspends *every* Bash/PowerShell allow rule for the duration, trading latency (a classifier round-trip per call) for coverage, rather than guaranteeing an interactive approval prompt per command as originally proposed. Requires Claude Code v2.1.193+.
+- **Fix** — added a `v2.1.193+` note to `init/SKILL.md`'s `compatibility` frontmatter pointing at Step 1, and a new paragraph in Step 1's "Permission check (auto-mode classifier)" section explaining the interaction and the only available mitigation: disable `autoMode.classifyAllShell` for the init session, or accept the pipeline-wide per-call classifier cost. Added a matching one-sentence cross-reference to `README.md`'s "Permission pre-setup" section pointing at the same Step 1 detail, so the two docs stay consistent.
+- **Scope** — skipped the proposal's optional Phase 0 preflight check (`claude config get autoMode.classifyAllShell`): that command doesn't exist in the current CLI (the documented inspection commands are `claude auto-mode config`/`defaults`/`critique`), and the proposal's own open question on hard-block vs. soft-note framing was never resolved — left as documentation-only per the acceptance criteria's optional marking.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION` (both coupled to `plugin.json` via their own tests, though AGENTS.md's "bump these four files" checklist only names `discover.mjs`) and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.47.4
 
 Rename the "capture a lesson" skill invocation from `/ievo:evolution` to `/ievo:evo` for faster typing — closes #329.

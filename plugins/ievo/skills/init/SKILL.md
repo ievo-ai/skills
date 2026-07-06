@@ -8,7 +8,7 @@ effort: max
 # on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
-compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). The skills inside the pipeline are cross-platform via agentskills.io; the init orchestrator itself is Claude Code/Codex-specific. v0.6.0+: no longer requires the find-skills prereq install — uses own discover.mjs script."
+compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, and network access. Orchestrator uses Task tool (parallel sub-agent dispatch) + AskUserQuestion (interactive prompts), so it runs on **Claude Code and Codex** (both support these). Skills inside the pipeline are cross-platform via agentskills.io. v0.6.0+: no longer requires the find-skills prereq install — uses own discover.mjs script. v2.1.193+: Auto Mode's `classifyAllShell: true` routes every bash call through the classifier — see Step 1."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -160,6 +160,8 @@ For `Add to ...` options: merge the two patterns into the existing `permissions.
 For `Skip`: continue — but expect blocked commands during the run.
 
 Stop only on missing gh / git / node prereqs. Permission setup is opt-in but strongly recommended.
+
+**Auto Mode + `classifyAllShell` interaction (CC v2.1.193+).** The `permissions.allow` entries above bypass the classifier only under Auto Mode's *default* behavior, where narrow Bash allow rules (like `Bash(gh api*)`) resolve before the classifier runs — and only Auto Mode is affected at all; other permission modes are untouched either way. If the user has `autoMode.classifyAllShell: true` set, that default is suspended: **every** bash call in this pipeline — 20+ across discovery, indexing, and scanning — is routed through the classifier individually, regardless of `permissions.allow`. This trades latency for coverage (a classifier round-trip per call instead of an instant allow-rule match) and any call the classifier doesn't recognize as safe may still be blocked, which can interrupt this skill's "execute continuously, without pausing" directive. There's no code-level workaround for this skill: tell the user to disable `autoMode.classifyAllShell` for the init session, or proceed knowing the whole pipeline now pays the per-call classifier cost.
 
 ## Step 1.5: Codex environment pre-flight (Codex platform only)
 

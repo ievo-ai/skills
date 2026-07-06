@@ -126,7 +126,7 @@ If you want to set permissions before running `/ievo:init`, add to `.claude/sett
 }
 ```
 
-Without these, Claude Code's auto-mode classifier blocks each `gh api` call as "untrusted network command" — works but with manual Allow prompts. (v0.6.0 dropped the previously-required `npx skills` permission since discovery now happens via local Node script.)
+Without these, Claude Code's auto-mode classifier blocks each `gh api` call as "untrusted network command" — works but with manual Allow prompts. (v0.6.0 dropped the previously-required `npx skills` permission since discovery now happens via local Node script.) CC v2.1.193+: if `autoMode.classifyAllShell: true` is set, these allow entries stop working entirely while Auto Mode is active — see `init/SKILL.md` Step 1 for the full interaction and the only mitigation.
 
 ## The pipeline
 

@@ -1,13 +1,13 @@
 ---
 name: version
-description: "Show the installed iEvo plugin version (plus commit SHA when resolvable) and the changelog of what changed between it and the latest published release, so you can decide whether to run `/plugin update ievo`. Reads the installed `version` from the plugin's `plugin.json`, fetches the latest version from the marketplace manifest on `main`, and prints the intervening `CHANGELOG.md` entries. Use when the user asks \"which iEvo version am I on\", \"what iEvo version is installed\", \"am I up to date\", \"how far behind is iEvo\", \"what changed since my iEvo version\", \"show the iEvo changelog\", \"what would /plugin update give me\", or invokes /ievo:version. Read-only — never writes, installs, or updates."
+description: "Show the installed iEvo plugin version (plus commit SHA when resolvable) and the changelog of what changed between it and the latest published release, so you can decide whether to update. Reads the installed `version` from the plugin's `plugin.json`, fetches the latest version from the marketplace manifest on `main`, and prints the intervening `CHANGELOG.md` entries. Use when the user asks \"which iEvo version am I on\", \"what iEvo version is installed\", \"am I up to date\", \"how far behind is iEvo\", \"what changed since my iEvo version\", \"show the iEvo changelog\", \"what would /plugin update give me\", or invokes /ievo:version. Read-only — never writes, installs, or updates."
 license: MIT
 effort: low
 allowed-tools:
   - Bash(jq *)
   - Bash(curl *)
   - Bash(git *)
-compatibility: "Any agentskills.io platform with a Bash tool. Reads the installed version locally (`jq` on the plugin's plugin.json); the latest-version + changelog check needs network (`curl` to raw.githubusercontent.com) and degrades gracefully offline. Commit SHA is best-effort (`git`) — omitted when the install has no `.git`. Read-only — no files written, no install, no update."
+compatibility: "Any agentskills.io platform with a Bash tool. Reads the installed version locally (`jq` on the plugin's plugin.json); the latest-version + changelog check needs network (`curl` to raw.githubusercontent.com) and degrades gracefully offline. Commit SHA is best-effort (`git`) — omitted when the install has no `.git`. The scope-aware CLI update render (Step 5) is Claude-Code-specific. Read-only — no files written, no install, no update."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -15,14 +15,14 @@ metadata:
 
 # Version — show installed iEvo version and changelog
 
-Answers "which iEvo version am I running, and what would I gain by updating?" from inside the session — no manual poking at the plugin cache directory. Reports the installed version (and commit SHA when it can be determined), the latest published version, and — when behind — the `CHANGELOG.md` entries for every release in between so the user can decide whether `/plugin update ievo` is worth running.
+Answers "which iEvo version am I running, and what would I gain by updating?" from inside the session — no manual poking at the plugin cache directory. Reports the installed version (and commit SHA when it can be determined), the latest published version, and — when behind — the `CHANGELOG.md` entries for every release in between so the user can decide whether updating is worth it.
 
 This complements the passive SessionStart version-check nudge (`hooks-setup` Step 5.7): that nudge only whispers "you're behind" once a day and only if the user opted into hooks. This skill is the on-demand, interactive answer — the full version + changelog, whenever asked.
 
 ## When to use
 
 - User asks "which iEvo version am I on", "what version is installed", "am I up to date", "how far behind is iEvo", "what changed since my version", "show the iEvo changelog", "what would `/plugin update` give me".
-- Before deciding whether to run `/plugin update ievo` — see the concrete list of changes first.
+- Before deciding whether to update — see the concrete list of changes first.
 - Onboarding / debugging — confirm exactly which iEvo build is active in this session.
 
 ## Steps
@@ -82,17 +82,45 @@ Robustness notes:
 
 When the install is **behind** (Step 3 found `installed < latest`), first infer the client surface — a **reasoning step**, not a Bash/env-var read, same judgment call as `feedback/SKILL.md` Step 3: based on the tools and context available to you in *this* session (surface-exclusive tool/MCP namespaces, explicit capability-availability/unavailability statements, product-identity signals in ambient context), judge whether this session is confidently `CLI terminal`, confidently non-CLI (`Desktop app` / `IDE extension` / `web`), or `uncertain`.
 
-- **Confidently CLI, or uncertain** — keep today's instruction unchanged (the safe default): `run /plugin update ievo to upgrade`.
 - **Confidently non-CLI** — do not assert a specific menu path (Desktop/VS Code/JetBrains update UI is unverified and platform-specific, and fabricating one is exactly the failure mode to avoid); render a generic, honest instruction instead: `check your Claude client's plugin/extension update mechanism for the latest iEvo release`.
+- **Confidently CLI, or uncertain** — detect the install scope first, then render the `claude` CLI update command (never the bare `/plugin update ievo` slash form: the built-in `/plugin` command's own documented direct-acting subcommands are `list`, `install`, `enable`, and `disable` — `update` is not among them, so `/plugin update <name>` isn't documented to act on its arguments the same way). This scope-detection mechanism (`.claude/settings*.json`, `claude plugin update -s`) is Claude-Code-specific — if this session is confidently a *different* CLI host (e.g. Codex — no `.claude/` config, no `claude` binary), skip it and fall back to the non-CLI branch's generic instruction instead of guessing at an equivalent command.
 
-Suggested format when behind (CLI or uncertain surface):
+  **Scope detection** — check, in this order, for an `enabledPlugins` key matching `ievo` (bare or `@marketplace`-qualified) with a `true` value; the first match wins (`project` → `local` → `user` precedence, the same order Claude Code itself resolves scopes):
+
+  ```sh
+  jq -r '.enabledPlugins // {} | to_entries[] | select(.key | test("^ievo(@.*)?$")) | select(.value == true) | .key' .claude/settings.json 2>/dev/null
+  jq -r '.enabledPlugins // {} | to_entries[] | select(.key | test("^ievo(@.*)?$")) | select(.value == true) | .key' .claude/settings.local.json 2>/dev/null
+  jq -r '.enabledPlugins // {} | to_entries[] | select(.key | test("^ievo(@.*)?$")) | select(.value == true) | .key' ~/.claude/settings.json 2>/dev/null
+  ```
+
+  - Found at **project** or **local** scope → render `claude plugin update ievo@ievo-skills -s project` (or `-s local`), plus a one-line reminder to run it from the project root — that scope resolves against the shell's current working directory, and running from elsewhere (a subdirectory, a submodule) can target the wrong project.
+  - Found at **user** scope → render `claude plugin update ievo@ievo-skills -s user` (no cd reminder needed — user scope is global, not cwd-dependent).
+  - Found in none of the three (shouldn't normally happen, since the skill itself is running under some scope — but degrade honestly rather than guessing): tell the user to run `claude plugin list` to see which scope iEvo is installed at, then `claude plugin update ievo@ievo-skills -s <scope>` with that scope — or open `/plugin`, go to the Installed tab, and update iEvo from there.
+  - Always use the fully-qualified `ievo@ievo-skills` form — the bare `ievo` name fails even when the scope is otherwise correct.
+
+Suggested format when behind (CLI or uncertain surface, project/local scope found):
 
 ```
 iEvo version
 
 - Installed: 0.41.0 (abc1234)
 - Latest:    0.42.0
-- Status:    1 release behind — run `/plugin update ievo` to upgrade
+- Status:    1 release behind — run `claude plugin update ievo@ievo-skills -s project` from your project root to upgrade
+
+Changes since your version:
+
+## v0.42.0
+<verbatim changelog body for v0.42.0>
+```
+
+Suggested format when behind (CLI or uncertain surface, user scope found):
+
+```
+iEvo version
+
+- Installed: 0.41.0 (abc1234)
+- Latest:    0.42.0
+- Status:    1 release behind — run `claude plugin update ievo@ievo-skills -s user` to upgrade
 
 Changes since your version:
 
@@ -140,18 +168,22 @@ Adapt the exact wording as fits the conversation; keep the three facts (installe
 
 ## Rules
 
-- **Read-only.** This skill never writes, edits, installs, or updates anything. It reports state; the user decides whether to run `/plugin update ievo`.
+- **Read-only.** This skill never writes, edits, installs, or updates anything. It reports state; the user decides whether to run the rendered update command.
 - **Installed version is authoritative from `plugin.json`.** Read it via `jq` on `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`; if it can't be resolved, say so and stop — never fabricate a version.
 - **SHA is best-effort.** An installed plugin cache typically has no `.git`. A missing SHA is "not available", never an error.
 - **Network is optional and throttling-free here.** This is an explicit, user-invoked command, so it fetches on every run (unlike the once/24h-throttled SessionStart nudge). If the network is unavailable, degrade to the installed-version-only report — clearly, not silently.
 - **Compare versions as semver**, field-by-field numerically — never as strings.
 - **Changelog prose is shown verbatim.** Print the intervening `## vX.Y.Z` sections as-is (newest first); don't paraphrase unless asked.
-- **Always name the plugin explicitly in the suggested update command — for the CLI/uncertain-surface branch.** Render `/plugin update ievo` (the fully-qualified `/plugin update ievo@ievo-skills` form disambiguates further if a same-named plugin from another marketplace is installed) — never the bare `/plugin update`, which is Claude Code's generic multi-plugin command and leaves a user with more than one plugin installed guessing which one it would touch. `ievo` is this plugin's own `name` from `plugins/ievo/.claude-plugin/plugin.json`; `ievo-skills` is the marketplace `name` from `.claude-plugin/marketplace.json`.
-- **Surface-aware update instruction, safe-default on uncertainty.** Before rendering the "behind" message (Step 5), infer the client surface as a reasoning step (see Step 5) — never a hardcoded env-var/tool-prefix lookup, since neither platform documents a stable signal for this. Confidently CLI or uncertain → keep `/plugin update ievo` (the safe default, preserves prior behavior). Confidently non-CLI → render the generic `check your Claude client's plugin/extension update mechanism` instruction instead. Never fabricate a specific Desktop/VS Code/JetBrains menu path — that wording hasn't been verified per-surface.
-- **Bash is used only for read-only lookups** — `jq` (parse the two manifests), `curl` (fetch the manifest + changelog from `main`), and a best-effort `git rev-parse` for the SHA. No writes, no destructive commands.
+- **Always name the plugin explicitly, fully-qualified, with its resolved scope — for the CLI/uncertain-surface branch.** Render `claude plugin update ievo@ievo-skills -s <scope>` (scope detected per Step 5) — never the bare `/plugin update`, which is Claude Code's generic multi-plugin command, and never the bare `ievo` name, which fails even when the scope is otherwise correct. `-s/--scope` defaults to `user`, so an unscoped command silently breaks for any project- or local-scope-only install — always detect and pass the actual scope, never omit it. `ievo` is this plugin's own `name` from `plugins/ievo/.claude-plugin/plugin.json`; `ievo-skills` is the marketplace `name` from `.claude-plugin/marketplace.json`.
+- **The rendered command is the external `claude` CLI form, not the interactive `/plugin` slash form.** Claude Code's own commands reference documents `/plugin`'s direct-acting subcommands as `list`, `install`, `enable`, and `disable` — `update` is conspicuously absent from that list, so `/plugin update <name> ...` isn't documented to behave the same way and can't be relied on to apply a scope non-interactively. Render the `claude plugin update ...` shell command as the primary instruction instead.
+- **Scope-detect before rendering, project → local → user precedence.** Check `.claude/settings.json`, then `.claude/settings.local.json`, then `~/.claude/settings.json` for the first `enabledPlugins` key matching `^ievo(@.*)?$` with a `true` value (Step 5). If none match in any of the three, degrade to the `claude plugin list` + manual-pick fallback rather than guessing a scope.
+- **Scope detection is Claude-Code-specific.** The `.claude/settings*.json` reads and `claude plugin update -s <scope>` render only apply when this session is confidently (or uncertainly) a Claude Code CLI session. A session confidently on a *different* CLI host (e.g. Codex — no `.claude/` config, no `claude` binary) should skip scope detection entirely and use the non-CLI branch's generic instruction instead.
+- **Project/local scope resolves against the shell's cwd.** When the detected scope is `project` or `local`, the rendered instruction includes a reminder to run the command from the project root — a nested working directory (or a submodule) can otherwise resolve `-s project`/`-s local` against the wrong project's plugin state.
+- **Surface-aware update instruction, safe-default on uncertainty.** Before rendering the "behind" message (Step 5), infer the client surface as a reasoning step (see Step 5) — never a hardcoded env-var/tool-prefix lookup, since neither platform documents a stable signal for this. Confidently CLI or uncertain → render the scope-detected `claude plugin update ievo@ievo-skills -s <scope>` CLI form. Confidently non-CLI → render the generic `check your Claude client's plugin/extension update mechanism` instruction instead. Never fabricate a specific Desktop/VS Code/JetBrains menu path — that wording hasn't been verified per-surface.
+- **Bash is used only for read-only lookups** — `jq` (parse the two version manifests, plus up to three settings files for scope detection), `curl` (fetch the manifest + changelog from `main`), and a best-effort `git rev-parse` for the SHA. No writes, no destructive commands.
 
 ## See also
 
 - `hooks-setup/SKILL.md` Step 5.7 — the passive, throttled SessionStart nudge that tells a user they're behind. This skill is its on-demand, changelog-showing complement.
-- `update.md` (`/ievo:update`) — refreshes vendored skills/agents; distinct from Claude Code's native `/plugin update`, which upgrades the plugin itself.
+- `update.md` (`/ievo:update`) — refreshes vendored skills/agents; distinct from Claude Code's native plugin-update mechanism (`claude plugin update` / the `/plugin` menu), which upgrades the plugin itself.
 - `overlay-status/SKILL.md` — the read-only, graceful-degradation skill pattern this one follows.

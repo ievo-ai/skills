@@ -20,7 +20,7 @@ import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync, utimesSync, chmodSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -28,6 +28,9 @@ import {
   SCRIPT_VERSION,
   TTL_SECONDS,
   FRONTMATTER_RE,
+  OWNER_REPO_RE,
+  isValidOwnerRepo,
+  assertContained,
   truncate,
   isoNow,
   isoDate,
@@ -171,6 +174,80 @@ describe("parseArgs", () => {
     assert.equal(a.outputDir, "/out");
     assert.equal(a.repo, "owner/name");
     assert.equal(a.force, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isValidOwnerRepo / OWNER_REPO_RE (pure) — CWE-22 path-traversal guard
+// ---------------------------------------------------------------------------
+
+describe("isValidOwnerRepo", () => {
+  it("OWNER_REPO_RE matches a plain owner/repo slug directly", () => {
+    assert.ok(OWNER_REPO_RE.test("ievo-ai/skills"));
+    assert.ok(!OWNER_REPO_RE.test("missing-slash"));
+  });
+  it("accepts a normal owner/repo slug", () => {
+    assert.equal(isValidOwnerRepo("ievo-ai/skills"), true);
+  });
+  it("accepts a repo segment with dots/underscores/hyphens", () => {
+    assert.equal(isValidOwnerRepo("owner/repo.name_with-chars"), true);
+  });
+  it("accepts a 39-char owner (GitHub's max)", () => {
+    assert.equal(isValidOwnerRepo(`${"a".repeat(39)}/repo`), true);
+  });
+  it("rejects the exact traversal payload from the CWE-22 report", () => {
+    assert.equal(isValidOwnerRepo("../../../../tmp/evil/payload"), false);
+  });
+  it("rejects a value with no slash", () => {
+    assert.equal(isValidOwnerRepo("missing-slash"), false);
+  });
+  it("rejects a value with more than one slash", () => {
+    assert.equal(isValidOwnerRepo("owner/sub/repo"), false);
+  });
+  it("rejects '..' as the whole repo segment even though its chars are in-charset", () => {
+    assert.equal(isValidOwnerRepo("owner/.."), false);
+  });
+  it("rejects '../foo' — owner charset excludes '.' before includes('..') is even reached", () => {
+    assert.equal(isValidOwnerRepo("../foo"), false);
+  });
+  it("rejects an owner segment over 39 chars", () => {
+    assert.equal(isValidOwnerRepo(`${"a".repeat(40)}/repo`), false);
+  });
+  it("rejects an owner segment starting with a hyphen", () => {
+    assert.equal(isValidOwnerRepo("-owner/repo"), false);
+  });
+  it("rejects null, undefined, and non-string input", () => {
+    assert.equal(isValidOwnerRepo(null), false);
+    assert.equal(isValidOwnerRepo(undefined), false);
+    assert.equal(isValidOwnerRepo(42), false);
+  });
+  it("rejects the empty string", () => {
+    assert.equal(isValidOwnerRepo(""), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertContained (pure) — path-containment last line of defense
+// ---------------------------------------------------------------------------
+
+describe("assertContained", () => {
+  it("does not throw when target is a child of parentDir", () => {
+    assert.doesNotThrow(() => assertContained("/tmp/checkouts/owner-repo", "/tmp/checkouts"));
+  });
+  it("does not throw when target equals parentDir exactly", () => {
+    assert.doesNotThrow(() => assertContained("/tmp/checkouts", "/tmp/checkouts"));
+  });
+  it("throws when target resolves outside parentDir via '..'", () => {
+    assert.throws(
+      () => assertContained("/tmp/checkouts/../../etc/passwd", "/tmp/checkouts"),
+      /refusing to write outside/,
+    );
+  });
+  it("throws when target is an unrelated sibling directory", () => {
+    assert.throws(
+      () => assertContained("/tmp/other-dir/file.md", "/tmp/checkouts"),
+      /refusing to write outside/,
+    );
   });
 });
 
@@ -656,6 +733,17 @@ describe("checkoutOrRefresh", () => {
     assert.equal(result, target);
   });
 
+  // CWE-22 regression: checkoutOrRefresh is exported and callable directly
+  // (bypassing main()'s isValidOwnerRepo gate), so it must independently
+  // resist a traversal payload — defense-in-depth via the global replace.
+  it("flattens every '/' in a traversal payload into one literal dir name — never escapes checkoutDir", () => {
+    const co = join(root, "traversal-guard");
+    const fake = makeFakeExec([{ stdout: "" }]); // git clone
+    const target = checkoutOrRefresh("../../../../tmp/evil/payload", co, false, fake);
+    assert.equal(target, join(co, "..-..-..-..-tmp-evil-payload"));
+    assert.ok(resolve(target).startsWith(resolve(co) + sep));
+  });
+
   after(() => rmSync(root, { recursive: true, force: true }));
 });
 
@@ -1072,6 +1160,14 @@ describe("main (end-to-end)", () => {
     assert.equal(r.exitCode, 1);
   });
 
+  it("exits 1 on a CWE-22 traversal payload, without touching git/fs", () => {
+    const r = captureRun();
+    const fake = makeFakeExec([]); // no git/checkout call should be made
+    main(["node", "scan_repo.mjs", "../../../../tmp/evil/payload"], fake, r.log, r.errLog, r.exit);
+    assert.equal(r.exitCode, 1);
+    assert.equal(fake.calls.length, 0, "must reject before any git/fs operation");
+  });
+
   it("exits 2 when clone fails", () => {
     const r = captureRun();
     const outDir = join(root, "out-clone-fail");
@@ -1144,6 +1240,11 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
 
   it("runs as CLI, exits 1 on malformed repo (no slash)", () => {
     const r = spawnSync(process.execPath, [scriptPath, "no-slash"], { encoding: "utf-8", timeout: 30000 });
+    assert.equal(r.status, 1);
+  });
+
+  it("runs as CLI, exits 1 on a CWE-22 traversal payload", () => {
+    const r = spawnSync(process.execPath, [scriptPath, "../../../../tmp/evil/payload"], { encoding: "utf-8", timeout: 30000 });
     assert.equal(r.status, 1);
   });
 });

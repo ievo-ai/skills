@@ -26,12 +26,34 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const SCRIPT_VERSION = "1.1.0";
 export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
+
+// Strict GitHub <owner>/<repo> slug: owner is GitHub's actual username charset
+// (alnum + hyphen, <=39 chars); repo allows alnum/./_/- (<=100 chars). Anchored
+// so the whole string must be exactly one slug — no extra `/` segments.
+export const OWNER_REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+
+// `..` is technically within the repo-segment charset above (e.g. `owner/..`),
+// so reject it explicitly — belt-and-suspenders with the path-containment
+// assertion in checkoutOrRefresh/main below.
+export function isValidOwnerRepo(repo) {
+  return typeof repo === "string" && OWNER_REPO_RE.test(repo) && !repo.includes("..");
+}
+
+// Throws if `target` would resolve outside `parentDir` — the last line of
+// defense against a traversal payload that slips past isValidOwnerRepo.
+export function assertContained(target, parentDir) {
+  const resolvedTarget = resolve(target);
+  const resolvedParent = resolve(parentDir);
+  if (resolvedTarget !== resolvedParent && !resolvedTarget.startsWith(resolvedParent + sep)) {
+    throw new Error(`refusing to write outside ${resolvedParent}: ${resolvedTarget}`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // git ops
@@ -64,8 +86,9 @@ export function fileExists(p) {
 }
 
 export function checkoutOrRefresh(ownerRepo, checkoutDir, force, execImpl = execFileSync) {
-  const safeName = ownerRepo.replace("/", "-");
+  const safeName = ownerRepo.replace(/\//g, "-");
   const target = join(checkoutDir, safeName);
+  assertContained(target, checkoutDir);
 
   if (isDir(target)) {
     const headFile = join(target, ".git", "HEAD");
@@ -580,7 +603,7 @@ export function parseArgs(argv) {
 
 export function main(argv = process.argv, execImpl = execFileSync, log = console.log, errLog = console.error, exit = process.exit) {
   const args = parseArgs(argv);
-  if (!args.repo || !args.repo.includes("/")) {
+  if (!isValidOwnerRepo(args.repo)) {
     errLog(`Error: repo must be in <owner>/<repo> format, got '${args.repo ?? ""}'`);
     return exit(1);
   }
@@ -631,8 +654,10 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     standalone_commands: standaloneCommands,
   };
 
-  const safeName = args.repo.replace("/", "-");
-  writeFileSync(join(outputDir, `${safeName}.md`), renderIndexMd(data), "utf-8");
+  const safeName = args.repo.replace(/\//g, "-");
+  const mdPath = join(outputDir, `${safeName}.md`);
+  assertContained(mdPath, outputDir);
+  writeFileSync(mdPath, renderIndexMd(data), "utf-8");
 
   const totalAgents = standaloneAgents.length + plugins.reduce((s, p) => s + p.agents.length, 0);
   const totalSkills = standaloneSkills.length + plugins.reduce((s, p) => s + p.skills.length, 0);
@@ -647,7 +672,9 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     has_pretooluse_hooks: plugins.some((p) => p.hooks?.has_pretooluse),
     has_userpromptsubmit_hooks: plugins.some((p) => p.hooks?.has_userpromptsubmit),
   };
-  writeFileSync(join(outputDir, `${safeName}.json`), JSON.stringify(manifestEntry, null, 2), "utf-8");
+  const jsonPath = join(outputDir, `${safeName}.json`);
+  assertContained(jsonPath, outputDir);
+  writeFileSync(jsonPath, JSON.stringify(manifestEntry, null, 2), "utf-8");
 
   log(
     `${args.repo}: indexed (commit=${commitSha}) — ${plugins.length} plugins, ` +

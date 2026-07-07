@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.49.3
+
+Fix a CWE-22 path-traversal gap in `scan_repo.mjs`'s `<owner>/<repo>` argument handling — closes #339.
+
+- **Gap closed** — the only validation on `--repo` was `!args.repo.includes("/")`, which accepts any string containing at least one `/` with no character-set restriction and no rejection of `..` segments. Both places deriving a filesystem path from that argument — `checkoutOrRefresh`'s clone-target computation and `main()`'s output-file naming — used the non-global, first-match-only form of `String.prototype.replace("/", "-")`, so a payload like `../../../../tmp/evil/payload` survived mostly intact and `path.join` resolved the result outside the intended checkout/output directory.
+- **Fix** — `main()` now validates `--repo` against a strict GitHub `<owner>/<repo>` slug (new `isValidOwnerRepo`/`OWNER_REPO_RE`), rejecting anything with extra `/` segments, out-of-charset characters, or an embedded `..` before any path is derived. Both `.replace("/", "-")` call sites now use a global replace, flattening every `/` into one literal path segment as defense-in-depth. A new `assertContained` helper asserts the resolved checkout target and both output-file paths stay inside their parent directory, throwing otherwise — mirrors the allowlist-sanitizer pattern already used by `evolution_candidates.mjs`'s `sanitizeSessionId`.
+- **Tests** — added coverage for `isValidOwnerRepo` (valid slugs, multi-segment/traversal/oversized/malformed rejections) and `assertContained` (contained vs. escaping paths), plus regression tests exercising the exact reported payload through `checkoutOrRefresh`, `main()`, and the CLI entry point. `scan_repo.mjs` stays at 100/100/100.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version) is intentionally left at `1.1.0` — this fix changes input validation and internal path safety only, not the `.md`/`.json` output format.
+
+---
+
 ## v0.49.2
 
 Make `/ievo:version`'s update instruction scope-aware and switch it to the `claude` CLI form — closes #332.

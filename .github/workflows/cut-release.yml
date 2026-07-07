@@ -30,7 +30,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 # Serialize on the workflow name — two simultaneous version-bump merges would
 # otherwise both pass the `gh release view` idempotency pre-check and race to

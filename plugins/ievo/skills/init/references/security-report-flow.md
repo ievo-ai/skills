@@ -8,13 +8,19 @@ install queue (`skip` semantics).
 
 ## 1. Preview
 
-Before showing the preview, scan `report_template.body` for any
-`![...](...)` or bare `[...](...)` that is NOT already inside a code span —
-if found, prepend a visible warning line to the preview (`⚠️ This excerpt
-contains un-fenced markdown image/link syntax — filing as-is could trigger a
-live-rendering beacon when the issue is viewed. Recommend "Edit body first".`).
-This is a defense-in-depth check, not a silent auto-fix: `security-auditor.md`
-owns neutralizing excerpts before it returns `report_template.body` (see its
+Before showing the preview, scan the `## Findings` section of
+`report_template.body` (the `File:`/`Excerpt:`/`Concern:` bullets — the only
+place cited candidate content lands) for any `![...](...)` or bare
+`[...](...)` that is NOT already inside a code span — if found, prepend a
+visible warning line to the preview (`⚠️ This excerpt contains un-fenced
+markdown image/link syntax — filing as-is could trigger a live-rendering
+beacon when the issue is viewed. Recommend "Edit body first".`). Do NOT scan
+the template's fixed `## Request` section or its `Reviewed via
+[iEvo](https://github.com/ievo-ai/skills)` footer — that link is static,
+known-safe template text meant to render, not cited excerpt content; scanning
+the whole body would false-positive on it every time. This is a
+defense-in-depth check, not a silent auto-fix: `security-auditor.md` owns
+neutralizing excerpts before it returns `report_template.body` (see its
 "Excerpt containment" rule); this only catches cases where that upstream
 fencing was incomplete.
 

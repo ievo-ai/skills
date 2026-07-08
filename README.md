@@ -175,7 +175,7 @@ install (project-scope vendor or plugin)
 | Command | What it does |
 |---------|--------------|
 | `/ievo:uninstall` | Remove markers from CLAUDE.md/AGENTS.md and `.claude/agents/`, `.claude/skills/`. Preserves `.ievo/`. |
-| `/ievo:update` | Refresh vendored agent/skill files from upstream. Re-inject markers. Overlay files untouched. |
+| `/ievo:update` | Refresh vendored agent/skill files from upstream, re-auditing changed content before it overwrites the local copy. Re-inject markers. Overlay files untouched. |
 
 ## The overlay model
 

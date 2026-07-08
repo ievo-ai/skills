@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.50.1
+
+Gate `/ievo:update`'s upstream refresh behind a security re-audit when vendored content actually changed — closes #349.
+
+- **Gap closed** — `/ievo:update` refreshed a vendored agent/skill by fetching upstream and overwriting the local copy with no re-audit of any kind, silently restoring executability (`chmod +x` on `.sh`/`.py`) of whatever the current upstream state happened to be. `/ievo:init`'s `security-auditor` gate is install-time only; a repo/path compromised after the original audit (maintainer account takeover, malicious commit) could re-poison a previously-trusted local copy on the next refresh with zero user-visible signal.
+- **Fix** — `plugins/ievo/commands/update.md` now stages the upstream fetch instead of writing it directly (Step 2), diffs it against the current local copy (new Step 2.5), and only proceeds untouched when the bytes are identical. When they differ, it dispatches a fresh `security-auditor` sub-agent against the current upstream state — the same GREEN/YELLOW/RED gate `/ievo:init` Step 8 applies at install time. GREEN applies silently; YELLOW/RED stops before anything touches disk and requires explicit `AskUserQuestion` confirmation, with a decline leaving the local copy and the overlay's `source.commit_sha` untouched so the next update re-attempts. Unchanged content is never re-scanned, so the common no-op refresh stays as cheap as before. Added `Task` + `AskUserQuestion` to the command's `allowed-tools`. Report (Step 6) and the Rules section updated to reflect the new re-audit states.
+- **Scope** — confined to `plugins/ievo/commands/update.md`; `security-auditor.md`'s existing `<owner>/<repo>@<name>` candidate-spec dispatch contract is reused as-is, no changes to the auditor itself.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.50.0
 
 Add a vendored `/ievo:consolidate` skill and teach `/ievo:evo` to offer extracting generalizable `project.md` clusters into a new skill or agent — closes #345.

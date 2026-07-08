@@ -53,6 +53,14 @@ Exit cleanly on any failure. Do NOT retry or guess alternative names.
 
 Store the resolved ref (default branch name, or user-provided ref) for all subsequent API calls.
 
+**Validate the ref before any further use.** Whether `<ref>` came from the user or from the API's `default_branch`, treat it as untrusted — `git check-ref-format` permits backtick, `$`, `(`, `)`, `;`, `|`, and quote characters in a legal branch/tag name, any of which would execute as shell metacharacters if interpolated into a Bash command. Before `<ref>` is used in Step 2 or any later `gh api` call, check it against this allowlist:
+
+- Matches `^[A-Za-z0-9._/-]+$` (letters, digits, `.`, `_`, `-`, `/` only)
+- Does not start with `-` (would be parsed as a flag)
+- Does not contain `..` or `@{`
+
+If `<ref>` fails any check, report `Ref '<ref>' contains invalid characters — refusing to use it in a shell command.` and exit cleanly. Do NOT interpolate an unvalidated ref into any Bash command.
+
 ## Step 2: Fetch the repo tree
 
 Enumerate all files recursively using the git trees API. Fetch the raw JSON (no `--jq` filter) so the top-level `truncated` field is preserved:
@@ -114,6 +122,8 @@ For each detected item, fetch its content to extract metadata. Prioritise breadt
 Prioritise fetches in this order: plugin manifests first, then SKILL.md files, then agent `.md` files, then command files, then hooks, then scripts last. When the total item count exceeds the 30-fetch cap, skip lower-priority categories.
 
 If any fetch returns null content (file over 1MB) or exits non-zero, skip the item and note it in the output footer.
+
+**Validate each `<path>` before fetching.** Every `<path>` used in 4a-4e comes from the target repo's own (attacker-controlled) tree listing in Step 2, so it is untrusted the same way `<ref>` is (Step 1). Before any `<path>` is interpolated into a `gh api "repos/<owner>/<repo>/contents/<path>?ref=<ref>"` call, check it against the same allowlist: matches `^[A-Za-z0-9._/-]+$`, does not start with `-`, does not contain `..` or `@{`. If a `<path>` fails validation, skip that item — do NOT interpolate it into any Bash command — and note `<path> skipped: invalid characters` in the output footer.
 
 ### 4a. Plugin manifests
 
@@ -251,6 +261,7 @@ Aggregate `allowed-tools` across ALL skills into a deduplicated list:
 - **Respect rate limits.** Cap file content fetches at 30. If more items exist, note the cap in the output footer.
 - **Truncate descriptions.** Cap at 120 characters with `...` to keep tables readable.
 - **gh CLI only.** All remote data comes from `gh api` calls. No `git clone`, no `curl`, no external tools.
+- **Never interpolate an unvalidated `<ref>` or `<path>` into a Bash command.** Both are attacker-controlled (a branch/tag name, or a path from the target repo's own tree listing) and can legally contain shell metacharacters. Validate against the allowlist in Step 1 / Step 4 first — exit cleanly (ref) or skip the item (path) on failure.
 
 ## See also
 

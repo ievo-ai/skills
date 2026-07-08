@@ -39,6 +39,7 @@ ievo-ai/skills/
     └── skills/                        # agentskills.io-compliant — cross-platform
         ├── init/SKILL.md              # /ievo:init — orchestrator
         ├── evo/SKILL.md               # /ievo:evo — overlay capture
+        ├── consolidate/SKILL.md       # /ievo:consolidate — doc consolidation + overlay extraction
         ├── feedback/SKILL.md          # /ievo:feedback — file GitHub issues
         ├── deep-review/SKILL.md       # /ievo:deep-review — structured gap-detection review
         ├── debug-on/SKILL.md          # /ievo:debug-on — enable verbose session logging
@@ -164,7 +165,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.49.3):**
+**Current compliance ledger (v0.50.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.

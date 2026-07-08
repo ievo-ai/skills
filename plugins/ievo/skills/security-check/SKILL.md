@@ -290,6 +290,20 @@ Thank you for maintaining this <skill|agent|plugin>.
 Reviewed via [iEvo](https://github.com/ievo-ai/skills) — community security audit tooling for the AI coding agent ecosystem (Claude Code, Codex, and other agentskills.io-compliant platforms).
 ```
 
+**Excerpt containment (RED only).** The `Excerpt:` line above quotes raw,
+untrusted content from the candidate being audited, and this template becomes
+a **public, auto-rendering** GitHub issue filed in the candidate's own (often
+third-party) repo (`security-report-flow.md` Step 2, for the
+`security-auditor`-dispatched flow — a direct caller of this skill must apply
+the same care before filing). GitHub renders `![...](...)` and `[...](...)`
+the moment anyone views the issue, so a crafted excerpt could smuggle a
+live-rendering exfiltration beacon that fires with no further agent action
+needed. Wrap each `<cited text>` in an inline code span before writing it
+into the template — using a backtick run one character longer than the
+longest backtick run already inside the excerpt, so the excerpt can't break
+out of its own span — rather than embedding it raw. Never delete or
+paraphrase the excerpt away; it's the evidence.
+
 Tone rules:
 - Neutral, professional — "patterns were detected", not "you have malicious code"
 - Specific — cite real file + excerpt, not vague accusations
@@ -306,3 +320,4 @@ Tone rules:
 - **GREEN requires positive evidence, not just absence of red.** "I read 12 files, all look normal in intent" — explicit. Not "didn't find anything" by default.
 - **RED requires high confidence.** Don't false-positive. If unsure, YELLOW + flag with severity=low.
 - **Report template only on RED.** Don't propose reports for YELLOW — those are install-with-awareness, not block-and-warn.
+- **Neutralize excerpts before they go public.** `report_template.body` is filed as a public, auto-rendering GitHub issue — see § Step 6's "Excerpt containment" note for the fencing rule.

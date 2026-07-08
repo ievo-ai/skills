@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.50.2
+
+Neutralize markdown image/link syntax in security-auditor's public report excerpts to close a live-rendering exfiltration beacon — closes #350.
+
+- **Gap closed** — `security-auditor.md`'s RED-verdict `report_template.body` embedded raw, verbatim `excerpt` fields into a public, auto-rendering GitHub issue filed in the candidate's own repo (`security-report-flow.md` Step 2). GitHub renders `![...](...)`/`[...](...)` automatically, so a crafted excerpt from the untrusted scanned candidate could smuggle a live-rendering exfiltration beacon that fires the instant anyone views the filed issue — no further agent action needed. Same vulnerability class as the 2026-07 "GitLost" disclosure (untrusted content → agent tool call → public exposure via a rendering channel), applied to `gh issue create` instead of an add-comment tool.
+- **Fix** — `security-auditor.md` now documents an "Excerpt containment" rule: excerpts written into `report_template.body` must be wrapped in a code span (using a fence delimiter longer than any backtick run already inside the excerpt, so the excerpt can't break out of its own fence) rather than embedded raw; internal-only excerpts (GREEN/YELLOW, never published) are unaffected. `security-report-flow.md`'s Step 2 CRITICAL callout gained a second bullet covering the markdown-rendering risk alongside the existing shell-interpolation guard, and Step 1's preview now scans for un-fenced image/link markdown and surfaces a warning before the user confirms filing, as a defense-in-depth backstop.
+- **Scope** — confined to `plugins/ievo/agents/security-auditor.md` and `plugins/ievo/skills/init/references/security-report-flow.md`; both prose-only, no behavior change to the audit logic or the `gh issue create` mechanics themselves.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits plugin files under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.50.1
 
 Gate `/ievo:update`'s upstream refresh behind a security re-audit when vendored content actually changed — closes #349.

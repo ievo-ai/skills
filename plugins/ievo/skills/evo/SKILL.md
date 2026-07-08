@@ -299,9 +299,31 @@ If the user picks **Share as feedback:** hand off to the `feedback` skill (`/iev
 - Do **not** translate here. If the lesson is non-English, `feedback`'s Step 3.75 translates it **once**, at the feedback stage — never duplicate translation in this skill.
 - `feedback` still runs its Step 1 (classify type), Step 3 (environment context), Step 3.5 (clarify — usually skipped, the lesson is already specific), Step 4 (build body), and — critically — **Step 5 (public-posting confirmation gate) unchanged**. Public posting stays behind that explicit `Submit` / `Cancel` gate; this skill never posts anything itself.
 
-Then continue to Step 6. The overlay capture is already complete and stands regardless of the feedback outcome (share, skip, or cancel at the gate).
+Then continue to Step 5.7. The overlay capture is already complete and stands regardless of the feedback outcome (share, skip, or cancel at the gate).
 
 > When the capture was delegated to the `evolution` sub-agent (see "On Claude Code with the iEvo plugin" above), the sub-agent performs Steps 1–5.5 and reports its upstream-relevance verdict + the verbatim lesson back to you; a dispatched sub-agent has no way to prompt or launch another skill, so you (the caller) run this Step 5.6 — the offer and the `/ievo:feedback` handoff — in the main session.
+
+## Step 5.7: Offer to extract generalizable project.md entries into a skill/agent (optional)
+
+After the overlay append (Step 4), the signal file (Step 5.5), and the upstream-escalation offer (Step 5.6) all resolve — and **only when the scope classified in Step 1 is Project-wide** (the target overlay is `.ievo/evolution/project.md`; skip entirely for agent- and skill-scope captures, which have their own per-target overlays and are not what this step addresses) — run one more cheap check, same lightweight style as Step 1 and Step 5.6: no sub-agent dispatch, no fixed entry-count threshold. This runs on **every** append to `project.md`, not just when reviewing the Step 0 auto-evolution backlog.
+
+**Cluster judgment.** Read the full current content of `.ievo/evolution/project.md` (now including the entry you just appended). Judge, by reasoning over the entries — not a mechanical count — whether 2 or more entries independently describe the **same recurring flow or role**: a repeatable procedure ("do A → B → C whenever X happens") or a repeatable judgment/review stance needing its own context. A single isolated entry, or entries that only share surface keywords without describing the same recurring thing, do NOT count. **Default: no cluster detected — and when none is detected, do NOT prompt.** This mirrors Step 5.6's "when in doubt, stay local" bias: the offer is a nicety, not a gate, and a false nag on every capture undercuts the low-effort capture design.
+
+**If no cluster is detected:** skip straight to Step 6. Ask nothing, write nothing.
+
+**If a cluster is detected:** offer once via `AskUserQuestion` (never auto-extract):
+
+- **Question:** `project.md has entries that look like they describe a repeatable <procedure | role | mix of both> — extract into a dedicated skill/agent now?`
+- **Header:** `Extract`
+- **Options** (single-select):
+  - `Extract now (Recommended)` — description: `Hands off to /ievo:consolidate scoped to this overlay (root=.ievo/evolution/project.md). Walks Discovery -> Analysis -> Proposal -> Migration -> Verification with 3 checkpoints — nothing is removed from project.md without your explicit approval at the Migration checkpoint.`
+  - `Not now` — description: `Keep the entries in project.md as-is. Run /ievo:consolidate manually later if you change your mind.`
+
+If the user picks **Not now** (or the platform can't prompt / has no `consolidate` skill available): proceed to Step 6. Nothing is extracted.
+
+If the user picks **Extract now:** hand off to the `consolidate` skill (`/ievo:consolidate --root .ievo/evolution/project.md`) — `consolidate/SKILL.md` Step 0 auto-detects entry-cluster mode from that root path, so no extra flag is needed beyond the root. `consolidate` runs its own Discovery through Verification phases and all 3 of its own checkpoints independently; this step's job ends at the handoff. The overlay capture from Step 4 is already complete and stands regardless of what the user decides inside `consolidate` (extract, decline per-cluster, or cancel at any of its checkpoints).
+
+Then continue to Step 6.
 
 ## Step 6: Report
 
@@ -312,6 +334,7 @@ Output a short summary to the user:
 - **Marker injected:** yes (first evolution for this target) | no (already present)
 - **Section title added:** "<title>"
 - **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
+- **Extraction offer:** not applicable (not project-wide scope, or no cluster detected) | offered → handed off to `/ievo:consolidate` | offered → skipped
 - **Next:** "Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."
 
 ## Rules
@@ -341,3 +364,4 @@ The overlay file is also a self-contained record: anyone reading `<name>.md` see
 - `overlay-status/SKILL.md` — `/ievo:overlay-status` lists every overlay this skill has built up in the current project, grouped by scope (Project / agents / skills) with last-modified dates and one-line summaries. Use it after a `/ievo:evo` capture to confirm the new lesson landed where you expected, or at session start to see what rules are already active.
 - `hooks-setup/SKILL.md` — `/ievo:hooks-setup` configures a Claude Code hook that fires when the signal file `.ievo/hooks/evolution-captured` is written by Step 5.5 above (lets you get a desktop notification on every capture).
 - `feedback/SKILL.md` — `/ievo:feedback` files a lesson upstream as a public GitHub issue in `ievo-ai/skills`. Step 5.6 above hands off to it (flow C, lesson pre-filled) when a captured lesson looks like it's about the iEvo plugin itself; public posting stays behind that skill's explicit confirmation gate (its Step 5).
+- `consolidate/SKILL.md` — `/ievo:consolidate` restructures fragmented docs (doc-graph mode) or extracts a generalizable cluster of `project.md` entries into a new project-local skill/agent (entry-cluster mode). Step 5.7 above hands off to it, scoped to `root=.ievo/evolution/project.md`, when accumulated project-wide entries look like they describe one recurring procedure or role. All extraction stays behind `consolidate`'s own 3 checkpoints — nothing is removed from `project.md` without explicit approval there.

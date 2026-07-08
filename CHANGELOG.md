@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.50.0
+
+Add a vendored `/ievo:consolidate` skill and teach `/ievo:evo` to offer extracting generalizable `project.md` clusters into a new skill or agent — closes #345.
+
+- **New skill** — vendored `/consolidate` (verified byte-identical between the upstream `ievo-ai/cli` and `ievo-ai/marketplace` copies) into `plugins/ievo/skills/consolidate/SKILL.md`, converted to agentskills.io SKILL.md frontmatter. Preserves the original 5-phase, 3-checkpoint doc-graph consolidation flow (Discovery → Analysis → Proposal → Migration → Verification) as the default mode.
+  - Adds a second, auto-detected **entry-cluster mode**: when the `--root` flag points at an iEvo overlay file (e.g. `.ievo/evolution/project.md`), the skill treats dated `## ` entries as the unit instead of files, judges (LLM reasoning, no mechanical entry-count threshold) whether 2+ entries describe the same recurring procedure or role, and — only after explicit approval at its own Checkpoint 1 (Proposal) and Checkpoint 2 (Migration) — authors a new project-local `.claude/skills/<name>/SKILL.md` and/or `.claude/agents/<name>.md` from scratch, then replaces the migrated overlay entries with a one-line redirect note. Full frontmatter templates and the registration mechanism live in the new `references/package-authoring.md`.
+  - Nothing is ever deleted from an overlay before its Migration checkpoint is approved — matches `evo/SKILL.md`'s existing no-silent-override philosophy.
+- **`evo/SKILL.md`** — new optional **Step 5.7**, structurally parallel to the existing Step 5.6 (upstream-feedback offer): after every append to the **project-wide** overlay (`.ievo/evolution/project.md`), runs the same cheap cluster-judgment check and, if a generalizable cluster is found, offers via `AskUserQuestion` to hand off to `/ievo:consolidate --root .ievo/evolution/project.md`. Default is silent — no cluster, no prompt. Agent/skill-scope captures are unaffected (out of scope for this proposal). Step 6's report gained a matching "Extraction offer" line; "See also" gained a `consolidate/SKILL.md` entry.
+- **Design note** — per the issue's re-triaged scope: vendoring `/consolidate` was explicitly in-scope (not a prerequisite issue), the package-authoring logic lives inside `/consolidate` itself rather than reusing `/ievo:init`'s install step, and clustering is LLM judgment rather than a fixed `>=3` threshold (dropped from the original proposal during triage).
+- **Version** — bump per AGENTS.md rules (`feat:` → minor, pre-1.0; adds a new plugin skill). `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.49.3
 
 Fix a CWE-22 path-traversal gap in `scan_repo.mjs`'s `<owner>/<repo>` argument handling — closes #339.

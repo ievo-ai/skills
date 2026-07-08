@@ -106,11 +106,14 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    fails.
 2. **Resolve `<commit-sha>`** — nothing in this skill's Input carries one, so
    resolve it fresh each scan: `gh api "repos/<owner>/<repo>" --jq
-   '.default_branch'`, then `gh api
-   "repos/<owner>/<repo>/commits/<default-branch>" --jq '.sha'`. Both calls
-   interpolate only the already-validated `<owner>`/`<repo>` (plus the first
-   call's own trusted output) — never candidate-tree content. Validate the
-   result matches `^[0-9a-f]{7,40}$` before using it further.
+   '.default_branch'`. Like any git ref, the returned `<default-branch>` can
+   legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes —
+   `git check-ref-format` allows all of them), so validate it against the
+   same ref allowlist `inspect/SKILL.md` Step 1 uses before any further use —
+   `^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`. Refuse and report if it
+   fails. Only then call `gh api
+   "repos/<owner>/<repo>/commits/<default-branch>" --jq '.sha'` and validate
+   the result matches `^[0-9a-f]{7,40}$` before using it further.
 3. **Shallow-clone into a fresh, per-invocation directory** — `mktemp -d`
    (shell-generated, never candidate-influenced), not a shared
    `~/.ievo/checkouts/<owner>-<repo>/` path: `security-auditor` dispatches

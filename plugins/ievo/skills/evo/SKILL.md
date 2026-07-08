@@ -48,7 +48,7 @@ with the accumulator (path: `<plugin>/scripts/evolution_candidates.mjs`):
 node <plugin>/scripts/evolution_candidates.mjs list
 ```
 
-For **each** candidate's `text`, run it through Steps 1–5 as its own lesson, with
+For **each** candidate's `text`, run it through Steps 1–5.7 as its own lesson, with
 the auto-mode reconciliation constraint (per the mode contract):
 
 - **Auto-write only unambiguous project-wide lessons** to `.ievo/evolution/project.md`.
@@ -322,6 +322,8 @@ After the overlay append (Step 4), the signal file (Step 5.5), and the upstream-
 If the user picks **Not now** (or the platform can't prompt / has no `consolidate` skill available): proceed to Step 6. Nothing is extracted.
 
 If the user picks **Extract now:** hand off to the `consolidate` skill (`/ievo:consolidate --root .ievo/evolution/project.md`) — `consolidate/SKILL.md` Step 0 auto-detects entry-cluster mode from that root path, so no extra flag is needed beyond the root. `consolidate` runs its own Discovery through Verification phases and all 3 of its own checkpoints independently; this step's job ends at the handoff. The overlay capture from Step 4 is already complete and stands regardless of what the user decides inside `consolidate` (extract, decline per-cluster, or cancel at any of its checkpoints).
+
+> When the capture was delegated to the `evolution` sub-agent, it performs the cluster judgment above as its own Step 4.7 (it already holds the freshly-appended `project.md` from its Step 4) and reports the verdict back to you; a dispatched sub-agent has no way to prompt or launch another skill, so you (the caller) run this Step 5.7 — the offer and the `/ievo:consolidate` handoff — in the main session, using the sub-agent's reported verdict instead of re-judging from scratch.
 
 Then continue to Step 6.
 

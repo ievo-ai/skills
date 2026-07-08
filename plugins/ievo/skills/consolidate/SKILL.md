@@ -70,7 +70,7 @@ Output: dependency graph summary + cycle list.
 
 ### Entry-cluster mode — Step 1: Parse entries
 
-The root is a single flat overlay file — there is no reference graph to walk. Read it and split into its dated sections: every `## <YYYY-MM-DD HH:MM UTC> — <title>` heading starts a new entry, running until the next `## ` heading or EOF. Capture per entry: `date`, `title`, `trigger` (the `**Trigger:** ...` line), and `body` (the verbatim lesson text below it).
+The root is a single flat overlay file — there is no reference graph to walk. If the root path does not exist on disk (e.g. `/ievo:consolidate --root .ievo/evolution/project.md` invoked before any `/ievo:evo` capture has run), report `Nothing to consolidate — <path> does not exist yet.` and exit cleanly (no checkpoints, no writes). Otherwise read it and split into its dated sections: every `## <YYYY-MM-DD HH:MM UTC> — <title>` heading starts a new entry, running until the next `## ` heading or EOF. Capture per entry: `date`, `title`, `trigger` (the `**Trigger:** ...` line), and `body` (the verbatim lesson text below it).
 
 If the file has fewer than 2 entries, there is nothing to cluster — report `Nothing to consolidate — <path> has 0-1 entries.` and exit cleanly (no checkpoints, no writes).
 

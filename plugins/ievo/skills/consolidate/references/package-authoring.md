@@ -24,11 +24,10 @@ Do not add a `when_to_use` frontmatter field — it is not yet a supported field
 ---
 name: <name>
 description: <synthesized description — what + when, <=1024 chars>
-license: MIT
 effort: low
 metadata:
   source: consolidate
-  extracted_from: .ievo/evolution/project.md
+  extracted_from: <root path, e.g. .ievo/evolution/project.md>
   extracted_at: <ISO-8601 UTC timestamp>
 ---
 
@@ -42,10 +41,12 @@ metadata:
 
 ## Origin
 
-Extracted by `/ievo:consolidate` from <N> entries in `.ievo/evolution/project.md`, dated <earliest date> to <latest date>. See that file's redirect note for the original entries.
+Extracted by `/ievo:consolidate` from <N> entries in `<root path>`, dated <earliest date> to <latest date>. See that file's redirect note for the original entries.
 ```
 
 `effort: low` is the safe default for a freshly authored procedure skill unless the cluster's entries clearly describe heavier multi-phase reasoning — match effort to what the synthesized body actually asks the agent to do, the same judgment `evo/SKILL.md` uses nowhere explicitly but every shipped skill's frontmatter reflects.
+
+`license:` is deliberately omitted from the template — it is optional per the agentskills.io spec, and unlike this repo's own shipped skills (genuinely MIT), a package synthesized inside an arbitrary end user's project has no established license. Do not default to `MIT` or any other license; only add the field if the user's project already has a clear license convention to match.
 
 The `metadata.source: consolidate` / `extracted_from` / `extracted_at` fields are NOT the same as the `source:` block `evo/SKILL.md` Step 4 writes into an *overlay* file for a *vendored* target (which records an upstream repo/path/commit). This is original synthesis authored in-project — there is no upstream commit to cite. These fields exist purely as a provenance breadcrumb for a human later asking "where did this skill come from" (`git blame` on the commit that created the file is the deeper answer).
 
@@ -58,7 +59,7 @@ description: <synthesized description — what + when>
 model: inherit
 metadata:
   source: consolidate
-  extracted_from: .ievo/evolution/project.md
+  extracted_from: <root path, e.g. .ievo/evolution/project.md>
   extracted_at: <ISO-8601 UTC timestamp>
 ---
 
@@ -72,7 +73,7 @@ metadata:
 
 ## Origin
 
-Extracted by `/ievo:consolidate` from <N> entries in `.ievo/evolution/project.md`, dated <earliest date> to <latest date>. See that file's redirect note for the original entries.
+Extracted by `/ievo:consolidate` from <N> entries in `<root path>`, dated <earliest date> to <latest date>. See that file's redirect note for the original entries.
 ```
 
 `model: inherit` is the safe default — only pin a stronger tier (`sonnet`/`opus`) if the cluster's entries specifically describe reasoning depth beyond the calling context (mirrors the judgment call in AGENTS.md's "Agent `model:` frontmatter" section). NEVER use a vendor-pinned ID (`claude-sonnet-4-6`, `gpt-5`, etc.) — only the family aliases `sonnet`/`opus`/`haiku`/`fable`/`inherit`.

@@ -1,18 +1,19 @@
 ---
-description: Refresh vendored agents and skills against fresh upstream content. Re-injects overlay markers if missing. Does NOT modify overlay files — under the v0.2.0 overlay model, accumulated lessons live separately and are not replayed.
-allowed-tools: Read, Write, Edit, Glob, Bash
+description: Refresh vendored agents and skills against fresh upstream content, re-auditing changed content via security-auditor before it overwrites the local copy (a simplified two-option version of the /ievo:init install-time gate). Re-injects overlay markers if missing. Does NOT modify overlay files — under the v0.2.0 overlay model, accumulated lessons live separately and are not replayed.
+allowed-tools: Read, Write, Edit, Glob, Bash, Task, AskUserQuestion
 ---
 
 # Update iEvo
 
 Refresh vendored agents and skills in this project against their upstream sources. Useful after upstream plugin/repo gets new content and you want to keep your local copies current.
 
-**Important — overlay model:** under v0.2.0, evolutions live in separate overlay files (`.ievo/evolution/<scope>/<name>.md`) that are read live at dispatch time. They are NOT replayed onto the agent/skill body. So `/ievo:update` is simple:
+**Important — overlay model:** under v0.2.0, evolutions live in separate overlay files (`.ievo/evolution/<scope>/<name>.md`) that are read live at dispatch time. They are NOT replayed onto the agent/skill body. So `/ievo:update` is:
 
-1. Re-fetch upstream agent/skill content
-2. Overwrite local file
-3. Re-inject the overlay marker block
-4. Leave the overlay file untouched
+1. Re-fetch upstream agent/skill content (staged, not yet applied)
+2. If the staged content differs from what's on disk, re-audit it via `security-auditor` before it touches anything (Step 2.5) — unchanged content skips straight through, no audit cost on the common no-op refresh
+3. Overwrite local file
+4. Re-inject the overlay marker block
+5. Leave the overlay file untouched
 
 Overlay file content keeps applying via the marker injection. No drift, no Opus replay loop.
 
@@ -31,23 +32,65 @@ For each overlay file:
 - Read its YAML frontmatter `source:` block to find the upstream `repo` + `path` + `commit_sha`.
 - If `source:` block is missing (overlay was created from a local-only agent/skill, never vendored) → skip in this update. Local-only targets have no upstream to refresh.
 
-### 2. Refresh each vendored file from upstream
+### 2. Fetch fresh upstream content (staged, not yet applied)
 
-For each target with `source:` metadata:
+For each target with `source:` metadata, fetch into a staging path — do NOT overwrite the local copy yet. Step 2.5 needs both the old and new content to decide whether a re-audit is required.
 
 **Agent:**
 ```bash
-gh api repos/<source.repo>/contents/<source.path> --jq '.content' | base64 -d > .claude/agents/<name>.md
+gh api repos/<source.repo>/contents/<source.path> --jq '.content' | base64 -d > /tmp/ievo-update-staged-<name>.md
 ```
 
 **Skill:**
-Fetch the SKILL.md + supporting files (scripts/, references/, assets/) under the skill's source directory. Write tree to `.claude/skills/<name>/`.
+Fetch the SKILL.md + supporting files (scripts/, references/, assets/) under the skill's source directory into a staging tree, e.g. `/tmp/ievo-update-staged-<name>/`.
 
-This **overwrites** the local copy with fresh upstream.
+If `gh api` returns 404 (upstream renamed/removed), stop for this target — see Step 6's `UPSTREAM MISSING` report line. Do not touch the local copy. Clean up any partial staged content per Step 3.5 before moving to the next target.
 
-### 3. Re-inject overlay marker
+### 2.5. Re-audit content that changed since the last audit
 
-After overwriting, the freshly-pulled file does NOT have our overlay marker — it was upstream content. Re-inject:
+Diff the staged fetch against the current local copy (`.claude/agents/<name>.md`, or the whole `.claude/skills/<name>/` tree for a skill) — but never compare the raw local file directly. The local copy carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker block (injected by Step 3 below, or by `/ievo:init` Step 9 at first vendor); the staged upstream fetch never does. Diffing them raw would show a "difference" on effectively every run even when the underlying upstream content is byte-identical, defeating the point of this fast path.
+
+Instead:
+1. Copy the local target to a scratch path — never mutate the actual local file just to run this comparison:
+   ```bash
+   cp .claude/agents/<name>.md /tmp/ievo-update-localcopy-<name>.md   # agent
+   # or, for a skill:
+   cp -r .claude/skills/<name>/ /tmp/ievo-update-localcopy-<name>/
+   ```
+2. Strip the marker block (inclusive) from the scratch copy. For a skill, only `SKILL.md` ever carries the marker — `scripts/`, `references/`, `assets/` files never do, so strip it there and leave the rest of the scratch tree untouched:
+   ```bash
+   sed '/<!-- ievo:start -->/,/<!-- ievo:end -->/d' /tmp/ievo-update-localcopy-<name>.md > /tmp/ievo-update-localcopy-<name>.md.tmp && mv /tmp/ievo-update-localcopy-<name>.md.tmp /tmp/ievo-update-localcopy-<name>.md          # agent
+   sed '/<!-- ievo:start -->/,/<!-- ievo:end -->/d' /tmp/ievo-update-localcopy-<name>/SKILL.md > /tmp/ievo-update-localcopy-<name>/SKILL.md.tmp && mv /tmp/ievo-update-localcopy-<name>/SKILL.md.tmp /tmp/ievo-update-localcopy-<name>/SKILL.md    # skill
+   ```
+3. Diff the stripped scratch copy against the staged fetch from Step 2.
+
+- **Identical** (after stripping) → nothing changed upstream since the content was last audited (at install, or at a prior `/ievo:update` re-audit). Proceed straight to Step 3 with the staged content — no re-audit, no user friction. This is the common case: most refreshes pick up unrelated upstream churn (typo fixes, unrelated files) or none at all.
+- **Different** → the bytes that would land on disk have changed since the last audit. Dispatch a fresh `security-auditor` sub-agent (Task tool) against the current upstream state — a simplified two-option version of `/ievo:init` Step 8's install-time gate (no report-to-source option; see the Rules section) — same candidate spec format, so the auditor re-fetches and scans it independently rather than trusting the staged copy:
+  ```
+  Task(subagent_type="security-auditor",
+       prompt="Audit <source.repo>@<name> with type=<skill|agent>")
+  ```
+  Send all dispatches for targets that changed in this run in a **single message** so they audit in parallel, same as init Step 8.
+
+  Collect the verdict:
+  - **GREEN** → proceed to Step 3. No user friction — matches the install-time GREEN path (Step 8a).
+  - **YELLOW or RED** → do NOT proceed to Step 3 yet. Surface it via `AskUserQuestion` before anything touches disk:
+    - **Question:** `<scope>/<name> changed upstream and was flagged <verdict> on re-audit: <top 1-2 flags — category + one-line explanation>. Apply the refresh?`
+    - **Header:** `Re-audit`
+    - **Options** (single-select):
+      - `Apply anyway (I've reviewed the flags)` — proceed to Step 3; Step 6 reports `applied despite <verdict>`.
+      - `Skip — keep current local copy` — this target drops out of the run (skip Steps 3-4 for it, but still run Step 3.5 cleanup); Step 6 reports `SKIPPED — flagged <verdict>, refresh declined`. The overlay's `source.commit_sha` is left untouched so the next `/ievo:update` re-attempts and re-audits again.
+
+    **No interactive session available** (e.g. this run was launched from an `/ievo:schedule` Routine — recognizable by a self-contained invocation prompt like "You are running a scheduled iEvo skill refresh", per `schedule/SKILL.md`'s Skill refresh prompt — or any other headless/CI invocation where `AskUserQuestion` cannot be answered): do not block waiting for input. Auto-select the `Skip — keep current local copy` outcome for that target, same as an explicit decline, and call it out in Step 6 as `SKIPPED — flagged <verdict>, no interactive session to confirm` so the summary makes the auto-skip visible on review. This matches `schedule/SKILL.md`'s own instruction to "flag YELLOW/RED items for manual review" rather than block a scheduled run indefinitely.
+
+This closes the gap `/ievo:init` already closes at install time: upstream content that changed after the original audit can no longer silently overwrite a previously-trusted local copy. Unchanged content is never re-scanned, so a no-op refresh stays as cheap as before.
+
+### 3. Apply the staged content, then re-inject overlay marker
+
+For each target cleared by Step 2.5 (identical content, GREEN verdict, or the user chose "Apply anyway"):
+
+1. Move the staged fetch over the local copy — agent: `.claude/agents/<name>.md`; skill: replace the `.claude/skills/<name>/` tree.
+2. The applied file does NOT have our overlay marker yet — it was upstream content. Re-inject:
 
 After the file's YAML frontmatter `---` closing line, insert:
 
@@ -60,6 +103,18 @@ After the file's YAML frontmatter `---` closing line, insert:
 Where `<scope>` = `agents` or `skills` and `<name>` = the target name.
 
 The marker block is the SAME format as used by `/ievo:evo` step 3.
+
+Targets the user skipped in Step 2.5 are not touched here — their local copy and overlay stay exactly as they were before this run.
+
+### 3.5. Clean up staged fetch
+
+Once a target's outcome is decided — applied (identical / GREEN / user override), declined (YELLOW/RED skip, including the no-interactive-session auto-skip), or 404 — remove its staged and scratch paths:
+
+```bash
+rm -rf /tmp/ievo-update-staged-<name>* /tmp/ievo-update-localcopy-<name>*
+```
+
+Do this per target, right after that target's outcome is settled — not deferred to the end of the whole run. This applies to every exit path, including declined and 404 targets: content the auditor just flagged as risky (or any raw upstream fetch that was never applied) should not linger under `/tmp` after the run.
 
 ### 4. Update overlay frontmatter
 
@@ -94,13 +149,18 @@ This keeps the audit trail of when refreshes happened.
 ### 6. Report
 
 For each target, output one line:
-- `<scope>/<name>: refreshed → <new_sha> (was <old_sha>)` on success
+- `<scope>/<name>: refreshed → <new_sha> (was <old_sha>)` — content unchanged since last audit, applied with no re-audit needed
+- `<scope>/<name>: refreshed → <new_sha> (was <old_sha>) [re-audited: GREEN]` — content changed, security-auditor cleared it
+- `<scope>/<name>: refreshed → <new_sha> (was <old_sha>) [re-audited: <YELLOW|RED>, applied despite flags]` — user chose "Apply anyway" in Step 2.5
+- `<scope>/<name>: SKIPPED — flagged <YELLOW|RED> on re-audit, refresh declined` — local copy and `source.commit_sha` left untouched
+- `<scope>/<name>: SKIPPED — flagged <YELLOW|RED>, no interactive session to confirm` — auto-skipped because `AskUserQuestion` had no one to answer it (e.g. an unattended `/ievo:schedule` run); local copy and `source.commit_sha` left untouched, same as an explicit decline
 - `<scope>/<name>: UPSTREAM MISSING — overlay preserved, please review` if `gh api` returned 404
 - `<scope>/<name>: SKIPPED — no source metadata (local-only)` for local targets
 
 Final summary:
 - Refreshed: N agents, M skills
-- Flagged for review: K targets
+- Re-audited (content changed since last audit): J targets
+- Flagged for review: K targets (upstream missing, or refresh declined — explicitly or auto-skipped for lack of an interactive session — after a YELLOW/RED re-audit)
 
 Remind user:
 ```
@@ -111,7 +171,11 @@ Run git diff .claude/ .ievo/evolution/ to review changes before commit.
 ## Rules
 
 - **Overlay files are sacred.** Never overwrite `.ievo/evolution/<scope>/<name>.md` content (except appending the "Upstream rebase" section). Frontmatter sha + fetched_at update; sections accumulate.
-- **No Opus replay.** Under overlay model, the agent/skill body never contained evolution patches in the first place. Refresh-from-upstream is just file copy + marker re-injection.
+- **No Opus replay.** Under overlay model, the agent/skill body never contained evolution patches in the first place. Refresh-from-upstream is just file copy + marker re-injection, gated by a security re-audit when the content actually changed (Step 2.5).
+- **Re-audit gates content changes, not every refresh.** Step 2.5 only dispatches `security-auditor` when the freshly-fetched content differs from what's on disk — an unchanged upstream (the common case) never pays the audit cost. A GREEN verdict applies silently; YELLOW/RED requires explicit `AskUserQuestion` confirmation before the local copy is touched — a simplified two-option gate compared to `/ievo:init` Step 8a, which also offers a report-to-source option; that option is out of scope here (single-file router, not the full install pipeline). Declining leaves the local copy and the overlay's `source.commit_sha` untouched so the next `/ievo:update` re-attempts.
+- **Diff after stripping the marker, not before.** The local copy always carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker; the staged upstream fetch never does. Step 2.5 compares a marker-stripped scratch copy of the local file against the staged fetch — comparing raw would make the "identical" fast path never trigger.
+- **No blocking on unattended runs.** If `AskUserQuestion` has no interactive session to answer it (e.g. an `/ievo:schedule` Routine), Step 2.5 auto-skips the target instead of hanging — never blocks a scheduled run indefinitely.
+- **Clean up staged content for every outcome.** Step 3.5 removes each target's `/tmp/ievo-update-staged-<name>*` and scratch-copy paths once its outcome is decided — applied, declined, or 404. Flagged-risky content should not linger under `/tmp`.
 - **Flag missing upstream loudly.** If `gh api` returns 404 (upstream renamed/removed), don't silently drop the target. Surface for user decision.
 - **No automatic commit.** Update only writes files. User reviews + commits.
 - **Order matters for symlinked content.** If a skill has `scripts/` with executable files, restore permissions after fetch (`chmod +x` on `.sh`/`.py` known patterns).

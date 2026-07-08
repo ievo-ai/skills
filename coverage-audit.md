@@ -21,7 +21,7 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Enable verbose / trace-level logging | `/ievo:debug-on` | — | covered | Writes `.ievo/debug.flag`, creates per-session log dir, future skill invocations log expanded payloads |
 | Disable verbose logging + finalise debug session | `/ievo:debug-off` | — | covered | Removes the flag, archives the session log |
 | Remove iEvo overlay markers from a project | `/ievo:uninstall` | — | covered | Glob + Edit + Bash (`grep -l` marker discovery); preserves `.ievo/` |
-| Refresh vendored agent/skill files from upstream | `/ievo:update` | — | covered | Re-fetches by recorded source SHA; re-injects overlay markers; overlay files untouched |
+| Refresh vendored agent/skill files from upstream | `/ievo:update` | — | covered | Re-fetches by recorded source SHA; gates changed content behind a security re-audit; re-injects overlay markers; overlay files untouched |
 | Validate agent frontmatter (vendor-neutral `model:`, required fields) | (CI gate + local pre-commit) | `validate_agents.mjs` | covered | 100% test coverage; blocks `claude-*` / `gpt-*` / `gemini-*` vendor-pinned IDs |
 | Validate SKILL.md frontmatter (agentskills.io spec constraints) | (CI gate + local pre-commit) | `validate_skills.mjs` | covered | 100% test coverage; enforces name format/length, description ≤1024, compatibility ≤500, no vendor model IDs |
 | Enforce 100% test coverage on all Node scripts | `coverage-gate.yml` workflow | `check-coverage.mjs` | covered | All three scripts (`discover.mjs`, `validate_agents.mjs`, `scan_repo.mjs`) at literal 100/100/100 as of v0.6.7; `CARVE_OUTS` map empty |

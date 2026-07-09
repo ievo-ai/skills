@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.50.5
+
+Replace `evo/SKILL.md` Step 2's `gh api` vendor-fetch recipe with mandatory clone-then-Read/Write tool reads — closes #355.
+
+- **Gap closed** — Step 2 ("Ensure target file exists locally (vendor if needed)") instructed fetching a vendor target's source with `gh api repos/<owner>/<repo>/contents/<path>` — a literal Bash command built from `<owner>`, `<repo>`, and `<path>`, all three tracing back to an untrusted upstream plugin repo's own tree/manifest. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes), so a malicious upstream plugin could get arbitrary shell execution the moment a routine `/ievo:evo` capture triggered vendoring. Same root cause as `security-check/SKILL.md` (#347) and `inspect/SKILL.md` (#348), applied here to `evo/SKILL.md`'s own vendor-fetch instruction.
+- **Fix** — Step 2 gained a "How to fetch source" subsection: validate `<owner>`/`<repo>` against GitHub's own slug charset (matching `scan_repo.mjs`'s `OWNER_REPO_RE`), resolve and validate the default branch and commit sha via `inspect/SKILL.md`'s ref allowlist, shallow-clone into a fresh `mktemp -d` directory, then fetch content with the **Read**/**Write**/**Glob** tools instead of Bash/`gh api` — a single file for an agent target, a Glob-enumerated tree for a skill target. Both take paths as direct parameters, never shell text, so neither a malicious `<path>` nor a malicious file name can reach a shell. No unsafe fallback: if cloning or resolution fails, the fetch is reported as failed, not reverted to the vulnerable recipe. Added a corresponding invariant to the Rules section; `compatibility` frontmatter now notes the `git` requirement.
+- **Scope** — confined to `plugins/ievo/skills/evo/SKILL.md`; a textual instruction constraint, no new script or tests required. Reuses the already-merged, reviewed pattern from #347/#348 rather than inventing a new one.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.50.4
 
 Replace `security-check/SKILL.md` Step 2's per-file `gh api` fetch recipe with mandatory clone-then-Read tool reads — closes #347.

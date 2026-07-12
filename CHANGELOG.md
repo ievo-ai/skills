@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.50.7
+
+Replace `plugins/ievo/agents/evolution.md` Step 2's `gh api` vendor-fetch recipe with mandatory clone-then-Read/Write tool reads, and add a `disallowedTools` denylist — closes #366.
+
+- **Gap closed** — Step 2 ("Ensure target file exists locally (vendor if needed)") instructed fetching a vendored agent/skill target's source with `gh api repos/<owner>/<repo>/contents/<path>` — a literal Bash command built from `<owner>`, `<repo>`, and `<path>`, all three tracing back to an untrusted upstream plugin repo's own tree/manifest. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes), so a malicious upstream plugin could get arbitrary shell execution the moment a routine evolution capture triggered vendoring against one of its targets. Same root cause as `security-check/SKILL.md` (#347), `inspect/SKILL.md` (#348), and `evo/SKILL.md` (#355), applied here to `evolution.md`'s own vendor-fetch instruction — the sub-agent path `evo/SKILL.md` delegates to via Task tool. `evolution.md` also carried unrestricted Bash/Write/Edit with no `disallowedTools` denylist, unlike `security-auditor.md`/`deep-reviewer.md`/`vuln-scanner.md`, so a successful injection had no defense-in-depth backstop.
+- **Fix** — Step 2 gained a "How to fetch source" subsection: validate `<owner>`/`<repo>` against GitHub's own slug charset (matching `scan_repo.mjs`'s `OWNER_REPO_RE`), resolve and validate the default branch and commit sha via `inspect/SKILL.md`'s ref allowlist, shallow-clone into a fresh `mktemp -d` directory, then fetch content with the **Read**/**Write**/**Glob** tools instead of Bash/`gh api` — a single file for an agent target, a Glob-enumerated tree for a skill target. Both take paths as direct parameters, never shell text, so neither a malicious `<path>` nor a malicious file name can reach a shell. No unsafe fallback: if cloning or resolution fails, the fetch is reported as failed, not reverted to the vulnerable recipe. Added a corresponding invariant to the Rules section. Separately, added a `disallowedTools` denylist to the frontmatter mirroring the sibling agents — destructive `Bash(rm*|mv*|cp*|curl*|wget*|sudo*|chmod*)` and `WebSearch` are denied, while `Write`/`Edit` stay allowed since they are this agent's core job (overlay writes, marker injection).
+- **Scope** — confined to `plugins/ievo/agents/evolution.md` (frontmatter + Step 2 body + Rules section), plus a one-line update to AGENTS.md § Security model listing `evolution.md` among the self-enforcing sub-agents. Reuses the already-merged, reviewed pattern from #347/#348/#355 rather than inventing a new one.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched. `v0.50.6` is claimed by the concurrently open PR #359; this takes the next free slot.
+
+---
+
 ## v0.50.5
 
 Replace `evo/SKILL.md` Step 2's `gh api` vendor-fetch recipe with mandatory clone-then-Read/Write tool reads — closes #355.

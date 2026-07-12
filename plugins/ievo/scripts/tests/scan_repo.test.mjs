@@ -141,6 +141,9 @@ describe("escapeMdCell", () => {
   it("coerces non-string input to string", () => {
     assert.equal(escapeMdCell(42), "42");
   });
+  it("preserves a literal 0 (falsy but meaningful) instead of treating it as absent", () => {
+    assert.equal(escapeMdCell(0), "0");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1163,12 +1166,19 @@ describe("renderIndexMd", () => {
     assert.match(md, /Skills with broad allowed-tools:\*\* 0$/m);
   });
 
-  it("includes the untrusted-content banner ahead of any scanned-repo content", () => {
-    const md = renderIndexMd(baseData());
+  it("includes the untrusted-content banner ahead of the attacker-controlled default_branch line, not just ahead of Repo metadata", () => {
+    const d = baseData();
+    d.default_branch = "attacker-controlled-ref";
+    const md = renderIndexMd(d);
     assert.match(md, /Untrusted content below/);
     const bannerIdx = md.indexOf("Untrusted content below");
+    const defaultBranchIdx = md.indexOf("Default branch:");
     const metadataIdx = md.indexOf("## Repo metadata");
-    assert.ok(bannerIdx > 0 && bannerIdx < metadataIdx);
+    // The banner must precede EVERY attacker-controlled field it warns about,
+    // not merely precede the `## Repo metadata` heading — default_branch is
+    // itself attacker-influenceable (an arbitrary git ref name) and is
+    // rendered before that heading.
+    assert.ok(bannerIdx > 0 && bannerIdx < defaultBranchIdx && defaultBranchIdx < metadataIdx);
   });
 
   it("escapes default_branch so an attacker-chosen ref name can't break the blockquote line", () => {

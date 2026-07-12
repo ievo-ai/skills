@@ -32,6 +32,7 @@ import {
   isValidOwnerRepo,
   assertContained,
   truncate,
+  escapeMdCell,
   isoNow,
   isoDate,
   parseArgs,
@@ -105,6 +106,40 @@ describe("truncate", () => {
   });
   it("trims leading/trailing whitespace before measuring", () => {
     assert.equal(truncate("  short  ", 10), "short");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// escapeMdCell (pure) — CWE-116 fix: neutralizes Markdown table/code-span
+// syntax in attacker-controlled scanned-repo content before interpolation.
+// ---------------------------------------------------------------------------
+
+describe("escapeMdCell", () => {
+  it("returns empty string for null / undefined / empty", () => {
+    assert.equal(escapeMdCell(null), "");
+    assert.equal(escapeMdCell(undefined), "");
+    assert.equal(escapeMdCell(""), "");
+  });
+  it("leaves plain text unchanged", () => {
+    assert.equal(escapeMdCell("sonnet"), "sonnet");
+  });
+  it("escapes pipe so it can't fabricate a table column/row", () => {
+    assert.equal(escapeMdCell("sonnet | [approve](javascript:x) | fake-row"), "sonnet \\| [approve](javascript:x) \\| fake-row");
+  });
+  it("replaces backticks so an inline code span can't be closed early", () => {
+    assert.equal(escapeMdCell("code`span`break"), "code'span'break");
+  });
+  it("escapes backslashes before introducing its own", () => {
+    assert.equal(escapeMdCell("a\\b|c"), "a\\\\b\\|c");
+  });
+  it("collapses embedded control characters (JSON-sourced values can carry literal \\n/\\r/\\t) to spaces", () => {
+    assert.equal(escapeMdCell("line1\nline2\ttab\rcr"), "line1 line2 tab cr");
+  });
+  it("collapses whitespace runs and trims, mirroring truncate", () => {
+    assert.equal(escapeMdCell("  a   b  "), "a b");
+  });
+  it("coerces non-string input to string", () => {
+    assert.equal(escapeMdCell(42), "42");
   });
 });
 
@@ -1126,6 +1161,67 @@ describe("renderIndexMd", () => {
     assert.match(md, /UserPromptSubmit: no/);
     assert.match(md, /MCP servers total:\*\* 0/);
     assert.match(md, /Skills with broad allowed-tools:\*\* 0$/m);
+  });
+
+  it("includes the untrusted-content banner ahead of any scanned-repo content", () => {
+    const md = renderIndexMd(baseData());
+    assert.match(md, /Untrusted content below/);
+    const bannerIdx = md.indexOf("Untrusted content below");
+    const metadataIdx = md.indexOf("## Repo metadata");
+    assert.ok(bannerIdx > 0 && bannerIdx < metadataIdx);
+  });
+
+  it("escapes default_branch so an attacker-chosen ref name can't break the blockquote line", () => {
+    const d = baseData();
+    d.default_branch = "release | injected";
+    const md = renderIndexMd(d);
+    assert.match(md, /> Default branch: release \\\| injected/);
+  });
+
+  // CWE-116 regression: a malicious frontmatter/JSON field containing `|` or
+  // a backtick must not fabricate extra table columns/rows or break out of
+  // an inline code span — every table row must still parse to the expected
+  // number of cells.
+  it("escapes pipe/backtick table-breakout attempts across every plugin table", () => {
+    const d = baseData();
+    d.plugins = [{
+      name: "evil|plugin",
+      description: "desc | injected",
+      version: "1.0.0 | fake",
+      path: "plugins/evil/",
+      author: "Mallory | Admin",
+      license: "MIT | Fake",
+      agents: [{ name: "a`gent", model: "sonnet | [pwn](javascript:x)", tools: "Read | Write", description: "d | esc" }],
+      skills: [{
+        name: "sk`ill", description: "desc | esc", has_scripts: true, has_refs: false,
+        license: "MIT | X", compatibility: "any | X", broad_bash: true,
+      }],
+      commands: [{ name: "cmd | X", description: "d | esc" }],
+      hooks: {
+        present: true,
+        events: ["Evt | X"],
+        entries: [{ event: "Evt | X", matcher: "Bash | X", command: "echo `x`" }],
+        has_pretooluse: false,
+        has_userpromptsubmit: false,
+      },
+      mcp: { present: true, servers: [{ name: "srv | X", endpoint: "https://x?a=`b`", is_local: false }] },
+    }];
+    const md = renderIndexMd(d);
+
+    // The plugin heading/name and every table row are still literal single
+    // cells — a naive Markdown table parser splitting on unescaped `|`
+    // would see extra columns if any of these values leaked through raw.
+    assert.match(md, /### evil\\\|plugin/);
+    assert.match(md, /\| a'gent \| sonnet \\\| \[pwn\]\(javascript:x\) \| Read \\\| Write \| d \\\| esc \|/);
+    assert.match(md, /\| sk'ill \| desc \\\| esc \| yes \| MIT \\\| X \| any \\\| X \| yes \|/);
+    assert.match(md, /\| cmd \\\| X \| d \\\| esc \|/);
+    assert.match(md, /\| Evt \\\| X \| Bash \\\| X \| `echo 'x'` \|/);
+    assert.match(md, /\| srv \\\| X \| `https:\/\/x\?a='b'` \| no \|/);
+
+    // No unescaped, unbalanced pipe reaches the output: every remaining `|`
+    // is either a table delimiter or immediately preceded by the escape.
+    const rawPipeLeak = /[^\\]\| \[pwn\]/;
+    assert.doesNotMatch(md, rawPipeLeak);
   });
 });
 

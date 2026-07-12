@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.0
+
+Add a Cursor hooks section to hooks-setup/SKILL.md, documenting Cursor v3.11's `stop`/`afterAgentResponse` hooks — closes #367.
+
+- **Gap closed** — `hooks-setup/SKILL.md` documented only Claude Code hooks; Cursor was never mentioned anywhere in the file despite AGENTS.md's explicit multi-platform positioning ("works on Claude Code, Cursor, Codex, ..."). Cursor v3.11 (2026-07-10) shipped "Cloud Agent Hooks", extending its stable, production `hooks.json` system with agent-conversation-level hook types — verified verbatim against the [Cursor changelog](https://www.cursor.com/changelog) and [hooks reference](https://cursor.com/docs/hooks).
+- **Fix** — new `references/cursor-hooks.md` documents `.cursor/hooks.json` config scopes (Enterprise/Team/Project/User, priority order), the `stop` and `afterAgentResponse` hook types (input/output schema, closest Claude Code analogs), the stdin/stdout JSON contract and exit-code semantics (`0` = success, `2` = deny, other = fail-open), a worked `stop`-hook example that checks iEvo's `.ievo/hooks/<event>` signal files and rings the terminal bell — flagging that Cursor has no `PostToolUse`-style path matcher, so the hook script itself must do the event filtering — and a caveat that the worked example's committed `.cursor/hooks.json` references a gitignored script (`.ievo/hooks/`), the same split hooks-setup already documents for its own Claude Code Stop hook. The skill body gains a short pointer section instead of the full content, keeping it under AGENTS.md's 500-line body guideline (was already at ~502 lines before this change; a references/ split is the established pattern used by `init/references/` and `consolidate/references/`). `compatibility` frontmatter now names Cursor's `hooks.json` explicitly, hedged consistently with the existing Codex mention (trimmed elsewhere to stay within the 500-char spec limit). `## References` gained the two Cursor citations. (First pass inlined the full section directly in the skill body; moved to references/ and two more findings addressed after an `/ievo:deep-review` pass before opening the PR.)
+- **Scope** — confined to `plugins/ievo/skills/hooks-setup/SKILL.md` and its new `references/cursor-hooks.md`; documentation only, no script or test changes. Note for future work: the router's approval cited skills#155 (Codex hook types) as "already-merged" precedent for this same file — that issue is in fact still open, and `hooks-setup/SKILL.md` currently has no Codex section at all (only a compatibility-field mention). Not addressed here — out of scope for this Cursor-only change.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor, pre-1.0; adds new documented capability, matching the v0.35.0 precedent for documenting a new hook type in this same file). `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.50.7
 
 Replace `plugins/ievo/agents/evolution.md` Step 2's `gh api` vendor-fetch recipe with mandatory clone-then-Read/Write tool reads, and add a `disallowedTools` denylist — closes #366.

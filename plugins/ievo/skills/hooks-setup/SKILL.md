@@ -12,7 +12,7 @@ allowed-tools:
   - Bash(chmod*)
   - Bash(claude*)
   - Bash(echo*)
-compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear); v2.1.198+ (`Notification`, `claude agents`: `agent_needs_input`/`agent_completed`). Codex hook schema may differ. Other agentskills.io platforms: only if settings.json honors the Claude Code hook schema."
+compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear); v2.1.198+ (`Notification`, `claude agents`: `agent_needs_input`/`agent_completed`). Cursor v3.11+: own `.cursor/hooks.json` (`stop`/`afterAgentResponse`, below). Codex/other platforms: schema may differ."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -483,6 +483,10 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
 - **Stop hook script is local, not team-shared.** Notification commands are OS- and preference-specific (macOS osascript vs Linux notify-send vs custom path), so `.ievo/hooks/scripts/on-stop.sh` is intentionally written under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10). The Stop hook entry in `settings.json` is project-scope-tracked, but the script it references is not — when a team member pulls a project that uses the Stop hook, Claude Code will log a hook-launch error if their `.ievo/hooks/scripts/on-stop.sh` is absent. The error is cosmetic (Stop hook is non-blocking by design; the missing-script `sh` exit is also non-blocking on session flow). To activate the hook locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copy of the script.
 
+## Cursor hooks
+
+**Different platform, different mechanism — not a further step in Steps 1–8.** Cursor (v3.11+, "Cloud Agent Hooks") uses its own `.cursor/hooks.json` schema, distinct from the Claude Code `.claude/settings.json` mechanism Steps 1–8 configure. Full reference — config scopes, the `stop`/`afterAgentResponse` hook types, stdin/stdout contract, exit-code semantics, and a worked example — lives in **[references/cursor-hooks.md](references/cursor-hooks.md)**.
+
 ## See also
 
 - `init/SKILL.md` **Step 11.5** — writes `.ievo/hooks/init-complete` at the end of the pipeline.
@@ -500,3 +504,5 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - [Claude Code plugins — configure auto-updates](https://code.claude.com/docs/en/discover-plugins#configure-auto-updates) — third-party marketplaces default auto-update OFF; the Step 5.7 nudge is the fallback for users who keep it off
 - [Claude Code hooks reference — Hooks in skills and agents](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents) — the per-skill `hooks:` frontmatter tier documented above (`evo`, `security-check`, `init`); confirms `matcher` is tool-name-only and the per-handler `if` field carries permission-rule path patterns
 - Signal-file trigger pattern (`PostToolUse` + `Write(<path>)` matcher) is portable across any host that matches Write-tool calls to a path pattern
+- [Cursor changelog — v3.11](https://www.cursor.com/changelog) — "Cloud Agent Hooks": `beforeSubmitPrompt`, `afterAgentResponse`, `afterAgentThought`, `stop`, `subagentStart` added to the agent-conversation hook surface
+- [Cursor hooks reference](https://cursor.com/docs/hooks) — full hook catalog, `hooks.json` config scopes (Enterprise/Team/Project/User), stdin/stdout contract, exit-code semantics (Cursor hooks section above)

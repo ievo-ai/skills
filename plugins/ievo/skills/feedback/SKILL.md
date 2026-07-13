@@ -296,10 +296,19 @@ Title format:
 
 **Write the body via the Write tool, NOT via `--body "..."` inline.** User-verbatim feedback may contain backticks, `$(...)`, or `${VAR}` patterns that shells interpolate if passed as an inline string argument. Write tool writes literal bytes; `--body-file` passes the file path without expansion. (Same pattern enforced in `init/SKILL.md` Step 8b — see the **CRITICAL** note there.)
 
+**The derived title needs the same protection — it is also built from user-verbatim feedback text, not a fixed string.** `gh issue create` has no `--title-file` flag, so the title can't be passed as a file path the way the body is. Instead: write the title to a file via the Write tool (Step A1 below, literal bytes, no shell), then in Step B read it into a shell variable with `TITLE=$(cat "$TITLE_FILE")` and pass it as `--title "$TITLE"` — always double-quoted. A double-quoted variable reference substitutes the stored bytes verbatim; it does not re-invoke the shell parser on them, so embedded `$(...)`, backticks, `;`, or `&&` in the title cannot execute. Never build `--title "<literal title text>"` as an inline Bash string — that string IS parsed by the shell before `gh` ever sees it.
+
 ```
 # Step A — Write tool (NOT Bash):
 #   file_path: <project>/.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md
 #   content:   <body from step 4>   (literal string, no shell expansion)
+#
+# Step A1 — the derived title — Write tool (NOT Bash):
+#   file_path: <project>/.ievo/log/pending-reports/feedback-title-<YYYYMMDDTHHMMSSZ>.md
+#   content:   <title from the Title format list above>   (literal string, no shell expansion)
+#   Written for the same reason as the body: the title is derived from
+#   user-verbatim feedback and must never be embedded raw into a Bash string.
+#   Step B reads it back into a shell variable and passes it quoted.
 #
 # Step A2 — LOCAL-ONLY original (ONLY if Step 3.75 translated, i.e. body_original
 #           is non-empty) — Write tool (NOT Bash):
@@ -311,10 +320,11 @@ Title format:
 #   never reaches the public issue.
 ```
 
-Use ISO-8601 basic format for the timestamp (no colons — Windows-safe): `YYYYMMDDTHHMMSSZ`. Reuse the SAME `<YYYYMMDDTHHMMSSZ>` value for both files so the body and its original pair up.
+Use ISO-8601 basic format for the timestamp (no colons — Windows-safe): `YYYYMMDDTHHMMSSZ`. Reuse the SAME `<YYYYMMDDTHHMMSSZ>` value for every file (body, title, and — when applicable — original) so they pair up.
 
 ```bash
-# Step B — file the issue via gh, passing the body file.
+# Step B — file the issue via gh, passing the body file and the title read
+# back from its own file (Step A1) into a shell variable.
 #
 # The labels below are hard-coded, but nothing guarantees they exist in the
 # target repo (a fresh clone/fork, or a label deleted upstream, reintroduces
@@ -324,6 +334,15 @@ Use ISO-8601 basic format for the timestamp (no colons — Windows-safe): `YYYYM
 #       so the feedback text is never lost.
 
 BODY_FILE="<project>/.ievo/log/pending-reports/feedback-body-<YYYYMMDDTHHMMSSZ>.md"
+TITLE_FILE="<project>/.ievo/log/pending-reports/feedback-title-<YYYYMMDDTHHMMSSZ>.md"
+
+# TITLE is captured via command substitution from a file the Write tool wrote
+# (never from the raw derived-title text embedded in this script). The
+# double-quoted "$TITLE" reference below substitutes those bytes verbatim —
+# the shell does not re-parse a variable's stored content, so it cannot
+# execute `$(...)`, backticks, `;`, or `&&` that a crafted feedback title
+# might carry.
+TITLE=$(cat "$TITLE_FILE")
 
 # B1 — idempotent label provisioning. `|| true` swallows both "already exists"
 # (label present → keep its current definition) and the permission error a
@@ -346,14 +365,14 @@ LABEL_ARGS=(--label "<bug|enhancement|idea|question>" --label "feedback")   # fl
 # classification, so a maintainer can re-apply labels during triage.
 if ! ISSUE_URL=$(gh issue create \
       --repo ievo-ai/skills \
-      --title "<title>" \
+      --title "$TITLE" \
       --body-file "$BODY_FILE" \
       "${LABEL_ARGS[@]}" 2>&1); then
   echo "Label step failed — retrying without labels so the report still lands:" >&2
   echo "$ISSUE_URL" >&2
   ISSUE_URL=$(gh issue create \
     --repo ievo-ai/skills \
-    --title "<title>" \
+    --title "$TITLE" \
     --body-file "$BODY_FILE")
 fi
 # $ISSUE_URL is the created issue URL (report it in Step 7). If this second
@@ -362,7 +381,7 @@ fi
 
 If the labels had to be dropped (B2 fallback fired), tell the user in Step 7 which labels couldn't be applied and that the classification is preserved in the title/body — so triage can restore them.
 
-The `pending-reports/` directory doubles as an audit trail — the filed body (and, when a translation happened, the local-only `feedback-original-*.md` from Step A2) is preserved locally even after successful submission. The `feedback-original-*.md` file is deliberately excluded from what `gh issue create` uploads — it exists only so a maintainer can verify the translation locally, never in the public issue.
+The `pending-reports/` directory doubles as an audit trail — the filed body, the filed title (`feedback-title-*.md` from Step A1), and — when a translation happened — the local-only `feedback-original-*.md` from Step A2 are all preserved locally even after successful submission. The `feedback-original-*.md` file is deliberately excluded from what `gh issue create` uploads — it exists only so a maintainer can verify the translation locally, never in the public issue.
 
 If `gh` is not installed or not authenticated:
 - Catch the error

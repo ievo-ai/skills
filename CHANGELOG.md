@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.4
+
+Guard the derived issue title against shell interpolation in `feedback/SKILL.md`'s `gh issue create` calls — closes #372.
+
+- **Gap closed** — `feedback/SKILL.md` already routed the issue **body** through the Write tool + `--body-file` specifically because user-verbatim feedback may contain backticks, `$(...)`, or `${VAR}` patterns a shell would interpolate (CWE-78). The 6-10 word **title**, also derived from that same free-form feedback text, was not given the same protection — both `gh issue create` call sites (the labeled primary path and the B2 no-labels fallback, which fires for any non-maintainer contributor) substituted it directly into an inline `--title "<title>"` Bash string. A crafted title containing shell metacharacters could execute arbitrary commands when the assembled Bash tool call runs, before `gh` itself ever sees the value. Self-flagged by Eva's own `/ievo:vuln-scan` dogfooding (eva#165).
+- **Fix** — added a Step A1 Write-tool write of the derived title to its own `feedback-title-<timestamp>.md` file (mirroring the body's Step A), then Step B reads it back with `TITLE=$(cat "$TITLE_FILE")` and passes it as `--title "$TITLE"` at both call sites. A double-quoted variable reference substitutes the captured bytes verbatim without re-invoking the shell parser on their contents, so embedded `$(...)`, backticks, `;`, or `&&` in the title can't execute. `gh issue create` has no `--title-file` flag, so this read-back-into-a-variable pattern is the title equivalent of the body's direct `--body-file` pass-through. Matches the title-quoting guidance already documented in `init/references/security-report-flow.md` and the positional-argument discipline in `hooks-setup/SKILL.md`.
+- **Scope** — confined to `plugins/ievo/skills/feedback/SKILL.md` (Step 6's title-format note, the Step A/A2 file-write comment block, and the Step B script); no script or test changes.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION` (both individually coupled to `plugin.json` via their own test assertions), `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (output-format version, intentionally decoupled from `plugin.json`) is unchanged — no scanner logic touched here.
+
+---
+
 ## v0.51.2
 
 Fix a Bash single-quote injection in the auto-evolution correction-capture hook — closes #373.

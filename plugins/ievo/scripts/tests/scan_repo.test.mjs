@@ -41,6 +41,8 @@ import {
   isCliEntry,
   isDir,
   fileExists,
+  MAX_SCAN_FILE_BYTES,
+  isOversized,
   detectLayout,
   listDirSorted,
   listFilesSorted,
@@ -361,6 +363,12 @@ describe("parseFrontmatter", () => {
     }
   });
 
+  it("returns { oversized: true } without reading when file exceeds the size cap (CWE-400)", () => {
+    const f = join(tmp, "huge.md");
+    writeFileSync(f, "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    assert.deepEqual(parseFrontmatter(f), { oversized: true });
+  });
+
   after(() => rmSync(tmp, { recursive: true, force: true }));
 });
 
@@ -391,6 +399,43 @@ describe("isDir / fileExists", () => {
   });
   it("fileExists: false for a non-existent path", () => {
     assert.equal(fileExists(join(tmp, "nope")), false);
+  });
+
+  after(() => rmSync(tmp, { recursive: true, force: true }));
+});
+
+// ---------------------------------------------------------------------------
+// isOversized — CWE-400 guard shared by parseFrontmatter / enumerateOnePlugin /
+// enumerateHooks / enumerateMcp
+// ---------------------------------------------------------------------------
+
+describe("isOversized", () => {
+  const tmp = join(tmpdir(), `scan-repo-oversized-${Date.now()}`);
+  mkdirSync(tmp, { recursive: true });
+
+  it("false for a small file", () => {
+    const f = join(tmp, "small.txt");
+    writeFileSync(f, "x", "utf-8");
+    assert.equal(isOversized(f), false);
+  });
+  it("true when a file exceeds MAX_SCAN_FILE_BYTES", () => {
+    const f = join(tmp, "big.txt");
+    writeFileSync(f, "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    assert.equal(isOversized(f), true);
+  });
+  it("false when a file is exactly at the cap (boundary is exclusive)", () => {
+    const f = join(tmp, "boundary.txt");
+    writeFileSync(f, "x".repeat(MAX_SCAN_FILE_BYTES), "utf-8");
+    assert.equal(isOversized(f), false);
+  });
+  it("respects a custom capBytes override", () => {
+    const f = join(tmp, "custom.txt");
+    writeFileSync(f, "x".repeat(100), "utf-8");
+    assert.equal(isOversized(f, 50), true);
+    assert.equal(isOversized(f, 200), false);
+  });
+  it("false when statSync throws (e.g. non-existent path)", () => {
+    assert.equal(isOversized(join(tmp, "nope.txt")), false);
   });
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -526,6 +571,15 @@ describe("enumerateHooks", () => {
     const r = enumerateHooks(f);
     assert.deepEqual(r.entries, []);
   });
+  it("returns absent shape with oversized:true without reading when file exceeds the size cap (CWE-400)", () => {
+    const f = join(tmp, "huge.json");
+    writeFileSync(f, "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.present, false);
+    assert.deepEqual(r.events, []);
+    assert.deepEqual(r.entries, []);
+    assert.equal(r.oversized, true);
+  });
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
 });
@@ -577,6 +631,14 @@ describe("enumerateMcp", () => {
     const r = enumerateMcp(f);
     assert.equal(r.present, true);
     assert.deepEqual(r.servers, []);
+  });
+  it("returns absent shape with oversized:true without reading when file exceeds the size cap (CWE-400)", () => {
+    const f = join(tmp, "huge.json");
+    writeFileSync(f, "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.present, false);
+    assert.deepEqual(r.servers, []);
+    assert.equal(r.oversized, true);
   });
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -963,6 +1025,24 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     );
     const r = enumerateOnePlugin(p);
     assert.equal(r.author, "—");
+  });
+
+  it("enumerateOnePlugin: flags manifest_oversized and skips reading when plugin.json exceeds the size cap (CWE-400)", () => {
+    const p = join(root, "plugins", "huge-manifest");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.manifest_oversized, true);
+    assert.equal(r.version, "unset");
+    assert.equal(r.author, "—");
+  });
+
+  it("enumerateOnePlugin: no manifest_oversized field when manifest is within the size cap", () => {
+    const p = join(root, "plugins", "normal-manifest");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "x" }), "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.manifest_oversized, undefined);
   });
 
   after(() => rmSync(root, { recursive: true, force: true }));

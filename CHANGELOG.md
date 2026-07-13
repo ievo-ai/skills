@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.3
+
+Guard `scan_repo.mjs`'s 4 `readFileSync` call sites against a memory-exhaustion DoS from an oversized attacker-controlled file — closes #374.
+
+- **Gap closed** — `parseFrontmatter()`, `enumerateOnePlugin()`, `enumerateHooks()`, and `enumerateMcp()` each called `readFileSync(filePath, "utf-8")` with no file-size check before or during the read (CWE-400). `git clone --depth=1` bounds history depth, not blob size, so a single-commit repo can still carry a multi-GB `SKILL.md` / `plugin.json` / `hooks.json` / `.mcp.json`. Since `scan_repo.mjs` runs unattended against community-submitted repos (the `ievo-ai/community-index` daily refresh, plus `/ievo:index-repos` locally), a planted oversized file could exhaust the scanning process's memory — crashing/OOM-killing the scan, wasting CI minutes, and blocking other queued repos.
+- **Fix** — added `isOversized(path, capBytes = MAX_SCAN_FILE_BYTES)` (256 KB — frontmatter/manifest files are never legitimately larger) and called it immediately before each of the 4 `readFileSync` sites; an oversized file short-circuits to the function's existing empty/error return shape with a factual `oversized: true` flag instead of being read. `enumerateOnePlugin()`'s manifest read surfaces the same signal as `manifest_oversized: true` on the returned plugin descriptor, since its return shape isn't the raw manifest object.
+- **Scope** — confined to `plugins/ievo/scripts/scan_repo.mjs` and its 100%-coverage test suite; no change to the generated index format for a normally-sized repo.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version, intentionally decoupled from `plugin.json`) is unchanged — the generated `.md`/`.json` output format for a normally-sized file is unaffected; only the oversized-file short-circuit path is new.
+
+---
+
 ## v0.51.2
 
 Fix a Bash single-quote injection in the auto-evolution correction-capture hook — closes #373.

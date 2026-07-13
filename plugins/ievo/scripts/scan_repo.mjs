@@ -85,6 +85,19 @@ export function fileExists(p) {
   }
 }
 
+// Frontmatter/manifest/hooks/mcp files are never legitimately larger than
+// this — guards the readFileSync call sites below against a multi-GB blob
+// planted in an attacker-controlled repo exhausting scanner memory (CWE-400).
+export const MAX_SCAN_FILE_BYTES = 256 * 1024;
+
+export function isOversized(p, capBytes = MAX_SCAN_FILE_BYTES) {
+  try {
+    return statSync(p).size > capBytes;
+  } catch {
+    return false;
+  }
+}
+
 export function checkoutOrRefresh(ownerRepo, checkoutDir, force, execImpl = execFileSync) {
   const safeName = ownerRepo.replace(/\//g, "-");
   const target = join(checkoutDir, safeName);
@@ -137,6 +150,7 @@ export function countRecentCommits(repo, sinceDate, execImpl = execFileSync) {
 
 export function parseFrontmatter(filePath) {
   if (!fileExists(filePath)) return {};
+  if (isOversized(filePath)) return { oversized: true };
   let content;
   try {
     content = readFileSync(filePath, "utf-8");
@@ -239,10 +253,15 @@ export function enumerateOnePlugin(pluginPath) {
   const name = pluginPath.split("/").pop();
   const manifestPath = join(pluginPath, ".claude-plugin", "plugin.json");
   let manifest = {};
+  let manifestOversized = false;
   if (fileExists(manifestPath)) {
-    try {
-      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    } catch {}
+    if (isOversized(manifestPath)) {
+      manifestOversized = true;
+    } else {
+      try {
+        manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      } catch {}
+    }
   }
 
   const agents = [];
@@ -297,7 +316,7 @@ export function enumerateOnePlugin(pluginPath) {
   let author = "—";
   if (manifest.author && typeof manifest.author === "object") author = manifest.author.name ?? "—";
 
-  return {
+  const result = {
     name,
     description: truncate(manifest.description, 200),
     version: manifest.version ?? "unset",
@@ -310,10 +329,13 @@ export function enumerateOnePlugin(pluginPath) {
     hooks,
     mcp,
   };
+  if (manifestOversized) result.manifest_oversized = true;
+  return result;
 }
 
 export function enumerateHooks(hooksJsonPath) {
   if (!fileExists(hooksJsonPath)) return { present: false, events: [], entries: [] };
+  if (isOversized(hooksJsonPath)) return { present: false, events: [], entries: [], oversized: true };
   let data;
   try {
     data = JSON.parse(readFileSync(hooksJsonPath, "utf-8"));
@@ -349,6 +371,7 @@ export function enumerateHooks(hooksJsonPath) {
 
 export function enumerateMcp(mcpJsonPath) {
   if (!fileExists(mcpJsonPath)) return { present: false, servers: [] };
+  if (isOversized(mcpJsonPath)) return { present: false, servers: [], oversized: true };
   let data;
   try {
     data = JSON.parse(readFileSync(mcpJsonPath, "utf-8"));

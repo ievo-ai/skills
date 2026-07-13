@@ -260,6 +260,52 @@ describe("appendCandidate", () => {
     // Path is rooted at the default "." → contains .ievo/evolution-candidates.
     assert.ok(res.filePath.includes(join(".ievo", "evolution-candidates")));
   });
+
+  // --- --text-file (#373: never interpolate free-form correction text into a
+  // Bash argument — read it from a file the caller already wrote instead) ---
+
+  it("reads the correction from --text-file instead of --text (real fs)", () => {
+    const projectRoot = join(root, "tf1");
+    const textFilePath = join(root, "tf1-correction.txt");
+    writeFileSync(textFilePath, "  we always pin deps via --text-file  \n", "utf-8");
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    assert.equal(res.written, true);
+    assert.equal(res.record.text, "we always pin deps via --text-file");
+  });
+
+  it("--text-file takes precedence when both --text and --text-file are given", () => {
+    const projectRoot = join(root, "tf2");
+    const textFilePath = join(root, "tf2-correction.txt");
+    writeFileSync(textFilePath, "from the file", "utf-8");
+    const res = appendCandidate({ projectRoot, sessionId: "s", text: "from --text", textFile: textFilePath });
+    assert.equal(res.record.text, "from the file");
+  });
+
+  it("throws a descriptive error when --text-file cannot be read (ENOENT)", () => {
+    const projectRoot = join(root, "tf3");
+    assert.throws(
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: join(root, "does-not-exist.txt") }),
+      /could not read --text-file '.*does-not-exist\.txt': /,
+    );
+  });
+
+  it("treats whitespace-only --text-file content as empty (throws)", () => {
+    const projectRoot = join(root, "tf4");
+    const textFilePath = join(root, "tf4-correction.txt");
+    writeFileSync(textFilePath, "   \n\t\n", "utf-8");
+    assert.throws(
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }),
+      /non-empty --text or --text-file/,
+    );
+  });
+
+  it("propagates a non-ENOENT --text-file read error (e.g. EACCES)", () => {
+    const boom = () => { const e = new Error("denied"); e.code = "EACCES"; throw e; };
+    assert.throws(
+      () => appendCandidate({ sessionId: "s", textFile: "/whatever" }, { readImpl: boom }),
+      /could not read --text-file '\/whatever': denied/,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -390,6 +436,7 @@ describe("parseArgs", () => {
     assert.equal(a.project, ".");
     assert.equal(a.keep, DEFAULT_RETENTION);
     assert.equal(a.ts, null);
+    assert.equal(a.textFile, null);
   });
 
   it("parses the append command with all flags", () => {
@@ -404,6 +451,12 @@ describe("parseArgs", () => {
     assert.equal(a.scope, "project-wide");
     assert.equal(a.project, "/p");
     assert.equal(a.ts, "2026-07-04T00:00:00Z");
+  });
+
+  it("parses --text-file", () => {
+    const a = parseArgs(["node", "x", "append", "--session", "sid", "--text-file", "/tmp/correction.txt"]);
+    assert.equal(a.textFile, "/tmp/correction.txt");
+    assert.equal(a.text, null);
   });
 
   it("parses count / list / prune commands", () => {
@@ -505,6 +558,18 @@ describe("main", () => {
     main(["node", "x", "append", "--session", "s"], run.io);
     assert.equal(run.exitCode, 3);
     assert.match(run.errs.join("\n"), /non-empty --text/);
+  });
+
+  it("append reads the correction from --text-file", () => {
+    const run = makeRun();
+    const projectRoot = join(root, "m-append-textfile");
+    const textFilePath = join(root, "m-append-textfile-correction.txt");
+    writeFileSync(textFilePath, "captured via --text-file", "utf-8");
+    main(["node", "x", "append", "--project", projectRoot, "--session", "s", "--text-file", textFilePath], run.io);
+    assert.equal(run.exitCode, 0);
+    const result = JSON.parse(run.logs[0]);
+    assert.equal(result.written, true);
+    assert.equal(result.record.text, "captured via --text-file");
   });
 
   it("count prints the total pending across sessions", () => {
@@ -658,6 +723,17 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     const r = run(["append", "--session", "s"]); // no --text
     assert.equal(r.status, 3);
     assert.match(r.stderr, /non-empty --text/);
+  });
+
+  it("append --text-file round-trips through the real CLI (#373)", () => {
+    const projectRoot = join(root, "cli-proj-textfile");
+    const textFilePath = join(root, "cli-proj-textfile-correction.txt");
+    writeFileSync(textFilePath, "cli correction from file", "utf-8");
+    const appended = run(["append", "--project", projectRoot, "--session", "cli-s", "--text-file", textFilePath]);
+    assert.equal(appended.status, 0);
+    const result = JSON.parse(appended.stdout);
+    assert.equal(result.written, true);
+    assert.equal(result.record.text, "cli correction from file");
   });
 
   it("exits 2 on an unknown command", () => {

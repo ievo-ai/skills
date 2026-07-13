@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.2
+
+Fix a Bash single-quote injection in the auto-evolution correction-capture hook — closes #373.
+
+- **Gap closed** — `evo-auto-enable/SKILL.md`'s generated `UserPromptSubmit` hook (`.ievo/hooks/scripts/correction-capture.sh`) instructed the agent to record a genuine user correction by running `node ${ACC} append --session ${sid} --text '<the correction in one line>'`, substituting the user's raw correction text into a single-quoted Bash argument with zero escaping guidance (CWE-78). Ordinary corrections routinely contain an apostrophe (e.g. "don't do that"), trivially breaking out of the quoting, and a crafted correction could chain arbitrary shell commands executed with whatever access the session already holds. Gated behind opt-in auto-evolution mode, with no confirmation gate covering this specific append action.
+- **Fix** — added a `--text-file <path>` flag to `evolution_candidates.mjs`'s `append` command (reads the correction from disk instead of argv; takes precedence over `--text` when both are given) and changed the hook's generated instruction so the agent now (1) writes the correction verbatim to a **fixed** path, `.ievo/hooks/tmp/correction-pending.txt`, via the Write tool — never Bash — then (2) runs the fixed, non-interpolated command `node ${ACC} append --session ${sid} --text-file .ievo/hooks/tmp/correction-pending.txt`. The free-form correction text never reaches a shell argument again; the temp path is a static literal (not built from the correction or any other untrusted value), so a crafted correction can't steer the Write-tool call either. Matches the established Write-tool-not-inline-Bash-arg pattern already used by `feedback/SKILL.md` Step 6. `--text` keeps working unchanged for backward compatibility (existing callers, and `evolution_candidates.mjs`'s own `count`/`prune` consumers, are unaffected).
+- **Scope** — confined to `plugins/ievo/scripts/evolution_candidates.mjs` (+ its 100%-coverage test suite) and `plugins/ievo/skills/evo-auto-enable/SKILL.md`'s Step 3.5.2 hook generator and surrounding comments. No change to the SessionStart analysis nudge (`evo-analysis-nudge.sh`), which never embeds free-form text, or to `evo-auto-disable/SKILL.md`'s cleanup step.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION` (both individually coupled to `plugin.json` via their own test assertions), `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (output-format version, intentionally decoupled from `plugin.json`) is unchanged — no scanner output format change here.
+
+---
+
 ## v0.51.1
 
 Escape Markdown table/code-span control characters in `scan_repo.mjs`'s generated community-index output — closes #365.

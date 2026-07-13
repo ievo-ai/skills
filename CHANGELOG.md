@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.3
+
+Guard `scan_repo.mjs`'s 4 `readFileSync` call sites against a memory-exhaustion DoS from an oversized attacker-controlled file — closes #374.
+
+- **Gap closed** — `parseFrontmatter()`, `enumerateOnePlugin()`, `enumerateHooks()`, and `enumerateMcp()` each called `readFileSync(filePath, "utf-8")` with no file-size check before or during the read (CWE-400). `git clone --depth=1` bounds history depth, not blob size, so a single-commit repo can still carry a multi-GB `SKILL.md` / `plugin.json` / `hooks.json` / `.mcp.json`. Since `scan_repo.mjs` runs unattended against community-submitted repos (the `ievo-ai/community-index` daily refresh, plus `/ievo:index-repos` locally), a planted oversized file could exhaust the scanning process's memory — crashing/OOM-killing the scan, wasting CI minutes, and blocking other queued repos.
+- **Fix** — added `isOversized(path, capBytes = MAX_SCAN_FILE_BYTES)` (256 KB — frontmatter/manifest files are never legitimately larger) and called it immediately before each of the 4 `readFileSync` sites; an oversized file short-circuits to the function's existing empty/error return shape with a factual `oversized: true` flag instead of being read. `enumerateOnePlugin()`'s manifest read surfaces the same signal as `manifest_oversized: true` on the returned plugin descriptor, since its return shape isn't the raw manifest object.
+- **Integrity — surface the skip, don't hide it** — the short-circuit above computes an `oversized`/`manifest_oversized` signal but the first cut dropped it before the rendered index and the persisted manifest, so a plugin whose `hooks.json` / `.mcp.json` / `SKILL.md` / `plugin.json` was padded past the cap rendered identically to "no hooks" / `has_hooks: false` — silently hiding a real `PreToolUse` hook, MCP server, or broad `allowed-tools` grant behind a clean-looking entry (CWE-693). In a security index that fail-silent hiding is worse than the OOM it fixes, so the signal is now propagated: `renderIndexMd()` labels each unscanned surface "⚠️ unknown (not scanned, oversized)" in both the aggregate structural-signals block and the per-plugin section (and the skill's broad-bash cell renders `unknown`, not `no`), and `main()`'s manifest gains companion `has_unscanned_hooks` / `has_unscanned_mcp` / `has_unscanned_manifest` / `has_unscanned_skills` booleans alongside the existing `has_*` flags. `enumerateOnePlugin()` now also carries `oversized: true` on a skill whose `SKILL.md` overflowed, so `allowed-tools` can't be misread as a scanned "no".
+- **Scope** — confined to `plugins/ievo/scripts/scan_repo.mjs` and its 100%-coverage test suite. Output for a normally-sized repo is unchanged except for the four always-present manifest booleans (all `false`); the "not scanned" index notes appear only when a file actually overflows the cap.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version, intentionally decoupled from `plugin.json`) is bumped `1.1.1` → `1.1.2` — the persisted manifest gains the `has_unscanned_*` keys and the index gains the oversized-surface notes, a scanner output-format change.
+
+---
+
 ## v0.51.2
 
 Fix a Bash single-quote injection in the auto-evolution correction-capture hook — closes #373.

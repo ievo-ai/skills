@@ -29,7 +29,7 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SCRIPT_VERSION = "1.1.1";
+export const SCRIPT_VERSION = "1.1.2";
 export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
@@ -80,6 +80,19 @@ export function isDir(p) {
 export function fileExists(p) {
   try {
     return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+// Frontmatter/manifest/hooks/mcp files are never legitimately larger than
+// this — guards the readFileSync call sites below against a multi-GB blob
+// planted in an attacker-controlled repo exhausting scanner memory (CWE-400).
+export const MAX_SCAN_FILE_BYTES = 256 * 1024;
+
+export function isOversized(p, capBytes = MAX_SCAN_FILE_BYTES) {
+  try {
+    return statSync(p).size > capBytes;
   } catch {
     return false;
   }
@@ -137,6 +150,7 @@ export function countRecentCommits(repo, sinceDate, execImpl = execFileSync) {
 
 export function parseFrontmatter(filePath) {
   if (!fileExists(filePath)) return {};
+  if (isOversized(filePath)) return { oversized: true };
   let content;
   try {
     content = readFileSync(filePath, "utf-8");
@@ -239,10 +253,15 @@ export function enumerateOnePlugin(pluginPath) {
   const name = pluginPath.split("/").pop();
   const manifestPath = join(pluginPath, ".claude-plugin", "plugin.json");
   let manifest = {};
+  let manifestOversized = false;
   if (fileExists(manifestPath)) {
-    try {
-      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    } catch {}
+    if (isOversized(manifestPath)) {
+      manifestOversized = true;
+    } else {
+      try {
+        manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      } catch {}
+    }
   }
 
   const agents = [];
@@ -271,7 +290,7 @@ export function enumerateOnePlugin(pluginPath) {
       const hasRefs = isDir(join(skillPath, "references"));
       const allowedTools = fm["allowed-tools"] ?? "";
       const broadBash = /Bash\(\*\)|Bash\(rm:|Bash\(sudo:|Bash\(curl:/.test(allowedTools);
-      skills.push({
+      const skill = {
         name: fm.name ?? skillName,
         description: truncate(fm.description, 120),
         has_scripts: hasScripts,
@@ -279,7 +298,13 @@ export function enumerateOnePlugin(pluginPath) {
         license: fm.license ?? "—",
         compatibility: truncate(fm.compatibility, 80) || "any",
         broad_bash: broadBash,
-      });
+      };
+      // An oversized SKILL.md short-circuits parseFrontmatter (CWE-400 guard),
+      // so `allowed-tools` was never read — broad_bash above is a default
+      // false, not a scanned "no". Surface the gap so a padded SKILL.md
+      // renders as "unknown — not scanned" rather than a clean grant.
+      if (fm.oversized) skill.oversized = true;
+      skills.push(skill);
     }
   }
 
@@ -297,7 +322,7 @@ export function enumerateOnePlugin(pluginPath) {
   let author = "—";
   if (manifest.author && typeof manifest.author === "object") author = manifest.author.name ?? "—";
 
-  return {
+  const result = {
     name,
     description: truncate(manifest.description, 200),
     version: manifest.version ?? "unset",
@@ -310,10 +335,13 @@ export function enumerateOnePlugin(pluginPath) {
     hooks,
     mcp,
   };
+  if (manifestOversized) result.manifest_oversized = true;
+  return result;
 }
 
 export function enumerateHooks(hooksJsonPath) {
   if (!fileExists(hooksJsonPath)) return { present: false, events: [], entries: [] };
+  if (isOversized(hooksJsonPath)) return { present: false, events: [], entries: [], oversized: true };
   let data;
   try {
     data = JSON.parse(readFileSync(hooksJsonPath, "utf-8"));
@@ -349,6 +377,7 @@ export function enumerateHooks(hooksJsonPath) {
 
 export function enumerateMcp(mcpJsonPath) {
   if (!fileExists(mcpJsonPath)) return { present: false, servers: [] };
+  if (isOversized(mcpJsonPath)) return { present: false, servers: [], oversized: true };
   let data;
   try {
     data = JSON.parse(readFileSync(mcpJsonPath, "utf-8"));
@@ -477,18 +506,33 @@ export function renderIndexMd(data) {
   const pluginsWithPretool = plugins.filter((p) => p.hooks?.has_pretooluse).map((p) => escapeMdCell(p.name));
   const pluginsWithUserpr = plugins.filter((p) => p.hooks?.has_userpromptsubmit).map((p) => escapeMdCell(p.name));
   const pluginsWithHooks = plugins.filter((p) => p.hooks?.present).length;
-  lines.push(`- **Hooks total:** ${totalHooks} across ${pluginsWithHooks} plugins`);
-  lines.push(`  - PreToolUse: ${pluginsWithPretool.length ? "yes — " + pluginsWithPretool.join(", ") : "no"}`);
-  lines.push(`  - UserPromptSubmit: ${pluginsWithUserpr.length ? "yes — " + pluginsWithUserpr.join(", ") : "no"}`);
+  // Files skipped by the CWE-400 size cap were never read, so their signal is
+  // UNKNOWN, not absent — surface each so a padded hooks.json/.mcp.json/SKILL.md
+  // reads as "not scanned", never silently as "none present" (which in a
+  // security index hides a real hook/MCP/broad-grant, worse than the OOM).
+  const hooksUnscanned = plugins.filter((p) => p.hooks?.oversized).map((p) => escapeMdCell(p.name));
+  const mcpUnscanned = plugins.filter((p) => p.mcp?.oversized).map((p) => escapeMdCell(p.name));
+  const skillsUnscanned = [];
+  for (const p of plugins) {
+    for (const s of p.skills) {
+      if (s.oversized) skillsUnscanned.push(`${escapeMdCell(p.name)}/${escapeMdCell(s.name)}`);
+    }
+  }
+  const hooksUnknown = hooksUnscanned.length ? ` — ⚠️ unknown (not scanned, oversized): ${hooksUnscanned.join(", ")}` : "";
+  lines.push(`- **Hooks total:** ${totalHooks} across ${pluginsWithHooks} plugins${hooksUnknown}`);
+  lines.push(`  - PreToolUse: ${pluginsWithPretool.length ? "yes — " + pluginsWithPretool.join(", ") : "no"}${hooksUnknown}`);
+  lines.push(`  - UserPromptSubmit: ${pluginsWithUserpr.length ? "yes — " + pluginsWithUserpr.join(", ") : "no"}${hooksUnknown}`);
   const totalMcp = plugins.reduce((s, p) => s + (p.mcp?.servers?.length ?? 0), 0);
-  lines.push(`- **MCP servers total:** ${totalMcp}`);
+  const mcpUnknown = mcpUnscanned.length ? ` — ⚠️ unknown (not scanned, oversized): ${mcpUnscanned.join(", ")}` : "";
+  lines.push(`- **MCP servers total:** ${totalMcp}${mcpUnknown}`);
   const broadBashSkills = [];
   for (const p of plugins) {
     for (const s of p.skills) {
       if (s.broad_bash) broadBashSkills.push(`${escapeMdCell(p.name)}/${escapeMdCell(s.name)}`);
     }
   }
-  lines.push(`- **Skills with broad allowed-tools:** ${broadBashSkills.length}${broadBashSkills.length ? " — " + broadBashSkills.join(", ") : ""}`);
+  const skillsUnknown = skillsUnscanned.length ? ` — ⚠️ allowed-tools unknown (not scanned, oversized): ${skillsUnscanned.join(", ")}` : "";
+  lines.push(`- **Skills with broad allowed-tools:** ${broadBashSkills.length}${broadBashSkills.length ? " — " + broadBashSkills.join(", ") : ""}${skillsUnknown}`);
   lines.push("");
 
   if (plugins.length > 0) {
@@ -501,6 +545,9 @@ export function renderIndexMd(data) {
       lines.push(`- **Path:** \`${escapeMdCell(p.path)}\``);
       lines.push(`- **Author:** ${escapeMdCell(p.author)}`);
       lines.push(`- **License:** ${escapeMdCell(p.license)}`);
+      if (p.manifest_oversized) {
+        lines.push(`- ⚠️ **plugin.json not scanned** — exceeds the ${MAX_SCAN_FILE_BYTES / 1024} KB scan cap; description/version/author/license above are defaults, not scanned values.`);
+      }
       lines.push("");
       if (p.agents.length > 0) {
         lines.push(`**Agents (${p.agents.length}):**`);
@@ -518,7 +565,8 @@ export function renderIndexMd(data) {
         lines.push("| Name | Description | Has scripts | License | Compat | Broad bash |");
         lines.push("|------|-------------|-------------|---------|--------|------------|");
         for (const s of p.skills) {
-          lines.push(`| ${escapeMdCell(s.name)} | ${escapeMdCell(s.description) || "—"} | ${s.has_scripts ? "yes" : "no"} | ${escapeMdCell(s.license)} | ${escapeMdCell(s.compatibility)} | ${s.broad_bash ? "yes" : "no"} |`);
+          const broad = s.oversized ? "unknown" : (s.broad_bash ? "yes" : "no");
+          lines.push(`| ${escapeMdCell(s.name)} | ${escapeMdCell(s.description) || "—"} | ${s.has_scripts ? "yes" : "no"} | ${escapeMdCell(s.license)} | ${escapeMdCell(s.compatibility)} | ${broad} |`);
         }
         lines.push("");
       }
@@ -541,6 +589,9 @@ export function renderIndexMd(data) {
           lines.push(`| ${escapeMdCell(h.event)} | ${escapeMdCell(h.matcher)} | \`${escapeMdCell(h.command)}\` |`);
         }
         lines.push("");
+      } else if (p.hooks?.oversized) {
+        lines.push(`**Hooks:** ⚠️ present but not scanned — \`hooks.json\` exceeds the ${MAX_SCAN_FILE_BYTES / 1024} KB scan cap; hook events/commands unknown.`);
+        lines.push("");
       }
       if (p.mcp?.present && p.mcp.servers.length > 0) {
         lines.push("**MCP servers:**");
@@ -550,6 +601,9 @@ export function renderIndexMd(data) {
         for (const m of p.mcp.servers) {
           lines.push(`| ${escapeMdCell(m.name)} | \`${escapeMdCell(m.endpoint)}\` | ${m.is_local ? "yes" : "no"} |`);
         }
+        lines.push("");
+      } else if (p.mcp?.oversized) {
+        lines.push(`**MCP servers:** ⚠️ present but not scanned — \`.mcp.json\` exceeds the ${MAX_SCAN_FILE_BYTES / 1024} KB scan cap; servers unknown.`);
         lines.push("");
       }
     }
@@ -692,6 +746,15 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     has_mcp: hasMcp,
     has_pretooluse_hooks: plugins.some((p) => p.hooks?.has_pretooluse),
     has_userpromptsubmit_hooks: plugins.some((p) => p.hooks?.has_userpromptsubmit),
+    // CWE-400 size cap short-circuits reads of oversized attacker-controlled
+    // files; the `has_*` booleans above therefore report `false` for a file
+    // that was never scanned. Surface the gap so a padded hooks.json/.mcp.json/
+    // plugin.json/SKILL.md is legible as "unknown — not scanned", not a clean
+    // "none present" that would hide a real hook/MCP/broad-grant.
+    has_unscanned_hooks: plugins.some((p) => p.hooks?.oversized),
+    has_unscanned_mcp: plugins.some((p) => p.mcp?.oversized),
+    has_unscanned_manifest: plugins.some((p) => p.manifest_oversized),
+    has_unscanned_skills: plugins.some((p) => p.skills.some((s) => s.oversized)),
   };
   const jsonPath = join(outputDir, `${safeName}.json`);
   assertContained(jsonPath, outputDir);

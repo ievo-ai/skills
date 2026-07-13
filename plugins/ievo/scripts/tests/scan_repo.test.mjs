@@ -1045,6 +1045,31 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     assert.equal(r.manifest_oversized, undefined);
   });
 
+  it("enumerateOnePlugin: flags skill.oversized when SKILL.md exceeds the size cap (CWE-400 — broad_bash unknowable)", () => {
+    const p = join(root, "plugins", "huge-skill");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "{}", "utf-8");
+    mkdirSync(join(p, "skills", "padded"), { recursive: true });
+    // Oversized SKILL.md → parseFrontmatter short-circuits, so allowed-tools
+    // was never read; the skill is still listed (dir name is trustworthy) but
+    // flagged oversized so broad_bash defaults aren't mistaken for a scanned "no".
+    writeFileSync(join(p, "skills", "padded", "SKILL.md"), "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills[0].name, "padded");
+    assert.equal(r.skills[0].oversized, true);
+    assert.equal(r.skills[0].broad_bash, false);
+  });
+
+  it("enumerateOnePlugin: no skill.oversized field when SKILL.md is within the size cap", () => {
+    const p = join(root, "plugins", "normal-skill");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "{}", "utf-8");
+    mkdirSync(join(p, "skills", "ok"), { recursive: true });
+    writeFileSync(join(p, "skills", "ok", "SKILL.md"), "---\nname: ok\n---\nbody\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills[0].oversized, undefined);
+  });
+
   after(() => rmSync(root, { recursive: true, force: true }));
 });
 
@@ -1313,6 +1338,45 @@ describe("renderIndexMd", () => {
     const rawPipeLeak = /[^\\]\| \[pwn\]/;
     assert.doesNotMatch(md, rawPipeLeak);
   });
+
+  // Integrity regression guard: a file skipped by the CWE-400 size cap was
+  // never read, so its hook/MCP/broad-grant signal is UNKNOWN. The index must
+  // say "not scanned", never render it identically to "none present" — the
+  // latter lets an attacker pad hooks.json/.mcp.json/SKILL.md/plugin.json past
+  // the cap to hide a real hook/MCP/broad grant behind a clean-looking entry.
+  it("surfaces oversized (unscanned) hooks/mcp/manifest/skill as 'unknown — not scanned', not as absent", () => {
+    const d = baseData();
+    d.plugins = [{
+      name: "padded",
+      description: "unset",
+      version: "unset",
+      path: "plugins/padded/",
+      author: "—",
+      license: "—",
+      manifest_oversized: true,
+      agents: [],
+      skills: [{
+        name: "big", description: "", has_scripts: false, has_refs: false,
+        license: "—", compatibility: "any", broad_bash: false, oversized: true,
+      }],
+      commands: [],
+      hooks: { present: false, events: [], entries: [], oversized: true },
+      mcp: { present: false, servers: [], oversized: true },
+    }];
+    const md = renderIndexMd(d);
+    // Aggregate structural signals note the unknown surfaces by plugin name.
+    assert.match(md, /Hooks total:\*\* 0 across 0 plugins — ⚠️ unknown \(not scanned, oversized\): padded/);
+    assert.match(md, /PreToolUse: no — ⚠️ unknown \(not scanned, oversized\): padded/);
+    assert.match(md, /UserPromptSubmit: no — ⚠️ unknown \(not scanned, oversized\): padded/);
+    assert.match(md, /MCP servers total:\*\* 0 — ⚠️ unknown \(not scanned, oversized\): padded/);
+    assert.match(md, /Skills with broad allowed-tools:\*\* 0 — ⚠️ allowed-tools unknown \(not scanned, oversized\): padded\/big/);
+    // Per-plugin: manifest + hooks + mcp notes, and the skill's broad-bash cell
+    // renders "unknown" rather than a clean "no".
+    assert.match(md, /plugin.json not scanned/);
+    assert.match(md, /\*\*Hooks:\*\* ⚠️ present but not scanned/);
+    assert.match(md, /\*\*MCP servers:\*\* ⚠️ present but not scanned/);
+    assert.match(md, /\| big \| — \| no \| — \| any \| unknown \|/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1399,6 +1463,50 @@ describe("main (end-to-end)", () => {
     assert.match(summary, /owner\/target: indexed \(commit=deadbeef\)/);
     assert.match(summary, /hooks: yes/);
     assert.match(summary, /mcp: yes/);
+  });
+
+  it("oversized files: manifest surfaces has_unscanned_* while has_hooks/has_mcp stay false", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-oversized");
+    const coDir = join(root, "co-oversized");
+    const target = join(coDir, "owner-oversized");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // One plugin whose plugin.json / hooks.json / .mcp.json / SKILL.md all
+    // exceed the 256 KB CWE-400 cap → each read short-circuits, so has_hooks /
+    // has_mcp read false, but the companion has_unscanned_* flags must be true.
+    const p = join(target, "plugins", "padded");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    mkdirSync(join(p, "hooks"), { recursive: true });
+    writeFileSync(join(p, "hooks", "hooks.json"), "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    writeFileSync(join(p, ".mcp.json"), "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    mkdirSync(join(p, "skills", "big"), { recursive: true });
+    writeFileSync(join(p, "skills", "big", "SKILL.md"), "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+
+    const fake = makeFakeExec([
+      { stdout: "beef01\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/oversized", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const manifest = JSON.parse(readFileSync(join(outDir, "owner-oversized.json"), "utf-8"));
+    // The gap the fix closes: absent (false) vs unknown (unscanned) are distinct.
+    assert.equal(manifest.has_hooks, false);
+    assert.equal(manifest.has_mcp, false);
+    assert.equal(manifest.has_unscanned_hooks, true);
+    assert.equal(manifest.has_unscanned_mcp, true);
+    assert.equal(manifest.has_unscanned_manifest, true);
+    assert.equal(manifest.has_unscanned_skills, true);
+    // And the rendered index says so, in words, per surface.
+    const md = readFileSync(join(outDir, "owner-oversized.md"), "utf-8");
+    assert.match(md, /Hooks total:\*\* 0 across 0 plugins — ⚠️ unknown \(not scanned, oversized\): padded/);
+    assert.match(md, /plugin.json not scanned/);
   });
 
   after(() => rmSync(root, { recursive: true, force: true }));

@@ -24,12 +24,20 @@
 // Stdlib only (Node 18+, bundled with Claude Code / Codex) — no dependencies.
 //
 // Usage:
-//   node evolution_candidates.mjs append --session <id> --text "<correction>" \
+//   node evolution_candidates.mjs append --session <id> (--text "<correction>" | --text-file <path>) \
 //        [--scope <scope>] [--project <root>] [--ts <iso>]
 //   node evolution_candidates.mjs count  [--project <root>]
 //   node evolution_candidates.mjs list   [--project <root>]
 //   node evolution_candidates.mjs prune  [--keep N] [--project <root>]
 //   node evolution_candidates.mjs --version | --help
+//
+// --text-file <path> reads the correction from disk instead of argv (added
+// v0.51.2, closes #373): the correction-capture hook now has the agent write
+// free-form correction text to a file via the Write tool, then invoke this
+// script with a fixed --text-file path — never interpolating the text itself
+// into a Bash argument, which was exploitable as CWE-78 shell injection when
+// the correction contained an unescaped quote or shell metacharacter.
+// --text-file takes precedence when both --text and --text-file are given.
 
 import { readFileSync, appendFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -37,7 +45,7 @@ import { fileURLToPath } from "node:url";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.51.1";
+export const SCRIPT_VERSION = "0.51.2";
 export const IEVO_DIR = ".ievo";
 export const CANDIDATES_DIR = "evolution-candidates";
 export const SESSION_EXT = ".jsonl";
@@ -48,7 +56,7 @@ export const DEFAULT_SCOPE = "unclassified";
 
 const HELP_TEXT = `evolution_candidates.mjs — iEvo auto-evolution candidate accumulator
 Usage:
-  append --session <id> --text "<correction>" [--scope <scope>] [--project <root>] [--ts <iso>]
+  append --session <id> (--text "<correction>" | --text-file <path>) [--scope <scope>] [--project <root>] [--ts <iso>]
   count  [--project <root>]
   list   [--project <root>]
   prune  [--keep N] [--project <root>]
@@ -132,7 +140,7 @@ export function readSessionCandidates(filePath, readImpl = readFileSync) {
 // ---------------------------------------------------------------------------
 
 export function appendCandidate(
-  { projectRoot = ".", sessionId, text, scope = DEFAULT_SCOPE, ts } = {},
+  { projectRoot = ".", sessionId, text, textFile, scope = DEFAULT_SCOPE, ts } = {},
   deps = {},
 ) {
   const {
@@ -142,10 +150,22 @@ export function appendCandidate(
     now = () => new Date().toISOString(),
   } = deps;
 
-  if (typeof text !== "string" || text.trim().length === 0) {
-    throw new Error("append requires a non-empty --text");
+  // --text-file takes precedence: read the correction from disk instead of
+  // trusting a caller-supplied `text` string, so the correction-capture hook
+  // never has to interpolate free-form user text into a Bash argument.
+  let resolvedText = text;
+  if (textFile != null) {
+    try {
+      resolvedText = readImpl(textFile, "utf-8");
+    } catch (err) {
+      throw new Error(`could not read --text-file '${textFile}': ${err.message}`);
+    }
   }
-  const cleanText = text.trim();
+
+  if (typeof resolvedText !== "string" || resolvedText.trim().length === 0) {
+    throw new Error("append requires a non-empty --text or --text-file");
+  }
+  const cleanText = resolvedText.trim();
   // sessionFilePath throws on an unusable session id — surfaced by the caller.
   const filePath = sessionFilePath(projectRoot, sessionId);
 
@@ -236,6 +256,7 @@ export function parseArgs(argv) {
     command: null,
     session: null,
     text: null,
+    textFile: null,
     scope: DEFAULT_SCOPE,
     project: ".",
     keep: DEFAULT_RETENTION,
@@ -246,6 +267,7 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (a === "--session") args.session = requireValue(argv, ++i, "--session");
     else if (a === "--text") args.text = requireValue(argv, ++i, "--text");
+    else if (a === "--text-file") args.textFile = requireValue(argv, ++i, "--text-file");
     else if (a === "--scope") args.scope = requireValue(argv, ++i, "--scope");
     else if (a === "--project") args.project = requireValue(argv, ++i, "--project");
     else if (a === "--ts") args.ts = requireValue(argv, ++i, "--ts");
@@ -285,6 +307,7 @@ export function main(argv = process.argv, io = {}) {
             projectRoot: args.project,
             sessionId: args.session,
             text: args.text,
+            textFile: args.textFile,
             scope: args.scope,
             ts: args.ts ?? undefined,
           },

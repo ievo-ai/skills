@@ -1787,7 +1787,7 @@ describe("nullish/ternary fallbacks", () => {
   it("main: writes license:null when no LICENSE/LICENSE.md/LICENSE.txt exists, summary shows hooks:no, mcp:no", () => {
     const outDir = join(root, "main-no-license-out");
     const coDir = join(root, "main-no-license-co");
-    const target = join(coDir, "owner-nolic");
+    const target = join(coDir, checkoutCacheKey("owner/nolic"));
     mkdirSync(join(target, ".git"), { recursive: true });
     writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
     // No LICENSE file. No plugins/, no skills/, no agents/.
@@ -1795,6 +1795,7 @@ describe("nullish/ternary fallbacks", () => {
     const errs = [];
     let code = null;
     const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/nolic.git\n" }, // remote get-url origin
       { stdout: "cafe1\n" },                     // rev-parse
       { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
       { stdout: "main\n" },                       // symbolic-ref

@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.5
+
+Make `scan_repo.mjs`'s checkout cache key injective and verify checkout identity on a cache hit — closes #382.
+
+- **Gap closed** — `checkoutOrRefresh()` derived its on-disk git-checkout cache directory as `ownerRepo.replace(/\//g, "-")`, a single dash-joined flattening (CWE-706). Because GitHub's owner and repo slug charsets both permit hyphens (`OWNER_REPO_RE`), this mapping is not injective: `harmless-owner/nice-repo` and `harmless-owner-nice/repo` both flatten to the identical directory `harmless-owner-nice-repo`. On a cache hit within the 7-day TTL, the function returned the existing checkout immediately with no `git fetch`/`reset` and no check that the checkout's actual remote matched the requested repo. A malicious repo submitted after a benign, slug-colliding repo was already cached would silently inherit the benign repo's clean scan results under its own published identity in the community index — undermining the index's stated purpose as a factual, pre-`security-auditor` trust signal.
+- **Fix** — added `checkoutCacheKey(ownerRepo)`, which appends a 12-hex-character SHA-256 digest of the full (pre-flattening) slug to the flattened name, so two slugs that collide on the flat prefix get distinct cache directories while the name stays legible for on-disk debugging. Added `remoteMatches(target, url, execImpl)`, which runs `git remote get-url origin` in the cached checkout and compares it to the expected `https://github.com/<owner>/<repo>.git` URL as defense in depth; `checkoutOrRefresh()` now checks this **before** trusting or incrementally refreshing any cache hit, and on a mismatch wipes the stale checkout (`rmSync`) and falls through to a fresh clone instead of reusing or refreshing the wrong repo's content under the requested identity.
+- **Scope** — confined to `plugins/ievo/scripts/scan_repo.mjs` and its 100%-coverage test suite, plus two `SKILL.md` prose references to the old `~/.ievo/checkouts/<owner>-<repo>/` path format (`index-repos/SKILL.md`, `security-check/SKILL.md`) updated to describe the new hash-suffixed, identity-verified layout. `main()`'s separate output-file naming (`<owner>-<repo>.md`/`.json`, one per requested repo, never shared/cached) is unrelated to this cache-collision bug and is unchanged. Checkout directories created under the old flat naming become orphaned on disk after upgrade — no migration/pruning is provided, matching the repo's existing lack of TTL-expiry pruning.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version, intentionally decoupled from `plugin.json`) is unchanged — the persisted `.md`/`.json` artifact shape is untouched by this fix.
+
+---
+
 ## v0.51.4
 
 Close the CWE-78 command-injection gap in `install-protocol.md`'s Step 9a vendor-install fetch — closes #380.

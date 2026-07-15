@@ -1,16 +1,16 @@
-# Entry-cluster mode — package authoring (Step 8 detail)
+# Package authoring — shared frontmatter templates and write mechanics
 
-This reference covers the exact frontmatter templates and write mechanics for `consolidate/SKILL.md`'s entry-cluster mode Step 8 ("Author the extracted package"). Read it only when a cluster was approved for extraction at CHECKPOINT 1.
+This reference covers the exact frontmatter templates and write mechanics for authoring a brand-new project-local skill or agent package from scratch. Two callers share it: `consolidate/SKILL.md`'s entry-cluster mode Step 8 ("Author the extracted package", extracting from already-`/evo`'d overlay entries) and `extract-best-practices/SKILL.md`'s Phase 4 Step 5 (extracting directly from a live session, no overlay involved). Read it only when a candidate was approved for extraction at the calling skill's own checkpoint. The templates below are caller-agnostic; each caller fills in its own `metadata.source` / `extracted_from` values (see the callouts after each template).
 
 ## Naming
 
-Derive `name` from the cluster's dominant topic (kebab-case): lowercase alphanumerics and hyphens only, no leading/trailing hyphen, no consecutive hyphens, ≤64 characters. It MUST match the directory basename exactly (`validate_skills.mjs`'s `name-dir-mismatch` rule, and the equivalent expectation for agents) — pick the name first, then create the directory with that exact name, not the other way around.
+Derive `name` from the source material's dominant topic (kebab-case): lowercase alphanumerics and hyphens only, no leading/trailing hyphen, no consecutive hyphens, ≤64 characters. It MUST match the directory basename exactly (`validate_skills.mjs`'s `name-dir-mismatch` rule, and the equivalent expectation for agents) — pick the name first, then create the directory with that exact name, not the other way around.
 
 If the derived name collides with an existing project-local skill/agent, ask the user for a disambiguating name via `AskUserQuestion` rather than silently suffixing a number — a silent `-2` suffix is easy to miss and produces a worse `description` match at dispatch time.
 
 ## Description
 
-Synthesize from the cluster's entries — state WHAT the package does and WHEN to use it, the same two-part shape every shipped iEvo `description` follows (see any file under `plugins/ievo/skills/*/SKILL.md` for the pattern this repo itself uses). Concretely:
+Synthesize from the source material (a cluster's overlay entries, or a session-mined pattern) — state WHAT the package does and WHEN to use it, the same two-part shape every shipped iEvo `description` follows (see any file under `plugins/ievo/skills/*/SKILL.md` for the pattern this repo itself uses). Concretely:
 - **What**: the recurring flow (skill) or judgment/stance (agent), generalized past the specific trigger that first surfaced it.
 - **When**: the situations that should invoke it — phrased so the description alone (not the body) carries enough signal for description-match routing.
 
@@ -26,29 +26,29 @@ name: <name>
 description: <synthesized description — what + when, <=1024 chars>
 effort: low
 metadata:
-  source: consolidate
-  extracted_from: <root path, e.g. .ievo/evolution/project.md>
+  source: <calling skill's name, e.g. consolidate | extract-best-practices>
+  extracted_from: <consolidate: root overlay path, e.g. .ievo/evolution/project.md — extract-best-practices: "session-analysis (<ISO-8601 UTC date>)">
   extracted_at: <ISO-8601 UTC timestamp>
 ---
 
 # <Title Case Name>
 
-<1-2 sentence summary of the procedure, generalized from the cluster>
+<1-2 sentence summary of the procedure, generalized from the cluster or session pattern>
 
 ## Steps
 
-<numbered procedure synthesized from the cluster's entries — the "do A -> B -> C" flow each member entry independently described>
+<numbered procedure synthesized from the source material — the "do A -> B -> C" flow independently observed>
 
 ## Origin
 
-Extracted by `/ievo:consolidate` from <N> entries in `<root path>`, dated <earliest date> to <latest date>. See that file's redirect note for the original entries.
+Extracted by `/ievo:<calling skill>` from <consolidate: "N entries in `<root path>`, dated <earliest> to <latest>" — extract-best-practices: "a repeated pattern observed in the current session">. See the source's redirect note (consolidate) or session context (extract-best-practices) for detail.
 ```
 
-`effort: low` is the safe default for a freshly authored procedure skill unless the cluster's entries clearly describe heavier multi-phase reasoning — match effort to what the synthesized body actually asks the agent to do, the same judgment `evo/SKILL.md` uses nowhere explicitly but every shipped skill's frontmatter reflects.
+`effort: low` is the safe default for a freshly authored procedure skill unless the source material clearly describes heavier multi-phase reasoning — match effort to what the synthesized body actually asks the agent to do, the same judgment `evo/SKILL.md` uses nowhere explicitly but every shipped skill's frontmatter reflects.
 
 `license:` is deliberately omitted from the template — it is optional per the agentskills.io spec, and unlike this repo's own shipped skills (genuinely MIT), a package synthesized inside an arbitrary end user's project has no established license. Do not default to `MIT` or any other license; only add the field if the user's project already has a clear license convention to match.
 
-The `metadata.source: consolidate` / `extracted_from` / `extracted_at` fields are NOT the same as the `source:` block `evo/SKILL.md` Step 4 writes into an *overlay* file for a *vendored* target (which records an upstream repo/path/commit). This is original synthesis authored in-project — there is no upstream commit to cite. These fields exist purely as a provenance breadcrumb for a human later asking "where did this skill come from" (`git blame` on the commit that created the file is the deeper answer).
+The `metadata.source` / `extracted_from` / `extracted_at` fields are NOT the same as the `source:` block `evo/SKILL.md` Step 4 writes into an *overlay* file for a *vendored* target (which records an upstream repo/path/commit). This is original synthesis authored in-project — there is no upstream commit to cite. `source` records which skill did the synthesis (`consolidate` or `extract-best-practices`); these fields exist purely as a provenance breadcrumb for a human later asking "where did this skill come from" (`git blame` on the commit that created the file is the deeper answer).
 
 ## Agent template (`.claude/agents/<name>.md`)
 
@@ -58,25 +58,25 @@ name: <name>
 description: <synthesized description — what + when>
 model: inherit
 metadata:
-  source: consolidate
-  extracted_from: <root path, e.g. .ievo/evolution/project.md>
+  source: <calling skill's name, e.g. consolidate | extract-best-practices>
+  extracted_from: <consolidate: root overlay path, e.g. .ievo/evolution/project.md — extract-best-practices: "session-analysis (<ISO-8601 UTC date>)">
   extracted_at: <ISO-8601 UTC timestamp>
 ---
 
 # <Title Case Name>
 
-<1-2 sentence summary of the role/judgment stance, generalized from the cluster>
+<1-2 sentence summary of the role/judgment stance, generalized from the cluster or session pattern>
 
 ## Approach
 
-<the review posture / judgment rules synthesized from the cluster's entries>
+<the review posture / judgment rules synthesized from the source material>
 
 ## Origin
 
-Extracted by `/ievo:consolidate` from <N> entries in `<root path>`, dated <earliest date> to <latest date>. See that file's redirect note for the original entries.
+Extracted by `/ievo:<calling skill>` from <consolidate: "N entries in `<root path>`, dated <earliest> to <latest>" — extract-best-practices: "a repeated pattern observed in the current session">. See the source's redirect note (consolidate) or session context (extract-best-practices) for detail.
 ```
 
-`model: inherit` is the safe default — only pin a stronger tier (`sonnet`/`opus`) if the cluster's entries specifically describe reasoning depth beyond the calling context (mirrors the judgment call in AGENTS.md's "Agent `model:` frontmatter" section). NEVER use a vendor-pinned ID (`claude-sonnet-4-6`, `gpt-5`, etc.) — only the family aliases `sonnet`/`opus`/`haiku`/`fable`/`inherit`.
+`model: inherit` is the safe default — only pin a stronger tier (`sonnet`/`opus`) if the source material specifically describes reasoning depth beyond the calling context (mirrors the judgment call in AGENTS.md's "Agent `model:` frontmatter" section). NEVER use a vendor-pinned ID (`claude-sonnet-4-6`, `gpt-5`, etc.) — only the family aliases `sonnet`/`opus`/`haiku`/`fable`/`inherit`.
 
 ## Skill+agent pair
 

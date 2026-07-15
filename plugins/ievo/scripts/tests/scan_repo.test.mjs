@@ -18,7 +18,7 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync, utimesSync, chmodSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, utimesSync, chmodSync, readFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, dirname, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -54,6 +54,8 @@ import {
   enumerateStandaloneSkills,
   enumerateStandaloneCommands,
   run,
+  checkoutCacheKey,
+  remoteMatches,
   checkoutOrRefresh,
   getCommitSha,
   getLastCommitDate,
@@ -764,6 +766,46 @@ describe("countRecentCommits", () => {
   });
 });
 
+describe("checkoutCacheKey", () => {
+  // CWE-706 regression: both owner and repo segments permit hyphens, so a
+  // naive `/` → `-` flattening collides two distinct slugs on one directory
+  // name. The hash suffix must disambiguate them.
+  it("is injective for slugs that collide under naive '/' → '-' flattening", () => {
+    const a = checkoutCacheKey("harmless-owner/nice-repo");
+    const b = checkoutCacheKey("harmless-owner-nice/repo");
+    assert.notEqual(a, b);
+    // Sanity: confirm this pair really does collide on the old flat form,
+    // i.e. the test is exercising the reported bug, not a strawman.
+    assert.equal("harmless-owner/nice-repo".replace(/\//g, "-"), "harmless-owner-nice/repo".replace(/\//g, "-"));
+  });
+
+  it("is deterministic for the same input", () => {
+    assert.equal(checkoutCacheKey("owner/repo"), checkoutCacheKey("owner/repo"));
+  });
+
+  it("contains no '/' even for a traversal payload", () => {
+    const key = checkoutCacheKey("../../../../tmp/evil/payload");
+    assert.ok(!key.includes("/"));
+  });
+});
+
+describe("remoteMatches", () => {
+  it("returns true when the checkout's origin remote equals the expected URL", () => {
+    const fake = makeFakeExec([{ stdout: "https://github.com/owner/repo.git\n" }]);
+    assert.equal(remoteMatches("/some/checkout", "https://github.com/owner/repo.git", fake), true);
+  });
+
+  it("returns false when the checkout's origin remote differs", () => {
+    const fake = makeFakeExec([{ stdout: "https://github.com/other/repo.git\n" }]);
+    assert.equal(remoteMatches("/some/checkout", "https://github.com/owner/repo.git", fake), false);
+  });
+
+  it("returns false when reading the remote throws (e.g. no origin configured)", () => {
+    const fake = makeFakeExec([{ throw: new Error("no such remote") }]);
+    assert.equal(remoteMatches("/some/checkout", "https://github.com/owner/repo.git", fake), false);
+  });
+});
+
 describe("checkoutOrRefresh", () => {
   const root = join(tmpdir(), `scan-repo-checkout-${Date.now()}`);
   mkdirSync(root, { recursive: true });
@@ -772,75 +814,112 @@ describe("checkoutOrRefresh", () => {
     const co = join(root, "fresh");
     const fake = makeFakeExec([{ stdout: "" }]); // git clone
     const target = checkoutOrRefresh("owner/repo", co, false, fake);
-    assert.equal(target, join(co, "owner-repo"));
+    assert.equal(target, join(co, checkoutCacheKey("owner/repo")));
     // The clone call URL is the GitHub https form
     const args = fake.calls[0].args;
     assert.equal(args[0], "clone");
     assert.ok(args.includes("https://github.com/owner/repo.git"));
   });
 
-  it("uses cached target without git ops when checkout is fresh", () => {
+  it("uses cached target after verifying the origin remote matches, no fetch/reset", () => {
     const co = join(root, "cached");
     // Set up a "checkout" that looks like a recent git repo
-    const target = join(co, "owner-repo");
+    const target = join(co, checkoutCacheKey("owner/repo"));
     mkdirSync(join(target, ".git"), { recursive: true });
     writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
-    const fake = makeFakeExec([]); // no calls should be made
+    const fake = makeFakeExec([{ stdout: "https://github.com/owner/repo.git\n" }]); // remote get-url origin
     const result = checkoutOrRefresh("owner/repo", co, false, fake);
     assert.equal(result, target);
-    assert.equal(fake.calls.length, 0);
+    assert.equal(fake.calls.length, 1);
+    assert.equal(fake.calls[0].args[0], "remote");
   });
 
   it("refreshes (fetch + reset) when force=true even if cached", () => {
     const co = join(root, "forced");
-    const target = join(co, "owner-repo");
+    const target = join(co, checkoutCacheKey("owner/repo"));
     mkdirSync(join(target, ".git"), { recursive: true });
     writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
-    const fake = makeFakeExec([{ stdout: "" }, { stdout: "" }]); // fetch + reset
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/repo.git\n" }, // remote get-url origin
+      { stdout: "" }, // fetch
+      { stdout: "" }, // reset
+    ]);
     const result = checkoutOrRefresh("owner/repo", co, true, fake);
     assert.equal(result, target);
-    assert.equal(fake.calls.length, 2);
-    assert.equal(fake.calls[0].args[0], "fetch");
-    assert.equal(fake.calls[1].args[0], "reset");
+    assert.equal(fake.calls.length, 3);
+    assert.equal(fake.calls[0].args[0], "remote");
+    assert.equal(fake.calls[1].args[0], "fetch");
+    assert.equal(fake.calls[2].args[0], "reset");
   });
 
   it("refreshes when checkout is older than TTL and force=false", () => {
     const co = join(root, "stale");
-    const target = join(co, "owner-repo");
+    const target = join(co, checkoutCacheKey("owner/repo"));
     mkdirSync(join(target, ".git"), { recursive: true });
     const headFile = join(target, ".git", "HEAD");
     writeFileSync(headFile, "ref: refs/heads/main\n", "utf-8");
     // Backdate HEAD mtime past TTL_SECONDS so the cache check rejects it.
     const past = (Date.now() - (TTL_SECONDS + 60) * 1000) / 1000;
     utimesSync(headFile, past, past);
-    const fake = makeFakeExec([{ stdout: "" }, { stdout: "" }]); // fetch + reset
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/repo.git\n" }, // remote get-url origin
+      { stdout: "" }, // fetch
+      { stdout: "" }, // reset
+    ]);
     const result = checkoutOrRefresh("owner/repo", co, false, fake);
     assert.equal(result, target);
-    assert.equal(fake.calls.length, 2, "fetch + reset should both fire");
+    assert.equal(fake.calls.length, 3, "remote check + fetch + reset should all fire");
   });
 
   it("returns target even if fetch/reset fails (uses stale cache)", () => {
     const co = join(root, "fetch-fail");
-    const target = join(co, "owner-repo");
+    const target = join(co, checkoutCacheKey("owner/repo"));
     mkdirSync(join(target, ".git"), { recursive: true });
     const headFile = join(target, ".git", "HEAD");
     writeFileSync(headFile, "ref: refs/heads/main\n", "utf-8");
     const past = (Date.now() - (TTL_SECONDS + 60) * 1000) / 1000;
     utimesSync(headFile, past, past);
-    // fetch throws; the catch block returns target without retrying.
-    const fake = makeFakeExec([{ throw: new Error("network down") }]);
+    // remote matches, then fetch throws; the catch block returns target without retrying.
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/repo.git\n" },
+      { throw: new Error("network down") },
+    ]);
     const result = checkoutOrRefresh("owner/repo", co, false, fake);
     assert.equal(result, target);
   });
 
+  // CWE-706 regression: a cached checkout whose origin remote does NOT match
+  // the requested slug (hash collision, or a cache directory tampered with /
+  // reused across an unrelated repo) must never be trusted or incrementally
+  // refreshed under the requested identity — it must be wiped and re-cloned.
+  it("treats a cache hit with a mismatched origin remote as a miss and re-clones", () => {
+    const co = join(root, "identity-mismatch");
+    const target = join(co, checkoutCacheKey("owner/repo"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // Marker proving this checkout belongs to a different repo; must be gone after re-clone.
+    writeFileSync(join(target, "stale-marker.txt"), "from a different repo\n", "utf-8");
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/some-other/repo.git\n" }, // remote get-url origin (mismatch)
+      { stdout: "" }, // git clone
+    ]);
+    const result = checkoutOrRefresh("owner/repo", co, false, fake);
+    assert.equal(result, target);
+    assert.equal(fake.calls.length, 2);
+    assert.equal(fake.calls[0].args[0], "remote");
+    assert.equal(fake.calls[1].args[0], "clone");
+    assert.ok(!existsSync(join(target, "stale-marker.txt")), "stale checkout should have been wiped before re-clone");
+  });
+
   // CWE-22 regression: checkoutOrRefresh is exported and callable directly
   // (bypassing main()'s isValidOwnerRepo gate), so it must independently
-  // resist a traversal payload — defense-in-depth via the global replace.
-  it("flattens every '/' in a traversal payload into one literal dir name — never escapes checkoutDir", () => {
+  // resist a traversal payload — defense-in-depth via checkoutCacheKey never
+  // emitting a '/' plus the assertContained belt-and-suspenders check.
+  it("flattens every '/' in a traversal payload into one safe dir name — never escapes checkoutDir", () => {
     const co = join(root, "traversal-guard");
     const fake = makeFakeExec([{ stdout: "" }]); // git clone
     const target = checkoutOrRefresh("../../../../tmp/evil/payload", co, false, fake);
-    assert.equal(target, join(co, "..-..-..-..-tmp-evil-payload"));
+    assert.equal(target, join(co, checkoutCacheKey("../../../../tmp/evil/payload")));
     assert.ok(resolve(target).startsWith(resolve(co) + sep));
   });
 
@@ -1436,15 +1515,17 @@ describe("main (end-to-end)", () => {
     const outDir = join(root, "out-happy");
     const coDir = join(root, "co-happy");
     // Pre-populate the checkout to skip the clone path entirely.
-    const target = join(coDir, "owner-target");
+    const target = join(coDir, checkoutCacheKey("owner/target"));
     mkdirSync(join(target, ".git"), { recursive: true });
     writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
     writeFileSync(join(target, "LICENSE"), "MIT", "utf-8");
     // Marketplace fixture so plugins/standalones are populated.
     buildMarketplaceFixture(target);
 
-    // Order: getCommitSha, getLastCommitDate, getDefaultBranch, countRecentCommits.
+    // Order: remote get-url (identity check), getCommitSha, getLastCommitDate,
+    // getDefaultBranch, countRecentCommits.
     const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/target.git\n" }, // remote get-url origin
       { stdout: "deadbeef\n" },          // rev-parse
       { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
       { stdout: "main\n" },              // symbolic-ref
@@ -1469,7 +1550,7 @@ describe("main (end-to-end)", () => {
     const r = captureRun();
     const outDir = join(root, "out-oversized");
     const coDir = join(root, "co-oversized");
-    const target = join(coDir, "owner-oversized");
+    const target = join(coDir, checkoutCacheKey("owner/oversized"));
     mkdirSync(join(target, ".git"), { recursive: true });
     writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
     // One plugin whose plugin.json / hooks.json / .mcp.json / SKILL.md all
@@ -1485,6 +1566,7 @@ describe("main (end-to-end)", () => {
     writeFileSync(join(p, "skills", "big", "SKILL.md"), "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
 
     const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/oversized.git\n" }, // remote get-url origin
       { stdout: "beef01\n" },                     // rev-parse
       { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
       { stdout: "main\n" },                       // symbolic-ref

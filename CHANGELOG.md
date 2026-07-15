@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.52.0
+
+Add `/ievo:extract-best-practices` — session-pattern mining with optional upstream sharing — closes #387.
+
+- **New skill** — `plugins/ievo/skills/extract-best-practices/SKILL.md` mines the *current session* (not a file, not an overlay) for repeated multi-step workflows, decision frameworks, or error-recovery patterns that were never explicitly `/evo`'d. It cross-checks candidates against installed skills/agents, then presents each for explicit user selection at CHECKPOINT 1 before anything is written: a genuinely new, generalizable pattern is authored as a new skill/agent(/pair); a pattern too narrow to stand alone, or that refines an existing skill/agent, routes to `/ievo:evo` instead — `/ievo:evo` does its own scope/target classification, so this skill never reinvents overlay-writing logic or edits an existing skill/agent body directly.
+- **Reused, not reinvented** — package authoring reuses `consolidate/references/package-authoring.md`'s shared frontmatter templates and write mechanics (the same reference `consolidate/SKILL.md`'s entry-cluster mode already used for one caller); that reference is generalized in this PR so `metadata.source`/`extracted_from` are caller-parameterized instead of hardcoded to `consolidate`, with no behavior change for `consolidate`'s own existing usage.
+- **Upstream sharing (part 2 of the issue)** — for a newly authored package that looks marketplace-worthy (no project-specific content, no overlap with an existing shipped skill), the skill offers — once, via an explicit permission gate, never silent — to submit a distilled version as a contribution to the `ievo-ai/skills` marketplace. Mirrors `evo/SKILL.md` Step 5.6's existing lesson-upstream-escalation pattern for a full package instead of a one-line lesson: classify relevance → ask once → hand off to `/ievo:feedback`, which still runs its own Step 5 public-posting confirmation unchanged. `feedback/SKILL.md`'s flow (C) ("pre-filled handoff") is broadened in this PR to name both callers (`/ievo:evo` Step 5.6 and this skill's Phase 5) — its mechanics (skip Step 2, run everything else including Step 5's gate) were already generic enough to reuse verbatim.
+- **Distinct from `/ievo:consolidate`** — `consolidate`'s entry-cluster mode only clusters entries *already captured* in `.ievo/evolution/*.md`; this skill mines the raw session itself, independent of whether anything was ever `/evo`'d. Both skills now cross-reference each other in their `See also` sections.
+- **Scope** — new `plugins/ievo/skills/extract-best-practices/SKILL.md`; small, additive edits to `consolidate/references/package-authoring.md` (parameterize the two hardcoded-to-`consolidate` fields + intro), `consolidate/SKILL.md` and `evo/SKILL.md` (reciprocal `See also` lines), and `feedback/SKILL.md` (broaden flow C's description to name its second caller). No script changes; no `.mjs` added, so the 100%-coverage gate is unaffected. `AGENTS.md`'s skill tree gained one line.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version, intentionally decoupled from `plugin.json`) is unchanged — no scanner output-format change here.
+
+---
+
 ## v0.51.6
 
 Add the required `command` field to `evo-auto-enable/SKILL.md`'s two generated hook entries — closes #384.

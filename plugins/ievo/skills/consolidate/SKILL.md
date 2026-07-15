@@ -247,4 +247,5 @@ Stop and warn if:
 
 - `evo/SKILL.md` Step 5.7 — the primary entry-cluster mode caller; offers this skill after a project-wide lesson capture when accumulated entries look generalizable.
 - `init/SKILL.md` Step 9 (and [references/install-protocol.md](../init/references/install-protocol.md)) — the vendor/install model this skill's package-authoring step reuses for project-scoped writes, adapted for from-scratch authoring rather than copying an upstream source.
-- [references/package-authoring.md](references/package-authoring.md) — full frontmatter templates and the registration mechanism for Step 8 (entry-cluster mode).
+- [references/package-authoring.md](references/package-authoring.md) — full frontmatter templates and the registration mechanism for Step 8 (entry-cluster mode). Shared with `extract-best-practices/SKILL.md`'s Phase 4, which extracts from a live session instead of already-`/evo`'d overlay entries.
+- `extract-best-practices/SKILL.md` — the sibling "does this generalize into a skill/agent" judgment, triggered by a live, un-flagged session rather than entries already captured in an overlay.

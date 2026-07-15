@@ -76,9 +76,10 @@ and `.ievo/hooks/` don't accumulate dead entries:
 
 - **`.claude/settings.json`** — Read it first; if absent or not valid JSON, skip
   this bullet (nothing to clean / don't risk clobbering manual edits). Otherwise,
-  with the Read + Edit tools, remove the two entries whose inner `args` are
-  `["sh", ".ievo/hooks/scripts/correction-capture.sh"]` (from
-  `hooks.UserPromptSubmit`) and `["sh", ".ievo/hooks/scripts/evo-analysis-nudge.sh"]`
+  with the Read + Edit tools, remove the two entries whose inner hook is
+  `{"type": "command", "command": "sh", "args": [".ievo/hooks/scripts/correction-capture.sh"]}`
+  (from `hooks.UserPromptSubmit`) and
+  `{"type": "command", "command": "sh", "args": [".ievo/hooks/scripts/evo-analysis-nudge.sh"]}`
   (from `hooks.SessionStart`). Leave every other hook untouched; if a `hooks.*`
   array becomes empty, you may drop the empty array. If neither entry is present,
   there is nothing to remove.

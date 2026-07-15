@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.6
+
+Add the required `command` field to `evo-auto-enable/SKILL.md`'s two generated hook entries — closes #384.
+
+- **Gap closed** — Step 3.5.4's `hooks.UserPromptSubmit[]` and `hooks.SessionStart[]` JSON templates set `"type": "command"` with the executable folded into `args` (`"args": ["sh", ".ievo/hooks/scripts/correction-capture.sh"]`) and no `command` field. Claude Code's settings schema requires `command` even in exec form — it is the executable to spawn; `args` is the argument vector only, never the executable itself (verified against the current hooks reference). Following Step 3.5.4 verbatim on a Claude Code version that schema-validates `.claude/settings.json` on write fails with `hooks.UserPromptSubmit.0.hooks.0.command: Expected string, but received undefined`, so `/ievo:evo-auto-enable` could describe hooks it could never actually install.
+- **Fix** — both templates now set `"command": "sh"` with `args` holding only the script path (`["...correction-capture.sh"]` / `["...evo-analysis-nudge.sh"]`), matching the exec-form shape used correctly elsewhere in the plugin (e.g. `discover.mjs` invocations). Updated the accompanying dedup-matching prose in `evo-auto-enable/SKILL.md` (now dedupes on the `command` + `args` pair) and `evo-auto-disable/SKILL.md`'s removal step (now matches the full `{"type": "command", "command": "sh", "args": [...]}` entry instead of the old two-element `args` array) so the paired enable/disable skills stay in lockstep with the corrected shape.
+- **Scope note** — the identical `"type": "command"` + no-`command`-field pattern also exists in `hooks-setup/SKILL.md` (5 occurrences: the signal-file template, the Stop hook entry, both Notification hook entries, and the SessionStart version-check entry). That skill was not reported in #384 and is left out of scope for this PR; flagged here for a follow-up rather than silently dropped.
+- **Scope** — confined to `plugins/ievo/skills/evo-auto-enable/SKILL.md` and `plugins/ievo/skills/evo-auto-disable/SKILL.md`. No script changes; no test suite applies (this module ships prose protocol, not executable code).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version, intentionally decoupled from `plugin.json`) is unchanged — no scanner output-format change here.
+
+---
+
 ## v0.51.5
 
 Make `scan_repo.mjs`'s checkout cache key injective and verify checkout identity on a cache hit — closes #382.

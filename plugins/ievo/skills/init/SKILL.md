@@ -550,7 +550,9 @@ then aggregate. Format: [log-format.md §8](references/log-format.md).
 ## Step 9: Execute install
 
 Two paths run in sequence — **vendor** (skills + agents) then **plugin** (whole
-plugins). Vendor = fetch the item via `gh api`, write to `.claude/skills/<name>/`
+plugins). Vendor = clone once + enumerate with Glob + fetch via Read/Write
+(never a Bash/`gh api` command built from the item's path — see
+install-protocol.md § "How to fetch the tree"), write to `.claude/skills/<name>/`
 or `.claude/agents/<name>.md`, inject the `<!-- ievo:start -->` overlay marker,
 and create the `.ievo/evolution/<scope>/<name>.md` overlay (with source repo +
 commit SHA frontmatter). Plugin = merge `extraKnownMarketplaces` + `enabledPlugins`

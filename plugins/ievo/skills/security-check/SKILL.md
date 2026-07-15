@@ -116,7 +116,7 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    the result matches `^[0-9a-f]{7,40}$` before using it further.
 3. **Shallow-clone into a fresh, per-invocation directory** — `mktemp -d`
    (shell-generated, never candidate-influenced), not a shared
-   `~/.ievo/checkouts/<owner>-<repo>/` path: `security-auditor` dispatches
+   `~/.ievo/checkouts/<owner>-<repo>-<hash>/` path: `security-auditor` dispatches
    one scan per candidate **in parallel** (`/ievo:init` Step 8), so two
    candidates from the same repo scanning concurrently would otherwise race
    on a shared checkout's `.git` state.

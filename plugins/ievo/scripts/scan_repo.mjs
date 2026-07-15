@@ -24,7 +24,8 @@
 // Bumped when the scanner output format changes. See AGENTS.md.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,28 +99,60 @@ export function isOversized(p, capBytes = MAX_SCAN_FILE_BYTES) {
   }
 }
 
+// The naive `owner/repo` → `owner-repo` flattening is not injective: both
+// owner and repo segments permit hyphens (OWNER_REPO_RE), so e.g.
+// `harmless-owner/nice-repo` and `harmless-owner-nice/repo` collide on the
+// identical flattened name. Appending a hash of the FULL (pre-flattening)
+// slug disambiguates any such collision while keeping the name legible for
+// on-disk debugging. The flattened prefix alone is not the safety boundary —
+// see the hex digest and the identity check in checkoutOrRefresh below.
+export function checkoutCacheKey(ownerRepo) {
+  const flat = ownerRepo.replace(/\//g, "-");
+  const digest = createHash("sha256").update(ownerRepo).digest("hex").slice(0, 12);
+  return `${flat}-${digest}`;
+}
+
+// Verifies a cached checkout's actual git remote matches the requested repo
+// before the caller trusts it — defense in depth against a stale/tampered/
+// hash-colliding checkout being reused (and re-published) under the wrong
+// repo's identity.
+export function remoteMatches(target, url, execImpl = execFileSync) {
+  try {
+    return run("git", ["remote", "get-url", "origin"], { cwd: target, execImpl }) === url;
+  } catch {
+    return false;
+  }
+}
+
 export function checkoutOrRefresh(ownerRepo, checkoutDir, force, execImpl = execFileSync) {
-  const safeName = ownerRepo.replace(/\//g, "-");
+  const safeName = checkoutCacheKey(ownerRepo);
   const target = join(checkoutDir, safeName);
   assertContained(target, checkoutDir);
+  const url = `https://github.com/${ownerRepo}.git`;
 
   if (isDir(target)) {
-    const headFile = join(target, ".git", "HEAD");
-    if (fileExists(headFile) && !force) {
-      const age = (Date.now() - statSync(headFile).mtimeMs) / 1000;
-      if (age < TTL_SECONDS) return target;
-    }
-    try {
-      run("git", ["fetch", "--depth=1"], { cwd: target, execImpl });
-      run("git", ["reset", "--hard", "origin/HEAD"], { cwd: target, execImpl });
-    } catch {
+    if (remoteMatches(target, url, execImpl)) {
+      const headFile = join(target, ".git", "HEAD");
+      if (fileExists(headFile) && !force) {
+        const age = (Date.now() - statSync(headFile).mtimeMs) / 1000;
+        if (age < TTL_SECONDS) return target;
+      }
+      try {
+        run("git", ["fetch", "--depth=1"], { cwd: target, execImpl });
+        run("git", ["reset", "--hard", "origin/HEAD"], { cwd: target, execImpl });
+      } catch {
+        return target;
+      }
       return target;
     }
-  } else {
-    mkdirSync(checkoutDir, { recursive: true });
-    const url = `https://github.com/${ownerRepo}.git`;
-    run("git", ["clone", "--depth=1", url, target], { execImpl });
+    // Cached checkout's remote doesn't match the requested slug — treat as a
+    // miss rather than trusting or incrementally refreshing the wrong repo's
+    // content under this repo's identity.
+    rmSync(target, { recursive: true, force: true });
   }
+
+  mkdirSync(checkoutDir, { recursive: true });
+  run("git", ["clone", "--depth=1", url, target], { execImpl });
   return target;
 }
 

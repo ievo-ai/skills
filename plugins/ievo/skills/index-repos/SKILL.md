@@ -24,7 +24,7 @@ Caller provides via prompt. No interactive input.
 ## What scan_repo.mjs does (executed via Bash)
 
 For each repo:
-1. Shallow clone into `~/.ievo/checkouts/<owner>-<repo>/` (or refresh if cached + TTL expired)
+1. Shallow clone into `~/.ievo/checkouts/<owner>-<repo>-<hash>/` (a content hash suffix keeps two different repos from colliding on the same cache directory; refreshes if cached + TTL expired, verifying the cached checkout's git remote still matches before reusing it)
 2. Detect layout (marketplace / flat-skills / flat-agents / single-plugin / other)
 3. Enumerate plugins / agents / skills / commands / hooks / MCP
 4. Parse YAML frontmatter for each item

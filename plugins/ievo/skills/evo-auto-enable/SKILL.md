@@ -223,8 +223,11 @@ exists but is **not valid JSON**, halt without writing (do not clobber manual
 edits) and tell the user to fix it. Merge with the **Read + Edit** tools (not
 shell JSON edits — preserves comments and key order), appending these two entries
 and deduping by the inner `command` + `args` pair (skip if an identical entry
-already exists), exactly as `/ievo:hooks-setup` Step 6 describes. Claude Code's
-hook schema requires `command` even in exec form — it holds the executable;
+already exists), using the same Read + Edit merge mechanics `/ievo:hooks-setup`
+Step 6 uses (that skill's own hook entries still lack `command` as of this
+writing — see the `hooks-setup/SKILL.md` scope note in CHANGELOG.md — so the
+dedup *key* differs; only the merge mechanics are shared). Claude Code's hook
+schema requires `command` even in exec form — it holds the executable;
 `args` holds only the argument vector, never the executable itself (a prior
 version of this step omitted `command`, which Claude Code's settings validator
 rejects at write time with `hooks.UserPromptSubmit.0.hooks.0.command: Expected

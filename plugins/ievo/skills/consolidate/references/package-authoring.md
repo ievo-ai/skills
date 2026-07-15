@@ -97,4 +97,4 @@ Apply (or, in `ievo-ai/skills` itself, literally run) the same checks `validate_
 - `description` present, skill ≤1024 chars
 - `model:` (agent) is one of `sonnet | opus | haiku | fable | inherit` — never a pinned ID
 
-A package that fails any of these is an Anti-Pattern per `SKILL.md`'s Anti-Pattern Detection section — fix before presenting the CHECKPOINT 2 diff, never ship an invalid package.
+A package that fails any of these is an Anti-Pattern per the calling skill's own Anti-Pattern Detection section (`consolidate/SKILL.md` or `extract-best-practices/SKILL.md`) — fix before presenting the CHECKPOINT 2 diff, never ship an invalid package.

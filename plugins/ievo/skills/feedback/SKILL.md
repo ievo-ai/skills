@@ -33,7 +33,7 @@ registry-improvement signal that can be relayed to vercel-labs/skills.
 
   Because the feedback text is already in hand either way, flow C **skips Step 2** (collect feedback text) — but runs everything else normally: Step 1 (classify type — a plugin gap is usually `Bug` or `Feature`/`Idea`; a package contribution is typically `Feature`), Step 3 (environment), Step 3.5 (clarify — usually skipped, the pre-filled content is already specific), Step 3.75 (translate to English **once, here** if needed — neither caller pre-translates, though the extract-best-practices case is agent-authored English and typically needs no translation), Step 4 (build body, flow-A format), and — critically — Step 5 (public-posting confirmation gate) **unchanged**. Nothing is posted until the user clears that gate.
 
-If invoked in flow (B), **skip Step 1** (type is implicitly "Idea" / registry-improvement) and **jump to Step 1b** below. If invoked in flow (C), **skip Step 2** (feedback text is the pre-filled lesson) and otherwise proceed normally from Step 1. Otherwise (flow A) proceed with Step 1.
+If invoked in flow (B), **skip Step 1** (type is implicitly "Idea" / registry-improvement) and **jump to Step 1b** below. If invoked in flow (C), **skip Step 2** (feedback text is the pre-filled content) and otherwise proceed normally from Step 1. Otherwise (flow A) proceed with Step 1.
 
 ## Step 1: Classify the feedback type (flows A and C)
 
@@ -76,7 +76,7 @@ Use **type = idea** and **labels = feedback, registry-quality** for flow B.
 
 ## Step 2: Collect the feedback text
 
-**Flow C (evo handoff): skip this step** — the feedback text is the pre-filled verbatim lesson the caller already passed in. Use it as-is (don't re-ask) and go to Step 3.
+**Flow C (pre-filled handoff): skip this step** — the feedback text is the pre-filled content the caller already passed in (a verbatim lesson from evo, or a package writeup from extract-best-practices). Use it as-is (don't re-ask) and go to Step 3.
 
 Ask the user for the actual feedback. Use a clear prompt like:
 

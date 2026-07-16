@@ -3,7 +3,7 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, symlinkSync, chmodSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -18,6 +18,8 @@ import {
   ALLOWED_MODELS,
   FORBIDDEN_MODEL_PATTERNS,
   DEFAULT_SKILLS_DIR,
+  MAX_VALIDATE_FILE_BYTES,
+  isOversized,
   parseArgs,
   parseFrontmatter,
   checkModelField,
@@ -444,6 +446,56 @@ describe("validateSkillContent", () => {
   });
 });
 
+// isOversized — CWE-400 guard for validateSkill's readFileSync call site.
+// Mirrors scan_repo.mjs's isOversized/MAX_SCAN_FILE_BYTES pair, but uses
+// lstatSync (not statSync) — see #391 / #363 — so a symlink is rejected by
+// type instead of being followed to a target whose size can be misleading.
+describe("isOversized", () => {
+  const tmp = join(tmpdir(), `validate-skills-oversized-${Date.now()}`);
+
+  it("false for a normal small file", () => {
+    mkdirSync(tmp, { recursive: true });
+    const f = join(tmp, "small.md");
+    writeFileSync(f, "hello", "utf-8");
+    assert.equal(isOversized(f), false);
+  });
+
+  it("true when a file exceeds MAX_VALIDATE_FILE_BYTES", () => {
+    const f = join(tmp, "big.md");
+    writeFileSync(f, "x".repeat(MAX_VALIDATE_FILE_BYTES + 1), "utf-8");
+    assert.equal(isOversized(f), true);
+  });
+
+  it("false when a file is exactly at the cap (boundary)", () => {
+    const f = join(tmp, "exact.md");
+    writeFileSync(f, "x".repeat(MAX_VALIDATE_FILE_BYTES), "utf-8");
+    assert.equal(isOversized(f), false);
+  });
+
+  it("respects a custom capBytes argument", () => {
+    const f = join(tmp, "custom-cap.md");
+    writeFileSync(f, "x".repeat(100), "utf-8");
+    assert.equal(isOversized(f, 50), true);
+    assert.equal(isOversized(f, 200), false);
+  });
+
+  it("false for a nonexistent path (lstat fails)", () => {
+    assert.equal(isOversized(join(tmp, "nope.md")), false);
+  });
+
+  it("true for a symlink, regardless of the target's size — rejected by type via lstatSync", () => {
+    const target = join(tmp, "symlink-target.md");
+    writeFileSync(target, "tiny", "utf-8");
+    const link = join(tmp, "symlink-source.md");
+    symlinkSync(target, link);
+    assert.equal(isOversized(link), true);
+  });
+
+  after(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+});
+
 describe("validateSkill (filesystem)", () => {
   const tmpDir = join(tmpdir(), `validate-skills-test-${Date.now()}`);
 
@@ -466,6 +518,31 @@ describe("validateSkill (filesystem)", () => {
 
   it("throws on missing file", () => {
     assert.throws(() => validateSkill(join(tmpDir, "nonexistent", "SKILL.md")), /ENOENT/);
+  });
+
+  it("returns a file-too-large violation without reading when file exceeds the size cap (CWE-400)", () => {
+    const skillDir = join(tmpDir, "oversized-skill");
+    mkdirSync(skillDir, { recursive: true });
+    const filePath = join(skillDir, "SKILL.md");
+    writeFileSync(filePath, "x".repeat(MAX_VALIDATE_FILE_BYTES + 1), "utf-8");
+    const v = validateSkill(filePath);
+    assert.deepEqual(v, [{
+      severity: "error",
+      rule: "file-too-large",
+      message: `SKILL.md exceeds ${MAX_VALIDATE_FILE_BYTES} bytes (or is not a regular file — e.g. a symlink) — refusing to read`,
+    }]);
+  });
+
+  it("returns a file-too-large violation for a symlink instead of following it", () => {
+    const skillDir = join(tmpDir, "symlink-skill");
+    mkdirSync(skillDir, { recursive: true });
+    const target = join(tmpDir, "symlink-skill-target.md");
+    writeFileSync(target, "---\nname: symlink-skill\ndescription: ok\n---", "utf-8");
+    const filePath = join(skillDir, "SKILL.md");
+    symlinkSync(target, filePath);
+    const v = validateSkill(filePath);
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "file-too-large");
   });
 
   after(() => {
@@ -630,18 +707,29 @@ describe("main (CLI entry)", () => {
   });
 
   it("continues past unreadable file — per-file isolation", () => {
+    // POSIX-only: chmod 000 makes the file unreadable so readFileSync throws
+    // EACCES while isOversized's lstatSync (which only needs dir execute
+    // permission) still sees a normal-sized regular file — this exercises
+    // main()'s try/catch around validateSkill(), distinct from the
+    // isOversized short-circuit (a directory-named SKILL.md would be caught
+    // by isOversized's isFile() check before ever reaching readFileSync).
+    if (process.platform === "win32") return;
     const mixedDir = join(tmpDir, "mixed-files");
     const goodDir = join(mixedDir, "good");
     mkdirSync(goodDir, { recursive: true });
     writeFileSync(join(goodDir, "SKILL.md"), "---\nname: good\ndescription: ok\n---", "utf-8");
-    // Create a directory named SKILL.md — readFileSync will throw EISDIR
     const trapDir = join(mixedDir, "trap");
     mkdirSync(trapDir, { recursive: true });
-    mkdirSync(join(trapDir, "SKILL.md"), { recursive: true });
-    const goodFile = join(goodDir, "SKILL.md");
     const trapFile = join(trapDir, "SKILL.md");
+    writeFileSync(trapFile, "---\nname: trap\ndescription: ok\n---", "utf-8");
+    chmodSync(trapFile, 0o000);
+    const goodFile = join(goodDir, "SKILL.md");
     const run = makeRun();
-    main(["node", "validate_skills.mjs", trapFile, goodFile], run.exit, run.log, run.errLog);
+    try {
+      main(["node", "validate_skills.mjs", trapFile, goodFile], run.exit, run.log, run.errLog);
+    } finally {
+      chmodSync(trapFile, 0o644);
+    }
     assert.equal(run.exitCode, 1);
     assert.match(run.logs.join("\n"), /file-unreadable/);
     assert.match(run.logs.join("\n"), /good/);

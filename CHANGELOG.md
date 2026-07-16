@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.52.2
+
+Guard `validate_skills.mjs` / `validate_agents.mjs`'s `readFileSync` call sites against a memory-exhaustion DoS from an oversized or unsafe attacker-controlled file — closes #391.
+
+- **Gap closed** — `validateSkill()` (`validate_skills.mjs:206`) and `validateAgent()` (`validate_agents.mjs:114`) both called `readFileSync(filePath, "utf-8")` with no size or type check before reading (CWE-400), unlike their sibling `scan_repo.mjs`, which got exactly this guard in #374/v0.51.3. `.pre-commit-config.yaml` wires both validators into `pre-commit-gate.yml`'s "hard gate", which runs on every `pull_request` from any public contributor — including forks — against the PR's own changed `plugins/ievo/agents/*.md` / `plugins/ievo/skills/*/SKILL.md` content, before human review completes. A crafted PR adding an oversized file (or a symlink pointed at a non-EOF-terminating device such as `/dev/zero`) at either path would be read in full, OOM-crashing or hanging the validator inside CI or a contributor's local `pre-commit run`.
+- **Fix** — added `isOversized(path, capBytes = MAX_VALIDATE_FILE_BYTES)` (256 KB — frontmatter files are never legitimately larger, mirroring `scan_repo.mjs`'s `MAX_SCAN_FILE_BYTES`) to both scripts, called immediately before each `readFileSync`; an oversized-or-unsafe path short-circuits to a `file-too-large` violation (`severity: "error"`) instead of being read, so CI fails closed rather than silently skipping. Unlike `scan_repo.mjs`'s existing `isOversized` (which uses `statSync` — the still-open gap `#363` calls out), this guard uses `lstatSync` and rejects any path that isn't a plain regular file (`!st.isFile()`) — a symlink is judged on its own metadata and never followed, so a symlink to a device file is rejected by type outright rather than being stat'd through to a target whose reported size can be misleading (character devices commonly report size 0 while still streaming unboundedly on read).
+- **Scope** — confined to `plugins/ievo/scripts/validate_skills.mjs`, `plugins/ievo/scripts/validate_agents.mjs`, and their 100%-coverage test suites. Output for a normally-sized, regular-file input is unchanged; the new `file-too-large` violation appears only when a file actually overflows the 256 KB cap or isn't a regular file. Two pre-existing tests (`validate_skills.test.mjs` / `validate_agents.test.mjs` — "continues past unreadable file") used a directory-named `SKILL.md`/`.md` to exercise `main()`'s `file-unreadable` catch path; since a directory also fails `isOversized()`'s `isFile()` check, those traps were switched to a `chmod 000` permission-denied regular file (POSIX-only, matching the existing pattern in `scan_repo.test.mjs`) so the catch path stays covered.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` is unchanged — no scanner output-format change here, and `#363` (its own `statSync`-follows-symlinks gap) remains a separate, still-open issue out of scope for this fix.
+
+---
+
 ## v0.52.1
 
 Validate `<owner>/<repo>` against a strict allowlist before `index-repos/SKILL.md` interpolates it into a `node scan_repo.mjs` Bash invocation — closes #356.

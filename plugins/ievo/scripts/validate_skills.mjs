@@ -21,7 +21,7 @@
 //   node validate_skills.mjs <file1> <file2> ...      (explicit files)
 //   node validate_skills.mjs --quiet                   (only print violations)
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,6 +45,29 @@ export const FORBIDDEN_MODEL_PATTERNS = [
 ];
 
 export const DEFAULT_SKILLS_DIR = "plugins/ievo/skills";
+
+// SKILL.md frontmatter is never legitimately larger than this — guards the
+// readFileSync call in validateSkill() below against a multi-GB blob (or a
+// symlink pointed at a non-EOF-terminating device such as /dev/zero) OOMing
+// or hanging the validator inside CI or a contributor's local `pre-commit
+// run` (CWE-400). Mirrors scan_repo.mjs's MAX_SCAN_FILE_BYTES.
+export const MAX_VALIDATE_FILE_BYTES = 256 * 1024;
+
+// Uses lstatSync (not statSync) so a symlink is judged on its own metadata
+// and never followed — a symlink pointed at a device file is rejected
+// outright by type (isFile() is false for a symlink under lstat) instead of
+// being stat'd through to the target, whose reported size can be misleading
+// (character devices commonly report size 0 while still streaming
+// unboundedly on read).
+export function isOversized(p, capBytes = MAX_VALIDATE_FILE_BYTES) {
+  let st;
+  try {
+    st = lstatSync(p);
+  } catch {
+    return false;
+  }
+  return !st.isFile() || st.size > capBytes;
+}
 
 export function parseArgs(argv) {
   const args = { files: [], quiet: false };
@@ -203,6 +226,13 @@ export function validateSkillContent(content, parentDirName) {
 }
 
 export function validateSkill(filePath) {
+  if (isOversized(filePath)) {
+    return [{
+      severity: "error",
+      rule: "file-too-large",
+      message: `SKILL.md exceeds ${MAX_VALIDATE_FILE_BYTES} bytes (or is not a regular file — e.g. a symlink) — refusing to read`,
+    }];
+  }
   const content = readFileSync(filePath, "utf-8");
   const parentDirName = basename(dirname(filePath));
   return validateSkillContent(content, parentDirName);

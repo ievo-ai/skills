@@ -17,12 +17,36 @@
 //   node validate_agents.mjs <agents-dir>        (explicit dir)
 //   node validate_agents.mjs --quiet             (only print violations, suppress passes)
 
-import { readdirSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ALLOWED_MODELS = new Set(["sonnet", "opus", "haiku", "fable", "inherit"]);
 export const REQUIRED_FIELDS = ["name", "description"];
+
+// Agent frontmatter is never legitimately larger than this — guards the
+// readFileSync call in validateAgent() below against a multi-GB blob (or a
+// symlink pointed at a non-EOF-terminating device such as /dev/zero) OOMing
+// or hanging the validator inside CI or a contributor's local `pre-commit
+// run` (CWE-400). Mirrors scan_repo.mjs's MAX_SCAN_FILE_BYTES.
+export const MAX_VALIDATE_FILE_BYTES = 256 * 1024;
+
+// Uses lstatSync (not statSync) so a symlink is judged on its own metadata
+// and never followed — a symlink pointed at a device file is rejected
+// outright by type (isFile() is false for a symlink under lstat) instead of
+// being stat'd through to the target, whose reported size can be misleading
+// (character devices commonly report size 0 while still streaming
+// unboundedly on read).
+export function isOversized(p, capBytes = MAX_VALIDATE_FILE_BYTES) {
+  let st;
+  try {
+    st = lstatSync(p);
+  } catch {
+    return false;
+  }
+  return !st.isFile() || st.size > capBytes;
+}
+
 // `effort:` overrides the session effort level for this sub-agent. Validate-if-present,
 // mirroring how `model:` is handled here: an absent value is fine (the agent inherits
 // session effort), but a mistyped value silently does nothing at runtime, so we error
@@ -112,6 +136,13 @@ export function checkEffortField(effort) {
 }
 
 export function validateAgent(filePath) {
+  if (isOversized(filePath)) {
+    return [{
+      severity: "error",
+      rule: "file-too-large",
+      message: `Agent file exceeds ${MAX_VALIDATE_FILE_BYTES} bytes (or is not a regular file — e.g. a symlink) — refusing to read`,
+    }];
+  }
   const content = readFileSync(filePath, "utf-8");
   return validateAgentContent(content);
 }

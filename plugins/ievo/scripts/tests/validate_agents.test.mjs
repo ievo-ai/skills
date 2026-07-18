@@ -64,6 +64,14 @@ describe("constants", () => {
       assert.ok(!BLOCK_SCALAR_RE.test(v), `expected ${v} not to match`);
     }
   });
+
+  it("BLOCK_SCALAR_RE matches the digit-before-chomping YAML ordering too (regression: skills#392 review)", () => {
+    // YAML 1.2's block-header grammar allows the indentation digit and
+    // chomping indicator in EITHER order — |2- and |-2 are equivalent.
+    for (const v of ["|2-", "|2+", ">3+", ">1-"]) {
+      assert.ok(BLOCK_SCALAR_RE.test(v), `expected ${v} to match`);
+    }
+  });
 });
 
 describe("parseArgs", () => {
@@ -179,6 +187,11 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  model: claude-sonnet-4-6\n---");
     assert.equal(fm.description, "model: claude-sonnet-4-6");
     assert.equal(fm.model, undefined);
+  });
+
+  it("does not strip quote characters from a block scalar body (they are literal YAML content, not delimiters)", () => {
+    const fm = parseFrontmatter('---\nname: foo\ndescription: |\n  "quoted" text\n---');
+    assert.equal(fm.description, '"quoted" text');
   });
 });
 

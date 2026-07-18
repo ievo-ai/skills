@@ -54,12 +54,14 @@ export function isOversized(p, capBytes = MAX_VALIDATE_FILE_BYTES) {
 export const VALID_EFFORT_VALUES = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 // YAML block (`|`) / folded (`>`) scalar indicator, with optional chomping
-// (`+`/`-`) and/or explicit indentation-indicator digit — e.g. `|`, `>-`,
-// `|2`, `>+1`. Matched against a key's same-line value to detect a
-// multi-line scalar so parseFrontmatter() can consume its body instead of
-// treating the 1-2 char indicator itself as the field's whole value
-// (CWE-20 twin of skills#392 — validate_skills.mjs's identical parser bug).
-export const BLOCK_SCALAR_RE = /^[|>][+-]?\d*$/;
+// (`+`/`-`) and/or explicit indentation-indicator digit, in EITHER order —
+// e.g. `|`, `>-`, `|2`, `>+1`, and (per the YAML 1.2 block-header grammar)
+// `|2-` / `>+1` are equally valid with the digit before the chomping mark.
+// Matched against a key's same-line value to detect a multi-line scalar so
+// parseFrontmatter() can consume its body instead of treating the 1-3 char
+// indicator itself as the field's whole value — missing either ordering
+// would leave that exact CWE-20 bypass (skills#392) reachable via the other.
+export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 
 // Patterns that indicate vendor-specific or version-pinned IDs
 export const FORBIDDEN_MODEL_PATTERNS = [
@@ -109,8 +111,10 @@ export function parseFrontmatter(content) {
 
     const key = line.slice(0, colonIdx).trim();
     let value = line.slice(colonIdx + 1).trim();
+    let isBlockScalar = false;
 
     if (BLOCK_SCALAR_RE.test(value)) {
+      isBlockScalar = true;
       const bodyLines = [];
       while (i + 1 < lines.length && (!lines[i + 1].trim() || /^\s/.test(lines[i + 1]))) {
         i++;
@@ -119,7 +123,10 @@ export function parseFrontmatter(content) {
       value = bodyLines.join("\n").trim();
     }
 
-    if (value) fm[key] = value.replace(/^["']|["']$/g, "");
+    // A block/folded scalar body is never quote-delimited in YAML (leading/
+    // trailing `"`/`'` are literal content) — only strip surrounding quotes
+    // from a plain single-line scalar.
+    if (value) fm[key] = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
   }
   return fm;
 }

@@ -90,6 +90,13 @@ describe("constants", () => {
       assert.ok(!BLOCK_SCALAR_RE.test(v), `expected ${v} not to match`);
     }
   });
+  it("BLOCK_SCALAR_RE matches the digit-before-chomping YAML ordering too (regression: skills#392 review)", () => {
+    // YAML 1.2's block-header grammar allows the indentation digit and
+    // chomping indicator in EITHER order — |2- and |-2 are equivalent.
+    for (const v of ["|2-", "|2+", ">3+", ">1-"]) {
+      assert.ok(BLOCK_SCALAR_RE.test(v), `expected ${v} to match`);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -366,6 +373,18 @@ describe("parseFrontmatter", () => {
     writeFileSync(f, "---\nname: x\ndescription: >-\n  folded text\n---\nbody\n", "utf-8");
     const fm = parseFrontmatter(f);
     assert.equal(fm.description, "folded text");
+  });
+  it("consumes a block scalar body via the digit-before-chomping indicator ordering too (regression: skills#392 review)", () => {
+    const f = join(tmp, "block-scalar-digit-chomp.md");
+    writeFileSync(f, "---\nname: x\ndescription: |2-\n  digit-then-chomp\n---\nbody\n", "utf-8");
+    const fm = parseFrontmatter(f);
+    assert.equal(fm.description, "digit-then-chomp");
+  });
+  it("does not strip quote characters from a block scalar body (they are literal YAML content, not delimiters)", () => {
+    const f = join(tmp, "block-scalar-quoted.md");
+    writeFileSync(f, '---\nname: x\ndescription: |\n  "quoted" text\n---\nbody\n', "utf-8");
+    const fm = parseFrontmatter(f);
+    assert.equal(fm.description, '"quoted" text');
   });
   it("returns {} when fileExists check rejects a directory path", () => {
     // Directories fail the fileExists() guard at the top, no read attempted.

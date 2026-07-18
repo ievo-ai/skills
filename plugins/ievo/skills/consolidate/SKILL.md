@@ -22,8 +22,8 @@ Fixes fragmented doc systems and overgrown evolution overlays: maps dependencies
 - A new team member can't figure out which file to update
 
 **Entry-cluster mode** (root is an iEvo overlay file):
-- `.ievo/evolution/project.md` (or another overlay under `.ievo/evolution/`) has accumulated entries that keep describing the same recurring flow or role
-- Invoked directly (`/ievo:consolidate --root .ievo/evolution/project.md`), or handed off to from `evo/SKILL.md` Step 5.7 after a lesson capture
+- Any overlay under `.ievo/evolution/` — project-wide (`project.md`), agent-scope (`agents/<name>.md`), or skill-scope (`skills/<name>.md`) — has accumulated entries that keep describing the same recurring flow or role
+- Invoked directly (`/ievo:consolidate --root .ievo/evolution/project.md`, or `--root .ievo/evolution/agents/<name>.md` / `--root .ievo/evolution/skills/<name>.md`), or handed off to from `evo/SKILL.md` Step 5.7 after any overlay capture, regardless of scope
 
 ## Step 0: Determine root and mode
 
@@ -245,7 +245,7 @@ Stop and warn if:
 
 ## See also
 
-- `evo/SKILL.md` Step 5.7 — the primary entry-cluster mode caller; offers this skill after a project-wide lesson capture when accumulated entries look generalizable.
+- `evo/SKILL.md` Step 5.7 — the primary entry-cluster mode caller; offers this skill after any overlay capture (project-wide, agent-scope, or skill-scope) when accumulated entries look generalizable.
 - `init/SKILL.md` Step 9 (and [references/install-protocol.md](../init/references/install-protocol.md)) — the vendor/install model this skill's package-authoring step reuses for project-scoped writes, adapted for from-scratch authoring rather than copying an upstream source.
 - [references/package-authoring.md](references/package-authoring.md) — full frontmatter templates and the registration mechanism for Step 8 (entry-cluster mode). Shared with `extract-best-practices/SKILL.md`'s Phase 4, which extracts from a live session instead of already-`/evo`'d overlay entries.
 - `extract-best-practices/SKILL.md` — the sibling "does this generalize into a skill/agent" judgment, triggered by a live, un-flagged session rather than entries already captured in an overlay.

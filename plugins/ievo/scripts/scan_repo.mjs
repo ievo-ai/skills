@@ -181,6 +181,15 @@ export function countRecentCommits(repo, sinceDate, execImpl = execFileSync) {
 // frontmatter
 // ---------------------------------------------------------------------------
 
+// YAML block (`|`) / folded (`>`) scalar indicator, with optional chomping
+// (`+`/`-`) and/or explicit indentation-indicator digit. Matched against a
+// key's same-line value so parseFrontmatter() below can consume its body
+// instead of treating the 1-2 char indicator as the field's whole value —
+// this repo's display truncation is otherwise measured off just that
+// indicator (CWE-20 twin of skills#392; here it affects display truncation,
+// not a CI security gate — that gate lives in validate_skills.mjs).
+export const BLOCK_SCALAR_RE = /^[|>][+-]?\d*$/;
+
 export function parseFrontmatter(filePath) {
   if (!fileExists(filePath)) return {};
   if (isOversized(filePath)) return { oversized: true };
@@ -195,15 +204,25 @@ export function parseFrontmatter(filePath) {
 
   const fm = {};
   let currentKey = null;
-  for (const line of m[1].split("\n")) {
+  const lines = m[1].split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     if (/^\s+/.test(line) && currentKey) continue;
     const colonIdx = line.indexOf(":");
     if (colonIdx > 0) {
       const key = line.slice(0, colonIdx).trim();
-      const value = line.slice(colonIdx + 1).trim();
+      let value = line.slice(colonIdx + 1).trim();
       if (value) {
-        fm[key] = value.replace(/^["']|["']$/g, "");
+        if (BLOCK_SCALAR_RE.test(value)) {
+          const bodyLines = [];
+          while (i + 1 < lines.length && (!lines[i + 1].trim() || /^\s/.test(lines[i + 1]))) {
+            i++;
+            bodyLines.push(lines[i].replace(/^\s+/, ""));
+          }
+          value = bodyLines.join("\n").trim();
+        }
+        if (value) fm[key] = value.replace(/^["']|["']$/g, "");
         currentKey = null;
       } else {
         currentKey = key;

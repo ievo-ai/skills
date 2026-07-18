@@ -53,6 +53,14 @@ export function isOversized(p, capBytes = MAX_VALIDATE_FILE_BYTES) {
 // on it. Value set matches validate_skills.mjs (the same agentskills.io field).
 export const VALID_EFFORT_VALUES = new Set(["low", "medium", "high", "xhigh", "max"]);
 
+// YAML block (`|`) / folded (`>`) scalar indicator, with optional chomping
+// (`+`/`-`) and/or explicit indentation-indicator digit — e.g. `|`, `>-`,
+// `|2`, `>+1`. Matched against a key's same-line value to detect a
+// multi-line scalar so parseFrontmatter() can consume its body instead of
+// treating the 1-2 char indicator itself as the field's whole value
+// (CWE-20 twin of skills#392 — validate_skills.mjs's identical parser bug).
+export const BLOCK_SCALAR_RE = /^[|>][+-]?\d*$/;
+
 // Patterns that indicate vendor-specific or version-pinned IDs
 export const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^claude-/, why: "Anthropic-specific ID — locks to one vendor" },
@@ -82,19 +90,36 @@ export function parseFrontmatter(content) {
   if (!match) return null;
 
   const fm = {};
-  for (const line of match[1].split("\n")) {
+  const lines = match[1].split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
 
     // SECURITY: scan indented lines too — original `if (/^\s+/.test(line)) continue;`
     // would silently skip a `model:` field nested under another key, letting
     // attackers bypass the validator with deceptively-structured YAML.
     // We don't try to be a real YAML parser — we just won't ignore the line.
+    // The one exception is a genuine block/folded scalar body (below): those
+    // indented lines are the literal string content of the key that declared
+    // `|`/`>`, not a separate nested mapping, so consuming them here matches
+    // how any real YAML parser would resolve the same frontmatter — it does
+    // not reopen the nested-model bypass this comment guards against.
     const colonIdx = line.indexOf(":");
-    if (colonIdx > 0) {
-      const key = line.slice(0, colonIdx).trim();
-      const value = line.slice(colonIdx + 1).trim();
-      if (value) fm[key] = value.replace(/^["']|["']$/g, "");
+    if (colonIdx <= 0) continue;
+
+    const key = line.slice(0, colonIdx).trim();
+    let value = line.slice(colonIdx + 1).trim();
+
+    if (BLOCK_SCALAR_RE.test(value)) {
+      const bodyLines = [];
+      while (i + 1 < lines.length && (!lines[i + 1].trim() || /^\s/.test(lines[i + 1]))) {
+        i++;
+        bodyLines.push(lines[i].replace(/^\s+/, ""));
+      }
+      value = bodyLines.join("\n").trim();
     }
+
+    if (value) fm[key] = value.replace(/^["']|["']$/g, "");
   }
   return fm;
 }

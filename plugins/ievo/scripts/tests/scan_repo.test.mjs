@@ -28,6 +28,7 @@ import {
   SCRIPT_VERSION,
   TTL_SECONDS,
   FRONTMATTER_RE,
+  BLOCK_SCALAR_RE,
   OWNER_REPO_RE,
   isValidOwnerRepo,
   assertContained,
@@ -80,6 +81,14 @@ describe("constants", () => {
   });
   it("FRONTMATTER_RE matches a YAML frontmatter block", () => {
     assert.ok(FRONTMATTER_RE.test("---\nname: foo\n---\nbody"));
+  });
+  it("BLOCK_SCALAR_RE matches block/folded scalar indicators, rejects plain values", () => {
+    for (const v of ["|", ">", "|-", "|+", ">-2", "|+1"]) {
+      assert.ok(BLOCK_SCALAR_RE.test(v), `expected ${v} to match`);
+    }
+    for (const v of ["", "foo", "|bar"]) {
+      assert.ok(!BLOCK_SCALAR_RE.test(v), `expected ${v} not to match`);
+    }
   });
 });
 
@@ -344,6 +353,19 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter(f);
     assert.equal(fm.name, "x");
     assert.equal(fm.desc, "y");
+  });
+  it("consumes a block scalar (|) body so length reflects real content, not the indicator (skills#392 twin)", () => {
+    const f = join(tmp, "block-scalar.md");
+    writeFileSync(f, "---\nname: x\ndescription: |\n  first line\n  second line\nlicense: MIT\n---\nbody\n", "utf-8");
+    const fm = parseFrontmatter(f);
+    assert.equal(fm.description, "first line\nsecond line");
+    assert.equal(fm.license, "MIT");
+  });
+  it("consumes a folded scalar (>) body with a chomping indicator", () => {
+    const f = join(tmp, "folded-scalar.md");
+    writeFileSync(f, "---\nname: x\ndescription: >-\n  folded text\n---\nbody\n", "utf-8");
+    const fm = parseFrontmatter(f);
+    assert.equal(fm.description, "folded text");
   });
   it("returns {} when fileExists check rejects a directory path", () => {
     // Directories fail the fileExists() guard at the top, no read attempted.

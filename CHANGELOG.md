@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.52.3
+
+Fix `parseFrontmatter`'s hand-rolled YAML parser to correctly consume block/folded scalar (`|`/`>`) bodies instead of treating the 1-2 char indicator as the field's whole value — closes #392.
+
+- **Gap closed** — `parseFrontmatter()` in `validate_skills.mjs`, `validate_agents.mjs`, and `scan_repo.mjs` each carry an independent, structurally identical single-line-only parser. For a frontmatter line like `description: |`, `value = line.slice(colonIdx + 1).trim()` evaluated to the literal string `"|"` (length 1) — the following, more-indented body lines were never associated with the key. In `validate_skills.mjs` this let an authored SKILL.md `description`/`compatibility` of any real length silently pass the `DESCRIPTION_MAX_LENGTH`/`COMPATIBILITY_MAX_LENGTH` (1024/500 char) CI gate, since `1 > 1024` is always false (CWE-20). The identical bug in `scan_repo.mjs` only affected display truncation (not a security gate); `validate_agents.mjs` shares the same root-cause parser but has no length-based check today, so it carried no active bypass — fixed anyway for consistency, since all three scripts enforce the same agentskills.io frontmatter model.
+- **Fix** — each `parseFrontmatter()` now detects a same-line value matching a block/folded-scalar indicator (`|`, `>`, optional chomping `+`/`-` and/or an indentation-indicator digit) and consumes the following indented/blank lines into that key's true multi-line value, so length checks measure real content. Sequences and nested mappings remain unmodeled (unchanged from before): a bare `key:` with nothing on the same line still leaves the key unset, and every other line — indented or not — is still independently checked for its own `key: value` pattern, preserving the existing "don't skip indented lines" defense in `validate_agents.mjs`/`validate_skills.mjs` against a forbidden `model:` smuggled under an unrelated bare parent key. A `model:` (or any key) line legitimately nested *inside* a declared block scalar's body is now correctly treated as literal string content of that key, not a separate top-level assignment — matching how any real YAML parser would resolve the same frontmatter, so this does not reopen that defense.
+- **Scope** — confined to the three scripts' `parseFrontmatter()` functions and their 100%-coverage test suites (`validate_skills.test.mjs`, `validate_agents.test.mjs`, `scan_repo.test.mjs`). No new dependency: the fix extends the existing hand-rolled parser rather than adopting a full YAML library, keeping `plugins/ievo/scripts/` stdlib-only per AGENTS.md. No behavior change for any currently-shipped `SKILL.md`/agent file — a repo-wide sweep found zero existing block-scalar frontmatter fields.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` is unchanged — the scanner's *output format* (fields emitted) is unaffected; only the accuracy of already-emitted `description`/`compatibility` values improves.
+
+---
+
 ## v0.52.2
 
 Guard `validate_skills.mjs` / `validate_agents.mjs`'s `readFileSync` call sites against a memory-exhaustion DoS from an oversized or unsafe attacker-controlled file — closes #391.

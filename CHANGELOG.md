@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.0
+
+Add `consolidate/SKILL.md` entry-cluster mode Option E5 ("consolidate in place") so a cluster folded back into its own overlay deletes its source entries instead of leaving redirect stubs — closes #385.
+
+- **Gap closed** — Step 9 ("Redirect and prune") always replaced each migrated overlay entry with a one-line `**Moved to** \`<path>\`` stub, for every extraction option. That pointer earns its tokens when the destination is a newly authored skill/agent (Option E1/E2/E3) — nothing else surfaces that the content moved there. It earns nothing when the destination is content that's already loaded in full every time the overlay itself is loaded: the project canon (`AGENTS.md`/`CLAUDE.md`, which loads `project.md` via its marker block) or, per #395, an agent's/skill's own overlay at every dispatch of that target. A stub pointing a few lines down at content in the same already-loaded file is pure noise; git history already covers the audit trail.
+- **Fix** — Phase 3 Step 7 gets a new **Option E5 — Consolidate in place**: merge a cluster's members into one deduplicated entry that stays in the same overlay (no new package authored). Step 8 drafts that merged entry directly (dated heading, `**Trigger:**` line noting which original entries/dates it consolidates, deduplicated body) instead of running the skill/agent frontmatter-authoring steps. Step 9 now branches by option: E1/E2/E3 keep the existing one-line redirect (unchanged — the new package is not loaded by default); E5 deletes the cluster's source entries outright and writes the merged entry in their place, with no stub. Steps 10/12/13 (entry inventory, duplicate re-check, single-source-of-truth audit), the Checkpoint 2/3 report templates, and Anti-Pattern Detection are updated to track the new destination and flag a lossy merge or a leftover E5 stub.
+- **Scope** — confined to `plugins/ievo/skills/consolidate/SKILL.md` prose; no script changes, no new tests needed (SKILL.md files aren't under the 100% Node-coverage gate). E1-E4 behavior is unchanged. Sequenced after #395 (already merged) per the issue's own implementation note, since both touch Step 9.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor: this adds a new consolidation option rather than fixing broken behavior in an existing one); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` is unchanged — no scanner output-format change here.
+
+---
+
 ## v0.53.0
 
 Extend `evo/SKILL.md` Step 5.7's extraction offer to agent- and skill-scope overlay captures, not just Project-wide — closes #395.

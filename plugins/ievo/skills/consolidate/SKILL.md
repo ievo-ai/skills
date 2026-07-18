@@ -143,6 +143,7 @@ For each cluster surviving Step 6, propose one of:
 - **Option E2 — Extract to a new agent** (judgment/role shape). Same, targeting `.claude/agents/<name>.md`.
 - **Option E3 — Extract to a skill+agent pair** (mixed shape). Show both draft packages.
 - **Option E4 — Stay in the overlay** — no extraction; the cluster is real but not yet worth the overhead (e.g. too small, too project-specific to generalize into a reusable package, or the user prefers it inline).
+- **Option E5 — Consolidate in place** — no new package; merge the cluster's members into one deduplicated entry that stays in the *same* overlay. Fits a cluster that is real and recurring but intrinsically tied to this overlay's own scope (e.g. several entries refining the same point about the agent/skill/project this overlay already belongs to) rather than generalizable into a standalone, dispatchable package. Show the draft merged entry (title, trigger, body) that will replace the cluster's members.
 
 Entries not in any cluster (Step 4) are never proposed for extraction — they are out of scope for this run and stay untouched regardless of the checkpoint outcome.
 
@@ -170,16 +171,19 @@ For each cluster approved at Checkpoint 1 (Option E1/E2/E3), author the package(
 2. Write the skill (`.claude/skills/<name>/SKILL.md`) and/or agent (`.claude/agents/<name>.md`) via the Write tool, project-scoped — same install model `init/SKILL.md` Step 9 uses for vendored packages, but this is original synthesis, not a vendor copy, so there is no `source:` block and no paired overlay file. No `<!-- ievo:start -->` marker either — that marker is for pre-existing bodies gaining their *first* evolution; a freshly authored package has no evolution history yet. Future lessons about it go through the normal `evo/SKILL.md` flow (Step 2 sees the file already exists locally and skips vendoring; Step 3 injects the marker on its first evolution, same as any project-local target).
 3. Validate frontmatter before presenting at Checkpoint 2: apply the same rules `validate_skills.mjs`/`validate_agents.mjs` enforce (name pattern, description length, no vendor-locked `model:` ID) — run the actual scripts when this project is `ievo-ai/skills` itself; otherwise apply the rules by hand.
 
-### Entry-cluster mode — Step 9: Redirect and prune (ONLY after Checkpoint 2 approval)
+For a cluster approved as **Option E5** instead, there is no package to author: draft the single merged entry directly — heading `## <today, YYYY-MM-DD HH:MM UTC> — <synthesized title>`, a `**Trigger:**` line noting it consolidates the cluster's N members (list their original dates so the "what changed and why" breadcrumb survives the merge even though git history is the full record), then a deduplicated body covering every source entry's content. Steps 1-3 above (name/description/frontmatter validation) don't apply — skip them. The merged entry is written into the overlay at Step 9 below.
 
-Never remove entries from the overlay before Checkpoint 2 is explicitly approved — this is the issue's hard requirement, and it mirrors `evo/SKILL.md`'s own "NEVER modify the agent/skill body" / conflict-surfacing caution against silent overrides. Once approved:
+### Entry-cluster mode — Step 9: Redirect, consolidate, and prune (ONLY after Checkpoint 2 approval)
 
-1. Replace each migrated entry's body with a one-line redirect: `**Moved to** \`<new-package-path>\` (extracted <YYYY-MM-DD>).` Keep the original heading and date — the overlay stays a truthful chronological record of what happened, it just no longer duplicates content that now lives in the package.
-2. Entries in Option E4 clusters, and any entry outside a cluster, are left completely untouched.
+Never remove entries from the overlay before Checkpoint 2 is explicitly approved — this is the issue's hard requirement, and it mirrors `evo/SKILL.md`'s own "NEVER modify the agent/skill body" / conflict-surfacing caution against silent overrides. Once approved, handle each cluster per the option chosen at Checkpoint 1:
+
+1. **Option E1/E2/E3 (extract to a new skill/agent):** replace each migrated entry's body with a one-line redirect: `**Moved to** \`<new-package-path>\` (extracted <YYYY-MM-DD>).` Keep the original heading and date — the overlay stays a truthful chronological record of what happened, it just no longer duplicates content that now lives in the package. The new package is not loaded by default, so the pointer carries real navigation value.
+2. **Option E5 (consolidate in place):** delete the cluster's member entries outright and write the single merged entry (drafted at Step 8) in their place. Do NOT leave a redirect stub here — the merged entry lives in this exact overlay file, which is already loaded in full every time this overlay is loaded (every session for `project.md`, every dispatch of the target agent/skill for an agent- or skill-scope overlay per `evo/SKILL.md` Step 5.7) — a stub pointing a few lines down at content that's already in the same loaded file adds tokens with zero information. The same reasoning applies whenever the destination is otherwise-always-loaded context (e.g. the project canon file `AGENTS.md`/`CLAUDE.md`, which loads `project.md` via its marker block).
+3. Entries in Option E4 clusters, and any entry outside a cluster, are left completely untouched.
 
 ### CHECKPOINT 2 (both modes)
 
-Show a diff summary (files created / deleted / changed — entry-cluster mode: packages authored + overlay entries redirected). Wait for approval before finalizing (before Step 9 in entry-cluster mode; the doc-graph mode's Step 8/9 file writes are also gated here, matching the upstream flow).
+Show a diff summary (files created / deleted / changed — entry-cluster mode: packages authored + overlay entries redirected or consolidated in place). Wait for approval before finalizing (before Step 9 in entry-cluster mode; the doc-graph mode's Step 8/9 file writes are also gated here, matching the upstream flow).
 
 ---
 
@@ -203,7 +207,7 @@ For each content type from Step 3, confirm it lives in exactly one file now.
 
 ### Entry-cluster mode — Step 10: Entry inventory check
 
-Analogous to doc-graph Step 10, at entry granularity: every entry parsed in Step 1 must be accounted for — either it is in a package authored at Step 8, or it carries the Step 9 redirect note, or it was never in a cluster and is untouched. Flag any entry that vanished with no destination as **MISSING** — stop and report.
+Analogous to doc-graph Step 10, at entry granularity: every entry parsed in Step 1 must be accounted for — either it is in a package authored at Step 8, or it carries the Step 9 redirect note, or it was merged into a Step 9 in-place consolidated entry (Option E5), or it was never in a cluster and is untouched. Flag any entry that vanished with no destination as **MISSING** — stop and report.
 
 ### Entry-cluster mode — Step 11: N/A
 
@@ -211,11 +215,11 @@ No dependency graph in this mode (mirrors Step 1's Step 2). Skip.
 
 ### Entry-cluster mode — Step 12: Duplicate re-check
 
-Confirm no migrated content is duplicated between the overlay (which now holds only the Step 9 redirect note) and the new package.
+For Option E1/E2/E3 clusters, confirm no migrated content is duplicated between the overlay (which now holds only the Step 9 redirect note) and the new package. For Option E5 clusters, confirm the merged entry doesn't duplicate content living elsewhere in the overlay.
 
 ### Entry-cluster mode — Step 13: Single source of truth audit
 
-Confirm each migrated fact lives only in the new package — the overlay's redirect note points to it but does not restate it.
+Confirm each migrated fact lives in exactly one place: in the new package for Option E1/E2/E3 (the overlay's redirect note points to it but does not restate it), or in the single merged entry for Option E5 (with no leftover per-member stub, since there is nothing on-demand to point at).
 
 ### CHECKPOINT 3 (both modes)
 
@@ -230,6 +234,7 @@ Duplicates removed:        K
 Contradictions resolved:   J
 Cycles broken (doc-graph): C
 Packages authored (entry-cluster): <list of new skill/agent paths, or none>
+Entries consolidated in place (entry-cluster): <list of merged clusters, or none>
 ```
 
 ## Anti-Pattern Detection
@@ -240,8 +245,10 @@ Stop and warn if:
 - A file ends up containing 3+ content types after migration — doc-graph mode
 - Migration is executed without CHECKPOINT 1 approval
 - Section/entry inventory (Step 10) has any MISSING entries — never proceed past this
-- **Entry-cluster mode:** an overlay entry is redirected or removed before CHECKPOINT 2 approval
+- **Entry-cluster mode:** an overlay entry is redirected, merged, or removed before CHECKPOINT 2 approval
 - **Entry-cluster mode:** an authored package fails frontmatter validation (name/directory mismatch, description over the length limit, a vendor-locked `model:` ID) — fix before presenting at CHECKPOINT 2, never ship an invalid package
+- **Entry-cluster mode:** an Option E5 merged entry drops content present in any of its source entries — never lossy-merge
+- **Entry-cluster mode:** a redirect stub is left for an Option E5 cluster instead of a full delete (the destination is the same already-loaded overlay — a stub there is noise, not signal)
 
 ## See also
 

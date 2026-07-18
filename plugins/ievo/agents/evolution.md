@@ -244,13 +244,13 @@ You are a dispatched sub-agent: you have **no** tool to prompt the user or launc
 - If **local:** report `upstream escalation: not applicable (local lesson)` — nothing more.
 - If **upstream-relevant:** report `upstream escalation: recommended` plus the **verbatim lesson text** (original language, untranslated — the caller's `feedback` flow translates once in its Step 3.75). The caller runs `evo/SKILL.md` Step 5.6 in the main session: the one-question `AskUserQuestion` offer and, on accept, the pre-filled hand-off to `/ievo:feedback` (flow C), whose explicit Step 5 gate governs any public posting.
 
-## Step 4.7: Judge extraction-worthiness (project-wide scope only)
+## Step 4.7: Judge extraction-worthiness (any scope)
 
-Only when Step 1 classified this lesson as **Project-wide** (skip entirely for agent/skill scope — they have their own per-target overlays, not `project.md`). After Step 4's append succeeds, you already hold the freshly-updated `.ievo/evolution/project.md` — re-read it in full and judge, by reasoning over its entries (not a mechanical count), whether 2 or more entries independently describe the **same recurring flow or role**: a repeatable procedure or a repeatable judgment/review stance. **Default: no cluster** — most captures don't trigger this.
+After Step 4's append succeeds, you already hold the freshly-updated overlay file — whichever of `.ievo/evolution/project.md`, `.ievo/evolution/agents/<name>.md`, or `.ievo/evolution/skills/<name>.md` Step 1 classified this lesson into. Re-read it in full and judge, by reasoning over its entries (not a mechanical count), whether 2 or more entries independently describe the **same recurring flow or role**: a repeatable procedure or a repeatable judgment/review stance. **Default: no cluster** — most captures don't trigger this. This runs for Project-wide, agent-scope, and skill-scope captures alike.
 
 You are a dispatched sub-agent: you have **no** tool to prompt the user or launch another skill, so do **not** offer or invoke `/ievo:consolidate` yourself. Instead surface the verdict in your Step 5 report:
 - If **no cluster detected:** report `extraction candidate: not applicable` — nothing more.
-- If **a cluster is detected:** report `extraction candidate: detected` plus a one-line description of the cluster (its shape — procedure / role / mixed — and which entries/dates it spans). The caller runs `evo/SKILL.md` Step 5.7 in the main session: the one-question `AskUserQuestion` offer and, on accept, the hand-off to `/ievo:consolidate --root .ievo/evolution/project.md`, whose own 3 checkpoints govern anything actually written or removed.
+- If **a cluster is detected:** report `extraction candidate: detected` plus a one-line description of the cluster (its shape — procedure / role / mixed — and which entries/dates it spans). The caller runs `evo/SKILL.md` Step 5.7 in the main session: the one-question `AskUserQuestion` offer and, on accept, the hand-off to `/ievo:consolidate --root <overlay path>` (the same overlay path this step judged), whose own 3 checkpoints govern anything actually written or removed.
 
 ## Step 5: Report
 

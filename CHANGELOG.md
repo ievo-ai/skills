@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.53.0
+
+Extend `evo/SKILL.md` Step 5.7's extraction offer to agent- and skill-scope overlay captures, not just Project-wide — closes #395.
+
+- **Gap closed** — Step 5.7 (shipped v0.50.0, closed #345) only ran its cluster-judgment check and `/ievo:consolidate` handoff offer when the capture scope classified in Step 1 was Project-wide, hard-gating it to `.ievo/evolution/project.md`. Agent- and skill-scope overlays (`.ievo/evolution/agents/<name>.md`, `.ievo/evolution/skills/<name>.md`) never got the offer, even though they have the same unbounded-growth problem #345 addressed — arguably sharper, since a per-target overlay is read live at every dispatch of that agent/skill and lessons are appended verbatim (no paraphrasing), so a busy overlay's full length is a permanent per-dispatch context tax. `consolidate/SKILL.md` Step 0's mode detection already treated any `.ievo/evolution/**/*.md` path as entry-cluster mode, so the machinery was ready; only the offer was missing.
+- **Fix** — `evo/SKILL.md` Step 5.7 now runs its cluster-judgment check after every overlay append regardless of scope, reading whichever overlay Step 4 just wrote to (`project.md`, `agents/<name>.md`, or `skills/<name>.md`) and parameterizing the `AskUserQuestion` offer text and the `/ievo:consolidate --root <overlay path>` handoff to that same file. Step 6's report line no longer says "not applicable (not project-wide scope...)". The `evolution` sub-agent's mirrored Step 4.7 (`plugins/ievo/agents/evolution.md`) gets the identical gate removal and parameterization, so a delegated capture reports an extraction verdict for agent/skill scopes too.
+- **Scope** — `consolidate/SKILL.md` needed no mode-detection change (already scope-agnostic); its "When to use" section and `evo/SKILL.md` Step 5.7 cross-reference are broadened from naming only `project.md` to naming all three overlay scopes. No script changes; no behavior change to Project-wide captures, which already ran this offer.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor, not `fix:` → patch: unlike #391/#356, no existing Project-wide behavior was broken here — this only broadens which scopes an already-correct offer covers, so it ships as new capability rather than a bug fix); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` is unchanged — no scanner output-format change here.
+
+---
+
 ## v0.52.3
 
 Fix `parseFrontmatter`'s hand-rolled YAML parser to correctly consume block/folded scalar (`|`/`>`) bodies instead of treating the 1-2 char indicator as the field's whole value — closes #392.

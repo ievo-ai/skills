@@ -70,7 +70,10 @@ jobs:
             fi
             # Format guard — defense in depth against shell-injection via the
             # input (already env-passed, but cheap to validate semver shape).
-            if ! printf '%s' "$new" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            # Bash's `[[ =~ ]]` anchors ^/$ to the WHOLE string, unlike
+            # `grep -E '^...$'`, which anchors per line and would accept a
+            # multi-line value whose first line happens to look like semver.
+            if ! [[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::Invalid version '$new' — must be NNN.NNN.NNN (semver, no leading v required)"
               exit 1
             fi
@@ -84,7 +87,28 @@ jobs:
             new=$(python3 -c "import json;print(json.load(open('plugins/ievo/.claude-plugin/plugin.json')).get('version',''))" 2>/dev/null || true)
             old=$(git show HEAD^1:plugins/ievo/.claude-plugin/plugin.json 2>/dev/null \
                   | python3 -c "import sys,json;print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
-            echo "new=$new" >> "$GITHUB_OUTPUT"
+            # Format guard — plugin.json's version is attacker-influenced (any
+            # PR author can edit it) and flows into the public release tag /
+            # title below; reject anything that isn't bare semver before it
+            # ever reaches $GITHUB_OUTPUT (mirrors the workflow_dispatch guard
+            # above — CWE-20, skills#379). Bash's `[[ =~ ]]` anchors ^/$ to the
+            # WHOLE string, unlike `grep -E '^...$'`, which anchors per line
+            # and would accept a multi-line value whose first line happens to
+            # look like semver.
+            if [ -n "$new" ] && ! [[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::plugin.json version '$new' is not valid semver (NNN.NNN.NNN) — refusing to use it"
+              exit 1
+            fi
+            # Delimiter-based multiline write (unique per run) — even a
+            # validated value gets the safe form, so an embedded newline can
+            # never inject extra $GITHUB_OUTPUT keys regardless of guard
+            # ordering.
+            delim="ghoutput_new_${RANDOM}${RANDOM}"
+            {
+              echo "new<<${delim}"
+              echo "$new"
+              echo "${delim}"
+            } >> "$GITHUB_OUTPUT"
             if [ -n "$new" ] && [ "$new" != "$old" ]; then
               echo "changed=true" >> "$GITHUB_OUTPUT"
               echo "Plugin version ${old:-<none>} -> ${new} — cutting release"

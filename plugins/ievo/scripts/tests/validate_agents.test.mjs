@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   ALLOWED_MODELS,
   FORBIDDEN_MODEL_PATTERNS,
+  BLOCK_SCALAR_RE,
   REQUIRED_FIELDS,
   VALID_EFFORT_VALUES,
   MAX_VALIDATE_FILE_BYTES,
@@ -52,6 +53,23 @@ describe("constants", () => {
   it("every forbidden pattern has a non-empty `why` reason", () => {
     for (const { pattern, why } of FORBIDDEN_MODEL_PATTERNS) {
       assert.ok(why.length > 10, `Pattern ${pattern.source} missing rationale`);
+    }
+  });
+
+  it("BLOCK_SCALAR_RE matches block/folded scalar indicators, rejects plain values", () => {
+    for (const v of ["|", ">", "|-", "|+", ">-2", "|+1"]) {
+      assert.ok(BLOCK_SCALAR_RE.test(v), `expected ${v} to match`);
+    }
+    for (const v of ["", "foo", "|bar"]) {
+      assert.ok(!BLOCK_SCALAR_RE.test(v), `expected ${v} not to match`);
+    }
+  });
+
+  it("BLOCK_SCALAR_RE matches the digit-before-chomping YAML ordering too (regression: skills#392 review)", () => {
+    // YAML 1.2's block-header grammar allows the indentation digit and
+    // chomping indicator in EITHER order — |2- and |-2 are equivalent.
+    for (const v of ["|2-", "|2+", ">3+", ">1-"]) {
+      assert.ok(BLOCK_SCALAR_RE.test(v), `expected ${v} to match`);
     }
   });
 });
@@ -142,6 +160,38 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter("---\nname: foo\nempty:\ndescription: bar\n---");
     assert.equal(fm.empty, undefined);
     assert.equal(fm.description, "bar");
+  });
+
+  it("consumes a block scalar (|) body so its true content is captured, not the indicator (skills#392 twin)", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  first line\n  second line\n---");
+    assert.equal(fm.description, "first line\nsecond line");
+  });
+
+  it("consumes a folded scalar (>) body with a chomping indicator", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: >-\n  folded text\n---");
+    assert.equal(fm.description, "folded text");
+  });
+
+  it("block scalar with no indented body lines leaves the field unset", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\nmodel: sonnet\n---");
+    assert.equal(fm.description, undefined);
+    assert.equal(fm.model, "sonnet");
+  });
+
+  it("a model: line nested inside another key's block scalar body is NOT treated as a real model field", () => {
+    // Correct YAML semantics: the indented `model:` line here is literal
+    // string content of `description`, not a smuggled top-level key — a real
+    // YAML parser resolves it the same way, so this isn't a re-opening of the
+    // nested-model-bypass fix above (that fix concerns a BARE parent key with
+    // no `|`/`>` value, which this test does not use).
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  model: claude-sonnet-4-6\n---");
+    assert.equal(fm.description, "model: claude-sonnet-4-6");
+    assert.equal(fm.model, undefined);
+  });
+
+  it("does not strip quote characters from a block scalar body (they are literal YAML content, not delimiters)", () => {
+    const fm = parseFrontmatter('---\nname: foo\ndescription: |\n  "quoted" text\n---');
+    assert.equal(fm.description, '"quoted" text');
   });
 });
 

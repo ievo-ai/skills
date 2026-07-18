@@ -17,6 +17,7 @@ import {
   VALID_EFFORT_VALUES,
   ALLOWED_MODELS,
   FORBIDDEN_MODEL_PATTERNS,
+  BLOCK_SCALAR_RE,
   DEFAULT_SKILLS_DIR,
   MAX_VALIDATE_FILE_BYTES,
   isOversized,
@@ -85,6 +86,28 @@ describe("constants", () => {
 
   it("DEFAULT_SKILLS_DIR points to skills directory", () => {
     assert.equal(DEFAULT_SKILLS_DIR, "plugins/ievo/skills");
+  });
+
+  it("BLOCK_SCALAR_RE matches block/folded scalar indicators with chomping/indentation", () => {
+    for (const v of ["|", ">", "|-", "|+", ">-", ">+", "|2", ">1", "|-2", ">+1"]) {
+      assert.ok(BLOCK_SCALAR_RE.test(v), `expected ${v} to match`);
+    }
+  });
+
+  it("BLOCK_SCALAR_RE matches the digit-before-chomping YAML ordering too (regression: skills#392 review)", () => {
+    // YAML 1.2's block-header grammar allows the indentation digit and
+    // chomping indicator in EITHER order — |2- and |-2 are equivalent.
+    // Missing this ordering left the exact CWE-20 bypass reachable via
+    // `description: |2-` instead of `description: |`.
+    for (const v of ["|2-", "|2+", ">3+", ">1-"]) {
+      assert.ok(BLOCK_SCALAR_RE.test(v), `expected ${v} to match`);
+    }
+  });
+
+  it("BLOCK_SCALAR_RE rejects plain scalar values", () => {
+    for (const v of ["", "foo", "|bar", "a|b", "3", "-", "+"]) {
+      assert.ok(!BLOCK_SCALAR_RE.test(v), `expected ${v} not to match`);
+    }
   });
 });
 
@@ -167,6 +190,49 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter("---\nname: foo\nempty:\ndescription: bar\n---");
     assert.equal(fm.empty, undefined);
     assert.equal(fm.description, "bar");
+  });
+
+  it("consumes a block scalar (|) body so length reflects real content, not the indicator (skills#392)", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  first line\n  second line\n---");
+    assert.equal(fm.description, "first line\nsecond line");
+  });
+
+  it("consumes a folded scalar (>) body with chomping/indentation indicators", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: >-\n  folded text\n---");
+    assert.equal(fm.description, "folded text");
+  });
+
+  it("block scalar with no indented body lines leaves the field unset", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\nmodel: sonnet\n---");
+    assert.equal(fm.description, undefined);
+    assert.equal(fm.model, "sonnet");
+  });
+
+  it("block scalar body can include blank lines", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  para one\n\n  para two\n---");
+    assert.equal(fm.description, "para one\n\npara two");
+  });
+
+  it("resumes normal key scanning immediately after a block scalar's body ends", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  some text\nmodel: claude-sonnet-4-6\n---");
+    assert.equal(fm.description, "some text");
+    assert.equal(fm.model, "claude-sonnet-4-6");
+  });
+
+  it("a model: line nested inside another key's block scalar body is NOT treated as a real model field", () => {
+    // Correct YAML semantics: the indented `model:` line here is literal
+    // string content of `description`, not a smuggled top-level key — a real
+    // YAML parser resolves it the same way, so this isn't a re-opening of the
+    // "security: nested model bypass" test above (that test uses a BARE
+    // parent key with no `|`/`>` value, which this test does not use).
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  model: claude-sonnet-4-6\n---");
+    assert.equal(fm.description, "model: claude-sonnet-4-6");
+    assert.equal(fm.model, undefined);
+  });
+
+  it("does not strip quote characters from a block scalar body (they are literal YAML content, not delimiters)", () => {
+    const fm = parseFrontmatter('---\nname: foo\ndescription: |\n  "quoted" text\n---');
+    assert.equal(fm.description, '"quoted" text');
   });
 });
 
@@ -396,6 +462,20 @@ describe("validateSkillContent", () => {
     const content = `---\nname: foo\ndescription: ${desc1024}\n---`;
     const v = validateSkillContent(content, "foo");
     assert.ok(!v.some((x) => x.rule === "description-too-long"));
+  });
+
+  it("flags description too long even when authored as a YAML block scalar (regression: CWE-20, skills#392)", () => {
+    const longLine = "x".repeat(1025);
+    const content = `---\nname: foo\ndescription: |\n  ${longLine}\n---`;
+    const v = validateSkillContent(content, "foo");
+    assert.ok(v.some((x) => x.rule === "description-too-long"));
+  });
+
+  it("flags description too long via the digit-before-chomping indicator ordering too (regression: skills#392 review)", () => {
+    const longLine = "x".repeat(1025);
+    const content = `---\nname: foo\ndescription: |2-\n  ${longLine}\n---`;
+    const v = validateSkillContent(content, "foo");
+    assert.ok(v.some((x) => x.rule === "description-too-long"));
   });
 
   it("flags compatibility too long", () => {

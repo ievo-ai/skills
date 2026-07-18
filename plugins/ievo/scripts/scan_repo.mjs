@@ -181,6 +181,19 @@ export function countRecentCommits(repo, sinceDate, execImpl = execFileSync) {
 // frontmatter
 // ---------------------------------------------------------------------------
 
+// YAML block (`|`) / folded (`>`) scalar indicator, with optional chomping
+// (`+`/`-`) and/or explicit indentation-indicator digit, in EITHER order —
+// e.g. `|`, `>-`, `|2`, `>+1`, and (per the YAML 1.2 block-header grammar)
+// `|2-` / `>+1` are equally valid with the digit before the chomping mark.
+// Matched against a key's same-line value so parseFrontmatter() below can
+// consume its body instead of treating the 1-3 char indicator as the
+// field's whole value — this repo's display truncation is otherwise
+// measured off just that indicator (CWE-20 twin of skills#392; here it
+// affects display truncation, not a CI security gate — that gate lives in
+// validate_skills.mjs). Missing either ordering would leave the same class
+// of bypass reachable via the other.
+export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
+
 export function parseFrontmatter(filePath) {
   if (!fileExists(filePath)) return {};
   if (isOversized(filePath)) return { oversized: true };
@@ -195,15 +208,30 @@ export function parseFrontmatter(filePath) {
 
   const fm = {};
   let currentKey = null;
-  for (const line of m[1].split("\n")) {
+  const lines = m[1].split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     if (/^\s+/.test(line) && currentKey) continue;
     const colonIdx = line.indexOf(":");
     if (colonIdx > 0) {
       const key = line.slice(0, colonIdx).trim();
-      const value = line.slice(colonIdx + 1).trim();
+      let value = line.slice(colonIdx + 1).trim();
       if (value) {
-        fm[key] = value.replace(/^["']|["']$/g, "");
+        let isBlockScalar = false;
+        if (BLOCK_SCALAR_RE.test(value)) {
+          isBlockScalar = true;
+          const bodyLines = [];
+          while (i + 1 < lines.length && (!lines[i + 1].trim() || /^\s/.test(lines[i + 1]))) {
+            i++;
+            bodyLines.push(lines[i].replace(/^\s+/, ""));
+          }
+          value = bodyLines.join("\n").trim();
+        }
+        // A block/folded scalar body is never quote-delimited in YAML
+        // (leading/trailing `"`/`'` are literal content) — only strip
+        // surrounding quotes from a plain single-line scalar.
+        if (value) fm[key] = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
         currentKey = null;
       } else {
         currentKey = key;

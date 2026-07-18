@@ -46,6 +46,16 @@ export const FORBIDDEN_MODEL_PATTERNS = [
 
 export const DEFAULT_SKILLS_DIR = "plugins/ievo/skills";
 
+// YAML block (`|`) / folded (`>`) scalar indicator, with optional chomping
+// (`+`/`-`) and/or explicit indentation-indicator digit, in EITHER order —
+// e.g. `|`, `>-`, `|2`, `>+1`, and (per the YAML 1.2 block-header grammar)
+// `|2-` / `>+1` are equally valid with the digit before the chomping mark.
+// Matched against a key's same-line value to detect a multi-line scalar so
+// parseFrontmatter() can consume its body instead of treating the 1-3 char
+// indicator itself as the field's whole value — missing either ordering
+// would leave that exact CWE-20 bypass (skills#392) reachable via the other.
+export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
+
 // SKILL.md frontmatter is never legitimately larger than this — guards the
 // readFileSync call in validateSkill() below against a multi-GB blob (or a
 // symlink pointed at a non-EOF-terminating device such as /dev/zero) OOMing
@@ -80,14 +90,21 @@ export function parseArgs(argv) {
 }
 
 /**
- * Minimal single-line-only YAML frontmatter parser.
+ * Minimal YAML frontmatter parser for flat scalar fields.
  *
- * Limitation: this handles only simple `key: value` lines. Multi-line YAML
- * constructs — block scalars (`|`, `>`), continuation/folded lines, sequences
- * (`- item`), and nested mappings — are silently skipped. Any line without a
- * top-level colon is ignored. This is intentional: SKILL.md frontmatter uses
- * only flat scalar fields (name, description, license, compatibility, model),
- * so a full YAML parser is unnecessary. If the agentskills.io spec ever adds
+ * Limitation: this handles only simple `key: value` lines, plus block (`|`)
+ * and folded (`>`) scalars — a same-line value matching BLOCK_SCALAR_RE
+ * consumes the following indented/blank lines into that key's true
+ * multi-line value, so length-based checks (DESCRIPTION_MAX_LENGTH etc.)
+ * measure real content instead of the 1-2 char indicator (CWE-20, skills#392).
+ * Sequences (`- item`) and nested mappings are still not modeled: a bare
+ * `key:` with nothing on the same line just leaves that key unset, and every
+ * other line (indented or not) is independently checked for its own
+ * `key: value` pattern — deliberately, so a forbidden field (e.g. `model:`)
+ * can't be smuggled past this validator by nesting it under an unrelated
+ * parent key. This is intentional: SKILL.md frontmatter uses only flat
+ * scalar fields (name, description, license, compatibility, model), so a
+ * full YAML parser is unnecessary. If the agentskills.io spec ever adds
  * structured frontmatter fields, this function must be replaced with a proper
  * YAML parser (e.g. `yaml` npm package).
  */
@@ -97,15 +114,32 @@ export function parseFrontmatter(content) {
   if (!match) return null;
 
   const fm = {};
-  for (const line of match[1].split("\n")) {
+  const lines = match[1].split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
 
     const colonIdx = line.indexOf(":");
-    if (colonIdx > 0) {
-      const key = line.slice(0, colonIdx).trim();
-      const value = line.slice(colonIdx + 1).trim();
-      if (value) fm[key] = value.replace(/^["']|["']$/g, "");
+    if (colonIdx <= 0) continue;
+
+    const key = line.slice(0, colonIdx).trim();
+    let value = line.slice(colonIdx + 1).trim();
+    let isBlockScalar = false;
+
+    if (BLOCK_SCALAR_RE.test(value)) {
+      isBlockScalar = true;
+      const bodyLines = [];
+      while (i + 1 < lines.length && (!lines[i + 1].trim() || /^\s/.test(lines[i + 1]))) {
+        i++;
+        bodyLines.push(lines[i].replace(/^\s+/, ""));
+      }
+      value = bodyLines.join("\n").trim();
     }
+
+    // A block/folded scalar body is never quote-delimited in YAML (leading/
+    // trailing `"`/`'` are literal content) — only strip surrounding quotes
+    // from a plain single-line scalar.
+    if (value) fm[key] = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
   }
   return fm;
 }

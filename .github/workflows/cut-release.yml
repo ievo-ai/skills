@@ -87,6 +87,17 @@ jobs:
             new=$(python3 -c "import json;print(json.load(open('plugins/ievo/.claude-plugin/plugin.json')).get('version',''))" 2>/dev/null || true)
             old=$(git show HEAD^1:plugins/ievo/.claude-plugin/plugin.json 2>/dev/null \
                   | python3 -c "import sys,json;print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            # `old` comes from a HISTORICAL commit's plugin.json — a prior PR
+            # merge this workflow guard didn't exist to reject — so it's just
+            # as attacker-influenceable as `new` and only ever reaches a log
+            # line (never $GITHUB_OUTPUT), but an embedded newline in it could
+            # still smuggle a spoofed `::error::`/`::add-mask::` workflow-log
+            # command. Never write raw `old` to a log line — substitute a
+            # placeholder when it isn't bare semver.
+            old_display="$old"
+            if [ -n "$old" ] && ! [[ "$old" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              old_display="<invalid>"
+            fi
             # Format guard — plugin.json's version is attacker-influenced (any
             # PR author can edit it) and flows into the public release tag /
             # title below; reject anything that isn't bare semver before it
@@ -111,10 +122,10 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             if [ -n "$new" ] && [ "$new" != "$old" ]; then
               echo "changed=true" >> "$GITHUB_OUTPUT"
-              echo "Plugin version ${old:-<none>} -> ${new} — cutting release"
+              echo "Plugin version ${old_display:-<none>} -> ${new} — cutting release"
             else
               echo "changed=false" >> "$GITHUB_OUTPUT"
-              echo "No plugin version change (${old:-<none>} -> ${new:-<none>}) — skipping cut"
+              echo "No plugin version change (${old_display:-<none>} -> ${new:-<none>}) — skipping cut"
             fi
           fi
 

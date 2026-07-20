@@ -40,13 +40,48 @@ jobs:
           new=$(python3 -c "import json;print(json.load(open('plugins/ievo/.claude-plugin/plugin.json')).get('version',''))" 2>/dev/null || true)
           old=$(git show HEAD^1:plugins/ievo/.claude-plugin/plugin.json 2>/dev/null \
                 | python3 -c "import sys,json;print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
-          echo "new=$new" >> "$GITHUB_OUTPUT"
+          # `old` comes from a HISTORICAL commit's plugin.json — a prior PR
+          # merge this workflow guard didn't exist to reject — so it's just as
+          # attacker-influenceable as `new` and only ever reaches a log line
+          # (never $GITHUB_OUTPUT), but an embedded newline in it could still
+          # smuggle a spoofed `::error::`/`::add-mask::` workflow-log command.
+          # Never write raw `old` to a log line — substitute a placeholder
+          # when it isn't bare semver.
+          old_display="$old"
+          if [ -n "$old" ] && ! [[ "$old" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            old_display="<invalid>"
+          fi
+          # Format guard — plugin.json's version is attacker-influenced (any PR
+          # author can edit it) and flows into the public Telegram announcement
+          # title below; reject anything that isn't bare semver before it ever
+          # reaches $GITHUB_OUTPUT (mirrors cut-release.yml's identical guard —
+          # CWE-20, skills#379). Bash's `[[ =~ ]]` anchors ^/$ to the WHOLE
+          # string, unlike `grep -E '^...$'`, which anchors per line and would
+          # accept a multi-line value whose first line happens to look like
+          # semver.
+          if [ -n "$new" ] && ! [[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Reject-branch: $new just FAILED validation — echoing it raw would
+            # reopen the same newline log-injection vector old_display's
+            # placeholder guards against. Fixed message, no value.
+            echo "::error::plugin.json version is not valid semver (NNN.NNN.NNN) — refusing to use it; raw value withheld"
+            exit 1
+          fi
+          # Delimiter-based multiline write (unique per run) — even a
+          # validated value gets the safe form, so an embedded newline can
+          # never inject extra $GITHUB_OUTPUT keys regardless of guard
+          # ordering.
+          delim="ghoutput_new_${RANDOM}${RANDOM}"
+          {
+            echo "new<<${delim}"
+            echo "$new"
+            echo "${delim}"
+          } >> "$GITHUB_OUTPUT"
           if [ -n "$new" ] && [ "$new" != "$old" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Plugin version ${old:-<none>} -> ${new} — announcing release"
+            echo "Plugin version ${old_display:-<none>} -> ${new} — announcing release"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No plugin version change (${old:-<none>} -> ${new:-<none>}) — skipping announce"
+            echo "No plugin version change (${old_display:-<none>} -> ${new:-<none>}) — skipping announce"
           fi
 
       - name: Generate App token (scoped to eva, for the dispatch only)

@@ -60,7 +60,10 @@ jobs:
           # accept a multi-line value whose first line happens to look like
           # semver.
           if [ -n "$new" ] && ! [[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::plugin.json version '$new' is not valid semver (NNN.NNN.NNN) — refusing to use it"
+            # Reject-branch: $new just FAILED validation — echoing it raw would
+            # reopen the same newline log-injection vector old_display's
+            # placeholder guards against. Fixed message, no value.
+            echo "::error::plugin.json version is not valid semver (NNN.NNN.NNN) — refusing to use it; raw value withheld"
             exit 1
           fi
           # Delimiter-based multiline write (unique per run) — even a

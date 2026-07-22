@@ -29,26 +29,46 @@ ls .ievo/evolution/skills/*.md 2>/dev/null
 ```
 
 For each overlay file:
+- `<name>` is the filename with the `.md` extension stripped (e.g. `spec-writer` from `.ievo/evolution/agents/spec-writer.md`).
 - Read its YAML frontmatter `source:` block to find the upstream `repo` + `path` + `commit_sha`.
 - If `source:` block is missing (overlay was created from a local-only agent/skill, never vendored) → skip in this update. Local-only targets have no upstream to refresh.
 
+**Validate before any Bash use.** `<name>` comes from the overlay's own filename and `source.repo`/`source.path` come from its frontmatter — both are just as untrusted as any other content in the project's git tree (a malicious/compromised PR touching `.ievo/evolution/`, or content vendored via the separate gap tracked in #357, can control either). Steps 2, 2.5, and 3.5 below build `gh api`/`cp`/`sed`/`rm` command lines using these values, so validate them here, once, before any target proceeds past this step:
+
+1. **Validate `<name>`** against `^[A-Za-z0-9_-]+$`. Refuse (skip this target) if it fails.
+2. **Validate `source.repo`** against `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$` — this is `scan_repo.mjs`'s own `OWNER_REPO_RE`, applied directly since `source.repo` is already stored as a single `<owner>/<repo>` string — and additionally reject if it contains `..`. Refuse (skip this target) if it fails.
+3. **Do NOT regex-validate `source.path` against a character allowlist.** A git tree path can legally contain almost any byte (only NUL is forbidden), so a character denylist/allowlist here would either miss bytes or reject legitimate files. Step 2 below never interpolates `source.path` into a Bash command — it is passed only as a direct Glob/Read tool parameter after a clone. That alone does not bound it to the clone directory, though: unlike a real git tree path (which git itself refuses to let contain a bare `..` component), `source.path` here is raw frontmatter text a crafted overlay can set to anything, including `../../../../etc/passwd` — Step 2's final sub-step adds an explicit containment check before Glob/Read ever touch it.
+
+A target that fails check 1 or 2 is skipped for the rest of this run — report it in Step 6 as `SKIPPED — invalid source metadata` (matching the existing `UPSTREAM MISSING` handling style) and do not construct any `/tmp/ievo-update-*-<name>*` path or Bash command for it.
+
 ### 2. Fetch fresh upstream content (staged, not yet applied)
 
-For each target with `source:` metadata, fetch into a staging path — do NOT overwrite the local copy yet. Step 2.5 needs both the old and new content to decide whether a re-audit is required.
+For each target that passed Step 1's validation, fetch into a staging path — do NOT overwrite the local copy yet. Step 2.5 needs both the old and new content to decide whether a re-audit is required.
 
-**Agent:**
-```bash
-gh api repos/<source.repo>/contents/<source.path> --jq '.content' | base64 -d > /tmp/ievo-update-staged-<name>.md
-```
+**Never build a `gh api repos/<source.repo>/contents/<source.path>` Bash command line from these values.** `source.path` is a git tree path and can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes) — interpolating it into a command string lets the shell resolve those before the intended command runs, even when quoted. Fetch this way instead — no untrusted byte ever crosses a shell:
 
-**Skill:**
-Fetch the SKILL.md + supporting files (scripts/, references/, assets/) under the skill's source directory into a staging tree, e.g. `/tmp/ievo-update-staged-<name>/`.
+1. **Resolve and validate the ref, then the commit.** `gh api "repos/<source.repo>" --jq '.default_branch'` — the returned branch name can legally contain shell metacharacters, so validate it against the same ref allowlist `inspect/SKILL.md` Step 1 uses (`^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`) before any further use. Refuse and report `UPSTREAM MISSING` for this target if it fails. Only then call `gh api "repos/<source.repo>/commits/<default-branch>" --jq '.sha'` and validate the result matches `^[0-9a-f]{7,40}$` — this becomes the new `commit_sha` recorded in Step 4.
+2. **Shallow-clone into a fresh, per-target `mktemp -d` directory** — never a shared checkout path:
+   ```bash
+   CHECKOUT_DIR=$(mktemp -d)
+   git clone --depth 1 "https://github.com/<source.repo>.git" "$CHECKOUT_DIR"
+   git -C "$CHECKOUT_DIR" fetch --depth 1 origin <new-commit-sha>
+   git -C "$CHECKOUT_DIR" checkout <new-commit-sha>
+   ```
+3. **Verify `source.path` stays inside the clone before Glob/Read ever touch it.** `source.path` is raw frontmatter text, not a path obtained by walking the cloned tree — a crafted overlay can set it to `../../../../etc/passwd` or similar. Resolve `$CHECKOUT_DIR/<source.path>` to its canonical form and confirm the result is `$CHECKOUT_DIR` itself or a descendant of it. Do this as a plain path check on the string already in hand from Step 1 — never by writing `<source.path>` into a Bash command line to test it, which would reopen the same CWE-78 this fix closes (it is still unvalidated for shell metacharacters). If containment fails, refuse the target — report `SKIPPED — invalid source metadata` in Step 6, same as a Step 1 validation failure.
+4. **Agent** (`source.path` is the single agent `.md` file, not a directory — Glob-enumerating a file path returns nothing): Read the now-verified `$CHECKOUT_DIR/<source.path>` directly with the **Read tool**, then Write its content to `/tmp/ievo-update-staged-<name>.md` with the **Write tool**.
+5. **Skill** (`source.path` is the skill's directory): enumerate the now-verified `$CHECKOUT_DIR/<source.path>` with the **Glob tool** (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source.path>"` — never a Bash `find`/`ls`), then Read each listed file and Write it to the matching relative location under `/tmp/ievo-update-staged-<name>/`.
+6. Remove the checkout dir once staging is complete: `rm -rf "$CHECKOUT_DIR"` (safe — this path is `mktemp`-generated, never attacker-controlled).
 
-If `gh api` returns 404 (upstream renamed/removed), stop for this target — see Step 6's `UPSTREAM MISSING` report line. Do not touch the local copy. Clean up any partial staged content per Step 3.5 before moving to the next target.
+Glob and Read/Write all take paths as direct parameters, never shell text, so neither a malicious `source.path` nor a malicious file name inside it can reach a shell — and the containment check in sub-step 3 keeps a `../`-laden `source.path` from resolving outside `$CHECKOUT_DIR` in the first place.
+
+If the ref/commit resolution fails, the containment check in sub-step 3 fails, or the Read/Glob sub-step finds nothing at `source.path` in the cloned tree (upstream renamed/removed), stop for this target. A containment failure is a crafted/invalid target, not a missing upstream — report it as `SKIPPED — invalid source metadata` (Step 6), same as a Step 1 validation failure; the other two cases report `UPSTREAM MISSING`. Either way: do not touch the local copy. Remove `$CHECKOUT_DIR` (if it was created) with `rm -rf "$CHECKOUT_DIR"` right here — Step 3.5 only covers the `/tmp/ievo-update-staged-<name>*`/`localcopy` paths, not this fetch's own checkout dir, so do not defer its cleanup. Clean up any partial staged content per Step 3.5 before moving to the next target. Do NOT fall back to per-file `gh api` fetching — that reintroduces the injection this replaces.
 
 ### 2.5. Re-audit content that changed since the last audit
 
 Diff the staged fetch against the current local copy (`.claude/agents/<name>.md`, or the whole `.claude/skills/<name>/` tree for a skill) — but never compare the raw local file directly. The local copy carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker block (injected by Step 3 below, or by `/ievo:init` Step 9 at first vendor); the staged upstream fetch never does. Diffing them raw would show a "difference" on effectively every run even when the underlying upstream content is byte-identical, defeating the point of this fast path.
+
+The `cp`/`sed` commands below interpolate `<name>` into their command lines — this is safe only because Step 1 already validated `<name>` against `^[A-Za-z0-9_-]+$` for every target reaching this step; a target that failed that check never gets here.
 
 Instead:
 1. Copy the local target to a scratch path — never mutate the actual local file just to run this comparison:
@@ -154,13 +174,14 @@ For each target, output one line:
 - `<scope>/<name>: refreshed → <new_sha> (was <old_sha>) [re-audited: <YELLOW|RED>, applied despite flags]` — user chose "Apply anyway" in Step 2.5
 - `<scope>/<name>: SKIPPED — flagged <YELLOW|RED> on re-audit, refresh declined` — local copy and `source.commit_sha` left untouched
 - `<scope>/<name>: SKIPPED — flagged <YELLOW|RED>, no interactive session to confirm` — auto-skipped because `AskUserQuestion` had no one to answer it (e.g. an unattended `/ievo:schedule` run); local copy and `source.commit_sha` left untouched, same as an explicit decline
-- `<scope>/<name>: UPSTREAM MISSING — overlay preserved, please review` if `gh api` returned 404
+- `<scope>/<name>: UPSTREAM MISSING — overlay preserved, please review` if the repo/branch/commit resolution 404'd, or `source.path` was not found in the cloned tree
 - `<scope>/<name>: SKIPPED — no source metadata (local-only)` for local targets
+- `<scope>/<name>: SKIPPED — invalid source metadata` if Step 1's `<name>`/`source.repo` validation failed, or Step 2's `source.path` containment check failed
 
 Final summary:
 - Refreshed: N agents, M skills
 - Re-audited (content changed since last audit): J targets
-- Flagged for review: K targets (upstream missing, or refresh declined — explicitly or auto-skipped for lack of an interactive session — after a YELLOW/RED re-audit)
+- Flagged for review: K targets (upstream missing, invalid source metadata, or refresh declined — explicitly or auto-skipped for lack of an interactive session — after a YELLOW/RED re-audit)
 
 Remind user:
 ```
@@ -176,6 +197,8 @@ Run git diff .claude/ .ievo/evolution/ to review changes before commit.
 - **Diff after stripping the marker, not before.** The local copy always carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker; the staged upstream fetch never does. Step 2.5 compares a marker-stripped scratch copy of the local file against the staged fetch — comparing raw would make the "identical" fast path never trigger.
 - **No blocking on unattended runs.** If `AskUserQuestion` has no interactive session to answer it (e.g. an `/ievo:schedule` Routine), Step 2.5 auto-skips the target instead of hanging — never blocks a scheduled run indefinitely.
 - **Clean up staged content for every outcome.** Step 3.5 removes each target's `/tmp/ievo-update-staged-<name>*` and scratch-copy paths once its outcome is decided — applied, declined, or 404. Flagged-risky content should not linger under `/tmp`.
-- **Flag missing upstream loudly.** If `gh api` returns 404 (upstream renamed/removed), don't silently drop the target. Surface for user decision.
+- **Flag missing upstream loudly.** If repo/branch/commit resolution 404s, or `source.path` isn't found in the cloned tree (upstream renamed/removed), don't silently drop the target. Surface for user decision.
 - **No automatic commit.** Update only writes files. User reviews + commits.
 - **Order matters for symlinked content.** If a skill has `scripts/` with executable files, restore permissions after fetch (`chmod +x` on `.sh`/`.py` known patterns).
+- **Validate `<name>` and `source.repo` before any Bash use; never interpolate `source.path` into a Bash/`gh api` command at all.** Step 1 validates `<name>` (from the overlay filename) against `^[A-Za-z0-9_-]+$` and `source.repo` against `scan_repo.mjs`'s `OWNER_REPO_RE` before a target is allowed to reach Step 2/2.5/3.5 — every `cp`/`sed`/`rm` command line built later in those steps depends on that gate having already run. `source.path` is different: a git tree path can legally contain shell metacharacters, so no regex is safe to interpolate it through — Step 2 fetches it exclusively via clone + the Glob/Read tools (direct parameters, never a command string), same pattern as `evo/SKILL.md`, `evolution.md`, and `install-protocol.md`'s own vendor fetches.
+- **`source.path` containment, not just shell-safety.** Unlike `<source-path-in-repo>` in the sibling fetches (derived by walking a real cloned tree, which git itself never lets contain a bare `..` component), `update.md`'s `source.path` is raw overlay frontmatter an attacker can set to anything. Step 2 sub-step 3 resolves `$CHECKOUT_DIR/<source.path>` and confirms it stays inside `$CHECKOUT_DIR` before Glob/Read ever use it — a `../`-laden value must be refused, not merely passed through as "safe because it's a tool parameter".

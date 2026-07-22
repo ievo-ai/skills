@@ -26,8 +26,9 @@
 import { lstatSync, readFileSync } from "node:fs";
 
 export class SymlinkRejectedError extends Error {
-  constructor(path) {
-    super(`refusing to read '${path}': path is a symlink, not a regular file`);
+  constructor(path, st) {
+    const reason = st.isSymbolicLink() ? "a symlink" : "not a regular file";
+    super(`refusing to read '${path}': path is ${reason}`);
     this.name = "SymlinkRejectedError";
     this.code = "ESYMLINK";
   }
@@ -36,7 +37,7 @@ export class SymlinkRejectedError extends Error {
 export function safeReadFileSync(path, options) {
   const st = lstatSync(path);
   if (!st.isFile()) {
-    throw new SymlinkRejectedError(path);
+    throw new SymlinkRejectedError(path, st);
   }
   return readFileSync(path, options);
 }

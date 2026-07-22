@@ -69,6 +69,21 @@ describe("safeReadFileSync", () => {
       assert.match(err.message, /link2\.txt/);
     }
   });
+
+  it("rejects a directory with an accurate (non-symlink) message", () => {
+    const dir = resolve(TMP, "a-directory");
+    mkdirSync(dir, { recursive: true });
+    try {
+      safeReadFileSync(dir, "utf-8");
+      assert.fail("expected safeReadFileSync to throw");
+    } catch (err) {
+      assert.ok(err instanceof SymlinkRejectedError);
+      assert.equal(err.code, "ESYMLINK");
+      // A directory is not a symlink — the message must not misreport it as one.
+      assert.match(err.message, /not a regular file/);
+      assert.doesNotMatch(err.message, /is a symlink/);
+    }
+  });
 });
 
 // ── CLI regression: each validator refuses a symlinked argument ──────────

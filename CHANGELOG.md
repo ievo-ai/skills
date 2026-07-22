@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.1
+
+Port `security-auditor.md`'s excerpt-containment rule to the `/ievo:vuln-scan` pipeline (`vuln-scanner.md` + `vuln-scan.md`) — closes #402.
+
+- **Gap closed** — `security-auditor.md` (closed #350) requires any verbatim source excerpt written into `report_template.body` to be wrapped in a backtick code span before it's filed as a public, auto-rendering GitHub issue, since a crafted `![...](...)`/`[...](...)` in the untrusted candidate content could otherwise render as a live exfiltration beacon or spoofed link. `vuln-scanner.md`/`vuln-scan.md` had no equivalent rule, even though `vuln-scanner` findings quote scanned source verbatim into `title`, `exploit_chain.*`, and `recommendation`, and `vuln-scan.md`'s Phase 4 "Present results" renders every finding field directly as Markdown — including in the Claude Code chat UI, which renders Markdown — with no escaping step anywhere in the pipeline.
+- **Fix** — `vuln-scanner.md` gets the same "Excerpt containment" rule (scoped to `title`/`exploit_chain.*`/`recommendation`, verbatim quoted source only — not blanket-wrapping prose recommendations or bare identifiers) plus a matching `## Rules` bullet next to "Cite specifically". `vuln-scan.md`'s Phase 4 gets a new note instructing it to print these fields exactly as received from the scanner — never stripping or re-rendering the backtick wrapping before display.
+- **Scope** — confined to `plugins/ievo/agents/vuln-scanner.md` and `plugins/ievo/commands/vuln-scan.md` prose; no script or schema changes, no new tests needed (agent/command `.md` files aren't under the 100% Node-coverage gate).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` is unchanged — no scanner output-format change here.
+
+---
+
 ## v0.54.0
 
 Add `consolidate/SKILL.md` entry-cluster mode Option E5 ("consolidate in place") so a cluster folded back into its own overlay deletes its source entries instead of leaving redirect stubs — closes #385.

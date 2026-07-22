@@ -32,9 +32,9 @@
 //
 // Lives outside plugins/ievo/scripts/ — the 100% rule does not apply here.
 
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { safeReadFileSync } from "./_safe-read.mjs";
 
 // Returns null if the buffer is valid UTF-8; otherwise the TextDecoder
 // error message. `fatal: true` makes the decoder throw on the first
@@ -60,7 +60,7 @@ export function main(argv) {
   for (const path of files) {
     let buf;
     try {
-      buf = readFileSync(path);
+      buf = safeReadFileSync(path);
     } catch (err) {
       console.error(`${path}: cannot read (${err.message})`);
       totalErrors++;

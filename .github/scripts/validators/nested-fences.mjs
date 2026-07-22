@@ -22,9 +22,9 @@
 // Lives outside plugins/ievo/scripts/ — the 100% rule doesn't apply here.
 // Exercised on real data by pre-commit + .github/workflows/pre-commit-gate.yml.
 
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { safeReadFileSync } from "./_safe-read.mjs";
 
 const FENCE_RE = /^(`{3,})(.*)$/;
 
@@ -79,7 +79,7 @@ function main(argv) {
   for (const path of files) {
     let text;
     try {
-      text = readFileSync(path, "utf-8");
+      text = safeReadFileSync(path, "utf-8");
     } catch (err) {
       console.error(`${path}: cannot read (${err.message})`);
       totalErrors++;

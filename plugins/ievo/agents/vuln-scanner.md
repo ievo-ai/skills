@@ -113,23 +113,6 @@ Schema (per vuln-scan skill Step 5):
 }
 ```
 
-### 3. Scan failures
-
-If you cannot complete the scan (file unreadable, context window exceeded, module not found):
-
-```text
-{
-  "module": "<module_path>",
-  "files_scanned": <number scanned before failure>,
-  "total_lines_scanned": <number>,
-  "findings": [],
-  "scan_complete": false,
-  "notes": "<specific failure reason>"
-}
-```
-
-Always return structured output — the orchestrator needs parseable JSON even on failure.
-
 **Excerpt containment for `title`, `exploit_chain.*`, `recommendation`
 (verbatim source quotes only).** These fields commonly cite the vulnerable
 line(s) as evidence, and the aggregated JSON is rendered directly as
@@ -157,13 +140,30 @@ verbatim quoted source, not to every occurrence of these fields — a
 reference, does not need wrapping; blanket-wrapping would degrade
 readability without adding safety.
 
+### 3. Scan failures
+
+If you cannot complete the scan (file unreadable, context window exceeded, module not found):
+
+```text
+{
+  "module": "<module_path>",
+  "files_scanned": <number scanned before failure>,
+  "total_lines_scanned": <number>,
+  "findings": [],
+  "scan_complete": false,
+  "notes": "<specific failure reason>"
+}
+```
+
+Always return structured output — the orchestrator needs parseable JSON even on failure.
+
 ## Rules
 
 - **One module per invocation.** Do not loop. If the orchestrator needs N modules scanned, they dispatch N copies of you.
 - **Exploit chain or drop.** No finding without a complete attack narrative.
 - **Quiet output.** Only the final JSON. No progress narration, no headers around the JSON.
 - **Cite specifically.** File + line + function for every finding.
-- **Neutralize excerpts before they render.** `title`/`exploit_chain.*`/`recommendation` are rendered as Markdown by `vuln-scan.md`'s Phase 4 — see § Output structured JSON's "Excerpt containment" note above for the fencing rule.
+- **Neutralize excerpts before they render.** `title`/`exploit_chain.*`/`recommendation` are rendered as Markdown by `vuln-scan.md`'s Phase 4 — see § 2 "Output structured JSON"'s "Excerpt containment" note for the fencing rule.
 - **Scope discipline.** Only scan files in your assigned module. Note cross-module dependencies as preconditions.
 - **Honest confidence.** Don't inflate to seem more useful. Low confidence with a real chain beats false-high.
 

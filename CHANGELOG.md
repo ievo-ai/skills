@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.3
+
+Close a CWE-78 gap in `/ievo:update`'s vendor-refresh path — validate the overlay-derived `<name>`/`source.repo` before any Bash use and replace the Step 2 `gh api`/`base64` content fetch with the established clone+Glob/Read+Write protocol — closes #362.
+
+- **Gap closed** — `update.md` Step 2 built a `gh api repos/<source.repo>/contents/<source.path> --jq '.content' | base64 -d` command line, and Step 2.5/3.5 built `cp`/`sed`/`rm` command lines, all interpolating `<name>` (the overlay filename), `source.repo`, and `source.path` — three fields read straight from `.ievo/evolution/<scope>/<name>.md`, a file inside the project's own git tree that a malicious/compromised PR (or the separate vendoring gap tracked in #357) can control. None of the three was validated before reaching a Bash/`gh api` command string, so a crafted overlay filename or `source:` frontmatter value achieved command injection the next time `/ievo:update` ran.
+- **Fix** — Step 1 now validates `<name>` against `^[A-Za-z0-9_-]+$` and `source.repo` against `scan_repo.mjs`'s own `OWNER_REPO_RE` before a target is allowed past inventory; a target that fails either check is skipped and reported as `SKIPPED — invalid source metadata`, matching the existing `UPSTREAM MISSING` handling style. `source.path` is a git tree path and can legally contain almost any byte, so — following the same reasoning already applied to `evo/SKILL.md`, `evolution.md`, and `install-protocol.md`'s vendor fetches (#347/#348/#355/#366/#380) — it is never regex-validated or interpolated into a command string at all: Step 2 now resolves+validates the upstream default branch and commit sha, shallow-clones into a fresh `mktemp -d` checkout, then fetches the agent file via the Read tool or enumerates a skill directory via the Glob tool, writing staged content with the Write tool. Step 2.5's `cp`/`sed` and Step 3.5's `rm` keep their existing shape but now depend on — and document that they depend on — the Step 1 validation gate, since `<name>` is safe to interpolate once constrained to that charset.
+- **Scope** — confined to `plugins/ievo/commands/update.md` prose; no script or schema changes, no new tests needed (command `.md` files aren't under the 100% Node-coverage gate).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` is unchanged — no scanner output-format change here.
+
+---
+
 ## v0.54.2
 
 Replace `security-auditor.md`'s bypassable — and, on current Claude Code, empirically Bash-stripping — `Bash(prefix*)` denylist with documented bare-name denies plus a closed six-template Bash command allowlist in the agent body — closes #400.

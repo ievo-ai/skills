@@ -18,7 +18,7 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync, utimesSync, chmodSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, utimesSync, chmodSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, dirname, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -32,6 +32,7 @@ import {
   OWNER_REPO_RE,
   isValidOwnerRepo,
   assertContained,
+  assertCheckoutContained,
   truncate,
   escapeMdCell,
   isoNow,
@@ -310,6 +311,35 @@ describe("assertContained", () => {
 });
 
 // ---------------------------------------------------------------------------
+// assertCheckoutContained — realpath-based containment (#363 defense-in-depth)
+// ---------------------------------------------------------------------------
+
+describe("assertCheckoutContained", () => {
+  const tmp = join(tmpdir(), `scan-repo-checkout-contained-${Date.now()}`);
+  const checkoutDir = join(tmp, "checkouts");
+  const outsideDir = join(tmp, "outside");
+  mkdirSync(checkoutDir, { recursive: true });
+  mkdirSync(outsideDir, { recursive: true });
+
+  it("does not throw for a genuine directory inside checkoutDir", () => {
+    const target = join(checkoutDir, "owner-repo");
+    mkdirSync(target, { recursive: true });
+    assert.doesNotThrow(() => assertCheckoutContained(target, checkoutDir));
+  });
+
+  it("throws when the checkout path is a symlink whose real path escapes checkoutDir", () => {
+    const escapee = join(checkoutDir, "owner-evil");
+    symlinkSync(outsideDir, escapee, "dir");
+    assert.throws(
+      () => assertCheckoutContained(escapee, checkoutDir),
+      /refusing to write outside/,
+    );
+  });
+
+  after(() => rmSync(tmp, { recursive: true, force: true }));
+});
+
+// ---------------------------------------------------------------------------
 // parseFrontmatter (impure — reads files)
 // ---------------------------------------------------------------------------
 
@@ -444,6 +474,30 @@ describe("isDir / fileExists", () => {
     assert.equal(fileExists(join(tmp, "nope")), false);
   });
 
+  // CWE-59 (#363): statSync follows a symlink to its target's stats; lstatSync
+  // reports the symlink's own type instead. A committed symlink pointing at a
+  // real directory/file elsewhere must NOT be treated as that directory/file.
+  it("isDir: false for a symlink to a real directory (does not follow it)", () => {
+    const link = join(tmp, "dir-symlink");
+    symlinkSync(join(tmp, "adir"), link, "dir");
+    assert.equal(isDir(link), false);
+  });
+  it("fileExists: false for a symlink to a real file (does not follow it)", () => {
+    const link = join(tmp, "file-symlink");
+    symlinkSync(join(tmp, "afile"), link, "file");
+    assert.equal(fileExists(link), false);
+  });
+  it("isDir: false for a dangling symlink (target does not exist)", () => {
+    const link = join(tmp, "dangling-symlink");
+    symlinkSync(join(tmp, "does-not-exist"), link, "file");
+    assert.equal(isDir(link), false);
+  });
+  it("fileExists: false for a dangling symlink (target does not exist)", () => {
+    const link = join(tmp, "dangling-symlink-2");
+    symlinkSync(join(tmp, "does-not-exist"), link, "file");
+    assert.equal(fileExists(link), false);
+  });
+
   after(() => rmSync(tmp, { recursive: true, force: true }));
 });
 
@@ -477,8 +531,17 @@ describe("isOversized", () => {
     assert.equal(isOversized(f, 50), true);
     assert.equal(isOversized(f, 200), false);
   });
-  it("false when statSync throws (e.g. non-existent path)", () => {
+  it("false when lstatSync throws (e.g. non-existent path)", () => {
     assert.equal(isOversized(join(tmp, "nope.txt")), false);
+  });
+  // CWE-59 (#363): lstatSync reports the symlink's OWN (tiny) size, never
+  // following through to a huge target file's size.
+  it("false for a symlink pointing at a file that exceeds the cap (does not follow it)", () => {
+    const huge = join(tmp, "huge-target.txt");
+    writeFileSync(huge, "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
+    const link = join(tmp, "huge-symlink.txt");
+    symlinkSync(huge, link, "file");
+    assert.equal(isOversized(link), false);
   });
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -1280,6 +1343,122 @@ describe("enumerateStandaloneAgents / Skills / Commands", () => {
 });
 
 // ---------------------------------------------------------------------------
+// symlink guard (CWE-59, #363) — end-to-end exploit-chain regression.
+//
+// Reproduces the issue's exact scenario: a scanned repo commits a directory
+// or file as a symlink pointing at a "victim" location (here, a sibling tmp
+// dir standing in for a sibling checkout / arbitrary host path) that holds
+// real, readable content. Before the fix, isDir/fileExists's statSync would
+// follow the symlink and the victim's content would be enumerated and
+// published as if it belonged to the scanned repo. Every assertion below
+// checks the victim's content is NOT surfaced.
+// ---------------------------------------------------------------------------
+
+describe("symlink guard (CWE-59, #363)", () => {
+  const root = join(tmpdir(), `scan-repo-symlink-${Date.now()}`);
+  const victim = join(tmpdir(), `scan-repo-symlink-victim-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  mkdirSync(victim, { recursive: true });
+
+  // Victim content that must never surface through a symlinked entry point.
+  mkdirSync(join(victim, "agents"), { recursive: true });
+  writeFileSync(
+    join(victim, "agents", "secret.md"),
+    "---\nname: victim-agent\ndescription: leaked from a sibling checkout\n---\nbody\n",
+    "utf-8",
+  );
+  writeFileSync(join(victim, "SKILL.md"), "---\nname: victim-skill\n---\nbody\n", "utf-8");
+  writeFileSync(join(victim, "plugin.json"), JSON.stringify({ name: "victim", version: "9.9.9" }), "utf-8");
+  writeFileSync(join(victim, "hooks.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*" }] } }), "utf-8");
+  writeFileSync(join(victim, ".mcp.json"), JSON.stringify({ mcpServers: { evil: { url: "http://evil" } } }), "utf-8");
+
+  it("enumerateStandaloneAgents does not follow a symlinked agents/ dir", () => {
+    symlinkSync(join(victim, "agents"), join(root, "agents"), "dir");
+    assert.deepEqual(enumerateStandaloneAgents(root), []);
+  });
+
+  it("enumeratePlugins does not follow a symlinked plugins/<name> entry itself", () => {
+    const r5 = join(tmpdir(), `scan-repo-symlink-plugins-dir-${Date.now()}`);
+    mkdirSync(join(r5, "plugins"), { recursive: true });
+    symlinkSync(victim, join(r5, "plugins", "evil"), "dir");
+    assert.deepEqual(enumeratePlugins(r5), []);
+    rmSync(r5, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills does not follow a symlinked skills/ dir", () => {
+    const r2 = join(tmpdir(), `scan-repo-symlink-skills-${Date.now()}`);
+    mkdirSync(r2, { recursive: true });
+    symlinkSync(victim, join(r2, "skills"), "dir");
+    assert.deepEqual(enumerateStandaloneSkills(r2), []);
+    rmSync(r2, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneCommands does not follow a symlinked commands/ dir", () => {
+    const r3 = join(tmpdir(), `scan-repo-symlink-commands-${Date.now()}`);
+    mkdirSync(r3, { recursive: true });
+    symlinkSync(join(victim, "agents"), join(r3, "commands"), "dir");
+    assert.deepEqual(enumerateStandaloneCommands(r3), []);
+    rmSync(r3, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneAgents does not follow a single symlinked .md file inside a real agents/ dir", () => {
+    const r4 = join(tmpdir(), `scan-repo-symlink-onefile-${Date.now()}`);
+    mkdirSync(join(r4, "agents"), { recursive: true });
+    symlinkSync(join(victim, "agents", "secret.md"), join(r4, "agents", "planted.md"), "file");
+    // The symlinked file fails fileExists (lstat-based), so parseFrontmatter
+    // short-circuits to {} — the entry is still listed (dir listing is
+    // trustworthy) but with none of the victim's frontmatter fields.
+    const r = enumerateStandaloneAgents(r4);
+    assert.equal(r.length, 1);
+    assert.equal(r[0].name, "planted"); // falls back to filename, not "victim-agent"
+    assert.notEqual(r[0].description, "leaked from a sibling checkout");
+    rmSync(r4, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin does not follow a symlinked plugins/<x>/agents dir (the issue's own named example)", () => {
+    const p = join(tmpdir(), `scan-repo-symlink-plugin-${Date.now()}`);
+    mkdirSync(p, { recursive: true });
+    symlinkSync(join(victim, "agents"), join(p, "agents"), "dir");
+    const r = enumerateOnePlugin(p);
+    assert.deepEqual(r.agents, []);
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin does not follow a symlinked plugin.json manifest", () => {
+    const p = join(tmpdir(), `scan-repo-symlink-manifest-${Date.now()}`);
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    symlinkSync(join(victim, "plugin.json"), join(p, ".claude-plugin", "plugin.json"), "file");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.version, "unset"); // not victim's "9.9.9"
+    assert.equal(r.author, "—");
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateHooks does not follow a symlinked hooks.json", () => {
+    const p = join(tmpdir(), `scan-repo-symlink-hooks-${Date.now()}`);
+    mkdirSync(join(p, "hooks"), { recursive: true });
+    symlinkSync(join(victim, "hooks.json"), join(p, "hooks", "hooks.json"), "file");
+    const r = enumerateHooks(join(p, "hooks", "hooks.json"));
+    assert.deepEqual(r, { present: false, events: [], entries: [] });
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateMcp does not follow a symlinked .mcp.json", () => {
+    const p = join(tmpdir(), `scan-repo-symlink-mcp-${Date.now()}`);
+    mkdirSync(p, { recursive: true });
+    symlinkSync(join(victim, ".mcp.json"), join(p, ".mcp.json"), "file");
+    const r = enumerateMcp(join(p, ".mcp.json"));
+    assert.deepEqual(r, { present: false, servers: [] });
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(victim, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // renderIndexMd — exercise the full template against a realistic data shape
 // ---------------------------------------------------------------------------
 
@@ -1549,6 +1728,28 @@ describe("main (end-to-end)", () => {
     );
     assert.equal(r.exitCode, 2);
     assert.match(r.errs.join("\n"), /Failed to clone owner\/missing/);
+  });
+
+  it("exits 2 when the checkout path resolves outside checkoutDir via a symlink (#363)", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-escape");
+    const coDir = join(root, "co-escape");
+    const outsideDir = join(root, "outside-escape");
+    mkdirSync(coDir, { recursive: true });
+    mkdirSync(outsideDir, { recursive: true });
+    // Pre-plant the checkout target AS a symlink escaping checkoutDir, so
+    // isDir(target)'s lstat guard reports "absent" and checkoutOrRefresh
+    // falls through to the (mocked, no-op) clone path — leaving the symlink
+    // in place on disk for assertCheckoutContained to catch afterward.
+    const target = join(coDir, checkoutCacheKey("owner/escapee"));
+    symlinkSync(outsideDir, target, "dir");
+    const fake = makeFakeExec([{ stdout: "" }]); // git clone (no-op mock)
+    main(
+      ["node", "scan_repo.mjs", "owner/escapee", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 2);
+    assert.match(r.errs.join("\n"), /Refusing to scan owner\/escapee.*refusing to write outside/s);
   });
 
   it("happy path: builds .md + .json artifacts, exits 0", () => {

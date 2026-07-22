@@ -25,7 +25,15 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +64,23 @@ export function assertContained(target, parentDir) {
   }
 }
 
+// Defense-in-depth on top of the isDir/fileExists lstat guard below: resolves
+// the checkout's REAL path (following any symlink, unlike assertContained's
+// plain resolve()) and re-verifies containment. Guards against
+// checkoutDir (~/.ievo/checkouts by default — a directory reused across
+// every other scanned repo's checkout on the same host/runner, per
+// repo-indexer.md's --checkout-dir default, per #363's own Preconditions)
+// being swapped for a symlink between checkoutOrRefresh's string-level
+// containment check and this scan actually reading from it. Both sides are
+// realpath'd before comparing — resolving only `repo` and leaving
+// `checkoutDir` as a plain resolve() would false-reject a legitimate scan
+// whenever an ANCESTOR of checkoutDir is itself a symlink (e.g. a
+// containerized home directory), since the two paths would then represent
+// different filesystem views with no attacker involved (deep-review finding).
+export function assertCheckoutContained(repo, checkoutDir) {
+  assertContained(realpathSync(repo), realpathSync(checkoutDir));
+}
+
 // ---------------------------------------------------------------------------
 // git ops
 // ---------------------------------------------------------------------------
@@ -70,9 +95,21 @@ export function run(cmd, args, { cwd = undefined, check = true, execImpl = execF
   }
 }
 
+// lstatSync (not statSync) throughout this file's isDir/fileExists/isOversized
+// trio: statSync follows a symlink to its target's stats, so a repo scanned by
+// this file could commit e.g. `agents` or `plugins/<x>/agents` as a symlink
+// pointing at a sibling checkout (predictable path — see checkoutCacheKey) or
+// an arbitrary host path, and every enumeration entry point below would
+// silently descend into and publish whatever it resolves to (CWE-59). lstat
+// reports the entry's OWN type without following its final component, so a
+// symlink is judged as neither a directory nor a regular file regardless of
+// what it points to (or whether the target even exists) — isDir/fileExists
+// correctly report "not present" for it, and every call site already treats
+// "not present" as "skip this optional entry", exactly like a genuinely
+// absent path.
 export function isDir(p) {
   try {
-    return statSync(p).isDirectory();
+    return lstatSync(p).isDirectory();
   } catch {
     return false;
   }
@@ -80,7 +117,7 @@ export function isDir(p) {
 
 export function fileExists(p) {
   try {
-    return statSync(p).isFile();
+    return lstatSync(p).isFile();
   } catch {
     return false;
   }
@@ -93,7 +130,7 @@ export const MAX_SCAN_FILE_BYTES = 256 * 1024;
 
 export function isOversized(p, capBytes = MAX_SCAN_FILE_BYTES) {
   try {
-    return statSync(p).size > capBytes;
+    return lstatSync(p).size > capBytes;
   } catch {
     return false;
   }
@@ -134,7 +171,7 @@ export function checkoutOrRefresh(ownerRepo, checkoutDir, force, execImpl = exec
     if (remoteMatches(target, url, execImpl)) {
       const headFile = join(target, ".git", "HEAD");
       if (fileExists(headFile) && !force) {
-        const age = (Date.now() - statSync(headFile).mtimeMs) / 1000;
+        const age = (Date.now() - lstatSync(headFile).mtimeMs) / 1000;
         if (age < TTL_SECONDS) return target;
       }
       try {
@@ -753,6 +790,13 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     repo = checkoutOrRefresh(args.repo, checkoutDir, args.force, execImpl);
   } catch (err) {
     errLog(`Failed to clone ${args.repo}: ${err.message}`);
+    return exit(2);
+  }
+
+  try {
+    assertCheckoutContained(repo, checkoutDir);
+  } catch (err) {
+    errLog(`Refusing to scan ${args.repo}: ${err.message}`);
     return exit(2);
   }
 

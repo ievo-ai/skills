@@ -1577,14 +1577,59 @@ describe("main (end-to-end)", () => {
       fake, r.log, r.errLog, r.exit,
     );
     assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
-    // .md + .json artifacts present
-    assert.ok(fileExists(join(outDir, "owner-target.md")));
-    assert.ok(fileExists(join(outDir, "owner-target.json")));
+    // .md + .json artifacts present, named via checkoutCacheKey's hash-suffixed
+    // safeName (#401) rather than a bare "owner-target" flattening.
+    const safeName = checkoutCacheKey("owner/target");
+    assert.ok(fileExists(join(outDir, `${safeName}.md`)));
+    assert.ok(fileExists(join(outDir, `${safeName}.json`)));
+    // manifestEntry carries an owner_repo identity field (#401) so a
+    // downstream consumer keyed by filename can verify the claimed identity.
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
+    assert.equal(manifest.owner_repo, "owner/target");
+    assert.equal(manifest.index_file, `indices/${safeName}.md`);
     // stdout summary
     const summary = r.logs.join("\n");
     assert.match(summary, /owner\/target: indexed \(commit=deadbeef\)/);
     assert.match(summary, /hooks: yes/);
     assert.match(summary, /mcp: yes/);
+  });
+
+  it("output filenames disambiguate a flattening collision (CWE-706, #401)", () => {
+    // `foo-bar/baz` and `foo/bar-baz` both flatten to the identical bare
+    // "foo-bar-baz" under the old `args.repo.replace(/\//g, "-")` scheme —
+    // scanning both into the same --output-dir would have had the second
+    // scan silently overwrite the first's published index artifacts.
+    const outDir = join(root, "out-collision");
+    const coDir = join(root, "co-collision");
+
+    function scanOne(repo) {
+      const target = join(coDir, checkoutCacheKey(repo));
+      mkdirSync(join(target, ".git"), { recursive: true });
+      writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+      const fake = makeFakeExec([
+        { stdout: `https://github.com/${repo}.git\n` }, // remote get-url origin
+        { stdout: "cafe2\n" },                     // rev-parse
+        { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+        { stdout: "main\n" },                       // symbolic-ref
+        { stdout: "\n" },                           // git log oneline → 0 commits
+      ]);
+      const r = captureRun();
+      main(["node", "scan_repo.mjs", repo, "--output-dir", outDir, "--checkout-dir", coDir], fake, r.log, r.errLog, r.exit);
+      assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    }
+
+    scanOne("foo-bar/baz");
+    scanOne("foo/bar-baz");
+
+    const nameA = `${checkoutCacheKey("foo-bar/baz")}.json`;
+    const nameB = `${checkoutCacheKey("foo/bar-baz")}.json`;
+    assert.notEqual(nameA, nameB, "colliding slugs must not share an output filename");
+    // Both artifacts survive independently — neither overwrote the other —
+    // and each still claims its own correct identity via owner_repo.
+    const manifestA = JSON.parse(readFileSync(join(outDir, nameA), "utf-8"));
+    const manifestB = JSON.parse(readFileSync(join(outDir, nameB), "utf-8"));
+    assert.equal(manifestA.owner_repo, "foo-bar/baz");
+    assert.equal(manifestB.owner_repo, "foo/bar-baz");
   });
 
   it("oversized files: manifest surfaces has_unscanned_* while has_hooks/has_mcp stay false", () => {
@@ -1618,7 +1663,8 @@ describe("main (end-to-end)", () => {
       fake, r.log, r.errLog, r.exit,
     );
     assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
-    const manifest = JSON.parse(readFileSync(join(outDir, "owner-oversized.json"), "utf-8"));
+    const safeName = checkoutCacheKey("owner/oversized");
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
     // The gap the fix closes: absent (false) vs unknown (unscanned) are distinct.
     assert.equal(manifest.has_hooks, false);
     assert.equal(manifest.has_mcp, false);
@@ -1627,7 +1673,7 @@ describe("main (end-to-end)", () => {
     assert.equal(manifest.has_unscanned_manifest, true);
     assert.equal(manifest.has_unscanned_skills, true);
     // And the rendered index says so, in words, per surface.
-    const md = readFileSync(join(outDir, "owner-oversized.md"), "utf-8");
+    const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
     assert.match(md, /Hooks total:\*\* 0 across 0 plugins — ⚠️ unknown \(not scanned, oversized\): padded/);
     assert.match(md, /plugin.json not scanned/);
   });
@@ -1848,9 +1894,10 @@ describe("nullish/ternary fallbacks", () => {
     );
     assert.equal(code, 0, `errs: ${errs.join("\n")}`);
     // The .json manifest should have license null (verifies licenseFileExists=false branch).
-    const manifest = JSON.parse(readFileSync(join(outDir, "owner-nolic.json"), "utf-8"));
+    const manifest = JSON.parse(readFileSync(join(outDir, `${checkoutCacheKey("owner/nolic")}.json`), "utf-8"));
     assert.equal(manifest.has_hooks, false);
     assert.equal(manifest.has_mcp, false);
+    assert.equal(manifest.owner_repo, "owner/nolic");
     // Summary line shows "hooks: no, mcp: no" (covers ternary false branches)
     const summary = logs.join("\n");
     assert.match(summary, /hooks: no/);

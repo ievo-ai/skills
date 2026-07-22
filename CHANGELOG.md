@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.1
+
+Make `scan_repo.mjs`'s output-file naming injective and add an `owner_repo` identity field to the persisted manifest entry — closes #401.
+
+- **Gap closed** — `main()` derived its output artifact names as `safeName = args.repo.replace(/\//g, "-")` (CWE-706), used verbatim for `mdPath`, `jsonPath`, and `manifestEntry.index_file`. Because `OWNER_REPO_RE` permits internal hyphens in both the owner and repo segments, this flattening is not injective: `foo-bar/baz` and `foo/bar-baz` both flatten to the identical `foo-bar-baz`. When the centralized indexing workflow (or `/ievo:index-repos`) scans multiple repos into the same `--output-dir`, an attacker could register a repo whose slug is chosen to collide with a trusted, already-indexed repo, and have their scan silently overwrite the victim's published `indices/<flat>.md`/`.json` community-index artifacts. The persisted `.json` carried no `owner_repo` field at all, so a downstream aggregator keyed purely by filename had no way to detect the substitution. This is the identical bug class already fixed for the checkout-cache directory in v0.51.5 (#382); that fix's own changelog explicitly noted the output-file naming was a separate, unaddressed gap.
+- **Fix** — `main()` now derives `safeName` via the existing `checkoutCacheKey(ownerRepo)` helper (added in v0.51.5) instead of the bare flattening, so `mdPath`, `jsonPath`, and `manifestEntry.index_file` are keyed on `${flat}-${sha256(ownerRepo).slice(0,12)}` — two slugs that collide on the flat prefix now get distinct output files. `manifestEntry` also gains an `owner_repo` field (mirroring the in-memory `data` object, which already carried it) so a downstream consumer keyed by filename can independently verify the entry's claimed identity.
+- **Scope** — confined to `plugins/ievo/scripts/scan_repo.mjs` and its 100%-coverage test suite, plus prose references to the old bare `<owner>-<repo>.md`/`.json` naming in `index-repos/SKILL.md`, `init/SKILL.md`, `init/references/log-format.md`, and `agents/repo-indexer.md`, updated to describe the hash-suffixed layout — same scope shape as the #382 fix. No migration for existing flat-named artifacts; they simply age out on next scan (same as the #382 precedent's checkout-dir orphaning note).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep. `scan_repo.mjs`'s own `SCRIPT_VERSION` (scanner output-format version, intentionally decoupled from `plugin.json`) bumps 1.1.2 → 1.1.3 — unlike the #382 fix, this one *does* change the persisted `.md`/`.json` artifact shape (filename + the new `owner_repo` field).
+
+---
+
 ## v0.54.0
 
 Add `consolidate/SKILL.md` entry-cluster mode Option E5 ("consolidate in place") so a cluster folded back into its own overlay deletes its source entries instead of leaving redirect stubs — closes #385.

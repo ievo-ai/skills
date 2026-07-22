@@ -95,7 +95,7 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 
 ### Per-repo expansion
 #### <owner>/<repo>
-- Index path: `.ievo/cache/index/<owner>-<repo>.md`
+- Index path: `.ievo/cache/index/<owner>-<repo>-<hash>.md`
 - Skills found: <count> — <full list>
 - Agents found: <count> — <full list>
 - Plugins found: <count> — <full list>

@@ -36,7 +36,7 @@ The script handles ALL the work internally:
 - Shallow clone or refresh checkout (7-day TTL)
 - Detect layout, enumerate plugins/agents/skills/commands/hooks/MCP
 - Parse frontmatter, emit structural facts (counts, hook presence, broad-bash flags). NO risk_tier in v0.5.2+ — risk verdicts come from security-auditor (LLM antivirus deep scan) per item before install, not from this index.
-- Render `<owner>-<repo>.md` + `<owner>-<repo>.json` into `--output-dir`
+- Render `<owner>-<repo>-<hash>.md` + `<owner>-<repo>-<hash>.json` into `--output-dir`
 - Print one-line summary to stdout
 
 ### 2. Capture stdout and return as final response

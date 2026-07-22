@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.4
+
+Close a CWE-59 symlink-following gap in `scan_repo.mjs`'s enumeration helpers so a scanned repo can't leak a sibling checkout's (or arbitrary host path's) content into the public community index — closes #363.
+
+- **Gap closed** — `isDir`/`fileExists` (and the CWE-400 size guard `isOversized`) used `statSync`, which follows symlinks to their target's stats. A repo committing e.g. `agents`, `skills`, or `plugins/<x>/agents` as a symlink pointing at a sibling checkout (a predictable path — checkouts live under one shared, TTL-cached parent directory) or an arbitrary host path would have that target's content silently enumerated and published into the requesting repo's index entry — a cross-checkout/cross-tenant information-disclosure channel with a public sink.
+- **Fix** — every `statSync` call site in the file (`isDir`/`fileExists`/`isOversized`, plus `checkoutOrRefresh`'s incidental cache-freshness read of `.git/HEAD`'s mtime) now uses `lstatSync`, which reports an entry's own type without following its final path component, so a symlink is judged as neither a directory nor a regular file regardless of where it points (or whether the target even exists); every call site already treats "not present" as "skip this optional entry", so a planted symlink now reads exactly like a genuinely absent path instead of being followed. A new `assertCheckoutContained` helper adds defense-in-depth: after `checkoutOrRefresh` returns, `main()` resolves the checkout's real path (`realpathSync`) and re-verifies containment against `checkoutDir`'s own realpath (both sides resolved, so an ancestor symlink can't produce a false mismatch) via the existing `assertContained` helper, guarding the shared, TTL-cached checkout parent directory against being swapped for a symlink between the string-level containment check and this scan actually reading from it.
+- **Tests** — new symlink-specific cases for `isDir`/`fileExists`/`isOversized` plus a dedicated end-to-end regression suite reproducing the issue's exact exploit chain: a "victim" fixture with real agent/skill/hook/MCP/manifest content, and every enumeration entry point (`enumerateStandaloneAgents/Skills/Commands`, `enumerateOnePlugin`, `enumerateHooks`, `enumerateMcp`) verified to NOT surface it when the entry point is a symlink into that fixture — including the issue's own named `plugins/<x>/agents` example and a single symlinked file inside an otherwise-real directory. `assertCheckoutContained` and `main()`'s new escape path get dedicated pass/throw coverage too.
+- **Scope** — confined to `plugins/ievo/scripts/scan_repo.mjs` and its test file; no output-format change, so `scan_repo.mjs`'s own scanner-format `SCRIPT_VERSION` (1.1.2) is unchanged.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.3
 
 Close a CWE-78 gap in `/ievo:update`'s vendor-refresh path — validate the overlay-derived `<name>`/`source.repo` before any Bash use and replace the Step 2 `gh api`/`base64` content fetch with the established clone+Glob/Read+Write protocol — closes #362.

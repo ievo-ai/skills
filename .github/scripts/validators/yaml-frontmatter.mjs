@@ -23,9 +23,9 @@
 //
 // Lives outside plugins/ievo/scripts/ — the 100% rule does not apply here.
 
-import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { safeReadFileSync } from "./_safe-read.mjs";
 
 export const DESCRIPTION_MAX_LENGTH = 1024;
 
@@ -167,7 +167,7 @@ export function main(argv) {
   for (const filePath of files) {
     let text;
     try {
-      text = readFileSync(filePath, "utf-8");
+      text = safeReadFileSync(filePath, "utf-8");
     } catch (err) {
       console.error(`${filePath}: cannot read (${err.message})`);
       totalErrors++;

@@ -22,9 +22,9 @@
 //
 // Lives outside plugins/ievo/scripts/ — the 100% rule doesn't apply here.
 
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { safeReadFileSync } from "./_safe-read.mjs";
 
 // Split text into { content, ending } records. Recognises three line endings
 // distinctly: "CRLF" (\r\n), "CR" (bare \r, legacy Mac OS), "LF" (\n). The
@@ -94,7 +94,7 @@ function main(argv) {
   for (const path of files) {
     let text;
     try {
-      text = readFileSync(path, "utf-8");
+      text = safeReadFileSync(path, "utf-8");
     } catch (err) {
       console.error(`${path}: cannot read (${err.message})`);
       totalErrors++;

@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.12
+
+Stop `scan_repo.mjs` from hardcoding `license: "MIT"` for any repo that merely has a LICENSE file, regardless of its actual content — closes #413.
+
+- **Gap closed** — `licenseFileExists` (a pure file-presence check across `LICENSE`/`LICENSE.md`/`LICENSE.txt`) fed directly into `license: licenseFileExists ? "MIT" : null` — the file's content was never read, so a GPL, proprietary, or any other non-MIT LICENSE file was misreported as MIT in the generated `.md` index. This flows straight into the public community index consumed by anyone deciding whether it's safe to install, fork, or redistribute a scanned skill/agent/plugin, and directly contradicted AGENTS.md's own "structural facts only" security model (CWE-345).
+- **Fix** — report the honest, content-unverified structural fact instead of a specific (and potentially false) SPDX identifier: `license-file-present (unverified)` when a LICENSE file exists, `null` when none does. No SPDX text-matching heuristics added — deliberately out of scope per the accepted recommendation, since content-based detection carries its own false-positive risk and this repo's security model prefers structural facts over guesses.
+- **Tests** — added a `main()` end-to-end case asserting a LICENSE file whose content is literally the string `"MIT"` still renders the honest fallback (not `"MIT"` itself, proving content is genuinely never read), plus a case with an actual GPL-3 LICENSE file proving it never surfaces as any specific SPDX identifier. Coverage gate stays 100/100/100 on `scan_repo.mjs`.
+- **Scope** — confined to `plugins/ievo/scripts/scan_repo.mjs` and its test file. `scan_repo.mjs`'s own scanner-format `SCRIPT_VERSION` bumps `1.1.4` → `1.1.5` since this changes the generated `.md` output content, mirroring the v0.51.1/v0.51.2 precedent.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.11
 
 Coerce non-string truthy JSON fields to a string in `scan_repo.mjs`'s `truncate()` instead of throwing an uncaught `TypeError` — closes #412.

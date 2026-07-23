@@ -38,7 +38,7 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SCRIPT_VERSION = "1.1.4";
+export const SCRIPT_VERSION = "1.1.5";
 export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
@@ -825,6 +825,12 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
   const standaloneSkills = enumerateStandaloneSkills(repo);
   const standaloneCommands = enumerateStandaloneCommands(repo);
 
+  // CWE-345: a LICENSE/LICENSE.md/LICENSE.txt file's *content* is never read
+  // here — only its presence is checked — so its actual terms (GPL,
+  // proprietary, anything non-MIT) are unknown. Reporting a specific SPDX
+  // identifier off mere file presence would be a fabricated, potentially
+  // false claim published straight into the public community index. Report
+  // the honest, content-unverified structural fact instead.
   const licenseFileExists = ["LICENSE", "LICENSE.md", "LICENSE.txt"].some((f) => fileExists(join(repo, f)));
   const hasHooks = plugins.some((p) => p.hooks?.present);
   const hasMcp = plugins.some((p) => p.mcp?.present);
@@ -837,7 +843,7 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     layout,
     last_commit_date: lastCommit,
     recent_commits: { count: recentCount, from: thirtyDaysAgo, to: today },
-    license: licenseFileExists ? "MIT" : null,
+    license: licenseFileExists ? "license-file-present (unverified)" : null,
     plugins,
     standalone_agents: standaloneAgents,
     standalone_skills: standaloneSkills,

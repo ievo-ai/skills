@@ -45,7 +45,7 @@ import { fileURLToPath } from "node:url";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.54.10";
+export const SCRIPT_VERSION = "0.54.11";
 export const IEVO_DIR = ".ievo";
 export const CANDIDATES_DIR = "evolution-candidates";
 export const SESSION_EXT = ".jsonl";

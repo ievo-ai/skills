@@ -128,6 +128,15 @@ describe("truncate", () => {
   it("trims leading/trailing whitespace before measuring", () => {
     assert.equal(truncate("  short  ", 10), "short");
   });
+  it("coerces non-string truthy input to string instead of throwing (CWE-20, #412)", () => {
+    assert.equal(truncate(123, 10), "123");
+    assert.equal(truncate(true, 10), "true");
+    assert.equal(truncate([1, 2], 10), "1,2");
+    assert.equal(truncate({ a: 1 }, 20), "[object Object]");
+  });
+  it("preserves a literal 0 (falsy but meaningful) instead of treating it as absent", () => {
+    assert.equal(truncate(0, 10), "0");
+  });
 });
 
 // ---------------------------------------------------------------------------

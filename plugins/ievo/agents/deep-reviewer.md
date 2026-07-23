@@ -9,25 +9,25 @@ tools:
 # distinct from the kebab-case `disallowed-tools` in deep-review/SKILL.md). A
 # skill's `disallowed-tools` does NOT propagate to a Task-tool-dispatched
 # sub-agent (AGENTS.md § Security model), so this read-only reviewer self-enforces
-# — mirroring `security-auditor.md`. The `tools:` allowlist above already limits
-# this agent to Read + Grep; this denylist is the belt-and-suspenders guard so a
-# future PR that widens `tools:` (e.g. adding `Edit` for auto-fixup) can't silently
-# grant destructive or exfiltration-capable access. `Edit`/`Write` are denied (the
-# reviewer only reads, never writes); destructive shell is denied; `WebSearch` is
-# denied because a diff under review could carry adversarial content — web search
-# would turn that into an exfiltration channel (same rationale security-auditor.md
-# cites). (`WebFetch` is left off this list per the issue's operator-decision open
-# question; it is not in the `tools:` allowlist either.)
+# — mirroring `security-auditor.md`'s post-#400 corrected pattern. The `tools:`
+# allowlist above already limits this agent to Read + Grep; this denylist is the
+# belt-and-suspenders guard so a future PR that widens `tools:` (e.g. adding
+# `Edit` for auto-fixup) can't silently grant destructive or exfiltration-capable
+# access. Bare tool names only — a command-scoped entry like `Bash(rm*)` is
+# undocumented in this field and, per an empirical probe on Claude Code v2.1.217
+# (#400, 2026-07-22), is applied by its base tool name rather than the scoped
+# command; since this agent never granted `Bash` in the first place, the entries
+# this file used to carry here were always inert (no `Bash` tool to strip) —
+# removed as dead/misleading rather than migrated, unlike the siblings that
+# actually declared `Bash` (#405). `Edit`/`Write` are denied (the reviewer only
+# reads, never writes); `WebSearch` is denied because a diff under review could
+# carry adversarial content — web search would turn that into an exfiltration
+# channel (same rationale security-auditor.md cites). (`WebFetch` is left off
+# this list per the issue's operator-decision open question; it is not in the
+# `tools:` allowlist either.)
 disallowedTools:
   - Edit
   - Write
-  - Bash(rm*)
-  - Bash(mv*)
-  - Bash(cp*)
-  - Bash(curl*)
-  - Bash(wget*)
-  - Bash(sudo*)
-  - Bash(chmod*)
   - WebSearch
 ---
 

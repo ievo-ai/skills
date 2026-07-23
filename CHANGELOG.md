@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.13
+
+Migrate `evolution.md`, `vuln-scanner.md`, and `deep-reviewer.md` off the scoped `Bash(rm*)`-style `disallowedTools` shape that #400 proved strips the entire Bash tool by base tool name — closes #405.
+
+- **Gap closed** — all three agents carried the same `Bash(rm*)`/`Bash(mv*)`/`Bash(cp*)`/`Bash(curl*)`/`Bash(wget*)`/`Bash(sudo*)`/`Bash(chmod*)` denylist shape `security-auditor.md` had pre-#400. Per #400's differential probe on Claude Code v2.1.217, a command-scoped entry is applied by its base tool name — silently stripping the ENTIRE `Bash` tool from any agent that declares it. `evolution.md` (Step 2's documented `git clone`/`gh api` vendoring recipe) and `vuln-scanner.md` (declared `Bash` in `tools:` with no documented use for it) were both affected; `deep-reviewer.md` declares no `Bash` grant at all, so its copy of the entries was inert rather than breaking — misleading, not functionally harmful.
+- **Fix, `evolution.md`** — bare-name `disallowedTools: [WebSearch]` (Bash stays granted — Step 2's fetch recipe needs it), plus a new "Bash command allowlist (closed set)" body section binding Bash to the exact six command templates that recipe already documents (two `gh api` metadata reads, `mktemp -d`, shallow `git clone`/`fetch`/`checkout`) — the same #400 pattern `security-auditor.md` uses, since evolution.md's own legitimate recipe happens to be identical in shape.
+- **Fix, `vuln-scanner.md`** — dropped the `Bash` grant from `tools:` entirely instead of adding an allowlist. Independent verification (this agent's history back to its original commit) found no step in this file, `vuln-scan/SKILL.md`, or the `vuln-scan.md` orchestrator ever documented a Bash invocation for the *sub-agent* itself — its whole job (read module files, reason over CWEs, emit JSON) runs on Read/Glob/Grep; the pipeline's one real shell use (`git diff`/`gh pr diff` scope resolution) belongs to the orchestrator's own main-session tools, dispatched *before* this agent ever runs. A closed allowlist over a grant with zero legitimate use would be allowlist theater, not defense in depth — mirroring the #416/`repo-indexer.md` precedent of fitting the corrected pattern to the agent's actual need rather than copying a sibling's broken shape. `disallowedTools` is now bare-name `[Edit, Write, WebSearch]` (belt-and-suspenders against a future `tools:` widening).
+- **Fix, `deep-reviewer.md`** — removed the inert scoped entries outright (no `Bash` grant exists to strip); `disallowedTools` is now bare-name `[Edit, Write, WebSearch]`.
+- **Docs** — AGENTS.md § Security model rewritten to describe the now-uniform corrected pattern across all five plugin agents, and to explicitly flag the SKILL-layer half (`security-check`/`vuln-scan`/`deep-review` SKILL.md's own scoped `disallowed-tools` entries) as still **unverified** rather than assuming either semantics — a live differential probe from inside an agent that still needs its own `Write`/`Edit` for the rest of its run risks self-inflicted tool loss for a headless session (per #405's own discovery comment), so this PR deliberately did not attempt one.
+- **Scope** — confined to the three agent files plus the AGENTS.md security-model paragraph. `security-auditor.md` (#400) and `repo-indexer.md` (#371) are unchanged; the SKILL-layer `disallowed-tools` entries are unchanged pending a dedicated, isolated verification.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.12
 
 Stop `scan_repo.mjs` from hardcoding `license: "MIT"` for any repo that merely has a LICENSE file, regardless of its actual content — closes #413.

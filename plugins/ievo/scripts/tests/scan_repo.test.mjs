@@ -1811,6 +1811,40 @@ describe("main (end-to-end)", () => {
     assert.match(summary, /owner\/target: indexed \(commit=deadbeef\)/);
     assert.match(summary, /hooks: yes/);
     assert.match(summary, /mcp: yes/);
+    // CWE-345: a LICENSE file's content is never read (this fixture's LICENSE
+    // literally contains "MIT"), so the repo-level index must report the
+    // honest, content-unverified structural fact — never a specific SPDX
+    // identifier — even though the nested plugin's own plugin.json license
+    // field (a distinct, already-correct data source) legitimately says "MIT".
+    const md = readFileSync(join(outDir, "owner-target.md"), "utf-8");
+    assert.match(md, /## Repo metadata\n- \*\*Description:\*\*.*\n- \*\*License:\*\* license-file-present \(unverified\)/);
+  });
+
+  it("CWE-345: a non-MIT LICENSE file's content never surfaces as a false SPDX claim", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-gpl-license");
+    const coDir = join(root, "co-gpl-license");
+    const target = join(coDir, checkoutCacheKey("owner/gpl"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // Actually GPL-licensed — the old hardcoded-"MIT" bug would misreport this.
+    writeFileSync(join(target, "LICENSE"), "GNU GENERAL PUBLIC LICENSE\nVersion 3\n", "utf-8");
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/gpl.git\n" }, // remote get-url origin
+      { stdout: "beef42\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/gpl", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const md = readFileSync(join(outDir, "owner-gpl.md"), "utf-8");
+    assert.match(md, /\*\*License:\*\* license-file-present \(unverified\)/);
+    assert.doesNotMatch(md, /\*\*License:\*\* MIT/);
+    assert.doesNotMatch(md, /\*\*License:\*\* GPL/);
   });
 
   it("oversized files: manifest surfaces has_unscanned_* while has_hooks/has_mcp stay false", () => {

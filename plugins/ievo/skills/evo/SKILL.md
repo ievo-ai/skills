@@ -157,24 +157,91 @@ shell:
    git -C "$CHECKOUT_DIR" checkout <commit-sha>
    ```
 4. **For an agent** (`<path>` = `<plugin>/agents/<name>.md`): read
-   `$CHECKOUT_DIR/<path>` with the **Read tool** (its full path passed as the
-   `file_path` parameter — never Bash `cat`), then write the content to
-   `<project>/.claude/agents/<name>.md` with the **Write tool**.
+   `$CHECKOUT_DIR/<path>` into context with the **Read tool** (its full path
+   passed as the `file_path` parameter — never Bash `cat`). Do not write it
+   yet — Step 2.5 below re-audits it before anything touches
+   `<project>/.claude/agents/`.
 5. **For a skill** (`<path>` = `<plugin>/skills/<name>/`, whole tree):
    enumerate it with the **Glob tool** (`pattern: "**/*"`, `path:
    "$CHECKOUT_DIR/<path>"` — never a Bash `find`/`ls`), then **Read** each
-   listed file and **Write** it to the matching relative location under
-   `<project>/.claude/skills/<name>/`. Glob and Read/Write all take paths as
-   direct parameters, never shell text, so neither a malicious `<path>` nor a
-   malicious file name inside the skill directory can reach a shell.
-
-Record `fetched_at` as the current ISO timestamp once the copy completes.
+   listed file into context. Do not write yet — same reason as above. Glob
+   and Read take paths as direct parameters, never shell text, so neither a
+   malicious `<path>` nor a malicious file name inside the skill directory
+   can reach a shell.
 
 If cloning or resolution fails (private repo, no network), report the
 failure — do NOT fall back to per-file `gh api` fetching, which reintroduces
 the injection this replaces.
 
-**This is one-time.** Subsequent evolutions on the same target reuse the local copy.
+## Step 2.5: Re-audit before the content touches the trusted directory
+
+The content Step 2 just read into context is about to land in
+`<project>/.claude/agents/<name>.md` or `<project>/.claude/skills/<name>/`
+— the project's trusted execution directory, dispatched by name on every
+future session — and it has never been reviewed.
+
+**On Claude Code or Codex** (a `Task`/sub-agent tool and `AskUserQuestion`
+are available here — this step runs in the main session, not a dispatched
+sub-agent): dispatch a fresh `security-auditor` sub-agent against it,
+mirroring `update.md`'s own Step 2.5:
+```
+Task(subagent_type="security-auditor",
+     prompt="Audit <owner>/<repo>@<name> with type=<skill|agent>")
+```
+Collect the verdict:
+- **GREEN** → proceed to the write below. No user friction.
+- **YELLOW or RED** → do NOT write anything yet. Surface it via
+  `AskUserQuestion` before anything touches disk:
+  - **Question:** `<type>/<name> was flagged <verdict> on re-audit: <top 1-2
+    flags — category + one-line explanation>. Vendor it anyway?`
+  - **Header:** `Re-audit`
+  - **Options** (single-select):
+    - `Apply anyway (I've reviewed the flags)` — proceed to the write below.
+    - `Skip — do not vendor` — abort this capture (see below).
+
+  **No interactive session available** (e.g. this run was launched from an
+  `/ievo:schedule` Routine — recognizable by a self-contained invocation
+  prompt like "You are running a scheduled iEvo operation", per
+  `schedule/SKILL.md` — or any other headless/CI invocation where
+  `AskUserQuestion` cannot be answered): do not block waiting for input.
+  Auto-select `Skip — do not vendor`, same as an explicit decline, and call
+  it out in Step 6 as `SKIPPED — flagged <verdict>, no interactive session
+  to confirm` — matching `update.md`'s own documented fallback for the
+  identical situation.
+
+**On any other platform** (no `Task`/sub-agent tool, or no
+`AskUserQuestion` — most non-Claude-Code/Codex agentskills.io platforms):
+you cannot dispatch a separate `security-auditor` sub-agent (`agents/` is a
+Claude Code/Codex-specific mechanism). Apply the antivirus deep-scan
+methodology from the `security-check` skill directly instead — read
+`security-check/SKILL.md` in this plugin and follow its Step 3
+(threat-pattern reasoning) and Step 4 (verdict construction) against the
+content already in hand, the same technique the `evolution` sub-agent's own
+Step 2.5 uses for the identical constraint (see its frontmatter comment for
+why it has neither tool either). Since you also have no way to prompt
+interactively here, treat YELLOW/RED as an unconditional auto-skip — no
+"apply anyway" option, same outcome as the no-interactive-session case
+above.
+
+**On GREEN, or an explicit/auto "Apply anyway":** write the content now —
+for an agent, write to `<project>/.claude/agents/<name>.md` with the
+**Write tool**; for a skill, write each file read in Step 2 to the matching
+relative location under `<project>/.claude/skills/<name>/` with the **Write
+tool**. Record `fetched_at` as the current ISO timestamp. Continue to Step
+3.
+
+**On Skip (explicit, auto, or unconditional):** do NOT write anything to
+`<project>/.claude/agents/` or `<project>/.claude/skills/`, and do not
+proceed to Step 3 (no local file to inject a marker into) or Step 4 (no
+vendored target to append an overlay against). Report `SKIPPED — flagged
+<YELLOW|RED> on re-audit, vendor declined` (Step 6) and stop — inform the
+user the lesson was not captured, and that they can vendor
+`<owner>/<repo>@<path>` manually after reviewing the flags if they
+disagree. Never fabricate a lower verdict to force the write through.
+
+**This is one-time.** Subsequent evolutions on the same target find it
+already local (Step 2's own condition) and skip vendoring — and Step 2.5 —
+entirely.
 
 ## Step 3: Inject overlay marker (one-time per target)
 
@@ -383,7 +450,17 @@ Then continue to Step 6.
 
 ## Step 6: Report
 
-Output a short summary to the user:
+If Step 2.5 (this skill's own, or the delegated `evolution` sub-agent's)
+flagged the vendor target and aborted the capture, report only that
+outcome — Steps 3 onward never ran, so none of the fields below apply:
+
+- `SKIPPED — flagged <YELLOW|RED> on re-audit: <top 1-2 flags — category +
+  one-line explanation>. Vendor declined, no lesson captured. Review the
+  flags and, if you disagree, vendor <owner>/<repo>@<path> manually.`
+- Or, for the no-interactive-session case: `SKIPPED — flagged <verdict>, no
+  interactive session to confirm.`
+
+Otherwise, output a short summary to the user:
 
 - **Scope + target:** project | agents/<name> | skills/<name>
 - **Overlay file:** path
@@ -403,6 +480,7 @@ Output a short summary to the user:
 - **Idempotent failures.** If any step fails (write fails, gh api error), report what was done and what was not. Don't leave inconsistent state.
 - **Project-wide overlay is shared.** All project-wide rules accumulate in one `project.md`. No splitting by topic — chronological with `## Trigger` field for context.
 - **Never interpolate a path — `<owner>`, `<repo>`, or the target `<path>` — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read/write with the Read/Write tools instead — see § "How to fetch source" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
+- **Re-audit gates vendoring, not every capture.** Step 2.5 only applies when Step 2 is vendoring fresh content from a plugin — an already-local target, or a project-wide lesson, skips it entirely. A YELLOW/RED verdict that isn't explicitly overridden aborts the whole capture (no overlay write, no marker injection) — never fabricate a lower verdict, or silently write anyway, to force the capture through.
 
 ## Why overlay model
 
@@ -423,3 +501,4 @@ The overlay file is also a self-contained record: anyone reading `<name>.md` see
 - `feedback/SKILL.md` — `/ievo:feedback` files a lesson upstream as a public GitHub issue in `ievo-ai/skills`. Step 5.6 above hands off to it (flow C, lesson pre-filled) when a captured lesson looks like it's about the iEvo plugin itself; public posting stays behind that skill's explicit confirmation gate (its Step 5).
 - `consolidate/SKILL.md` — `/ievo:consolidate` restructures fragmented docs (doc-graph mode) or extracts a generalizable cluster of overlay entries into a new project-local skill/agent (entry-cluster mode). Step 5.7 above hands off to it, scoped to `root=<overlay path>`, for any overlay — `project.md`, an agent's, or a skill's — whose accumulated entries look like they describe one recurring procedure or role. All extraction stays behind `consolidate`'s own 3 checkpoints — nothing is removed from the overlay without explicit approval there.
 - `extract-best-practices/SKILL.md` — mines a live session for patterns nobody ever `/evo`'d, independent of whether anything is captured in an overlay. Its "too narrow" and "refines an existing target" candidates hand off here (this skill's own scope/target classification in Step 1 resolves where they land); a genuinely new, generalizable pattern instead becomes a new skill/agent there, with its own Step 5.6-style upstream-sharing offer for the resulting package.
+- `security-check/SKILL.md` — the antivirus deep-scan methodology Step 2.5 above applies to a freshly-vendored agent/skill before it touches `.claude/agents/`/`.claude/skills/`, either via a dispatched `security-auditor` sub-agent (Claude Code/Codex) or applied directly (other platforms). Same skill `/ievo:init` Step 8 and `/ievo:update` Step 2.5 already gate on.

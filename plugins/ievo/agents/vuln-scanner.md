@@ -32,7 +32,7 @@ skills:
 # the one real shell use in this pipeline (`git diff`/`gh pr diff` for scope
 # resolution, done BEFORE this agent is dispatched). Per-command allowlisting
 # a grant this agent never exercises would be allowlist theater, not defense
-# in depth — the #416 precedent (`repo-indexer.md`) established "match the
+# in depth — the #371 precedent (`repo-indexer.md`) established "match the
 # corrected pattern to the agent's actual need, not the sibling's broken
 # shape" as the right call here. `Edit`/`Write` stay denied even though
 # neither is granted above (belt-and-suspenders: the documented output

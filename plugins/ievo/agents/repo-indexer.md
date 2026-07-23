@@ -11,8 +11,9 @@ tools:
 # distinct from the kebab-case `disallowed-tools` in SKILL.md). A skill's
 # `disallowed-tools` does NOT propagate to a Task-tool-dispatched sub-agent
 # (AGENTS.md § Security model), so this agent self-enforces — mirroring
-# `security-auditor.md` (post-#400), NOT the still-broken pattern on
-# `evolution.md`/`deep-reviewer.md`/`vuln-scanner.md` (tracked in #405).
+# `security-auditor.md` (post-#400) and, post-#405, `evolution.md`/
+# `deep-reviewer.md`/`vuln-scanner.md` — all five plugin agents now share
+# this corrected pattern.
 # Bare tool names only: `Edit` (not granted above; denied so a future PR
 # widening `tools:` can't silently add mutation capability) and `WebSearch`
 # (this agent scans arbitrary, potentially adversarial third-party repo

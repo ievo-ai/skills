@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.6
+
+Guard `feedback/SKILL.md`'s derived issue title against shell interpolation, extending the body-file protection to the title — closes #372.
+
+- **Gap closed** — the feedback flow already wrote the issue *body* to a file and passed it via `gh issue create --body-file` (literal bytes, no shell expansion), but the *title* — which is likewise derived from user-verbatim feedback text, not a fixed string — was still documented as an inline `--title "<title>"` Bash argument. A crafted feedback title containing `$(...)`, backticks, `;`, or `&&` would be parsed by the shell before `gh` ever saw it, a command-injection surface (CWE-78) that mirrored the exact hole the body-file pattern was introduced to close. `gh issue create` has no `--title-file` flag, so the body's file-path approach could not be applied verbatim.
+- **Fix** — the title is now written to its own `feedback-title-<timestamp>.md` via the Write tool (Step A1, literal bytes, no shell), then read back in Step B with `TITLE=$(cat "$TITLE_FILE")` and passed as `--title "$TITLE"` — always double-quoted, at both `gh issue create` call sites (the labelled attempt and the label-drop fallback). A double-quoted variable reference substitutes the stored bytes verbatim without re-invoking the shell parser on them, so embedded `$(...)`/backticks/`;`/`&&` in the title cannot execute. Prose, the audit-trail note, and the shared-timestamp instruction are updated to cover the new title file.
+- **Scope** — confined to `plugins/ievo/skills/feedback/SKILL.md`. The sibling gap flagged in `init/SKILL.md` Step 8b is left as a follow-up per the review.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.5
 
 Extend `escapeMdCell` in `scan_repo.mjs` to neutralize Markdown link/image syntax, closing the follow-up the v0.51.1 fix explicitly flagged — closes #377.

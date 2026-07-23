@@ -3,7 +3,6 @@ name: vuln-scanner
 description: Per-module deep vulnerability scanner dispatched in parallel by /ievo:vuln-scan. Applies the vuln-scan skill (CWE-aware, exploit-chain validation) to ONE module. Returns structured findings with complete attack narratives. Designed for parallel dispatch — multiple modules scanned concurrently via Task tool. Context isolation prevents large source-code reads from polluting the orchestrator's log buffer.
 model: sonnet
 tools:
-  - Bash
   - Read
   - Glob
   - Grep
@@ -22,23 +21,29 @@ skills:
 # Defense-in-depth denylist (camelCase per Claude Code sub-agent frontmatter —
 # distinct from the kebab-case `disallowed-tools` in vuln-scan/SKILL.md). A
 # skill's `disallowed-tools` does NOT propagate to a Task-tool-dispatched
-# sub-agent (AGENTS.md § Security model), so this scanner self-enforces —
-# mirroring `security-auditor.md` / `deep-reviewer.md`. `Edit`/`Write` are
-# denied: the documented output contract (Steps 1-3 below) is a pure JSON
-# response, no legitimate file-write step exists. Destructive shell is denied.
-# `WebSearch` is denied because the scanned source may carry prompt injection —
-# a search call would turn that into an exfiltration channel (same rationale
-# security-auditor.md / deep-reviewer.md cite).
+# sub-agent (AGENTS.md § Security model), so this scanner self-enforces.
+# `Bash` is dropped from `tools:` above rather than migrated to the #400
+# corrected pattern (bare-name denies + a body-level Bash command allowlist,
+# as `evolution.md`/`security-auditor.md` use): unlike those agents, nothing
+# in this file's own Steps 1-3 (Read all source files, reason over data
+# flows/CWEs, emit JSON) ever needed Bash — grepping this file's history back
+# to its original commit shows no step ever documented a Bash invocation, and
+# the orchestrator (`vuln-scan.md`, main-session `allowed-tools`) already owns
+# the one real shell use in this pipeline (`git diff`/`gh pr diff` for scope
+# resolution, done BEFORE this agent is dispatched). Per-command allowlisting
+# a grant this agent never exercises would be allowlist theater, not defense
+# in depth — the #371 precedent (`repo-indexer.md`) established "match the
+# corrected pattern to the agent's actual need, not the sibling's broken
+# shape" as the right call here. `Edit`/`Write` stay denied even though
+# neither is granted above (belt-and-suspenders: the documented output
+# contract, Steps 1-3, is a pure JSON response with no legitimate write step,
+# so a future `tools:` widening can't silently add mutation capability).
+# `WebSearch` is denied because the scanned source may carry prompt injection
+# — a search call would turn that into an exfiltration channel (same
+# rationale security-auditor.md / deep-reviewer.md cite).
 disallowedTools:
   - Edit
   - Write
-  - Bash(rm*)
-  - Bash(mv*)
-  - Bash(cp*)
-  - Bash(curl*)
-  - Bash(wget*)
-  - Bash(sudo*)
-  - Bash(chmod*)
   - WebSearch
 ---
 

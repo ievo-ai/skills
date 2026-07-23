@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.11
+
+Coerce non-string truthy JSON fields to a string in `scan_repo.mjs`'s `truncate()` instead of throwing an uncaught `TypeError` — closes #412.
+
+- **Gap closed** — `truncate()`'s `if (!text) return "";` guard only filtered falsy values (`null`/`undefined`/`""`/`0`/`false`); any truthy non-string JSON value (a number, array, object, or `true`) passed the guard and then hit `.replace()`, which doesn't exist on those types. Three call sites feed it attacker-controlled JSON straight from a scanned repo's manifest files with no upstream type validation — `manifest.description` from `.claude-plugin/plugin.json`, `cmd` from `hooks/hooks.json`, and `url`/`config.command` from `.mcp.json` — so a crafted `plugin.json` setting e.g. `"description": 123` crashed the scan before either output artifact was written, aborting that repo's scan (and any multi-repo batch looping over it) with no `.md`/`.json` index entry produced (CWE-20).
+- **Fix** — `truncate()`'s guard now explicitly checks for the empty cases (`null`/`undefined`/`""`) and coerces with `String()`, mirroring the sibling `escapeMdCell()`'s already-hardened pattern (and its "preserves a literal 0" precedent) — every call site is protected without touching the call sites themselves.
+- **Tests** — added coverage for coercing non-string truthy input (number, boolean, array, object) instead of throwing, and for preserving a literal `0` as meaningful rather than treating it as absent, mirroring `escapeMdCell()`'s existing test pairs. Coverage gate stays 100/100/100 on `scan_repo.mjs`.
+- **Scope** — confined to `truncate()` and its test file; `scan_repo.mjs`'s own scanner-format `SCRIPT_VERSION` is unchanged (`1.1.4`) since this is a robustness fix (crash → success on a previously-crashing edge case), not a change to the generated `.md`/`.json` artifact's shape, mirroring the #382 precedent rather than #377's.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.10
 
 Strip C0 control characters from parsed agent/skill frontmatter values before they can reach a CI log or terminal — closes #378.

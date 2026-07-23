@@ -279,8 +279,8 @@ export function parseFrontmatter(filePath) {
 }
 
 export function truncate(text, limit) {
-  if (!text) return "";
-  text = text.replace(/\s+/g, " ").trim();
+  if (text === null || text === undefined || text === "") return "";
+  text = String(text).replace(/\s+/g, " ").trim();
   // Match Python's len() which counts Unicode code points, not UTF-16 units.
   // Without this, emojis (surrogate pairs) cause earlier truncation than Python.
   const chars = [...text];

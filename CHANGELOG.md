@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.5
+
+Extend `escapeMdCell` in `scan_repo.mjs` to neutralize Markdown link/image syntax, closing the follow-up the v0.51.1 fix explicitly flagged — closes #377.
+
+- **Gap closed** — `escapeMdCell()` escaped only backslash, pipe, and backtick; it never touched `[` or `!`. `renderIndexMd()` interpolates its output into several plain (non-backtick-wrapped) positions — repo/plugin/agent/skill/command description cells, name cells, `default_branch` — so a scanned repo's attacker-controlled `description`/`name` frontmatter field containing e.g. `![beacon](https://attacker.example/x.png?leak=1)` or `[https://github.com/real-owner/real-repo](https://evil.example/phish)` rendered as a live image/link wherever the generated index is viewed (GitHub auto-render or any Markdown client) — CWE-116. This was self-identified and left out of scope in the v0.51.1 changelog entry that first added `escapeMdCell`.
+- **Fix** — `escapeMdCell` now also escapes `[` and `!` (after the existing backslash/pipe/backtick escapes). Every Markdown link/image form — inline `[text](url)`, reference `[text][ref]`, shortcut `[text]`, and image `![alt](url)`/`![alt][ref]` — requires an unescaped `[` (images additionally need an unescaped `!` immediately before it), so escaping `[` alone already breaks every form; escaping `!` too matches the issue's own recommendation as defense-in-depth. A bare `](...)`/`)`/`]` with no preceding unescaped `[`/`!` carries no Markdown meaning, so nothing else needed escaping — verified against real GFM rendering (`marked`) for the issue's own two exploit payloads plus reference/shortcut/nested-image variants before landing, not just against hand-written tests.
+- **Tests** — flipped the existing test that locked in the link-syntax passthrough to assert the neutralized form, and added dedicated cases for `[`-escaping (inline + shortcut link) and `!`-escaping (inline + reference image), plus a case confirming a lone `!` with no following `[` renders unaffected.
+- **Doc note** — the generated index's own "Untrusted content below" banner (`renderIndexMd()`) is updated to also name link/image syntax among what's escaped, so it stays accurate about the protection this fix adds instead of only describing the pre-existing pipe/backtick escaping.
+- **Scope** — confined to `plugins/ievo/scripts/scan_repo.mjs` and its test file. `scan_repo.mjs`'s own scanner-format `SCRIPT_VERSION` bumps `1.1.2` → `1.1.4` (skipping `1.1.3`, claimed by another in-flight PR at push time) since this changes the generated `.md` output content, mirroring the v0.51.1 precedent.
+- **Scope note** — an `/ievo:vuln-scan` pass on this diff (dogfooding, eva#158) surfaced a related but distinct gap: `escapeMdCell` still does not neutralize raw inline HTML (`<img src=...>`, `<a href=...>`), which GitHub's Markdown renderer allows through its sanitizer allow-list, so a scanned repo's field containing literal HTML could still render a live image beacon or spoofed link the same way `[`/`!` syntax could before this fix — a parallel CWE-116 sub-vector, not the bracket/bang syntax closed here. Same shape as the v0.51.1 precedent that first flagged *this* PR's own gap: left out of scope (this fix stays confined to what #377 asked for) and flagged here for a follow-up rather than silently dropped.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.4
 
 Close a CWE-59 symlink-following gap in `scan_repo.mjs`'s enumeration helpers so a scanned repo can't leak a sibling checkout's (or arbitrary host path's) content into the public community index — closes #363.

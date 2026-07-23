@@ -145,10 +145,24 @@ describe("escapeMdCell", () => {
     assert.equal(escapeMdCell("sonnet"), "sonnet");
   });
   it("escapes pipe so it can't fabricate a table column/row", () => {
-    assert.equal(escapeMdCell("sonnet | [approve](javascript:x) | fake-row"), "sonnet \\| [approve](javascript:x) \\| fake-row");
+    assert.equal(escapeMdCell("sonnet | [approve](javascript:x) | fake-row"), "sonnet \\| \\[approve](javascript:x) \\| fake-row");
   });
   it("replaces backticks so an inline code span can't be closed early", () => {
     assert.equal(escapeMdCell("code`span`break"), "code'span'break");
+  });
+  it("escapes [ so an inline/reference/shortcut link can't render (CWE-116 follow-up, closes #377)", () => {
+    assert.equal(escapeMdCell("[approve](javascript:x)"), "\\[approve](javascript:x)");
+    assert.equal(escapeMdCell("[shortcut ref]"), "\\[shortcut ref]");
+  });
+  it("escapes ! so an image (inline or reference) can't render", () => {
+    assert.equal(
+      escapeMdCell("![beacon](https://attacker.example/x.png?leak=1)"),
+      "\\!\\[beacon](https://attacker.example/x.png?leak=1)",
+    );
+    assert.equal(escapeMdCell("![beacon][ref]"), "\\!\\[beacon]\\[ref]");
+  });
+  it("leaves a lone ! with no following [ visually unaffected once escapes render", () => {
+    assert.equal(escapeMdCell("trailing bang! no bracket"), "trailing bang\\! no bracket");
   });
   it("escapes backslashes before introducing its own", () => {
     assert.equal(escapeMdCell("a\\b|c"), "a\\\\b\\|c");
@@ -1626,15 +1640,17 @@ describe("renderIndexMd", () => {
     // cells — a naive Markdown table parser splitting on unescaped `|`
     // would see extra columns if any of these values leaked through raw.
     assert.match(md, /### evil\\\|plugin/);
-    assert.match(md, /\| a'gent \| sonnet \\\| \[pwn\]\(javascript:x\) \| Read \\\| Write \| d \\\| esc \|/);
+    assert.match(md, /\| a'gent \| sonnet \\\| \\\[pwn\]\(javascript:x\) \| Read \\\| Write \| d \\\| esc \|/);
     assert.match(md, /\| sk'ill \| desc \\\| esc \| yes \| MIT \\\| X \| any \\\| X \| yes \|/);
     assert.match(md, /\| cmd \\\| X \| d \\\| esc \|/);
     assert.match(md, /\| Evt \\\| X \| Bash \\\| X \| `echo 'x'` \|/);
     assert.match(md, /\| srv \\\| X \| `https:\/\/x\?a='b'` \| no \|/);
 
     // No unescaped, unbalanced pipe reaches the output: every remaining `|`
-    // is either a table delimiter or immediately preceded by the escape.
-    const rawPipeLeak = /[^\\]\| \[pwn\]/;
+    // is either a table delimiter or immediately preceded by the escape. The
+    // bracket in "[pwn]" is itself now escaped (`\[`), so this anchors on the
+    // escaped form rather than a raw, unescaped bracket.
+    const rawPipeLeak = /[^\\]\| \\\[pwn\]/;
     assert.doesNotMatch(md, rawPipeLeak);
   });
 

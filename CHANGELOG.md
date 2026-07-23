@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.9
+
+Gate `evolution.md`'s (and `evo/SKILL.md`'s inline fallback) vendor step behind a `security-auditor` re-audit before freshly-fetched plugin content ever touches `.claude/agents/`/`.claude/skills/` — closes #357.
+
+- **Gap closed** — Step 2 ("Ensure target file exists locally") fetched a plugin-bundled agent/skill's content and wrote it straight into the project's trusted execution directory, with no `security-auditor` gate anywhere in the flow — unlike `update.md`'s Step 2.5, the established precedent for the structurally identical refresh operation. Unaudited, potentially adversarial instructions (including self-declared `tools:`/`disallowedTools:` frontmatter) could land in a trusted directory and execute unreviewed on the next dispatch.
+- **Not a literal mirror of `update.md`'s Step 2.5** — that pattern (`Task(subagent_type="security-auditor", ...)` + `AskUserQuestion` on YELLOW/RED) runs in `update.md`'s main-session context, which has both tools. `evolution.md` is a Task-dispatched sub-agent; verified against Claude Code's subagent docs (2026-07-23), `AskUserQuestion` is unconditionally withheld from every Task-dispatched sub-agent, and `Agent`/`Task` is withheld unless the operator has opted into nested spawning (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, off by default) — so it can do neither.
+- **Fix, `evolution.md`** — new Step 2.5: the `ievo:security-check` skill is preloaded into the agent's own context via `skills:` subagent frontmatter (same technique `vuln-scanner.md` already uses for `ievo:vuln-scan`), and the agent applies its threat-detection methodology directly to the content already fetched in Step 2 — no nested dispatch needed. GREEN proceeds to write silently. YELLOW/RED auto-skips the vendor entirely (no "apply anyway" override, since there's no tool to offer one) and aborts the capture — no overlay write, no marker injection — surfacing the flagged verdict in the Step 5 report for manual review instead.
+- **Fix, `evo/SKILL.md`** — the identical unguarded vendor step existed inline (used when the `evolution` sub-agent isn't dispatched), flagged by the issue's own Risk note. This path runs in the main session, so it *can* mirror `update.md`'s Step 2.5 literally (`Task(subagent_type="security-auditor", ...)` + `AskUserQuestion`, with the same no-interactive-session auto-skip fallback) on Claude Code/Codex — with a further degrade to applying `security-check`'s methodology directly (same technique as `evolution.md`) on any other agentskills.io platform lacking a `Task`/sub-agent concept.
+- **Docs** — AGENTS.md § Security model's "Per-install only" claim (cited as accurate-but-now-stale by the issue's own analysis) updated to list all three re-audit gates (`/ievo:init` install, `/ievo:update` refresh, `/ievo:evo`/`evolution.md` vendor).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.8
 
 Add a `disallowedTools` defense-in-depth denylist to `repo-indexer.md`, the one iEvo sub-agent that lacked one despite unrestricted `Bash`+`Write` access — closes #371.

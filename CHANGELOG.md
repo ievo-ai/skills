@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.8
+
+Add a `disallowedTools` defense-in-depth denylist to `repo-indexer.md`, the one iEvo sub-agent that lacked one despite unrestricted `Bash`+`Write` access — closes #371.
+
+- **Gap closed** — `repo-indexer.md` held `Bash`/`Read`/`Write`/`Glob` with no secondary self-enforced control, the sole outlier among the plugin's five sub-agents (`security-auditor.md`, `deep-reviewer.md`, `vuln-scanner.md`, `evolution.md` all already had one). If its Bash execution is ever hijacked — via a still-open injection vector or any other future one — nothing at the agent-frontmatter layer blocks a `WebSearch`-based exfiltration call.
+- **Corrected pattern, not the literal sibling copy** — the issue proposed mirroring the exact `disallowedTools` block on `evolution.md`/`deep-reviewer.md`/`vuln-scanner.md` (scoped `Bash(rm*)`/`Bash(mv*)`/`Bash(cp*)`/`Bash(curl*)`/`Bash(wget*)`/`Bash(sudo*)`/`Bash(chmod*)` entries). That pattern was proven broken by #400 (2026-07-22, after this issue was filed): a command-scoped `Bash(prefix*)` entry is applied by its base tool name on Claude Code v2.1.217, silently stripping the ENTIRE `Bash` tool rather than just the scoped command — and `repo-indexer.md`, then with no `disallowedTools` block, was the empirical control that proved it (cited by name in AGENTS.md § Security model). Applying the issue's literal proposal would have disabled this agent's only Bash invocation (`scan_repo.mjs`), breaking its entire function. Migrating the three sibling agents still carrying the broken pattern off it is tracked separately in #405 — out of this issue's single-file scope.
+- **Fix** — added the already-established #400-corrected pattern instead: a bare-name-only `disallowedTools: [Edit, WebSearch]` (the two tools not already granted, denied so a future `tools:` widening can't silently add mutation/exfil capability), plus a new "Bash command allowlist (closed set)" body section binding the agent's Bash surface to the single, already-validated `scan_repo.mjs` invocation template from Step 2 — mirroring `security-auditor.md`'s post-#400 six-template allowlist, scaled down to `repo-indexer.md`'s one legitimate command.
+- **Docs** — AGENTS.md § Security model updated: `repo-indexer.md` added alongside `security-auditor.md` as using the corrected pattern, the `WebSearch`-denial tally corrected from four agents to five, and a note added that #371 intentionally used the #400 pattern rather than the sibling agents' broken one.
+- **Scope** — confined to `plugins/ievo/agents/repo-indexer.md` and `AGENTS.md`. No functional capability lost — the agent's only Bash usage (invoking `scan_repo.mjs`) is unaffected; `validate_agents.mjs` does not constrain `disallowedTools` shape, so it passes unchanged.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` and `evolution_candidates.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.7
 
 Validate `<owner>/<repo>` in `repo-indexer.md` before it is interpolated into a Bash `node` invocation — closes #361.

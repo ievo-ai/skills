@@ -56,6 +56,19 @@ export const DEFAULT_SKILLS_DIR = "plugins/ievo/skills";
 // would leave that exact CWE-20 bypass (skills#392) reachable via the other.
 export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 
+// Strips C0 control characters (and DEL) from a parsed frontmatter value
+// before it can ever reach a violation message or console.log (CWE-150).
+// `checkModelField`/`checkEffortField`/the name-mismatch checks interpolate
+// `fm.model`/`fm.effort`/`fm.name` verbatim into messages that `main()`
+// prints to stdout — a raw ESC byte (0x1B) in a crafted frontmatter value
+// survives untouched otherwise and can inject ANSI/control sequences into a
+// CI log or terminal viewer. Excludes tab/LF/CR (\x09/\x0a/\x0d) so a
+// legitimate multi-line block-scalar body (assembled by parseFrontmatter()
+// below) keeps its real line breaks — mirrors scan_repo.mjs's escapeMdCell
+// control-char strip, which excludes the same three codes for the same
+// reason.
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
 // SKILL.md frontmatter is never legitimately larger than this — guards the
 // readFileSync call in validateSkill() below against a multi-GB blob (or a
 // symlink pointed at a non-EOF-terminating device such as /dev/zero) OOMing
@@ -139,7 +152,10 @@ export function parseFrontmatter(content) {
     // A block/folded scalar body is never quote-delimited in YAML (leading/
     // trailing `"`/`'` are literal content) — only strip surrounding quotes
     // from a plain single-line scalar.
-    if (value) fm[key] = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
+    if (value) {
+      const unquoted = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
+      fm[key] = unquoted.replace(CONTROL_CHAR_RE, "");
+    }
   }
   return fm;
 }

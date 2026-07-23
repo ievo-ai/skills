@@ -18,6 +18,7 @@ import {
   ALLOWED_MODELS,
   FORBIDDEN_MODEL_PATTERNS,
   BLOCK_SCALAR_RE,
+  CONTROL_CHAR_RE,
   DEFAULT_SKILLS_DIR,
   MAX_VALIDATE_FILE_BYTES,
   isOversized,
@@ -107,6 +108,20 @@ describe("constants", () => {
   it("BLOCK_SCALAR_RE rejects plain scalar values", () => {
     for (const v of ["", "foo", "|bar", "a|b", "3", "-", "+"]) {
       assert.ok(!BLOCK_SCALAR_RE.test(v), `expected ${v} not to match`);
+    }
+  });
+
+  it("CONTROL_CHAR_RE matches C0 controls and DEL, excludes tab/LF/CR (CWE-150)", () => {
+    // CONTROL_CHAR_RE carries the `g` flag (needed for the .replace() call
+    // site in parseFrontmatter) — reset lastIndex before each .test() call
+    // so this loop isn't tripped up by the stateful global-regex gotcha.
+    for (const ch of ["\x00", "\x1b", "\x07", "\x7f"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} to match`);
+    }
+    for (const ch of ["\t", "\n", "\r", "a"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(!CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} not to match`);
     }
   });
 });
@@ -233,6 +248,21 @@ describe("parseFrontmatter", () => {
   it("does not strip quote characters from a block scalar body (they are literal YAML content, not delimiters)", () => {
     const fm = parseFrontmatter('---\nname: foo\ndescription: |\n  "quoted" text\n---');
     assert.equal(fm.description, '"quoted" text');
+  });
+
+  it("strips a raw ESC byte from a plain scalar value — CWE-150 log-injection guard", () => {
+    const fm = parseFrontmatter("---\nname: foo\x1b[31m\ndescription: bar\n---");
+    assert.equal(fm.name, "foo[31m");
+  });
+
+  it("strips other C0 control characters (e.g. NUL, BEL) from a plain scalar value", () => {
+    const fm = parseFrontmatter("---\nname: foo\neffort: hi\x00\x07gh\n---");
+    assert.equal(fm.effort, "high");
+  });
+
+  it("strips C0 control characters from a block scalar body while preserving real newlines", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  line one\x1b bad\n  line two\n---");
+    assert.equal(fm.description, "line one bad\nline two");
   });
 });
 

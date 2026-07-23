@@ -193,6 +193,21 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter('---\nname: foo\ndescription: |\n  "quoted" text\n---');
     assert.equal(fm.description, '"quoted" text');
   });
+
+  it("strips a raw ESC byte from a plain scalar value — CWE-150 log-injection guard", () => {
+    const fm = parseFrontmatter("---\nname: foo\nmodel: sonnet\x1b[31m\n---");
+    assert.equal(fm.model, "sonnet[31m");
+  });
+
+  it("strips other C0 control characters (e.g. NUL, BEL) from a plain scalar value", () => {
+    const fm = parseFrontmatter("---\nname: foo\neffort: hi\x00\x07gh\n---");
+    assert.equal(fm.effort, "high");
+  });
+
+  it("strips C0 control characters from a block scalar body while preserving real newlines", () => {
+    const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  line one\x1b bad\n  line two\n---");
+    assert.equal(fm.description, "line one bad\nline two");
+  });
 });
 
 describe("checkModelField", () => {

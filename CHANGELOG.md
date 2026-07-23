@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.54.10
+
+Strip C0 control characters from parsed agent/skill frontmatter values before they can reach a CI log or terminal — closes #378.
+
+- **Gap closed** — `parseFrontmatter()` in both `validate_agents.mjs` and `validate_skills.mjs` only stripped surrounding quotes from a parsed value; a raw ESC byte (or other C0 control character) in a crafted `model:`/`effort:`/`name` frontmatter value survived untouched into `checkModelField()`/`checkEffortField()`'s violation messages, which `main()` prints verbatim to stdout — an ANSI/control-sequence injection reachable by any PR touching `plugins/ievo/agents/*.md` or `plugins/ievo/skills/*/SKILL.md`, since both `.pre-commit-config.yaml` and `pre-commit-gate.yml` run these validators against PR-controlled content (CWE-150).
+- **Fix** — both `parseFrontmatter()` functions now strip C0 control characters (and DEL) from every parsed value immediately after quote-stripping, mirroring `scan_repo.mjs`'s `escapeMdCell` control-char strip. Tab/LF/CR are excluded from the strip set (same as `escapeMdCell`) so a legitimate multi-line block-scalar body keeps its real line breaks.
+- **Tests** — added coverage in both `validate_agents.test.mjs` and `validate_skills.test.mjs` for stripping a raw ESC byte and other C0 controls from plain scalar values, and for preserving newlines while stripping controls from a block-scalar body. Coverage gate stays 100/100/100 on both files.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.9
 
 Gate `evolution.md`'s (and `evo/SKILL.md`'s inline fallback) vendor step behind a `security-auditor` re-audit before freshly-fetched plugin content ever touches `.claude/agents/`/`.claude/skills/` — closes #357.

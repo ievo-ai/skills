@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.60.1
+
+Document Claude Code v2.1.169's `--safe-mode`/`CLAUDE_CODE_SAFE_MODE` as a total bypass of iEvo, and `disableBundledSkills`/`CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` as the non-bypass contrast case — closes #189, #190.
+
+- **Gap closed** — neither `AGENTS.md`'s security model section, `security-check/SKILL.md`, `hooks-setup/SKILL.md`, nor `README.md` mentioned either setting, both introduced in the same [v2.1.169 release](https://github.com/anthropics/claude-code/releases/tag/v2.1.169). `--safe-mode` disables ALL Claude Code customizations (CLAUDE.md, plugins, skills, hooks, MCP servers) — since iEvo is plugin-installed, every iEvo skill, hook, and sub-agent goes silently absent, with no warning that security coverage is off. `disableBundledSkills` only hides Claude Code's own bundled skills/workflows/built-ins; iEvo plugin skills are unaffected — an operator could otherwise reasonably assume the two settings behave the same way, in either direction.
+- **AGENTS.md** — added two severity-ordered bullets to the security model section, before the existing `CLAUDE_CODE_SUBAGENT_MODEL` bullet: `--safe-mode`/`CLAUDE_CODE_SAFE_MODE` (total bypass, most severe) and `disableBundledSkills`/`CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` (contrast — does not disable iEvo).
+- **security-check/SKILL.md** — added a safe-mode caveat near the top of the skill body: the skill, the `security-auditor` sub-agent, and its `disallowed-tools` constraints are all inactive in safe mode.
+- **hooks-setup/SKILL.md** — added a safe-mode note near the top of the skill body: hooks configured by this skill don't fire in safe mode, so completion notifications silently won't trigger; also added a v2.1.169 citation to the References section.
+- **README.md** — added a new "Known configuration gotcha" subsection mirroring the AGENTS.md bullets in human-readable form, closing #190's README acceptance criterion.
+- **Scope** — documentation-only; no script changes, no coverage impact. Confined to `AGENTS.md`, `README.md`, `plugins/ievo/skills/security-check/SKILL.md`, `plugins/ievo/skills/hooks-setup/SKILL.md`.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.60.0
 
 Self-register iEvo's own marketplace/plugin entry into `.claude/settings.json` during `/ievo:init` so teammates get iEvo bootstrapped on `git pull`, and document the equivalent Codex limitation — closes #436.

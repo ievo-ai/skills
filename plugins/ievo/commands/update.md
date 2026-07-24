@@ -185,7 +185,8 @@ Final summary:
 
 Remind user:
 ```
-Run /reload-plugins to pick up refreshed agent/skill definitions.
+Run /reload-skills to pick up refreshed skill definitions in this session (requires Claude Code v2.1.152+).
+Run /reload-plugins to reload plugin manifests if any `.claude-plugin/plugin.json` files changed.
 Run git diff .claude/ .ievo/evolution/ to review changes before commit.
 ```
 

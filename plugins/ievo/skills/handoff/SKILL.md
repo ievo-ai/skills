@@ -1,6 +1,7 @@
 ---
 name: handoff
 description: Use this skill when the user says "hand off", "hand this off", "create a handoff", "branch this to another session", "pass context to next session", "start a new session for X", or invokes /ievo:handoff. Compacts the current conversation into a portable handoff document for a fresh agent session. Solves the context-window degradation problem — reasoning quality drops past ~120k tokens, so instead of /compact (lossy summarization), branch out-of-scope work into a focused parallel session with curated context. Produces a Markdown document with the next session's purpose, relevant context excerpts, suggested iEvo skills, artifact pointers (file paths, PR/issue links), and redacted secrets. Saved to OS temp dir for easy copy-paste into a new session.
+argument-hint: "[purpose]"
 license: MIT
 effort: low
 allowed-tools:

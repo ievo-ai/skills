@@ -1,5 +1,6 @@
 ---
 description: AI-powered source code vulnerability scanner inspired by Project Glasswing. Four-phase approach — threat model, targeted scan via parallel subagents, exploit-chain validation. Default scope is git diff (changed files vs base branch). Complements security-check (marketplace supply-chain audit) with actual codebase vulnerability detection. Use when the user runs /ievo:vuln-scan, asks to scan for vulnerabilities, or says "security scan my code".
+argument-hint: "[--diff|--pr <number>|--module <path>|--full]"
 allowed-tools: Read, Bash, Glob, Grep, AskUserQuestion, Task
 ---
 

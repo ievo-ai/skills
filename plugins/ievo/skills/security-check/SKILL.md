@@ -1,6 +1,10 @@
 ---
 name: security-check
 description: Use this skill before installing ANY third-party skill, agent, or plugin — not for scanning your own project's source code (use /ievo:vuln-scan for that) and not for a structured pre-commit gap-detection review of a diff (use /ievo:deep-review for that). Vulnerability assessment by a senior application security engineer for a skill, agent, or plugin (Claude Code or Codex marketplace item) before installation. Domain expertise — prompt injection, credential exfiltration, supply-chain compromise, hook abuse, indirection attacks, encoded payloads, social engineering in technical artifacts, tool-model bypass. Deep content review across SKILL.md/agent.md body + ALL dependencies (scripts/, references/, assets/, bundled plugin files). Threat detection by expert reasoning, not regex. Returns structured verdict (GREEN/YELLOW/RED) with cited evidence (file + excerpt + concern). Invoked by the security-auditor agent in parallel per selected item.
+# Direct `/ievo:security-check` invocation takes the candidate identifier +
+# type documented under `## Input` below; the agent-dispatched path passes the
+# same values programmatically.
+argument-hint: "[owner/repo@skill] [skill|agent|plugin]"
 license: MIT
 effort: high
 # Turn-level model pin: when this skill is invoked DIRECTLY (not via the
@@ -10,6 +14,24 @@ effort: high
 # guards the scan turn, not the whole session.
 model: sonnet
 compatibility: "Requires `gh` CLI for API metadata and `git` for cloning candidates before file reads. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter, and this skill's own `model: sonnet` pins the audit turn on direct invocation."
+# No `paths:` gate here, deliberately — even though reviewing skill/agent/
+# plugin files IS the install-review context this skill exists for. Every
+# programmatic consumer reaches this skill BEFORE any candidate file is in
+# context: `evolution.md` preloads it via `skills:` sub-agent frontmatter for
+# its Step 2.5 vendor-time re-audit (#357), and `security-auditor.md` Step 1
+# loads it through the host platform's skills system at the top of a fresh
+# sub-agent — its Step 2 clone/read of the candidate happens after. The docs
+# define `paths` as limiting when Claude "loads the skill automatically"
+# (code.claude.com/docs/en/skills), and preloading "draws from the same set of
+# skills Claude can invoke" (code.claude.com/docs/en/sub-agents), but neither
+# page states whether the file-context filter is applied on those two paths —
+# so a gate here risks silently stripping the antivirus audit, unverifiably.
+# Same criterion AGENTS.md § Skills format already applies to
+# `disable-model-invocation` on this skill (a Skill-tool call is a model
+# invocation) and to `paths` on `vuln-scan`: wrong gating is worse than none,
+# and a security scan failing to offer itself is the worst failure mode of a
+# wrong gate (skills#157/#175). The skill keeps its normal always-eligible
+# description match.
 disallowed-tools:
   - Write
   - Edit

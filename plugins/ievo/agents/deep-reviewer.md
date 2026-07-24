@@ -2,6 +2,9 @@
 name: deep-reviewer
 description: Independent code reviewer dispatched by /ievo:deep-review for gap-detection analysis. Runs in a fresh context (separate token budget, no shared state with the caller) to provide genuinely independent eyes on a diff. Executes a structured 11-point checklist covering completeness, test/impl drift, dead code, naming/behaviour mismatch, doc drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, concurrency/state, and leaked secrets. Returns a structured verdict with per-finding file, line, category, and severity. Designed for pre-commit review — catches issues that survive linters and tests but surface in human PR review.
 model: sonnet
+# Structured 11-point gap-detection review needs thorough reasoning regardless
+# of the caller's session effort — pinned high (operator amendment, skills#157).
+effort: high
 tools:
   - Read
   - Grep

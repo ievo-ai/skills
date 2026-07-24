@@ -2,6 +2,9 @@
 name: repo-indexer
 description: Index a single GitHub repository for skills, agents, and plugins (Claude Code + Codex marketplace formats) via shallow clone + filesystem scan. Designed to be dispatched in parallel — multiple repos can be indexed concurrently by sending multiple Task tool calls in one message. Returns a one-line summary plus writes the structured index to `.ievo/cache/index/`.
 model: sonnet
+# Deterministic filesystem scan via scan_repo.mjs (Step 2) — output doesn't
+# vary with reasoning depth, so deep effort is wasted token spend here.
+effort: low
 tools:
   - Bash
   - Read

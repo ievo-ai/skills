@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.59.0
+
+Reorder all 19 SKILL.md descriptions to lead with trigger-intent framing ("Use this skill when...") instead of implementation-first prose, so runtimes that load only the opening tokens still see the invocation trigger — closes #205.
+
+- **Gap closed** — every `description:` field in `plugins/ievo/skills/*/SKILL.md` opened with implementation-oriented language (what the skill does) rather than trigger-intent framing (when to invoke it). Per agentskills.io's skill-creation guidance, agent runtimes often load only the opening tokens of a description at startup, so burying the trigger condition after several sentences of implementation detail hurts discoverability. `vuln-scan/SKILL.md` had no "Use when" clause at all.
+- **Fix** — reordered every description to start with `"Use this skill when <trigger condition>."` followed by the existing implementation detail, preserving all prior content. Scope grew from the issue's original count of 14 to the repo's current 19 skill directories (confirmed via `ls plugins/ievo/skills/`) at implementation time.
+- **Sibling disambiguation** — per the operator's pre-approval scope addendum, added a one-clause mutual negative to the four ambiguous sibling pairs: `security-check`↔`vuln-scan`, `hooks-setup`↔`init`, `inspect`↔`overlay-status`, `deep-review`↔`security-check` (e.g. `security-check`: "not for scanning your own project's source code — use /ievo:vuln-scan for that").
+- **Validation** — every rewritten description stays ≤1024 chars per the agentskills.io spec; `node plugins/ievo/scripts/validate_skills.mjs` passes 19/19 with 0 errors, 0 warnings.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `marketplace.json`, `plugin.json`, `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION` (all three coupled to `plugin.json` via their own test assertions), and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.58.1
 
 Make `scan_repo.mjs`'s output-file naming injective and add an `owner_repo` identity field to the persisted manifest entry — closes #401.

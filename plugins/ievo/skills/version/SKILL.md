@@ -1,6 +1,6 @@
 ---
 name: version
-description: "Show the installed iEvo plugin version (plus commit SHA when resolvable) and the changelog of what changed between it and the latest published release, so you can decide whether to update. Reads the installed `version` from the plugin's `plugin.json`, fetches the latest version from the marketplace manifest on `main`, and prints the intervening `CHANGELOG.md` entries. Use when the user asks \"which iEvo version am I on\", \"what iEvo version is installed\", \"am I up to date\", \"how far behind is iEvo\", \"what changed since my iEvo version\", \"show the iEvo changelog\", \"what would /plugin update give me\", or invokes /ievo:version. Read-only — never writes, installs, or updates."
+description: "Use this skill when the user asks \"which iEvo version am I on\", \"what iEvo version is installed\", \"am I up to date\", \"how far behind is iEvo\", \"what changed since my iEvo version\", \"show the iEvo changelog\", \"what would /plugin update give me\", or invokes /ievo:version. Shows the installed iEvo plugin version (plus commit SHA when resolvable) and the changelog of what changed between it and the latest published release, so you can decide whether to update. Reads the installed `version` from the plugin's `plugin.json`, fetches the latest version from the marketplace manifest on `main`, and prints the intervening `CHANGELOG.md` entries. Read-only — never writes, installs, or updates."
 license: MIT
 effort: low
 allowed-tools:

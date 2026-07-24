@@ -1,6 +1,6 @@
 ---
 name: inspect
-description: "Pre-install structured summary of a remote skill/plugin repo. Fetches the repo tree and key files via gh API, then renders a human-readable capability overview — skills, agents, commands, scripts, permission footprint — without triggering discovery, security scan, or install. Use when the user asks \"what does owner/repo contain\", \"inspect this skill before install\", \"show me what's in owner/repo\", \"summarise owner/repo without installing\", \"what skills does this repo have\", or invokes /ievo:inspect <owner>/<repo>."
+description: "Use this skill when the user asks \"what does owner/repo contain\", \"inspect this skill before install\", \"show me what's in owner/repo\", \"summarise owner/repo without installing\", \"what skills does this repo have\", or invokes /ievo:inspect <owner>/<repo> — not for listing your own project's already-installed evolution overlays (use /ievo:overlay-status for that). Pre-install structured summary of a remote skill/plugin repo. Fetches the repo tree and key files via gh API, then renders a human-readable capability overview — skills, agents, commands, scripts, permission footprint — without triggering discovery, security scan, or install."
 license: MIT
 effort: low
 allowed-tools:

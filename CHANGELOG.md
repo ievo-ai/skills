@@ -14,7 +14,7 @@ Reorder all 19 SKILL.md descriptions to lead with trigger-intent framing ("Use t
 - **Fix** — reordered every description to start with `"Use this skill when <trigger condition>."` followed by the existing implementation detail, preserving all prior content. Scope grew from the issue's original count of 14 to the repo's current 19 skill directories (confirmed via `ls plugins/ievo/skills/`) at implementation time.
 - **Sibling disambiguation** — per the operator's pre-approval scope addendum, added a one-clause mutual negative to the four ambiguous sibling pairs: `security-check`↔`vuln-scan`, `hooks-setup`↔`init`, `inspect`↔`overlay-status`, `deep-review`↔`security-check` (e.g. `security-check`: "not for scanning your own project's source code — use /ievo:vuln-scan for that").
 - **Validation** — every rewritten description stays ≤1024 chars per the agentskills.io spec; `node plugins/ievo/scripts/validate_skills.mjs` passes 19/19 with 0 errors, 0 warnings.
-- **Version** — bump per AGENTS.md rules (`feat:` → minor); `marketplace.json`, `plugin.json`, `discover.mjs` `SCRIPT_VERSION`, and the AGENTS.md compliance ledger updated in lockstep.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `marketplace.json`, `plugin.json`, `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION` (all three coupled to `plugin.json` via their own test assertions), and the AGENTS.md compliance ledger updated in lockstep.
 
 ---
 

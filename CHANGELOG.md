@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.55.0
+
+Add `scrub.mjs` — a pure stdin→stdout privacy scrub for the upcoming evo-auto failure-capture hook — closes #423 (part 1/2 of #422; part 2 wires the hook itself in a follow-up PR).
+
+- **Added** — `plugins/ievo/scripts/scrub.mjs`. Every captured `PostToolUseFailure`/`PermissionDenied` record part 2 writes to `.ievo/evolution-candidates/<session-id>.jsonl` will be piped through this script first, since the tool output a record is built from is untrusted and may embed anything the failing command printed (including a live secret or a local username). In order: (1) redacts provider-shaped secret values anywhere in the text — GitHub classic/app tokens (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`), GitHub fine-grained PATs (`github_pat_`), OpenAI-style keys (`sk-`), Slack tokens (`xox[abprs]-`), AWS access key ids (`AKIA`), and JWTs; (2) redacts assignment VALUES for secret-shaped NAMES (`*_TOKEN`/`*_KEY`/`*_SECRET`/`*_PASSWORD`/`*_ID`, plus bare `PASSWORD`/`SECRET`/`TOKEN`/`APIKEY`/`API_KEY`) in `NAME=value`/`NAME: value`/quoted forms, keeping the name and redacting only the value; (3) rewrites `$HOME`-absolute paths to `~`-relative; (4) caps output at 500 Unicode code points (code-point-aware, like the sibling `truncate()` in `scan_repo.mjs`) with a `…[truncated]` marker — deliberately LAST, so a secret whose span crosses the truncation cutoff is fully redacted before truncation could slice through it and leave a raw fragment.
+- **Contract** — never writes a file; on any internal error while running as a CLI (unreadable stdin, an unexpected throw from `scrub()`) it emits nothing to stdout and exits 0 — fail-closed for content, fail-open for the pipeline, so a scrub failure can never abort the observer hook piping through it.
+- **Tests** — `plugins/ievo/scripts/tests/scrub.test.mjs`, 100/100/100 coverage following the `isCliEntry`/injected-io pattern from `evolution_candidates.mjs`: pure per-rule unit tests, composite-ordering tests (secret-crossing-truncation-boundary, `$HOME` rewrite + redaction combined), injected-throw tests for the fail-closed CLI contract, and a subprocess suite covering the real stdin/stdout defaults and the module-scope entry guard.
+- **Scope** — confined to `plugins/ievo/scripts/scrub.mjs`, its test file, and `.github/scripts/check-coverage.mjs` (added to `REQUIRED`). No changes to the evo-auto hook wiring itself — that's part 2 of #422, tracked separately.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and the new `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.54.13
 
 Migrate `evolution.md`, `vuln-scanner.md`, and `deep-reviewer.md` off the scoped `Bash(rm*)`-style `disallowedTools` shape that #400 proved strips the entire Bash tool by base tool name — closes #405.

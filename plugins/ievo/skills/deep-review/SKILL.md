@@ -52,13 +52,14 @@ A structured 11-point review of your diff by an independent reviewer (fresh cont
 
 ## Step 1: Determine scope
 
-Check if the user specified a scope mode. Three modes are supported:
+Check if the user specified a scope mode. Three user-selectable modes are supported, plus a committed-diff fallback the skill offers when the tree is clean:
 
 | Mode | Trigger | Git command |
 |------|---------|-------------|
 | **staged** (default) | `--staged`, or no flag | `git diff --staged` |
 | **working** | `--working` | `git diff` |
 | **range** | `--range <ref>..<ref>` | `git diff <ref>..<ref>` |
+| **committed** (fallback) | not user-selectable — offered when staged and unstaged are both empty | `git diff "$(git merge-base HEAD origin/<default-branch>)"..HEAD` |
 
 If the user didn't specify a mode, default to **staged**. If there are no staged changes in staged mode, check for unstaged changes and ask:
 
@@ -74,7 +75,34 @@ Use `AskUserQuestion`:
   - `Yes, review working tree` — description: `Run git diff (unstaged changes)`
   - `Cancel` — description: `Nothing to review`
 
-If both staged and unstaged are empty, report cleanly and exit:
+If both staged and unstaged are empty, fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch, then take its **merge base** with `HEAD` — the same merge-base form, and the same first two resolution tiers (`git symbolic-ref` → `gh repo view --json defaultBranchRef`), that `commands/vuln-scan.md`'s `--diff` scope uses. Deliberately drop that command's third tier, which warns and hardcodes `BASE_BRANCH="main"`: a scan that guesses a base and over-reports is recoverable, but a review silently diffing against a `main` the repo may not have would hand the reviewer a fabricated range — so an unresolvable default branch falls through to the clean exit below instead of guessing. Never diff two-dot against `origin/<default-branch>` directly: on a branch that has fallen behind, `git diff origin/<b>..HEAD` renders the default-branch-only commits as reversed deletions and the reviewer reports them as findings.
+
+```bash
+# Try git symbolic-ref first, then the gh API
+BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+if [ -z "$BASE_BRANCH" ]; then
+  BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null)
+fi
+MERGE_BASE=$(git merge-base HEAD "origin/$BASE_BRANCH" 2>/dev/null)
+```
+
+If a merge base resolves and `<merge-base>..HEAD` is non-empty, ask:
+
+```
+No staged or unstaged changes. Review the committed changes on this branch
+(since it diverged from origin/<default-branch>) instead?
+```
+
+Use `AskUserQuestion`:
+- **Question:** `No staged or unstaged changes. Review this branch's committed changes since it diverged from origin/<default-branch>?`
+- **Header:** `Scope`
+- **Options:**
+  - `Yes, review committed changes` — description: `Run git diff "$(git merge-base HEAD origin/<default-branch>)"..HEAD`
+  - `Cancel` — description: `Nothing to review`
+
+If confirmed, treat the scope as **range** with `<range>` = `<merge-base>..HEAD` for Step 2 onward.
+
+Otherwise — the default branch doesn't resolve (detached HEAD, no `origin` remote, shallow clone without the symbolic ref, `gh` missing or unauthenticated), the merge base doesn't resolve (`origin/<default-branch>` not fetched locally, or no common ancestor), `<merge-base>..HEAD` is itself empty (branch has no commits ahead), or the diff command errors — report cleanly and exit:
 
 ```
 Nothing to review — no staged or unstaged changes detected.
@@ -187,5 +215,5 @@ After presenting results, suggest next steps based on severity:
 - **Never modify the diff.** The review is read-only. Do not stage, unstage, commit, or edit files.
 - **Present findings verbatim.** Do not filter, suppress, or editorialize the deep-reviewer's output. The user decides what to act on.
 - **Default to staged.** If the user says `/ievo:deep-review` with no flags, review staged changes. This matches the pre-commit mental model.
-- **Empty diff = clean exit.** Don't warn or suggest — just state the fact and exit.
+- **Empty diff = clean exit.** Don't warn or suggest — just state the fact and exit. Exception: when staged AND unstaged are both empty (Step 1), offer the committed merge-base fallback first (`git merge-base HEAD origin/<default-branch>`, then `<merge-base>..HEAD`) — only exit immediately once that fallback is unavailable too (no resolvable default branch or merge base, or the range itself is empty).
 - **All 11 points, every time.** The checklist summary must show all 11 points evaluated. Skipping a point because "it doesn't apply" is not allowed — mark it clean instead.

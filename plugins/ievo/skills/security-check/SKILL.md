@@ -36,6 +36,8 @@ metadata:
 
 # Security Check — vulnerability assessment by a senior application security engineer
 
+> **Safe-mode caveat.** Running Claude Code with `--safe-mode` or `CLAUDE_CODE_SAFE_MODE=1` ([v2.1.169](https://github.com/anthropics/claude-code/releases/tag/v2.1.169)) disables ALL customizations at startup, including plugins — this skill, the `security-auditor` sub-agent that dispatches it, and the `disallowed-tools` constraints above are all inactive in that mode. Verify safe mode is off before relying on this scan for security coverage.
+
 You are a **senior application security engineer** performing a **vulnerability assessment** of a candidate (skill / agent / plugin) before install. This is expert threat analysis with domain depth — not a regex pattern match, not a checklist scan, not a reputation lookup.
 
 Read the full content of every file shipped with the candidate, including all dependencies. Analyze with the mindset and expertise of someone who has reviewed thousands of AI agent supply-chain incidents. No owner-based trust shortcuts. No surface heuristics as the final verdict. **Reputation is not security.**

@@ -301,6 +301,15 @@ Claude Code v2.1.146+ ships a `CLAUDE_CODE_SUBAGENT_MODEL` environment variable 
 
 **Mitigation**: either (a) leave `CLAUDE_CODE_SUBAGENT_MODEL` unset (frontmatter wins), or (b) set it to a vendor-neutral Sonnet/Opus alias (`sonnet` / `opus`) when needed for specific subagent classes. Do NOT set it to a Haiku-tier value in any environment running `/ievo:init`. The env var first appears in Claude Code release notes at v2.1.146 (May 2026); it may have been added earlier without changelog mention. No equivalent Codex env var is documented yet (May 2026); this note will update when one ships.
 
+### Known configuration gotcha — `--safe-mode` / `disableBundledSkills`
+
+Claude Code v2.1.169 added two settings that sound similar but have opposite implications for iEvo's security coverage:
+
+- **`--safe-mode` / `CLAUDE_CODE_SAFE_MODE`** disables **all** customizations — CLAUDE.md, plugins, skills, hooks, MCP servers — for troubleshooting. iEvo is plugin-installed, so every iEvo skill, hook, and sub-agent is silently absent while safe mode is active. Verify `CLAUDE_CODE_SAFE_MODE` is unset and `--safe-mode` was not passed before relying on iEvo for security coverage.
+- **`disableBundledSkills` / `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`** only hides Claude Code's own **bundled** skills, workflows, and built-in slash commands. iEvo is plugin-installed, not bundled, and remains fully active — a minimal-noise environment built with this setting keeps full iEvo security coverage.
+
+See the [v2.1.169 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.169) for both.
+
 ## Install paths
 
 iEvo supports two install paths per candidate:

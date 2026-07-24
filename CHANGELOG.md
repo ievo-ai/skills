@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.61.1
+
+Fix `/ievo:deep-review` exiting without reviewing a clean PR branch's committed diff — closes #445.
+
+- **Bug** — Step 1's scope cascade only ever checked `git diff --staged` and `git diff` (unstaged). On a clean PR branch — changes committed, nothing staged or dirty — both checks came up empty, the skill printed `Nothing to review — no staged or unstaged changes detected.`, and exited without ever considering the committed `<default-branch>..HEAD` diff a reviewer actually needs.
+- **Fix** — added a third tier to the cascade: when staged and unstaged are both empty, resolve the remote default branch (`git symbolic-ref refs/remotes/origin/HEAD --short`, falling back to `git remote show origin`) and, if `<default-branch>..HEAD` is non-empty, offer it via `AskUserQuestion` before falling through to the existing hard exit — mirroring the skill's existing staged→unstaged confirmation pattern rather than silently auto-reviewing a range the user didn't request. The hard exit remains the final fallback when the default branch can't be resolved (detached HEAD, no `origin` remote, shallow clone) or the range itself has no commits ahead.
+- **Scope** — single-file change to `plugins/ievo/skills/deep-review/SKILL.md` (Step 1 + a Rules mention); Step 2's diff capture already generically supports a `<range>` scope, so no change needed there.
+
 ## v0.61.0
 
 Add `effort:` and `argument-hint:` frontmatter across iEvo agent, skill, and command files, and evaluate `paths:` — a frontmatter-compat sweep folding in two companion proposals — closes #157, #175, #177.

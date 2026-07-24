@@ -74,7 +74,30 @@ Use `AskUserQuestion`:
   - `Yes, review working tree` — description: `Run git diff (unstaged changes)`
   - `Cancel` — description: `Nothing to review`
 
-If both staged and unstaged are empty, report cleanly and exit:
+If both staged and unstaged are empty, fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch:
+
+```bash
+git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null \
+  || git remote show origin 2>/dev/null | sed -n '/HEAD branch/s/.*: //p'
+```
+
+If a default branch resolves and `<default-branch>..HEAD` is non-empty, ask:
+
+```
+No staged or unstaged changes. Review committed changes on this branch
+(<default-branch>..HEAD) instead?
+```
+
+Use `AskUserQuestion`:
+- **Question:** `No staged or unstaged changes. Review committed changes on this branch (<default-branch>..HEAD) instead?`
+- **Header:** `Scope`
+- **Options:**
+  - `Yes, review <default-branch>..HEAD` — description: `Run git diff <default-branch>..HEAD (committed changes)`
+  - `Cancel` — description: `Nothing to review`
+
+If confirmed, treat the scope as **range** with `<range>` = `<default-branch>..HEAD` for Step 2 onward.
+
+Otherwise — the default branch doesn't resolve (detached HEAD, no `origin` remote, shallow clone without the symbolic ref), or `<default-branch>..HEAD` is itself empty (branch has no commits ahead) — report cleanly and exit:
 
 ```
 Nothing to review — no staged or unstaged changes detected.
@@ -187,5 +210,5 @@ After presenting results, suggest next steps based on severity:
 - **Never modify the diff.** The review is read-only. Do not stage, unstage, commit, or edit files.
 - **Present findings verbatim.** Do not filter, suppress, or editorialize the deep-reviewer's output. The user decides what to act on.
 - **Default to staged.** If the user says `/ievo:deep-review` with no flags, review staged changes. This matches the pre-commit mental model.
-- **Empty diff = clean exit.** Don't warn or suggest — just state the fact and exit.
+- **Empty diff = clean exit.** Don't warn or suggest — just state the fact and exit. Exception: when staged AND unstaged are both empty (Step 1), offer the committed `<default-branch>..HEAD` fallback first — only exit immediately once that fallback is unavailable too (no resolvable default branch, or the range itself is empty).
 - **All 11 points, every time.** The checklist summary must show all 11 points evaluated. Skipping a point because "it doesn't apply" is not allowed — mark it clean instead.

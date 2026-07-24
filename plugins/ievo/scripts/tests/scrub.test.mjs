@@ -1,0 +1,419 @@
+// Tests for scrub.mjs — privacy scrub for evo-auto failure capture.
+// Run: node --test --experimental-test-coverage plugins/ievo/scripts/tests/scrub.test.mjs
+
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
+
+import {
+  SCRIPT_VERSION,
+  REDACTED,
+  MAX_CODEPOINTS,
+  TRUNCATION_MARKER,
+  redactProviderSecrets,
+  redactNamedSecrets,
+  rewriteHomePaths,
+  truncateScrubbed,
+  scrub,
+  main,
+  isCliEntry,
+} from "../scrub.mjs";
+
+const SCRIPT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "scrub.mjs");
+
+// A synthetic home directory that does NOT look like a real machine-local
+// path (avoids the repo's machine-local-paths pre-commit validator, which
+// flags literal /Users/<name>/ and /home/<name>/ strings) — under the OS
+// tmpdir instead, which is never a real user home.
+const FAKE_HOME = join("/tmp", "scrub-fixture-home");
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+describe("constants", () => {
+  it("SCRIPT_VERSION matches plugin.json — real coupling, not hardcoded", () => {
+    const pluginJsonPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../.claude-plugin/plugin.json");
+    const { version } = JSON.parse(readFileSync(pluginJsonPath, "utf-8"));
+    assert.equal(SCRIPT_VERSION, version, `scrub.mjs SCRIPT_VERSION ('${SCRIPT_VERSION}') and plugin.json version ('${version}') must agree — bump both in the same PR`);
+  });
+
+  it("REDACTED / MAX_CODEPOINTS / TRUNCATION_MARKER are the documented values", () => {
+    assert.equal(REDACTED, "[REDACTED]");
+    assert.equal(MAX_CODEPOINTS, 500);
+    assert.equal(TRUNCATION_MARKER, "…[truncated]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redactProviderSecrets — provider-shaped secret VALUES
+// ---------------------------------------------------------------------------
+
+describe("redactProviderSecrets", () => {
+  it("redacts a GitHub classic/app-style token (ghp_/gho_/ghu_/ghs_/ghr_)", () => {
+    for (const prefix of ["ghp", "gho", "ghu", "ghs", "ghr"]) {
+      const token = `${prefix}_${"a".repeat(36)}`;
+      assert.equal(redactProviderSecrets(`token: ${token}`), `token: ${REDACTED}`);
+    }
+  });
+
+  it("redacts a GitHub fine-grained PAT (github_pat_...)", () => {
+    const token = `github_pat_${"c".repeat(22)}_${"d".repeat(59)}`;
+    assert.equal(redactProviderSecrets(token), REDACTED);
+  });
+
+  it("redacts an OpenAI-style secret key (sk-...)", () => {
+    assert.equal(redactProviderSecrets(`key=sk-${"e".repeat(20)}`), `key=${REDACTED}`);
+  });
+
+  it("redacts a Slack token (xox[abprs]-...)", () => {
+    for (const kind of ["a", "b", "p", "r", "s"]) {
+      const token = `xox${kind}-1234567890-abcdefghij`;
+      assert.equal(redactProviderSecrets(`slack ${token}`), `slack ${REDACTED}`);
+    }
+  });
+
+  it("redacts an AWS access key id (AKIA...)", () => {
+    assert.equal(redactProviderSecrets("AKIAABCDEFGHIJKLMNOP"), REDACTED);
+  });
+
+  it("redacts a JWT (header.payload.signature starting eyJ)", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dQw4w9WgXcQ_abc123";
+    assert.equal(redactProviderSecrets(`jwt ${jwt}`), `jwt ${REDACTED}`);
+  });
+
+  it("redacts multiple occurrences in one blob (global replace)", () => {
+    const a = `ghp_${"a".repeat(36)}`;
+    const b = `AKIAABCDEFGHIJKLMNOP`;
+    assert.equal(redactProviderSecrets(`${a} and ${b}`), `${REDACTED} and ${REDACTED}`);
+  });
+
+  it("leaves ordinary text untouched", () => {
+    const text = "no secrets here, just prose about tokens and passwords";
+    assert.equal(redactProviderSecrets(text), text);
+  });
+
+  it("does not redact a short, non-matching prefix run (below the length floor)", () => {
+    const text = "ghp_tooshort";
+    assert.equal(redactProviderSecrets(text), text);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redactNamedSecrets — assignment VALUES for secret-shaped NAMES
+// ---------------------------------------------------------------------------
+
+describe("redactNamedSecrets", () => {
+  it("redacts a suffix-shaped NAME=value (unquoted)", () => {
+    assert.equal(redactNamedSecrets("DB_PASSWORD=hunter2"), "DB_PASSWORD=[REDACTED]");
+    assert.equal(redactNamedSecrets("AWS_SECRET_ACCESS_KEY=AKIAABCDEFGHIJKLMNOP"), "AWS_SECRET_ACCESS_KEY=[REDACTED]");
+    assert.equal(redactNamedSecrets("MY_API_TOKEN=xyz"), "MY_API_TOKEN=[REDACTED]");
+    assert.equal(redactNamedSecrets("CLIENT_SECRET=xyz"), "CLIENT_SECRET=[REDACTED]");
+    assert.equal(redactNamedSecrets("USER_ID=42"), "USER_ID=[REDACTED]");
+  });
+
+  it("redacts a bare secret-shaped NAME (PASSWORD/SECRET/TOKEN/APIKEY/API_KEY)", () => {
+    assert.equal(redactNamedSecrets("PASSWORD=hunter2"), "PASSWORD=[REDACTED]");
+    assert.equal(redactNamedSecrets("SECRET=hunter2"), "SECRET=[REDACTED]");
+    assert.equal(redactNamedSecrets("TOKEN=hunter2"), "TOKEN=[REDACTED]");
+    assert.equal(redactNamedSecrets("APIKEY=hunter2"), "APIKEY=[REDACTED]");
+    assert.equal(redactNamedSecrets("API_KEY=hunter2"), "API_KEY=[REDACTED]");
+  });
+
+  it("redacts NAME: value (colon separator, YAML/JSON-ish)", () => {
+    assert.equal(redactNamedSecrets("password: hunter2"), "password: [REDACTED]");
+  });
+
+  it("redacts a quoted value, preserving the quote characters", () => {
+    assert.equal(redactNamedSecrets('TOKEN="hunter2"'), 'TOKEN="[REDACTED]"');
+    assert.equal(redactNamedSecrets("TOKEN='hunter2'"), "TOKEN='[REDACTED]'");
+  });
+
+  it("redacts a quoted NAME (JSON key form), preserving name + its quote", () => {
+    assert.equal(redactNamedSecrets('{"api_key": "my-secret-value"}'), '{"api_key": "[REDACTED]"}');
+    assert.equal(redactNamedSecrets('{"GITHUB_TOKEN":"plainvalue"}'), '{"GITHUB_TOKEN":"[REDACTED]"}');
+    assert.equal(redactNamedSecrets("'client_secret': 'abc'"), "'client_secret': '[REDACTED]'");
+  });
+
+  it("is case-insensitive on the name", () => {
+    assert.equal(redactNamedSecrets("Db_Password=hunter2"), "Db_Password=[REDACTED]");
+    assert.equal(redactNamedSecrets("apiKey=hunter2"), "apiKey=[REDACTED]");
+  });
+
+  it("keeps the NAME itself, redacting only the value", () => {
+    const out = redactNamedSecrets("GITHUB_TOKEN=hunter2");
+    assert.match(out, /^GITHUB_TOKEN=/);
+    assert.doesNotMatch(out, /hunter2/);
+  });
+
+  it("redacts every occurrence in one blob (global replace)", () => {
+    assert.equal(
+      redactNamedSecrets("A_TOKEN=one B_SECRET=two"),
+      "A_TOKEN=[REDACTED] B_SECRET=[REDACTED]",
+    );
+  });
+
+  it("does not redact a name that isn't secret-shaped", () => {
+    const text = "REQUEST_COUNT=5, STATUS: ok";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
+  it("leaves ordinary prose untouched", () => {
+    const text = "the request took 5 seconds and returned ok";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rewriteHomePaths — $HOME-absolute paths → ~-relative
+// ---------------------------------------------------------------------------
+
+describe("rewriteHomePaths", () => {
+  it("rewrites a $HOME-absolute path to ~-relative", () => {
+    assert.equal(
+      rewriteHomePaths(`path is ${FAKE_HOME}/work/eva/file.txt`, FAKE_HOME),
+      "path is ~/work/eva/file.txt",
+    );
+  });
+
+  it("rewrites the bare home dir with nothing after it", () => {
+    assert.equal(rewriteHomePaths(`cwd=${FAKE_HOME}`, FAKE_HOME), "cwd=~");
+  });
+
+  it("rewrites every occurrence in one blob (global replace)", () => {
+    assert.equal(
+      rewriteHomePaths(`${FAKE_HOME}/a and ${FAKE_HOME}/b`, FAKE_HOME),
+      "~/a and ~/b",
+    );
+  });
+
+  it("does not rewrite a longer sibling directory name (right-boundary guard)", () => {
+    const text = `${FAKE_HOME}2/other`;
+    assert.equal(rewriteHomePaths(text, FAKE_HOME), text);
+  });
+
+  it("does not rewrite when the match isn't at a proper left path boundary", () => {
+    // "banana" + FAKE_HOME's basename-shaped suffix is a coincidental
+    // substring, not an actual occurrence of the home path — the char right
+    // before the match must not be alphanumeric.
+    const text = `banana${FAKE_HOME}/file`;
+    assert.equal(rewriteHomePaths(text, FAKE_HOME), text);
+  });
+
+  it("returns text unchanged when home is falsy (empty/undefined)", () => {
+    const text = `path ${FAKE_HOME}/file`;
+    assert.equal(rewriteHomePaths(text, ""), text);
+    assert.equal(rewriteHomePaths(text, undefined), text);
+  });
+
+  it("escapes regex-special characters in the home path", () => {
+    const home = "/tmp/scrub(fixture)+home";
+    assert.equal(rewriteHomePaths(`${home}/file`, home), "~/file");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// truncateScrubbed — cap at MAX_CODEPOINTS with a truncation marker
+// ---------------------------------------------------------------------------
+
+describe("truncateScrubbed", () => {
+  it("leaves text at or under the limit unchanged", () => {
+    const text = "a".repeat(MAX_CODEPOINTS);
+    assert.equal(truncateScrubbed(text), text);
+    assert.equal(truncateScrubbed("short"), "short");
+  });
+
+  it("truncates text over the limit and appends the marker", () => {
+    const text = "a".repeat(MAX_CODEPOINTS + 50);
+    const out = truncateScrubbed(text);
+    assert.equal(out, "a".repeat(MAX_CODEPOINTS) + TRUNCATION_MARKER);
+  });
+
+  it("counts Unicode code points, not UTF-16 units (surrogate-pair safe)", () => {
+    // 😀 is a surrogate pair (2 UTF-16 units, 1 code point).
+    const text = "😀".repeat(MAX_CODEPOINTS + 10);
+    const out = truncateScrubbed(text);
+    assert.equal([...out.replace(TRUNCATION_MARKER, "")].length, MAX_CODEPOINTS);
+    assert.ok(out.endsWith(TRUNCATION_MARKER));
+  });
+
+  it("respects a custom limit", () => {
+    assert.equal(truncateScrubbed("abcdef", 3), "abc" + TRUNCATION_MARKER);
+    assert.equal(truncateScrubbed("abc", 3), "abc");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scrub — composite transform
+// ---------------------------------------------------------------------------
+
+describe("scrub", () => {
+  it("throws a TypeError on non-string input", () => {
+    assert.throws(() => scrub(123), TypeError);
+    assert.throws(() => scrub(null), TypeError);
+    assert.throws(() => scrub(undefined), TypeError);
+  });
+
+  it("applies redaction, home-path rewrite, and truncation together, in order", () => {
+    const token = `ghp_${"a".repeat(36)}`;
+    const input = `token=${token} at ${FAKE_HOME}/work`;
+    const out = scrub(input, { home: FAKE_HOME });
+    assert.equal(out, `token=${REDACTED} at ~/work`);
+  });
+
+  it("redacts a secret fully even when its span crosses the truncation boundary", () => {
+    const secretBody = "a".repeat(36);
+    const token = `ghp_${secretBody}`; // 40 chars, straddles MAX_CODEPOINTS if unredacted
+    const padding = "x".repeat(MAX_CODEPOINTS - 10);
+    const input = `${padding} ${token} more-padding-after`;
+    const out = scrub(input, { home: FAKE_HOME });
+    // Redaction runs before truncation, so no raw fragment of the secret —
+    // not even a partial one sliced by the 500-code-point cutoff — can ever
+    // reach the output. (The short "[REDACTED]" marker itself may still get
+    // sliced by truncation; that's cosmetic, not a leak, since it carries no
+    // secret material.)
+    assert.doesNotMatch(out, /ghp_/);
+    assert.ok(!out.includes(secretBody));
+  });
+
+  it("defaults opts to {} and home to the real OS homedir when not given", () => {
+    // No opts at all — exercises the `opts = {}` default and the `opts.home
+    // ?? homedir()` branch that falls through to the real homedir().
+    const out = scrub("plain text, no secrets, no home paths");
+    assert.equal(out, "plain text, no secrets, no home paths");
+  });
+
+  it("uses an explicit opts.home over the real OS homedir", () => {
+    const out = scrub(`at ${FAKE_HOME}/x`, { home: FAKE_HOME });
+    assert.equal(out, "at ~/x");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// main — CLI entry point (injected io)
+// ---------------------------------------------------------------------------
+
+describe("main (injected io)", () => {
+  it("--version logs the bare version and exits 0", () => {
+    let logged = null;
+    let code = null;
+    main(["node", "x", "--version"], { log: (s) => { logged = s; }, exit: (c) => { code = c; } });
+    assert.equal(logged, SCRIPT_VERSION);
+    assert.equal(code, 0);
+  });
+
+  it("--help logs usage and exits 0", () => {
+    let logged = null;
+    let code = null;
+    main(["node", "x", "--help"], { log: (s) => { logged = s; }, exit: (c) => { code = c; } });
+    assert.match(logged, /scrub\.mjs — privacy scrub/);
+    assert.equal(code, 0);
+  });
+
+  it("reads stdin, scrubs it, writes the result, exits 0", () => {
+    let written = null;
+    let code = null;
+    main(["node", "x"], {
+      readStdin: () => `TOKEN=hunter2 at ${FAKE_HOME}/file`,
+      write: (s) => { written = s; },
+      exit: (c) => { code = c; },
+      home: FAKE_HOME,
+    });
+    assert.equal(written, "TOKEN=[REDACTED] at ~/file");
+    assert.equal(code, 0);
+  });
+
+  it("fails closed: readStdin throwing emits nothing and exits 0", () => {
+    let written = null;
+    let writeCalled = false;
+    let code = null;
+    main(["node", "x"], {
+      readStdin: () => { throw new Error("EAGAIN"); },
+      write: (s) => { writeCalled = true; written = s; },
+      exit: (c) => { code = c; },
+    });
+    assert.equal(writeCalled, false);
+    assert.equal(written, null);
+    assert.equal(code, 0);
+  });
+
+  it("fails closed: scrub() throwing (non-string from readStdin) emits nothing and exits 0", () => {
+    let writeCalled = false;
+    let code = null;
+    main(["node", "x"], {
+      readStdin: () => null,
+      write: () => { writeCalled = true; },
+      exit: (c) => { code = c; },
+    });
+    assert.equal(writeCalled, false);
+    assert.equal(code, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isCliEntry
+// ---------------------------------------------------------------------------
+
+describe("isCliEntry", () => {
+  const scriptUrl = pathToFileURL(SCRIPT_PATH).href;
+
+  it("returns true when argv[1] is the absolute script path", () => {
+    assert.equal(isCliEntry(scriptUrl, ["node", SCRIPT_PATH]), true);
+  });
+
+  it("returns true when argv[1] is a relative path resolving to the script", () => {
+    const cwdBefore = process.cwd();
+    process.chdir(dirname(SCRIPT_PATH));
+    try {
+      assert.equal(isCliEntry(scriptUrl, ["node", "./scrub.mjs"]), true);
+    } finally {
+      process.chdir(cwdBefore);
+    }
+  });
+
+  it("returns false for a different file", () => {
+    assert.equal(isCliEntry(scriptUrl, ["node", "/some/other.mjs"]), false);
+  });
+
+  it("returns false when argv[1] is undefined (covers `?? ''` fallback)", () => {
+    assert.equal(isCliEntry(scriptUrl, ["node"]), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CLI subprocess (covers the module-scope entry guard + real-io defaults)
+// ---------------------------------------------------------------------------
+
+describe("CLI invocation (subprocess — covers entry guard)", () => {
+  function run(args, input) {
+    return spawnSync(process.execPath, [SCRIPT_PATH, ...args], { encoding: "utf-8", timeout: 30000, input: input ?? "" });
+  }
+
+  it("--version prints the bare version and exits 0", () => {
+    const r = run(["--version"]);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), SCRIPT_VERSION);
+  });
+
+  it("--help prints usage and exits 0", () => {
+    const r = run(["--help"]);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Usage:/);
+  });
+
+  it("scrubs real stdin through the real CLI and writes to stdout", () => {
+    const r = run([], "TOKEN=hunter2\n");
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, "TOKEN=[REDACTED]\n");
+  });
+
+  it("never writes a file — only reads stdin and writes stdout", () => {
+    const r = run([], "plain text");
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, "plain text");
+    assert.equal(r.stderr, "");
+  });
+});

@@ -2,6 +2,9 @@
 name: vuln-scanner
 description: Per-module deep vulnerability scanner dispatched in parallel by /ievo:vuln-scan. Applies the vuln-scan skill (CWE-aware, exploit-chain validation) to ONE module. Returns structured findings with complete attack narratives. Designed for parallel dispatch — multiple modules scanned concurrently via Task tool. Context isolation prevents large source-code reads from polluting the orchestrator's log buffer.
 model: sonnet
+# Security-critical exploit-chain validation — pinned high so a low-effort
+# caller session can't silently degrade the vulnerability-scan guarantee.
+effort: high
 tools:
   - Read
   - Glob

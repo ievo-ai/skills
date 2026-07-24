@@ -99,10 +99,12 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 ### Skills format
 - Every `SKILL.md` MUST conform to [agentskills.io spec](https://agentskills.io/specification)
-- Required frontmatter: `name`, `description` (≤1024 chars). Optional: `license`, `compatibility`, `metadata`, `allowed-tools`, `disable-model-invocation`
+- Required frontmatter: `name`, `description` (≤1024 chars), `effort` (validated by `validate_skills.mjs` — errors on absent or invalid value; see `code.claude.com/docs/en/sub-agents#adjust-effort-level`). Optional: `license`, `compatibility`, `metadata`, `allowed-tools`, `disable-model-invocation`, `paths`, `argument-hint`
 - Body should be ≤500 lines; split detail into `references/` if more is needed
 - Skills are activated by description match (semantic), so descriptions must clearly state WHAT + WHEN to use
 - `disable-model-invocation: true` (optional, default `false`) makes a skill **user-invoke only** — its description is withheld from the model so it cannot auto-activate on description match. Reserve it for heavyweight skills where accidental activation is costly AND no agent invokes them programmatically; the current set is `init`, `deep-review`. Do NOT set it on skills that sub-agents load via the Skill tool / skills system (`security-check` ← `security-auditor`) — a Skill-tool call is a model invocation, so the flag would break that pipeline. The same constraint applies to `vuln-scan` for a related reason (v0.47.1+): `vuln-scanner.md` preloads it via `skills:` subagent frontmatter rather than a runtime `Skill()` call, and per Claude Code's docs a skill can't be preloaded either once it sets `disable-model-invocation: true`, since preloading draws from the same set of skills Claude can invoke. As of Claude Code v2.1.196 it also prevents a [scheduled task](https://code.claude.com/docs/en/scheduled-tasks) from firing the skill when the skill is the task's prompt. Explicit `/ievo:<name>` invocation is unaffected.
+- `paths` (optional, added v0.61.0, skills#157/#175) — glob patterns (YAML list) that scope auto-activation to sessions where a matching file is in context (`code.claude.com/docs/en/skills` — same format as memory path-specific rules). Unknown to platforms that don't support it; those ignore it gracefully rather than erroring, so it's safe forward-compat. Only add it where file-context is genuinely predictive of relevance — currently `security-check`, `index-repos`, `vuln-scan`, `hooks-setup`. Do NOT add it to always-relevant skills (`evo`, `handoff`, `feedback`, etc. — wrong gating is worse than none) — and do NOT add it to a skill that already carries `disable-model-invocation: true` (`deep-review`, `init`): that flag withholds the skill's description from the model entirely, so Claude never reaches the file-context check `paths` would gate, making the field silently inert there.
+- `argument-hint` (optional, added v0.61.0, skills#157/#177) — hint text shown in the `/` menu autocomplete for skills that take positional arguments, e.g. `argument-hint: "[owner/repo] [ref]"`. Purely cosmetic autocomplete UX; ignored gracefully on platforms without `/` menu autocomplete. Current set: `inspect`, `feedback`, `index-repos`.
 
 ### Scripts language
 - **All scripts in `plugins/ievo/scripts/` are Node.js (`.mjs`)** — no Python, no other runtimes
@@ -166,7 +168,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.60.4):**
+**Current compliance ledger (v0.61.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.

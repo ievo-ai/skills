@@ -2,6 +2,9 @@
 name: evolution
 description: Capture a lesson and add it to the appropriate evolution overlay file. Use when the user identifies a behavior to improve, mistake to prevent, project convention, team role, or tech-stack constraint worth persisting. Appends to `.ievo/evolution/<scope>/<name>.md`. The target agent/skill body is never modified — overlays are read live at dispatch via a one-time marker injection.
 model: opus
+# Mechanical, structured overlay append (Steps 2-4) — xhigh reasoning (Opus 4.8's
+# default) is wasted token spend on a task this deterministic.
+effort: low
 tools:
   - Read
   - Write

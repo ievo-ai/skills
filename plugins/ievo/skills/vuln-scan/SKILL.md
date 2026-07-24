@@ -8,6 +8,17 @@ effort: high
 # exploit-chain validation.
 model: sonnet
 compatibility: "Requires source code access via Read/Glob/Grep tools and git CLI for diff-based scoping. Designed for Sonnet-tier reasoning — Haiku lacks depth for exploit-chain validation. Host platform should route via model: sonnet alias in vuln-scanner agent frontmatter, and this skill's own model: sonnet pins the scan turn on direct invocation."
+# Auto-activation is relevant during source-code analysis, not config/doc
+# work — a genuinely predictive file-context signal (operator example,
+# skills#157). Ignored gracefully on platforms without `paths` support.
+paths:
+  - "src/**"
+  - "lib/**"
+  - "**/*.ts"
+  - "**/*.js"
+  - "**/*.mjs"
+  - "**/*.py"
+  - "**/*.go"
 disallowed-tools:
   - Write
   - Edit

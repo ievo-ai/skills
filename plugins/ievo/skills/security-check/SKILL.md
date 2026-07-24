@@ -10,6 +10,16 @@ effort: high
 # guards the scan turn, not the whole session.
 model: sonnet
 compatibility: "Requires `gh` CLI for API metadata and `git` for cloning candidates before file reads. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter, and this skill's own `model: sonnet` pins the audit turn on direct invocation."
+# Auto-activation is genuinely predictive here — reviewing skill/agent/plugin
+# files IS the install-review context this skill exists for. Unknown to
+# platforms without `paths` support, which ignore it gracefully (skills#157).
+paths:
+  - "plugins/**"
+  - "agents/**"
+  - "**/SKILL.md"
+  - "**/AGENTS.md"
+  - "**/agent.yaml"
+  - "**/marketplace.json"
 disallowed-tools:
   - Write
   - Edit

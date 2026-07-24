@@ -6,6 +6,22 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.61.0
+
+Add `effort:`, `paths:`, and `argument-hint:` frontmatter across iEvo agent + skill files — a frontmatter-compat sweep folding in two companion proposals — closes #157, #175, #177.
+
+- **Gap closed (#157)** — none of the 5 `plugins/ievo/agents/*.md` files (`deep-reviewer`, `evolution`, `repo-indexer`, `security-auditor`, `vuln-scanner`) declared `effort:`. Claude Code's sub-agents docs document `effort` as a first-class agent field (overrides session effort; values `low`/`medium`/`high`/`xhigh`/`max`), and Opus 4.8 (CC v2.1.154) now defaults to high effort — without a pin, a mechanical agent like `evolution` (overlay append) inherits unnecessarily deep reasoning, while a security agent inherits whatever a low-effort caller session happened to be in.
+- **Fix** — pinned per task complexity: `evolution.md` → `low` (mechanical structured write), `repo-indexer.md` → `low` (deterministic `scan_repo.mjs` scan), `deep-reviewer.md`/`security-auditor.md`/`vuln-scanner.md` → `high` (structured review / antivirus audit / exploit-chain validation all need thorough reasoning regardless of session context). Each file carries a one-line rationale comment above its `effort:` line. `deep-reviewer.md` was pinned `high` rather than the originally-proposed `medium` per operator amendment on #157.
+- **Gap closed (#175)** — no iEvo skill used the `paths` frontmatter field (CC skills.md, post-2026-06-02) to scope auto-activation to sessions with relevant files in context; skill suggestions were always-on regardless of file relevance.
+- **Fix** — added `paths:` to `security-check` (plugin/agent/marketplace files), `index-repos` (skill/agent/plugin repo structure), `vuln-scan` (source trees), and `hooks-setup` (`.claude/settings*`). **Deliberately excluded `deep-review`** despite its inclusion in the original #175 proposal: `deep-review/SKILL.md` already sets `disable-model-invocation: true`, which withholds the skill's description from the model entirely (verified against `code.claude.com/docs/en/skills`) — Claude never reaches the file-context check `paths` would gate, so the field would be silently inert there. Documented in AGENTS.md § Skills format next to the field's introduction, including this interaction.
+- **Gap closed (#177)** — `inspect`, `feedback`, and `index-repos` accept positional arguments with no `argument-hint`, leaving the `/` menu autocomplete without a hint of expected input.
+- **Fix** — added `argument-hint: "[owner/repo] [ref]"` (inspect), `"[title]"` (feedback), `"[owner/repo ...]"` (index-repos).
+- **Validator impact** — `validate_agents.mjs` already validated `effort:` if present (error on invalid value only, no absent-field error for agents); no validator change needed. `validate_skills.mjs` does not enumerate a known-optional-field allowlist, so the new `paths`/`argument-hint` keys pass through untouched. `node plugins/ievo/scripts/validate_agents.mjs` (5/5) and `node plugins/ievo/scripts/validate_skills.mjs` (19/19) both pass with 0 violations.
+- **Scope** — three companion proposals (#175, #177, both `backlog-verified` and closed) folded into this build per operator scope-extension comment on #157; one version bump for all three per "one build" framing. No script logic changed, no coverage impact — all changes are additive frontmatter + docs.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.60.4
 
 Small-correctness sweep: `/ievo:update` points to `/reload-skills` (not `/reload-plugins`) for refreshed skill content, `plugin.json` declares `defaultEnabled: true` explicitly, and README documents the git-clone `.claude/skills` auto-load developer install path — closes #166, #158, #160.

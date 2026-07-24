@@ -1,9 +1,19 @@
 ---
 name: index-repos
 description: Use this skill when expanding a small set of candidate skills into the full breadth of what their host repos offer. Enumerates the full content of one or more GitHub repos that host Claude Code skills, agents, and plugins. Thin wrapper around `scripts/scan_repo.mjs` (deterministic Node scanner — no LLM required). Returns structured markdown indices per repo.
+argument-hint: "[owner/repo ...]"
 license: MIT
 effort: medium
 compatibility: Requires `git` CLI + Node.js 18+ (ships with Claude Code — guaranteed available). Same script is used by ievo-ai/community-index GHA — single source of truth.
+# Auto-activation is relevant when working with plugin/skill repo structure,
+# not general projects. Ignored gracefully on platforms without `paths`
+# support (skills#157).
+paths:
+  - "**/SKILL.md"
+  - "**/AGENTS.md"
+  - "**/agent.yaml"
+  - "**/.claude-plugin/**"
+  - "**/.codex-plugin/**"
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

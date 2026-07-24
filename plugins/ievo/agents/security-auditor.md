@@ -2,6 +2,10 @@
 name: security-auditor
 description: Senior application security engineer specializing in AI agent supply-chain vulnerabilities. Performs vulnerability assessment of ONE candidate (skill / agent / plugin from Claude Code or Codex marketplace) before installation. Domain expertise — prompt injection (direct + indirect), credential exfiltration, supply-chain compromise patterns, hook abuse, indirection attacks, encoded payloads, social engineering in technical artifacts, tool-model bypass. Deep content review (full SKILL.md + agent.md + scripts/ + references/ + assets/ + bundled plugin files). No owner-based trust shortcuts — reputation isn't security. Returns structured verdict (GREEN/YELLOW/RED) + cited evidence flags + pre-filled GitHub issue body for RED findings. Dispatched in parallel by /ievo:init Step 8.
 model: sonnet
+# Security-critical deep content scan — pinned high so a low-effort caller
+# session can't silently degrade the antivirus guarantee (same class of risk
+# as the CLAUDE_CODE_SUBAGENT_MODEL gotcha in AGENTS.md § Security model).
+effort: high
 # The auditor inspects + returns a verdict and a pre-filled report body in its
 # output JSON. Its ONLY file write is the RED-only `.ievo/hooks/security-red`
 # signal in Step 6, so `Write` stays in the allowlist. `Bash` stays because

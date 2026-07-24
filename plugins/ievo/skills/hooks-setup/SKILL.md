@@ -13,6 +13,13 @@ allowed-tools:
   - Bash(claude*)
   - Bash(echo*)
 compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop `background_tasks`/`session_crons`); v2.1.163+ (Stop/SubagentStop `additionalContext`); v2.1.195+ (hyphenated matchers exact-match, e.g. `mcp__brave-search__.*`); v2.1.198+ (`Notification` `agent_needs_input`/`agent_completed`). Cursor v3.11+: own `.cursor/hooks.json` (below). Codex rust-v0.133.0+: `SubagentStart`/`SubagentStop`/`PostToolUse` (below)."
+# Auto-activation is relevant when working with Claude Code settings or skill
+# files — a genuinely predictive file-context signal (operator example,
+# skills#157). Ignored gracefully on platforms without `paths` support.
+paths:
+  - ".claude/settings.json"
+  - ".claude/settings.local.json"
+  - "**/SKILL.md"
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

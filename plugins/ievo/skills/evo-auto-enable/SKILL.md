@@ -1,9 +1,9 @@
 ---
 name: evo-auto-enable
-description: "Enable auto-evolution mode for this project — iEvo accumulates \"corrections from the user\" as evolution candidates during a session and surfaces them for review via /ievo:evo, without the user having to invoke evo explicitly. Sets the project-local flag `.ievo/evo-auto.flag` and prepares the pending-candidate queue at `.ievo/evolution-candidates/`. Auto-mode writes ONLY unambiguous project-wide overlays; ambiguous or user-level matches are parked for manual review, never written silently. Trigger words — \"turn on auto evolution\", \"auto-evolve\", \"capture lessons automatically\", \"evo auto on\", \"evolve without asking\"."
+description: "Enable auto-evolution mode for this project — iEvo accumulates \"corrections from the user\" as evolution candidates during a session and surfaces them for review via /ievo:evo, without the user having to invoke evo explicitly. Sets the project-local flag `.ievo/evo-auto.flag` and prepares the pending-candidate queue at `.ievo/evolution-candidates/`. Asks whether to also capture tool failures/denials (opt-in, scrubbed for privacy). Auto-mode writes ONLY unambiguous project-wide overlays; ambiguous or user-level matches are parked for manual review, never written silently. Trigger words — \"turn on auto evolution\", \"auto-evolve\", \"capture lessons automatically\", \"evo auto on\", \"evolve without asking\"."
 license: MIT
 effort: low
-compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Requires write access to `.ievo/`, POSIX shell (bash/zsh) or the Write tool. Paired with `/ievo:evo-auto-disable`. Installs a UserPromptSubmit correction-capture hook + a SessionStart analysis nudge into `.claude/settings.json` (Claude Code hook schema; the hook scripts need `node` and `jq`, both already required by iEvo)."
+compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Requires write access to `.ievo/`, POSIX shell (bash/zsh) or the Write tool. Paired with `/ievo:evo-auto-disable`. Installs a UserPromptSubmit correction-capture hook, a SessionStart analysis nudge, and (opt-in) a PostToolUseFailure/PermissionDenied failure-capture hook into `.claude/settings.json` (hook scripts need `node` + `jq`, both already required by iEvo)."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -24,9 +24,13 @@ Enabled here, disabled with `/ievo:evo-auto-disable`.
 
 Auto-evolution is deliberately conservative — it never guesses at a silent write:
 
-- **Signal (v1):** only **corrections from the user** — semantic, agent-judged
-  ("actually, do X not Y"; "no, we always Z here"). Mechanical signals
-  (non-zero exits, test failures) are intentionally out of scope for now.
+- **Signal:** always **corrections from the user** — semantic, agent-judged
+  ("actually, do X not Y"; "no, we always Z here"). Optionally, ALSO **tool
+  failures and permission denials** (`PostToolUseFailure` / `PermissionDenied`)
+  — a purely mechanical signal captured verbatim with no agent judgment
+  involved, opt-in via Step 2's `AskUserQuestion`, scrubbed for privacy before
+  it ever touches disk. Off by default (`signal: corrections-only`); an absent
+  or pre-existing flag with no `signal:` line behaves the same way.
 - **Auto-write is project-wide only.** A candidate is written to the overlay
   automatically **only** when its scope is unambiguously **project-wide**
   (`.ievo/evolution/project.md` — see `/ievo:evo` Step 1).
@@ -58,22 +62,40 @@ Auto-evolution builds on the same overlay model — nothing to evolve yet.
 
 Exit.
 
-### 2. Write the flag file
+### 2. Ask about failure/denial capture, then write the flag file
+
+If `<project>/.ievo/evo-auto.flag` already exists, read its current `signal:`
+value first (treat an absent line, or any value other than
+`corrections+failures`, as `corrections-only`) and preselect the matching
+option below — this re-run is a refresh, not a fresh opt-in choice.
+
+Ask via `AskUserQuestion`:
+
+```
+Also capture tool failures and permission denials as evolution candidates?
+- "corrections-only"     — capture only explicit user corrections (default)
+- "corrections+failures" — also capture failed/denied tool calls
+  (PostToolUseFailure + PermissionDenied), scrubbed for privacy, for later
+  fixed-vs-noise review via /ievo:evo
+```
 
 Use the Write tool (NOT Bash) to create `<project>/.ievo/evo-auto.flag` with YAML
-content (mirrors `.ievo/debug.flag`'s shape):
+content (mirrors `.ievo/debug.flag`'s shape), `signal:` set to the answer above:
 
 ```
 enabled: true
 enabled_at: <ISO-8601 UTC timestamp>
 enabled_by: <user identifier if known, else "user-invocation">
-signal: corrections-only
+signal: <corrections-only | corrections+failures>
 auto_write_scope: project-wide-only
 ```
 
 The file format is YAML for easy human reading. Presence of the file = mode
 enabled; the correction-capture hook and the periodic-analysis nudge read it to
-decide whether to accumulate and surface candidates.
+decide whether to accumulate and surface candidates. The failure-capture hook
+(Step 3.6) additionally gates on the `signal:` value — flipping it later (edit
+the flag, or re-run this skill) takes effect on the next hook fire, no
+re-install needed.
 
 ### 3. Prepare the pending-candidate queue
 
@@ -101,45 +123,75 @@ Each parked candidate is appended below as:
 - Correction: <verbatim user correction / lesson text>
 ```
 
-### 3.5 Install the correction-capture + analysis hooks
+### 3.5 Install the correction-capture + analysis + failure-capture hooks
 
-This is what makes auto-evolution actually capture and surface corrections. Two
-hooks are wired into the project's `.claude/settings.json`, both **gated on
-`.ievo/evo-auto.flag`** so they are no-ops the moment the mode is off (or
-`/ievo:evo-auto-disable` removes the flag), and both **fail-silent and
-non-blocking**. They follow `/ievo:hooks-setup`'s conventions — exec-form
-`args: string[]`, `additionalContext` emitted from the hook command's stdout
-JSON, no `set -e`. Verified against the [Claude Code hooks
-reference](https://code.claude.com/docs/en/hooks) (UserPromptSubmit +
-SessionStart both support `hookSpecificOutput.additionalContext`; SessionStart is
-context-only and cannot block startup).
+This is what makes auto-evolution actually capture and surface corrections (and,
+opt-in, tool failures/denials). Three hooks are wired into the project's
+`.claude/settings.json`, all **gated on `.ievo/evo-auto.flag`** so they are
+no-ops the moment the mode is off (or `/ievo:evo-auto-disable` removes the
+flag), and all **fail-silent and non-blocking**. They follow
+`/ievo:hooks-setup`'s conventions — exec-form `args: string[]`, no `set -e`; the
+correction-capture and analysis-nudge hooks emit `additionalContext` from the
+hook command's stdout JSON, the failure-capture hook (Step 3.6) emits no stdout
+at all (nothing for the agent to act on mid-failure). Verified against the
+[Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
+(UserPromptSubmit + SessionStart both support
+`hookSpecificOutput.additionalContext`; SessionStart is context-only and cannot
+block startup; PostToolUseFailure's error payload field is `tool_error`, NOT a
+top-level `error` — see Step 3.6's note on this).
 
-The hooks call the per-session accumulator
+The correction-capture and analysis-nudge hooks call the per-session accumulator
 `plugins/ievo/scripts/evolution_candidates.mjs` (Node, stdlib-only) for
 `append` / `count` / `prune`. It only ACCUMULATES — it never classifies scope or
-writes overlays; analysis is deferred to the next session (Step 3.5.4 / the
-contract below).
+writes overlays; analysis is deferred to the next session (Step 3.5.3 / the
+contract below). The failure-capture hook (Step 3.6) also calls
+`plugins/ievo/scripts/scrub.mjs` to redact the record before it ever reaches
+disk.
 
-#### 3.5.1 Resolve and bake the accumulator path
+#### 3.5.1 Resolve the plugin root and vendor a stable fallback copy
 
-A hook in the project's `.claude/settings.json` does **not** get
-`CLAUDE_PLUGIN_ROOT` set at fire time, so resolve the accumulator's absolute path
-**now**, while this skill is running inside the plugin, and bake it into the
-scripts as a string literal. Run via Bash:
+A hook fired from the project's own `.claude/settings.json` does **not** get
+`CLAUDE_PLUGIN_ROOT` set at fire time, so every generated script below prefers a
+live `CLAUDE_PLUGIN_ROOT` when present and otherwise falls back to a
+**project-local vendored copy** — never a path baked from `CLAUDE_PLUGIN_ROOT` at
+setup time. That literal would point into the versioned plugin cache
+(`~/.claude/plugins/cache/...`); it goes stale on the very next plugin update
+(orphaned cache directories are purged ~14 days later) and the scripts'
+fail-silent contracts hide the resulting silent death — a baked-path generator
+was found dead in the wild this way (#422). This rule applies to every script
+generated by this skill, not just the new one.
+
+Run via Bash, using the plugin root this skill itself is running from:
 
 ```
-test -f "${CLAUDE_PLUGIN_ROOT}/scripts/evolution_candidates.mjs" && echo "${CLAUDE_PLUGIN_ROOT}/scripts/evolution_candidates.mjs"
+mkdir -p .ievo/hooks/scripts/vendor
+cp "${CLAUDE_PLUGIN_ROOT}/scripts/evolution_candidates.mjs" .ievo/hooks/scripts/vendor/evolution_candidates.mjs 2>/dev/null && \
+cp "${CLAUDE_PLUGIN_ROOT}/scripts/scrub.mjs" .ievo/hooks/scripts/vendor/scrub.mjs 2>/dev/null && \
+echo ok
 ```
 
-Use the printed path as `<accumulator-abs-path>` below. If the `test` fails
-(empty output), the plugin root couldn't be resolved — tell the user auto-mode's
+If this does NOT print `ok` (empty/unset `CLAUDE_PLUGIN_ROOT`, or either source
+script missing), the plugin root couldn't be resolved — tell the user auto-mode's
 capture hooks can't be configured right now, and skip to Step 4 (the flag + queue
 from Steps 2–3 still stand; the user can re-run once resolved).
 
+The vendored copies live at the **fixed, non-versioned, relative** paths
+`.ievo/hooks/scripts/vendor/evolution_candidates.mjs` and
+`.ievo/hooks/scripts/vendor/scrub.mjs` — every generated script below bakes in
+these literal relative paths as its fallback, never a `CLAUDE_PLUGIN_ROOT`-derived
+absolute one, so no per-project substitution is needed. Hook scripts always run
+with `cwd` = the project root (the existing `.ievo/evo-auto.flag` relative-path
+check in Step 3.5.2 already relies on this), so a relative fallback path is
+sufficient. Re-running `/ievo:evo-auto-enable` refreshes both vendored copies to
+the currently-installed plugin version; between a plugin update and the next
+re-run the vendored fallback can lag the live version by one release — the same
+staleness window every other vendored file in this plugin already accepts (see
+`/ievo:update`), and a live `CLAUDE_PLUGIN_ROOT` (when the platform does expose it
+to a project hook) is always preferred first.
+
 #### 3.5.2 Write the correction-capture hook (UserPromptSubmit)
 
-Use the Write tool to create `.ievo/hooks/scripts/correction-capture.sh`
-(substitute `<accumulator-abs-path>` with the Step 3.5.1 result):
+Use the Write tool to create `.ievo/hooks/scripts/correction-capture.sh`:
 
 ```sh
 #!/bin/sh
@@ -159,9 +211,11 @@ Use the Write tool to create `.ievo/hooks/scripts/correction-capture.sh`
 
 [ -f .ievo/evo-auto.flag ] || exit 0
 
-# Prefer a runtime CLAUDE_PLUGIN_ROOT if present; else the path baked at setup.
+# Prefer a runtime CLAUDE_PLUGIN_ROOT if present; else the vendored fallback
+# copy Step 3.5.1 refreshes on every enable/re-enable (never a baked
+# plugin-cache literal -- that path dies on the next plugin update).
 ACC="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/evolution_candidates.mjs}"
-[ -n "$ACC" ] && [ -f "$ACC" ] || ACC="<accumulator-abs-path>"
+[ -n "$ACC" ] && [ -f "$ACC" ] || ACC=".ievo/hooks/scripts/vendor/evolution_candidates.mjs"
 
 # session_id comes from the hook's stdin JSON. jq is a hard dependency of gh,
 # which iEvo already requires; fall back to "unknown" if absent/unparseable.
@@ -184,8 +238,7 @@ appends it.
 
 #### 3.5.3 Write the SessionStart analysis nudge
 
-Use the Write tool to create `.ievo/hooks/scripts/evo-analysis-nudge.sh` (same
-`<accumulator-abs-path>` substitution):
+Use the Write tool to create `.ievo/hooks/scripts/evo-analysis-nudge.sh`:
 
 ```sh
 #!/bin/sh
@@ -199,8 +252,11 @@ Use the Write tool to create `.ievo/hooks/scripts/evo-analysis-nudge.sh` (same
 
 [ -f .ievo/evo-auto.flag ] || exit 0
 
+# Prefer a runtime CLAUDE_PLUGIN_ROOT if present; else the vendored fallback
+# copy Step 3.5.1 refreshes on every enable/re-enable (never a baked
+# plugin-cache literal -- that path dies on the next plugin update).
 ACC="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/evolution_candidates.mjs}"
-[ -n "$ACC" ] && [ -f "$ACC" ] || ACC="<accumulator-abs-path>"
+[ -n "$ACC" ] && [ -f "$ACC" ] || ACC=".ievo/hooks/scripts/vendor/evolution_candidates.mjs"
 
 # Retention: keep the last 10 sessions of candidates (best-effort).
 node "$ACC" prune --keep 10 >/dev/null 2>&1 || true
@@ -209,21 +265,22 @@ n=$(node "$ACC" count 2>/dev/null || echo 0)
 case "$n" in ""|*[!0-9]*) exit 0 ;; esac
 [ "$n" -gt 0 ] || exit 0
 
-msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Remove each candidate from its session file as you consume it."
+msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured tool failures/denials, not corrections -- apply a failure-then-fixed-vs-noise judgment before folding one in: a failure later resolved toward the same goal is learnable, a failure inside normal iteration is noise. Remove each candidate from its session file as you consume it."
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
 exit 0
 ```
 
 Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/evo-analysis-nudge.sh`.
 
-#### 3.5.4 Wire both hooks into `.claude/settings.json`
+#### 3.5.4 Wire the correction-capture + analysis hooks into `.claude/settings.json`
 
 Read the project's `.claude/settings.json` first (treat absent as `{}`); if it
 exists but is **not valid JSON**, halt without writing (do not clobber manual
 edits) and tell the user to fix it. Merge with the **Read + Edit** tools (not
 shell JSON edits — preserves comments and key order), appending these two entries
-and deduping by the inner `command` + `args` pair (skip if an identical entry
-already exists), using the same Read + Edit merge mechanics `/ievo:hooks-setup`
+(a third, for failure-capture, is Step 3.6) and deduping by the inner `command` +
+`args` pair (skip if an identical entry already exists), using the same Read +
+Edit merge mechanics `/ievo:hooks-setup`
 Step 6 uses (that skill's own hook entries still lack `command` as of this
 writing — see the `hooks-setup/SKILL.md` scope note in CHANGELOG.md — so the
 dedup *key* differs; only the merge mechanics are shared). Claude Code's hook
@@ -278,6 +335,103 @@ self-assessment nudge and writes solely under `.ievo/` — a known, purpose-buil
 exception, documented in `security-check/SKILL.md` so iEvo's own tooling does not
 self-flag it.
 
+### 3.6 Write + wire the failure-capture hook (opt-in, `PostToolUseFailure` + `PermissionDenied`)
+
+Unlike the two hooks above, this one needs no agent judgment at all — a tool
+call either failed/was denied or it didn't, so the hook script does the whole
+capture itself (extract → build a compact record → scrub → append) and never
+emits `additionalContext`. It always installs (so flipping `signal:` in the flag
+takes effect immediately, no re-run needed) but is a no-op unless
+`signal: corrections+failures` is set — mirroring how every other hook here
+self-gates on the flag rather than being conditionally wired.
+
+Use the Write tool to create `.ievo/hooks/scripts/failure-capture.sh`:
+
+```sh
+#!/bin/sh
+# iEvo auto-evolution — tool-failure capture (PostToolUseFailure / PermissionDenied).
+# Fires whenever a tool call fails or is denied. Purely mechanical -- no agent
+# judgment needed, so (unlike correction-capture.sh) this script does the whole
+# capture itself: extract the failure/denial from the hook's stdin JSON, build a
+# compact one-line {event,tool,outcome,detail} record, pipe it through scrub.mjs,
+# then append it via the accumulator's --scope tool-failure. Deliberately emits
+# NO stdout -- there is nothing actionable for the agent mid-failure; analysis is
+# deferred to the next SessionStart nudge same as corrections.
+#
+# CONTRACT: fail-silent (mode off / signal not opted in / any error => exit 0,
+# no output), non-blocking, fail-CLOSED for content -- a scrub failure or a
+# missing scrub.mjs drops the record; a raw/unscrubbed record must NEVER reach
+# disk, even transiently. NO `set -e`.
+
+[ -f .ievo/evo-auto.flag ] || exit 0
+grep -q '^signal: corrections+failures$' .ievo/evo-auto.flag || exit 0
+
+# Prefer a runtime CLAUDE_PLUGIN_ROOT if present; else the vendored fallback
+# copies Step 3.5.1 refreshes on every enable/re-enable (never a baked
+# plugin-cache literal -- that path dies on the next plugin update).
+ACC="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/evolution_candidates.mjs}"
+[ -n "$ACC" ] && [ -f "$ACC" ] || ACC=".ievo/hooks/scripts/vendor/evolution_candidates.mjs"
+SCRUB="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/scrub.mjs}"
+[ -n "$SCRUB" ] && [ -f "$SCRUB" ] || SCRUB=".ievo/hooks/scripts/vendor/scrub.mjs"
+[ -f "$ACC" ] && [ -f "$SCRUB" ] || exit 0
+
+input=$(cat)
+sid=$(printf '%s' "$input" | jq -r '.session_id // "unknown"' 2>/dev/null || echo unknown)
+case "$sid" in "") sid="unknown" ;; esac
+event=$(printf '%s' "$input" | jq -r '.hook_event_name // "unknown"' 2>/dev/null || echo unknown)
+
+case "$event" in
+  PostToolUseFailure) outcome=failed ;;
+  PermissionDenied) outcome=denied ;;
+  *) exit 0 ;;
+esac
+
+# The Claude Code hooks reference (code.claude.com/docs/en/hooks) documents
+# PostToolUseFailure's error payload as tool_error; some empirical probes have
+# reported a top-level `error` string instead. Try tool_error first (doc-
+# confirmed), then error, then reason, so a naming discrepancy across Claude
+# Code versions doesn't silently drop the signal -- none of the three are
+# documented for PermissionDenied, so detail there falls back to tool_input
+# alone. jq -c keeps the whole record to a single line.
+record=$(printf '%s' "$input" | jq -c --arg outcome "$outcome" '{event: .hook_event_name, tool: (.tool_name // "unknown"), outcome: $outcome, detail: {error: (.tool_error // .error // .reason // null), tool_input}}' 2>/dev/null)
+[ -n "$record" ] || exit 0
+
+scrubbed=$(printf '%s' "$record" | node "$SCRUB" 2>/dev/null)
+[ -n "$scrubbed" ] || exit 0
+
+mkdir -p .ievo/hooks/tmp
+tmp=.ievo/hooks/tmp/failure-pending.txt
+printf '%s' "$scrubbed" > "$tmp" 2>/dev/null || exit 0
+
+node "$ACC" append --session "$sid" --text-file "$tmp" --scope tool-failure >/dev/null 2>&1 || true
+exit 0
+```
+
+Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/failure-capture.sh`.
+
+Same fixed-path rationale as `correction-capture.sh`'s temp file (Step 3.5.2): the
+record is built and scrubbed entirely inside this script, then handed to the
+accumulator via `--text-file` at the **fixed** path
+`.ievo/hooks/tmp/failure-pending.txt` — never `--text` with the record
+interpolated into a Bash argument, so nothing a failing tool printed can break out
+of shell quoting (the same CWE-78 class closed in #373 for corrections).
+
+Wire it into `.claude/settings.json` with the same Read + Edit merge mechanics as
+Step 3.5.4, under BOTH `hooks.PostToolUseFailure[]` and `hooks.PermissionDenied[]`
+(no `matcher` — fires on every tool; the script itself gates on flag + signal):
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "command": "sh",
+      "args": [".ievo/hooks/scripts/failure-capture.sh"]
+    }
+  ]
+}
+```
+
 ### 4. Offer to gitignore the candidate queue
 
 Captured candidates can contain verbatim conversation snippets. On first enable in
@@ -295,17 +449,26 @@ Print:
 🧬 iEvo auto-evolution mode ENABLED
 
 Flag: .ievo/evo-auto.flag (commit to share the setting with teammates)
+Signal: <corrections-only | corrections+failures, from Step 2's answer>
 Pending queue: .ievo/evolution-candidates/pending.md
 Hooks (local, in .claude/settings.json):
-  UserPromptSubmit → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
-  SessionStart      → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
+  UserPromptSubmit               → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
+  SessionStart                    → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
+  PostToolUseFailure/PermissionDenied → .ievo/hooks/scripts/failure-capture.sh
+    (installed either way; active only when Signal is corrections+failures)
 
 From now on, corrections you make during a session are captured as evolution
 candidates. At the next session start you'll be nudged to review them: unambiguous
 project-wide lessons are written to the overlay automatically; ambiguous or
 user-level ones are parked in the pending queue for review via /ievo:evo —
 never written silently.
+```
 
+Then, if `signal: corrections+failures`, print one more line: "Also capturing
+tool failures/denials (scrubbed for privacy) — reviewed the same way." Finally,
+always print:
+
+```
 Review parked candidates any time: /ievo:evo
 Turn off: /ievo:evo-auto-disable
 ```
@@ -313,19 +476,23 @@ Turn off: /ievo:evo-auto-disable
 ## What auto-evolution mode does while `evo-auto.flag` exists
 
 This is the contract the correction-capture hook
-(`.ievo/hooks/scripts/correction-capture.sh`) and the SessionStart analysis nudge
-(`.ievo/hooks/scripts/evo-analysis-nudge.sh`) honor, both backed by the
+(`.ievo/hooks/scripts/correction-capture.sh`), the SessionStart analysis nudge
+(`.ievo/hooks/scripts/evo-analysis-nudge.sh`), and — opt-in — the failure-capture
+hook (`.ievo/hooks/scripts/failure-capture.sh`) honor, all backed by the
 `evolution_candidates.mjs` accumulator (the same way other iEvo skills honor
 `debug.flag`). Components that participate in auto-evolution MUST:
 
 1. **Accumulate, don't reason at teardown.** In-session capture only *appends*
-   candidate corrections (verbatim) to the per-session accumulator under
+   candidate corrections (verbatim) — or, if opted in, scrubbed tool-failure
+   records under `--scope tool-failure` — to the per-session accumulator under
    `.ievo/evolution-candidates/<session-id>.jsonl` via the accumulator's `append`
    — no scope classification, no overlay write, no LLM analysis mid-capture.
 2. **Analyze at the next session, with fresh context.** The `SessionStart` nudge
    ("N evolution candidates pending — review?") counts via the accumulator and
    folds review into `/ievo:evo`'s existing Step 1 scope classification —
-   the same nudge pattern `/ievo:hooks-setup`'s version-check uses.
+   the same nudge pattern `/ievo:hooks-setup`'s version-check uses. `scope:
+   tool-failure` candidates get an extra failure-then-fixed-vs-noise judgment
+   call (Step 3.5.3's nudge text) before folding one in.
 3. **Write project-wide only; park the rest.** Only an unambiguously project-wide
    candidate may be written to `.ievo/evolution/project.md` automatically. Ambiguous
    or user-level-only candidates go to `pending.md` for manual review. Silent
@@ -333,6 +500,11 @@ This is the contract the correction-capture hook
 4. **Consume on write, cap retention.** A candidate folded into an overlay is
    removed from the queue; keep the last 10 sessions of candidates and suggest
    cleanup beyond that.
+5. **Scrub before persisting (failure-capture only).** A tool-failure/denial
+   record is built from untrusted tool output, so it is piped through
+   `scrub.mjs` before it ever reaches disk; if scrubbing fails or `scrub.mjs`
+   itself is unavailable, the record is dropped — fail-closed for content, never
+   a raw record written even transiently.
 
 ## Rules
 
@@ -341,10 +513,16 @@ This is the contract the correction-capture hook
 - **Never write silently outside project-wide scope:** ambiguity is parked, not
   guessed. This preserves `/ievo:evo`'s human-in-the-loop reconciliation for
   agent/skill and user-level targets.
-- **Corrections only (v1):** do not treat routine back-and-forth as a correction;
-  when unsure whether a turn was a correction, do not capture it (a false capture
-  pollutes the pending queue). Mechanical signals are out of scope until a later
-  iteration.
+- **Corrections, always; tool failures/denials, opt-in only:** corrections are
+  agent-judged — do not treat routine back-and-forth as a correction, and when
+  unsure, do not capture it (a false capture pollutes the pending queue).
+  Tool-failure/denial capture is the one mechanical signal in scope, and only
+  when `signal: corrections+failures` — captured verbatim (post-scrub), no
+  agent judgment applied at capture time, judgment deferred to review.
+- **Never bake a versioned path.** Every generated hook script resolves its
+  script dependencies at run time — prefer a live `CLAUDE_PLUGIN_ROOT`, else the
+  vendored fallback copy under `.ievo/hooks/scripts/vendor/` (Step 3.5.1) —
+  never a `CLAUDE_PLUGIN_ROOT`-derived literal baked in at setup time.
 - **Project-local:** the setting lives in `.ievo/`, not user config, so it is
   per-project and survives sessions.
 
@@ -355,3 +533,5 @@ This is the contract the correction-capture hook
 - `/ievo:debug-on` / `/ievo:debug-off` — the paired-toggle + project-local-flag
   pattern this skill follows
 - `.ievo/evolution-candidates/pending.md` — where parked candidates accumulate
+- `plugins/ievo/scripts/scrub.mjs` — the privacy scrub every failure-capture
+  record is piped through before it touches disk

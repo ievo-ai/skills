@@ -6,6 +6,22 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.62.0
+
+Document three Cursor v3.7/v3.8 platform-native alternatives across `deep-review`, `schedule`, `init`, and `handoff` — a Cursor compat sweep folding in two companion proposals — closes #203, #220, #225.
+
+- **Gap closed (#203)** — `deep-review/SKILL.md`'s `compatibility:` field acknowledged the Task-tool sub-agent limitation on non-Claude-Code/Codex platforms but said nothing about Cursor v3.7+'s native `/review` (Bugbot) command, leaving Cursor users without guidance on which review tool to reach for.
+- **Fix** — appended a one-sentence note to the `compatibility:` field: Cursor v3.7+ users get `/review` as a faster (~90s) platform-native alternative; `/ievo:deep-review` remains the pick for the structured 11-point checklist or cross-platform sessions. Field stays within the 500-char `COMPATIBILITY_MAX_LENGTH` (462/500).
+- **Gap closed (#220)** — `schedule/SKILL.md` only documented Claude Code Routines with a generic CI-cron fallback for "Codex and other platforms" — no mention of Cursor v3.8's `/automate` command, which creates Cursor Automations (including a GitHub "workflow run completed" trigger) without requiring a Claude subscription.
+- **Fix** — added a two-sentence paragraph after the skill's intro naming `/automate` as a Cursor-native alternative, linking to the Cursor changelog for current syntax rather than duplicating a tutorial; the existing Routines wizard and CI-cron fallback (Step 1b) are unchanged.
+- **Gap closed (#225)** — `init/SKILL.md` and `handoff/SKILL.md` had no guidance for Cursor v3.7+ users on persisting the iEvo-ready environment across `/in-cloud` cloud sessions via `.cursor/environment.json`.
+- **Fix** — `init/SKILL.md` Step 12 gained a short "Cursor cloud sessions" note alongside the existing Codex platform-conditional line, pointing to the Cursor changelog for current capture syntax; `handoff/SKILL.md`'s "lighter alternatives" table gained one row distinguishing `.ievo:handoff`'s cognitive-state capsule from `environment.json`'s installed-plugin-state snapshot (complementary, not a replacement).
+- **Scope** — two companion proposals (#220, #225, both `backlog-verified` and closed) folded into this build per operator scope-extension comment on #203; one version bump for all three per "one build" framing. Each note kept to 1-3 sentences with no feature tutorials, per operator direction — a deliberate scope-down from the more elaborate wizard/subsection changes #220 and #225 originally proposed.
+- **Verification** — the `/review` claim (native command, ~90s review time, +10% bug detection, duplicate-PR sync) was independently re-verified against `cursor.com/changelog/bugbot-updates-june-2026` during this build; the `/automate` and `.cursor/environment.json` claims carry the operator's own same-day re-verification (see #220/#225 closing comments) — general changelog pagination did not surface those specific dated entries during this build's own check, so this build relied on the existing verification trail rather than re-deriving it.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.61.0
 
 Add `effort:` and `argument-hint:` frontmatter across iEvo agent, skill, and command files, and evaluate `paths:` — a frontmatter-compat sweep folding in two companion proposals — closes #157, #175, #177.

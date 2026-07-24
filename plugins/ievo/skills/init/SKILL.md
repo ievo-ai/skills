@@ -762,6 +762,13 @@ manually on each machine for now.
 On Claude Code, Step 2.2 already folded iEvo's own entry into the "Project settings
 updated" line above — no separate confirmation line needed there.
 
+**Cursor cloud sessions (v3.7+).** Cursor's `.cursor/environment.json` captures a
+reusable environment snapshot — installed plugins included — for `/in-cloud`
+sessions. After this init completes, Cursor users can capture a snapshot (Cursor's
+Environment menu, or see the [Cursor changelog](https://cursor.com/changelog) for
+current CLI syntax) so future cloud sessions start with iEvo pre-installed instead
+of re-running `/ievo:init` in every ephemeral VM.
+
 ## Step 13: Invite feedback (especially on skips)
 
 If any candidates were skipped, rejected on security, dropped/demoted by the Step 7a filters (O1/O2 overlap, stack-relevance), or had a filter decision overridden via the `overlap_tail[]` batch question (`filter_override[]` non-empty):

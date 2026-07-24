@@ -20,6 +20,8 @@ Set up a recurring Claude Code Routine that runs iEvo operations on a schedule â
 
 Routines are created from three surfaces that all write to the same cloud account: the web UI at claude.ai/code/routines, the Desktop app, and the in-session `/schedule` command. This skill drives the `/schedule` path and falls back to the web UI, then to a CI cron template.
 
+**Cursor v3.8+ users** have a platform-native alternative: the `/automate` command creates a Cursor Automation directly (including a GitHub "workflow run completed" trigger), no Claude subscription required â€” see the [Cursor changelog](https://cursor.com/changelog) for current syntax. This skill's wizard below still applies for Claude Code Routines, and the CI cron fallback (Step 1b) still applies on Codex and other platforms.
+
 ## When to use
 
 - User asks "schedule an iEvo audit", "set up weekly security scan", "automate iEvo"

@@ -52,13 +52,14 @@ A structured 11-point review of your diff by an independent reviewer (fresh cont
 
 ## Step 1: Determine scope
 
-Check if the user specified a scope mode. Three modes are supported:
+Check if the user specified a scope mode. Three user-selectable modes are supported, plus a committed-diff fallback the skill offers when the tree is clean:
 
 | Mode | Trigger | Git command |
 |------|---------|-------------|
 | **staged** (default) | `--staged`, or no flag | `git diff --staged` |
 | **working** | `--working` | `git diff` |
 | **range** | `--range <ref>..<ref>` | `git diff <ref>..<ref>` |
+| **committed** (fallback) | not user-selectable — offered when staged and unstaged are both empty | `git diff "$(git merge-base HEAD origin/<default-branch>)"..HEAD` |
 
 If the user didn't specify a mode, default to **staged**. If there are no staged changes in staged mode, check for unstaged changes and ask:
 
@@ -74,7 +75,7 @@ Use `AskUserQuestion`:
   - `Yes, review working tree` — description: `Run git diff (unstaged changes)`
   - `Cancel` — description: `Nothing to review`
 
-If both staged and unstaged are empty, fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch, then take its **merge base** with `HEAD` — the same resolution cascade and merge-base form `commands/vuln-scan.md` uses. Never diff two-dot against `origin/<default-branch>` directly: on a branch that has fallen behind, `git diff origin/<b>..HEAD` renders the default-branch-only commits as reversed deletions and the reviewer reports them as findings.
+If both staged and unstaged are empty, fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch, then take its **merge base** with `HEAD` — the same merge-base form, and the same first two resolution tiers (`git symbolic-ref` → `gh repo view --json defaultBranchRef`), that `commands/vuln-scan.md`'s `--diff` scope uses. Deliberately drop that command's third tier, which warns and hardcodes `BASE_BRANCH="main"`: a scan that guesses a base and over-reports is recoverable, but a review silently diffing against a `main` the repo may not have would hand the reviewer a fabricated range — so an unresolvable default branch falls through to the clean exit below instead of guessing. Never diff two-dot against `origin/<default-branch>` directly: on a branch that has fallen behind, `git diff origin/<b>..HEAD` renders the default-branch-only commits as reversed deletions and the reviewer reports them as findings.
 
 ```bash
 # Try git symbolic-ref first, then the gh API

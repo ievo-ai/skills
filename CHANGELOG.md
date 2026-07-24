@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.60.2
+
+Document CC v2.1.187's `sandbox.credentials` setting and WebFetch permission-rule domain scoping as operator-side defense-in-depth for `security-check`/`vuln-scan` — closes #234.
+
+- **Gap closed** — `security-check/SKILL.md` and `vuln-scan/SKILL.md`'s `disallowed-tools` blocks write actions (`Write`, `Edit`, destructive `Bash`) but not a sandboxed Bash command reading a credential file, nor a WebFetch call reaching an attacker-controlled domain, if content under scan prompt-injects the auditor into trying either.
+- **security-check/SKILL.md, vuln-scan/SKILL.md** — added a "Sandbox hardening (CC v2.1.187+)" section to each: (1) [`sandbox.credentials`](https://code.claude.com/docs/en/sandboxing#protect-credentials), a structured `{files, envVars}` object (not a boolean, as an earlier draft of this proposal assumed) that requires `sandbox.enabled: true` and restricts sandboxed Bash reads only — the Read tool each skill's own file-fetch/source-review flow uses is unaffected; (2) a `permissions.allow` rule scoped to `WebFetch(domain:...)` for the exact domains a scan needs, since a scoped specifier in a skill/agent's own frontmatter carries no effect (ievo-ai/skills#212).
+- **AGENTS.md § Security model** — added a bullet documenting both settings alongside the existing `CLAUDE_CODE_SUBAGENT_MODEL`/model-bypass-vectors cluster.
+- **Scope** — documentation-only; no script logic changed, no coverage impact. Confined to `AGENTS.md`, `plugins/ievo/skills/security-check/SKILL.md`, `plugins/ievo/skills/vuln-scan/SKILL.md`.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (`scan_repo.mjs` intentionally left decoupled, per its own versioning policy).
+
 ## v0.60.1
 
 Document Claude Code v2.1.169's `--safe-mode`/`CLAUDE_CODE_SAFE_MODE` as a total bypass of iEvo, and `disableBundledSkills`/`CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` as the non-bypass contrast case — closes #189, #190.

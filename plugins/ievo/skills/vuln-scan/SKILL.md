@@ -8,17 +8,11 @@ effort: high
 # exploit-chain validation.
 model: sonnet
 compatibility: "Requires source code access via Read/Glob/Grep tools and git CLI for diff-based scoping. Designed for Sonnet-tier reasoning — Haiku lacks depth for exploit-chain validation. Host platform should route via model: sonnet alias in vuln-scanner agent frontmatter, and this skill's own model: sonnet pins the scan turn on direct invocation."
-# Auto-activation is relevant during source-code analysis, not config/doc
-# work — a genuinely predictive file-context signal (operator example,
-# skills#157). Ignored gracefully on platforms without `paths` support.
-paths:
-  - "src/**"
-  - "lib/**"
-  - "**/*.ts"
-  - "**/*.js"
-  - "**/*.mjs"
-  - "**/*.py"
-  - "**/*.go"
+# No `paths:` gate here, deliberately. This scanner is language-agnostic (its
+# CWE taxonomy is not tied to any ecosystem), so any extension allowlist is an
+# allowlist that silently kills auto-activation for every language it omits —
+# Rust, Java, Ruby, PHP, C# and so on. Per AGENTS.md § Skills format, wrong
+# gating is worse than none (skills#157/#175).
 disallowed-tools:
   - Write
   - Edit

@@ -13,9 +13,12 @@ compatibility: "Requires `gh` CLI for API metadata and `git` for cloning candida
 # Auto-activation is genuinely predictive here — reviewing skill/agent/plugin
 # files IS the install-review context this skill exists for. Unknown to
 # platforms without `paths` support, which ignore it gracefully (skills#157).
+# Every pattern is `**/`-prefixed: these globs are root-anchored otherwise (the
+# docs' own `*.md` example matches the project root only), which would make the
+# directory patterns dead in any project that doesn't vendor plugins at its root.
 paths:
-  - "plugins/**"
-  - "agents/**"
+  - "**/plugins/**"
+  - "**/agents/**"
   - "**/SKILL.md"
   - "**/AGENTS.md"
   - "**/agent.yaml"

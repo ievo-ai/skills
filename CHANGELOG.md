@@ -6,6 +6,21 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.60.4
+
+Small-correctness sweep: `/ievo:update` points to `/reload-skills` (not `/reload-plugins`) for refreshed skill content, `plugin.json` declares `defaultEnabled: true` explicitly, and README documents the git-clone `.claude/skills` auto-load developer install path — closes #166, #158, #160.
+
+- **Gap closed (#166)** — `commands/update.md` Step 6's post-refresh reminder told users to run `/reload-plugins` to activate freshly-overwritten `.claude/skills/<name>/` content. Claude Code v2.1.152 shipped `/reload-skills`, the command specifically designed to re-scan skill directories without a session restart; `/reload-plugins` targets plugin manifests, a different surface, so users following the old instruction either reloaded the wrong thing or had to restart their session to pick up the refresh.
+- **Fix** — Step 6 now tells users to run `/reload-skills` for skill content (with the v2.1.152+ minimum-version note) and keeps `/reload-plugins` as a separate line scoped to `.claude-plugin/plugin.json` manifest changes.
+- **Gap closed (#158)** — `plugins/ievo/.claude-plugin/plugin.json` had no `defaultEnabled` field. Claude Code v2.1.154 introduced `defaultEnabled: false` as an explicit opt-out; iEvo's always-on activation intent was only implicit.
+- **Fix** — added `"defaultEnabled": true` to `plugin.json`, making the intent explicit and audit-legible.
+- **Gap closed (#160)** — README only documented marketplace-based install. Claude Code v2.1.157 added auto-loading of plugins placed under `.claude/skills/` directories without marketplace registration — a simpler path for contributors tracking `main` directly, undocumented until now.
+- **Fix** — added a "Developer install (git clone, no marketplace)" subsection to the Quick start section: the `git clone` → `~/.claude/skills/ievo` path, its v2.1.157+ requirement, and `git pull` for updates. README-only, per operator scoping — no skill-body changes.
+- **Scope** — three tiny, independently-verified documentation/manifest corrections consolidated into one build and one version bump per operator direction (see #166 scope comment, which also closed #158/#160 into this issue). No script logic changed; no coverage impact.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.60.3
 
 Upgrade `validate_skills.mjs`'s missing `effort:` frontmatter field from a warning to an error (CC v2.1.162 `/effort` persistence) — closes #187.

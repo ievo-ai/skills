@@ -762,9 +762,15 @@ manually on each machine for now.
 On Claude Code, Step 2.2 already folded iEvo's own entry into the "Project settings
 updated" line above — no separate confirmation line needed there.
 
-**Cursor cloud sessions (v3.7+).** Cursor's `.cursor/environment.json` captures a
-reusable environment snapshot — installed plugins included — for `/in-cloud`
-sessions. After this init completes, Cursor users can capture a snapshot (Cursor's
+**Cursor cloud sessions — platform-conditional note, append only on Cursor
+(v3.7+).** There is no env-var signal equivalent to `$CODEX_CLI` here: Cursor's
+CLI configuration reference documents none, and the community-reported
+`CURSOR_AGENT` has open reports of not being set for agent-run shell commands —
+so gate on the host platform being known to be Cursor, and omit the note when
+unsure (a Claude Code or Codex user has no use for it).
+
+Cursor's `.cursor/environment.json` captures a reusable environment snapshot —
+installed plugins included — for `/in-cloud` sessions. After this init completes, Cursor users can capture a snapshot (Cursor's
 Environment menu, or see the [Cursor changelog entry](https://cursor.com/changelog/cloud-in-agents-window)
 for current CLI syntax) so future cloud sessions start with iEvo pre-installed
 instead of re-running `/ievo:init` in every ephemeral VM.

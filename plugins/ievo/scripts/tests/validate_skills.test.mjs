@@ -340,13 +340,13 @@ describe("checkModelField", () => {
 });
 
 describe("checkEffortField", () => {
-  it("returns warning for absent effort field", () => {
+  it("returns error for absent effort field", () => {
     const v = checkEffortField(undefined);
     assert.equal(v.length, 1);
-    assert.equal(v[0].severity, "warning");
+    assert.equal(v[0].severity, "error");
     assert.equal(v[0].rule, "missing-effort-field");
-    assert.match(v[0].message, /Missing recommended/);
-    assert.match(v[0].message, /v2\.1\.149/);
+    assert.match(v[0].message, /Missing required/);
+    assert.match(v[0].message, /v2\.1\.162/);
   });
 
   it("returns empty array for effort: low", () => {
@@ -400,11 +400,11 @@ describe("validateSkillContent", () => {
     assert.deepEqual(validateSkillContent(content, "foo"), []);
   });
 
-  it("warns on valid minimal skill without effort field", () => {
+  it("errors on otherwise-valid skill without effort field", () => {
     const content = "---\nname: foo\ndescription: A short description.\n---\nBody";
     const v = validateSkillContent(content, "foo");
     assert.equal(v.length, 1);
-    assert.equal(v[0].severity, "warning");
+    assert.equal(v[0].severity, "error");
     assert.equal(v[0].rule, "missing-effort-field");
   });
 
@@ -766,17 +766,17 @@ describe("main (CLI entry)", () => {
     assert.match(run.logs.join("\n"), /agentskills\.io/);
   });
 
-  it("exits 0 with warnings for missing effort (warnings don't fail CI)", () => {
-    const skillDir = join(tmpDir, "warn-skill");
+  it("exits 1 for missing effort (errors fail CI)", () => {
+    const skillDir = join(tmpDir, "missing-effort-skill");
     mkdirSync(skillDir, { recursive: true });
     const filePath = join(skillDir, "SKILL.md");
-    writeFileSync(filePath, "---\nname: warn-skill\ndescription: ok\n---", "utf-8");
+    writeFileSync(filePath, "---\nname: missing-effort-skill\ndescription: ok\n---", "utf-8");
     const run = makeRun();
     main(["node", "validate_skills.mjs", filePath], run.exit, run.log, run.errLog);
-    assert.equal(run.exitCode, 0);
-    assert.match(run.logs.join("\n"), /✓/);
+    assert.equal(run.exitCode, 1);
+    assert.match(run.logs.join("\n"), /✗/);
     assert.match(run.logs.join("\n"), /missing-effort-field/);
-    assert.match(run.logs.join("\n"), /1 warnings/);
+    assert.match(run.logs.join("\n"), /1 errors/);
   });
 
   it("exits 1 for invalid effort value (error severity)", () => {
@@ -791,18 +791,17 @@ describe("main (CLI entry)", () => {
     assert.match(run.logs.join("\n"), /invalid-effort-value/);
   });
 
-  it("--quiet suppresses pass messages and warnings", () => {
+  it("--quiet suppresses pass messages", () => {
     const skillDir = join(tmpDir, "quiet-pass");
     mkdirSync(skillDir, { recursive: true });
     const filePath = join(skillDir, "SKILL.md");
-    writeFileSync(filePath, "---\nname: quiet-pass\ndescription: ok\n---", "utf-8");
+    writeFileSync(filePath, "---\nname: quiet-pass\ndescription: ok\neffort: low\n---", "utf-8");
     const run = makeRun();
     main(["node", "validate_skills.mjs", "--quiet", filePath], run.exit, run.log, run.errLog);
     assert.equal(run.exitCode, 0);
     assert.ok(!run.logs.some((l) => l.includes("✓")));
-    assert.ok(!run.logs.some((l) => l.includes("[warning]")));
     assert.match(run.logs.join("\n"), /1 passed/);
-    assert.match(run.logs.join("\n"), /1 warnings/);
+    assert.match(run.logs.join("\n"), /0 warnings/);
   });
 
   it("--quiet still shows violations", () => {
@@ -827,7 +826,7 @@ describe("main (CLI entry)", () => {
     const mixedDir = join(tmpDir, "mixed-files");
     const goodDir = join(mixedDir, "good");
     mkdirSync(goodDir, { recursive: true });
-    writeFileSync(join(goodDir, "SKILL.md"), "---\nname: good\ndescription: ok\n---", "utf-8");
+    writeFileSync(join(goodDir, "SKILL.md"), "---\nname: good\ndescription: ok\neffort: low\n---", "utf-8");
     const trapDir = join(mixedDir, "trap");
     mkdirSync(trapDir, { recursive: true });
     const trapFile = join(trapDir, "SKILL.md");

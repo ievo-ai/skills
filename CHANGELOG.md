@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.60.3
+
+Upgrade `validate_skills.mjs`'s missing `effort:` frontmatter field from a warning to an error (CC v2.1.162 `/effort` persistence) — closes #187.
+
+- **Gap closed** — Claude Code v2.1.162 made `/effort` persist across sessions instead of resetting at session end. Before that release, a SKILL.md without `effort:` was merely inconvenient (no status-bar display); after it, a missing `effort:` silently inherits whatever effort level the user left set from an unrelated prior session — e.g. a lightweight skill unexpectedly running (and pricing) at `max`. `checkEffortField()` still returned `severity: "warning"` for an absent field, which does not fail CI, so a new SKILL.md merged without `effort:` passed validation undetected.
+- **Fix** — `checkEffortField()` now returns `severity: "error"` for an absent `effort:` field (the invalid-value case was already `error` and is unchanged); updated the message to reference the v2.1.162 persistence behavior and the file-header comment (line 11) to "errors on absent, errors on invalid value".
+- **Dead-code cleanup** — `effort:` was the validator's only source of `warning`-severity violations; flipping it to `error` left `main()`'s per-file "print queued warnings under a passing ✓ line" loop permanently unreachable (no rule can ever produce a warning). Removed that loop — `totalWarnings` counting and the "N warnings" summary line stay in place (always print, just always `0`) for any future rule that reintroduces `warning` severity.
+- **Test coverage** — updated `validate_skills.test.mjs` assertions for the absent-effort path (`checkEffortField`, `validateSkillContent`, and the `main()` CLI end-to-end cases) from `warning`/exit-0 to `error`/exit-1; reworked the `--quiet` warning-suppression case (no longer reachable) into a plain pass-suppression case; kept fixture skills that aren't testing the effort rule on a real, valid `effort:` value so each test isolates one concern. `validate_skills.mjs` remains 100/100/100 (line/branch/function) on `coverage-gate.yml`.
+- **Regression check** — all 19 shipped `plugins/ievo/skills/*/SKILL.md` files already declare `effort:`, so none newly fail; `node plugins/ievo/scripts/validate_skills.mjs` passes 19/19 with 0 errors, 0 warnings.
+- **Scope** — confined to `plugins/ievo/scripts/validate_skills.mjs`, its test suite, and this changelog/AGENTS.md ledger entry; no other validator or skill file touched.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.60.2
 
 Document CC v2.1.187's `sandbox.credentials` setting and WebFetch permission-rule domain scoping as operator-side defense-in-depth for `security-check`/`vuln-scan` — closes #234.

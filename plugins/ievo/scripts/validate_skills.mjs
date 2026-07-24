@@ -9,7 +9,7 @@
 //   4. `compatibility`: optional, but if present ≤500 chars
 //   5. `model:`, if present, must be a vendor-neutral family alias
 //      (sonnet | opus | haiku | fable | inherit) — never a vendor-pinned ID
-//   6. `effort:` optional but recommended; warns on absent, errors on invalid value
+//   6. `effort:` required; errors on absent, errors on invalid value
 //
 // Exit codes:
 //   0 — all skills pass
@@ -183,10 +183,11 @@ export function checkModelField(model) {
 export function checkEffortField(effort) {
   if (!effort) {
     return [{
-      severity: "warning",
+      severity: "error",
       rule: "missing-effort-field",
-      message: "Missing recommended frontmatter field: effort (values: low, medium, high, xhigh, max). " +
-               "Claude Code v2.1.149+ shows this in the status bar.",
+      message: "Missing required frontmatter field: effort (values: low, medium, high, xhigh, max). " +
+               "Claude Code v2.1.162+ persists effort between sessions — skills without effort: " +
+               "inherit the session effort unexpectedly.",
     }];
   }
   if (!VALID_EFFORT_VALUES.has(effort)) {
@@ -357,9 +358,6 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
       totalPassed++;
       if (!args.quiet) {
         log(`✓ ${rel}`);
-        for (const w of warnings) {
-          log(`    [${w.severity}] ${w.rule}: ${w.message}`);
-        }
       }
     } else {
       log(`✗ ${rel}`);

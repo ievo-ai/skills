@@ -254,6 +254,7 @@ Verdict is your **synthesis** of what you found across all files. Not a rule-bas
 - "Has external URL" → only RED if destination is suspicious; localhost or well-known APIs are fine
 - "allowed-tools has Bash" → only RED if specific commands look destructive; `Bash(npm:*)` is normal
 - "Has `UserPromptSubmit` hook" → only RED if the command does something malicious. iEvo's own first-party correction-capture hook (installed by `/ievo:evo-auto-enable`, gated on `.ievo/evo-auto.flag`, and writing solely under `.ievo/`) is a known, purpose-built exception — it injects a self-assessment nudge, not a prompt-injection payload
+- "Has `PostToolUseFailure`/`PermissionDenied` hook" → only RED if the command does something malicious. The same `/ievo:evo-auto-enable` skill's opt-in failure-capture hook is a further first-party exception — likewise gated on `.ievo/evo-auto.flag` (plus `signal: corrections+failures`) and writing solely under `.ievo/`; it emits no `additionalContext` at all (it only records a scrubbed failure/denial record), so unlike a `UserPromptSubmit` hook it cannot prompt-inject the agent
 
 The point of antivirus deep scan is to look at WHAT the code does, not what category it falls into structurally.
 

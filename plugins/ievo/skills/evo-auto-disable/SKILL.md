@@ -3,7 +3,7 @@ name: evo-auto-disable
 description: "Disable auto-evolution mode for this project. Stops iEvo from accumulating \"corrections from the user\" as evolution candidates; reverts to explicit `/ievo:evo` only. Removes the project-local flag `.ievo/evo-auto.flag`. Non-destructive: already-parked candidates in `.ievo/evolution-candidates/` are preserved for review. Inverse of `/ievo:evo-auto-enable`. Trigger words — \"turn off auto evolution\", \"stop auto-evolve\", \"evo auto off\", \"stop capturing lessons automatically\"."
 license: MIT
 effort: low
-compatibility: "Any agentskills.io platform. Inverse of `/ievo:evo-auto-enable`. Uses POSIX shell (`rm -f`) with a Node `fs.unlinkSync` fallback and a Windows `Remove-Item` variant; on Windows run via WSL/Git Bash or use the Node fallback. Removes the flag, the two auto-evolution hook entries from `.claude/settings.json`, and their `.ievo/hooks/scripts/` scripts — the `.ievo/evolution-candidates/` queue is left intact."
+compatibility: "Any agentskills.io platform. Inverse of `/ievo:evo-auto-enable`. Uses POSIX shell (`rm -f`) with a Node `fs.unlinkSync` fallback and a Windows `Remove-Item` variant; on Windows run via WSL/Git Bash or use the Node fallback. Removes the flag, the auto-evolution hook entries from `.claude/settings.json`, their `.ievo/hooks/scripts/` scripts, and the vendored fallback copies — the `.ievo/evolution-candidates/` queue is left intact."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -68,7 +68,7 @@ node -e "try { require('fs').unlinkSync('<project>/.ievo/evo-auto.flag') } catch
 targets one named file — no glob, no recursion — and is idempotent, so it handles
 the race between Step 1's existence check and this step.)
 
-### 3.5 Remove the correction-capture + analysis hooks
+### 3.5 Remove the correction-capture + analysis + failure-capture hooks
 
 Auto-mode's hooks are gated on the flag, so removing the flag (Step 3) already
 makes them no-ops. Still, unwire them so the project's `.claude/settings.json`
@@ -76,23 +76,32 @@ and `.ievo/hooks/` don't accumulate dead entries:
 
 - **`.claude/settings.json`** — Read it first; if absent or not valid JSON, skip
   this bullet (nothing to clean / don't risk clobbering manual edits). Otherwise,
-  with the Read + Edit tools, remove the two entries whose inner hook is
+  with the Read + Edit tools, remove every entry whose inner hook is
   `{"type": "command", "command": "sh", "args": [".ievo/hooks/scripts/correction-capture.sh"]}`
-  (from `hooks.UserPromptSubmit`) and
+  (from `hooks.UserPromptSubmit`),
   `{"type": "command", "command": "sh", "args": [".ievo/hooks/scripts/evo-analysis-nudge.sh"]}`
-  (from `hooks.SessionStart`). Leave every other hook untouched; if a `hooks.*`
-  array becomes empty, you may drop the empty array. If neither entry is present,
-  there is nothing to remove.
-- **Hook scripts** — delete `.ievo/hooks/scripts/correction-capture.sh` and
-  `.ievo/hooks/scripts/evo-analysis-nudge.sh` if present (idempotent, narrow —
-  one named file each, no glob/recursion):
+  (from `hooks.SessionStart`), and
+  `{"type": "command", "command": "sh", "args": [".ievo/hooks/scripts/failure-capture.sh"]}`
+  (from BOTH `hooks.PostToolUseFailure` and `hooks.PermissionDenied`). Leave
+  every other hook untouched; if a `hooks.*` array becomes empty, you may drop
+  the empty array. If none of these entries are present, there is nothing to
+  remove.
+- **Hook scripts + vendored fallback copies** — delete
+  `.ievo/hooks/scripts/correction-capture.sh`, `.ievo/hooks/scripts/evo-analysis-nudge.sh`,
+  and `.ievo/hooks/scripts/failure-capture.sh` if present (idempotent, narrow —
+  one named file each, no glob/recursion), then remove the vendored fallback copy
+  directory those scripts fell back to (`/ievo:evo-auto-enable` Step 3.5.1) — safe
+  to remove wholesale since nothing else references it once every auto-mode
+  script above is gone:
 
 ```
-rm -f .ievo/hooks/scripts/correction-capture.sh .ievo/hooks/scripts/evo-analysis-nudge.sh
+rm -f .ievo/hooks/scripts/correction-capture.sh .ievo/hooks/scripts/evo-analysis-nudge.sh .ievo/hooks/scripts/failure-capture.sh
+rm -rf .ievo/hooks/scripts/vendor
 ```
 
 Do NOT touch `.ievo/evolution-candidates/` — captured candidates are preserved
-(Step 4). Re-enabling with `/ievo:evo-auto-enable` re-installs the hooks.
+(Step 4). Re-enabling with `/ievo:evo-auto-enable` re-installs the hooks (and
+refreshes the vendored copies).
 
 ### 4. Report the pending queue (do NOT delete it)
 
@@ -108,8 +117,8 @@ Print:
 🧬 iEvo auto-evolution mode DISABLED
 
 Was enabled: <enabled_at from flag>
-Corrections are no longer captured automatically — use /ievo:evo to record
-lessons manually.
+Corrections (and, if opted in, tool failures/denials) are no longer captured
+automatically — use /ievo:evo to record lessons manually.
 
 Pending candidates preserved: <count> in .ievo/evolution-candidates/pending.md
 Review them any time with /ievo:evo.
@@ -122,9 +131,10 @@ Re-enable: /ievo:evo-auto-enable
 - **Non-destructive:** do NOT delete `.ievo/evolution-candidates/`. The flag goes
   away; parked candidates stay so no captured correction is lost.
 - **Idempotent:** if already off, just say so — no error.
-- **Flag + its hooks only:** this skill removes `.ievo/evo-auto.flag`, the two
-  auto-evolution hook entries from `.claude/settings.json`, and the two hook
-  scripts under `.ievo/hooks/scripts/` — nothing else. The
+- **Flag + its hooks only:** this skill removes `.ievo/evo-auto.flag`, the
+  auto-evolution hook entries from `.claude/settings.json`, the (up to) three
+  hook scripts under `.ievo/hooks/scripts/`, and the vendored fallback copy
+  directory those scripts read from — nothing else. The
   `.ievo/evolution-candidates/` queue and every other hook are left intact.
 
 ## See also

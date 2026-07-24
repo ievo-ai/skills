@@ -213,6 +213,82 @@ tell the user: "Existing iEvo evolution state detected — kept as-is. Init cont
 for discovery; your overlays stay active." The idempotent inventory (Step 3)
 already prevents re-suggesting installed items.
 
+## Step 2.2: Self-register iEvo for team sync (Claude Code, plugin-mode only)
+
+Every candidate this pipeline discovers gets bootstrapped into `.claude/settings.json`
+at install time (Step 9b) so a teammate who `git pull`s the project auto-receives it.
+iEvo itself never got the same treatment — a teammate cloning a project that already
+has iEvo installed had no equivalent auto-install path, and had to `/plugin install`
+manually on every machine. This step closes that gap for iEvo's own entry.
+
+**Gate — plugin-mode only, no new detection needed.** Self-registration only makes
+sense when iEvo is running as an installed Claude Code plugin (there's a marketplace
+install to register); a vendored copy (manual `git clone` into a skills directory) has
+no marketplace concept to self-register, and writing `extraKnownMarketplaces` /
+`enabledPlugins` there would advertise a mechanism the current machine isn't using.
+Step 0a above already hard-stops the entire pipeline if
+`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` isn't readable — so simply
+reaching this step already proves plugin-mode. No additional check is needed.
+
+**Platform — skip entirely on Codex.** `.claude/settings.json` is a Claude
+Code-specific file. Detect Codex the same way Step 1.5 does (`$CODEX_CLI` env var
+ONLY — never `command -v codex`, for the same false-trigger reason given there) and
+skip this step there; see Step 2.3 for the Codex-side note.
+
+**Action:**
+1. Read or create `.claude/settings.json`.
+2. Merge (same merge-not-overwrite semantics as `install-protocol.md` § 9b —
+   preserve every other key, never overwrite):
+   ```json
+   "extraKnownMarketplaces": {
+     "ievo-skills": {
+       "source": { "source": "github", "repo": "ievo-ai/skills" }
+     }
+   },
+   "enabledPlugins": {
+     "ievo@ievo-skills": true
+   }
+   ```
+3. Write the merged JSON back.
+
+**Failure handling.** If the read/merge/write fails (malformed existing JSON,
+write permission denied, etc.), report it in the final summary (Step 12) and
+continue — do NOT abort init, same as Step 9's per-item failure handling.
+
+**No `autoUpdate` key.** Claude Code's own default for a third-party marketplace
+entry is `autoUpdate: false` — matches the "must remain an explicit user choice"
+constraint on auto-updates. Step 12's existing summary already tells the user how
+to opt into `autoUpdate: true` manually; this step doesn't change that.
+
+**Idempotent.** If `extraKnownMarketplaces.ievo-skills` and
+`enabledPlugins["ievo@ievo-skills"]` already match the values above, this is a
+no-op — safe on every re-run, same as Step 9b's own merge.
+
+This file is committed to git → teammates `git pull` → Claude Code prompts them to
+trust the folder → iEvo itself is now discoverable/installable the same way a
+vendored third-party plugin already is via Step 9b.
+
+## Step 2.3: Codex — documented limitation, no self-registration (yet)
+
+On Codex, the equivalent bootstrap does not exist upstream today: project-level
+`.codex/config.toml` `[plugins.*].enabled` entries are silently ignored — only
+user-level `~/.codex/config.toml` is authoritative (confirmed open as of
+2026-07-24: [`openai/codex#18115`](https://github.com/openai/codex/issues/18115)).
+Writing a project-level entry would silently do nothing, so this step is a
+documentation no-op, not a file write:
+
+- Do NOT write anything to `.codex/config.toml` for iEvo self-registration —
+  there is nothing to gain and it would misleadingly suggest persistence that
+  doesn't happen.
+- Do NOT change `.codex-plugin/marketplace.json`'s `policy.installation`
+  (`AVAILABLE`) as part of this — that governs onboarding/default-install UX for
+  iEvo's own public marketplace across every future Codex user, a separate,
+  deliberately-deferred call, out of scope here.
+- If the host platform is Codex (`$CODEX_CLI` set), tell the user once in the
+  final summary (Step 12): "iEvo's own project-level auto-bootstrap isn't
+  available on Codex yet — Codex doesn't persist project-scoped plugin config
+  (openai/codex#18115). Install/update iEvo manually on each machine for now."
+
 ## Step 2.5: Create run-log file (incremental writes — do not defer!)
 
 **Critical:** the log is written **incrementally**, after each major step — not as a single flush at the end. If init hangs, crashes, or the user cancels mid-run, the diagnostic log up to the point of failure must be on disk.
@@ -674,6 +750,17 @@ To update vendored skills/agents later:
 Diagnostic log: .ievo/log/init-<timestamp>.md
 Project settings updated: .claude/settings.json (commit to git for team sync)
 ```
+
+**Platform-conditional line — append only on Codex** (`$CODEX_CLI` set, per Step 2.3):
+
+```
+iEvo's own project-level auto-bootstrap isn't available on Codex yet — Codex doesn't
+persist project-scoped plugin config (openai/codex#18115). Install/update iEvo
+manually on each machine for now.
+```
+
+On Claude Code, Step 2.2 already folded iEvo's own entry into the "Project settings
+updated" line above — no separate confirmation line needed there.
 
 ## Step 13: Invite feedback (especially on skips)
 

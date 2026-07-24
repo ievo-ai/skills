@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.60.0
+
+Self-register iEvo's own marketplace/plugin entry into `.claude/settings.json` during `/ievo:init` so teammates get iEvo bootstrapped on `git pull`, and document the equivalent Codex limitation — closes #436.
+
+- **Gap closed** — `/ievo:init` already bootstraps every *discovered* third-party candidate into `.claude/settings.json` (`extraKnownMarketplaces` + `enabledPlugins`, Step 9b) so teammates auto-receive it, but never registered iEvo itself the same way. A teammate cloning a project that already had iEvo installed had no equivalent auto-install path — only a manual `/plugin install` on every machine.
+- **Fix (Claude Code)** — new `init/SKILL.md` Step 2.2 idempotently merges `extraKnownMarketplaces.ievo-skills` (source `ievo-ai/skills`) and `enabledPlugins["ievo@ievo-skills"]` into `.claude/settings.json`, using the same merge-not-overwrite JSON shape already documented in `install-protocol.md` § 9b. Gated on plugin-mode only (Step 0a's existing hard-stop on an unreadable `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` already proves this by the time Step 2.2 runs, so a vendored `git clone` copy is naturally skipped — no new detection needed) and skipped entirely on Codex. No `autoUpdate` key by default, matching Claude Code's own third-party-marketplace default and the issue's explicit "must remain an explicit user choice" constraint.
+- **Codex** — documented as a new Step 2.3: project-level `.codex/config.toml` `[plugins.*].enabled` entries are silently ignored upstream today (confirmed open, `openai/codex#18115`), so no project-level write happens; the final summary (Step 12) now tells a Codex user this once. `.codex-plugin/marketplace.json`'s `policy.installation` (`AVAILABLE`) is intentionally left unchanged — that onboarding-posture call was explicitly deferred to the operator during triage, out of scope for this issue.
+- **Scope** — confined to `plugins/ievo/skills/init/SKILL.md` (new Steps 2.2/2.3, `compatibility:` frontmatter note, Step 12 Codex-conditional summary line); prompt/instruction-only, no script changes.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION` (all three coupled to `plugin.json` via their own test assertions), `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.59.0
 
 Reorder all 19 SKILL.md descriptions to lead with trigger-intent framing ("Use this skill when...") instead of implementation-first prose, so runtimes that load only the opening tokens still see the invocation trigger — closes #205.

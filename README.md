@@ -49,17 +49,18 @@ cd <your-project>
 
 ### Developer install (git clone, no marketplace)
 
-Prefer a live git checkout over the marketplace? Claude Code v2.1.157+ auto-loads plugins placed under `.claude/skills/` without any marketplace registration:
+Prefer a live git checkout over the marketplace? Claude Code v2.1.157+ auto-loads plugins placed under `.claude/skills/` without any marketplace registration. This repo's plugin root is `plugins/ievo/` (the repo root itself only holds the marketplace manifest), so clone to a scratch location and symlink the plugin directory in — cloning straight to `~/.claude/skills/ievo` would nest the plugin one level too deep and silently fail to load:
 
 ```bash
-git clone https://github.com/ievo-ai/skills.git ~/.claude/skills/ievo
+git clone https://github.com/ievo-ai/skills.git ~/ievo-skills-src
+ln -s ~/ievo-skills-src/plugins/ievo ~/.claude/skills/ievo
 # Requires Claude Code v2.1.157+ — auto-loads, no /plugin marketplace add needed
 
 cd <your-project>
 /ievo:init
 ```
 
-To update: `cd ~/.claude/skills/ievo && git pull`. This is the recommended path for contributors tracking `main` directly; most users should use the marketplace install above instead, which brings routine version pinning and update prompts.
+To update: `cd ~/ievo-skills-src && git pull` (the symlink stays valid). This is the recommended path for contributors tracking `main` directly; most users should use the marketplace install above instead, which brings routine version pinning and update prompts.
 
 ### Codex (CLI / app / VS Code extension)
 

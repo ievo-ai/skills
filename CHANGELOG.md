@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.58.0
+
+Add capability-overlap and stack-relevance filters to `/ievo:init`'s recommendation step — closes #427, mechanizing 4 real rejection reasons from a live run reported in #314.
+
+- **Capability-overlap filter (Step 7a)** — two concrete rules run against the installed inventory (static pass) and again live against candidates already accepted this run (Step 7b, since that state only exists once the interview is underway): **O1** demotes a tool-specific candidate (e.g. `ruff-recursive-fix`) already covered by an installed/accepted item (`python-code-style`); **O2** demotes a domain generalist (e.g. `python-pro`) once ≥3 same-domain specialists are already installed/accepted. Demoted candidates are never silently dropped — they collect in `overlap_tail[]` and surface as one batched `AskUserQuestion` after the individual interview, mirroring Step 8a's YELLOW security batch. A user installing a demoted candidate anyway is recorded in `filter_override[]`.
+- **Stack-relevance filter (Step 7a)** — a new `packaging` category (previously falling into the catch-all `other` bucket with zero gating) is gated by a `published`/`internal-only` sub-type resolved in Step 4.5 from repo signals (publish/release CI, registry metadata, explicit private markers). `internal-only` drops the candidate silently-but-logged; genuinely ambiguous signal asks ONE question for the whole category ("Is this project published anywhere?") instead of one decline per packaging candidate.
+- **Visibility + feedback loop** — every drop/demotion carries a one-line reason, logged in run-log sections 6b and 7b (new subsections: dropped-stack-irrelevant, demoted-to-tail, overlap-tail decision, filter-overrides). Step 13's feedback invite now folds in filter drops/demotions/overrides, and flags `filter_override[]` entries to the feedback flow as a distinct signal from an ordinary skip (the filter rule was wrong for that case).
+- **Scope** — confined to `plugins/ievo/skills/init/SKILL.md` and its `references/reference-tables.md` (new `packaging` category row) + `references/log-format.md` (new log subsections); prompt/instruction-only, no script changes.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.57.0
 
 Consolidate six verified hook-surface deltas into `hooks-setup/SKILL.md` (Claude Code v2.1.152–v2.1.195 + Codex) — closes #429, folding in #239 (same delta, filed separately and not part of #429's original consolidation list).

@@ -34,7 +34,7 @@ Not every context problem needs a handoff. Reach for the lightest tool that fits
 | You ran `/clear` accidentally and want the context back | `/rewind` (Claude Code v2.1.191+) — restores the conversation to its pre-`/clear` state in the **same session**; `/ievo:handoff` cannot help here (it would capsule the now-cleared state) |
 | Context is deep but you want to keep going in the same session | `/compact` — lossy summarization; stays in the current session |
 | You want to branch, parallelize, or carry curated context to a NEW session | `/ievo:handoff` — this skill |
-| You're on Cursor v3.7+ spawning a cloud session via `/in-cloud` | `.cursor/environment.json` (captured after `/ievo:init`) — persists installed-plugin state; complementary to `/ievo:handoff`'s cognitive-state capsule, not a replacement |
+| You're on Cursor v3.7+ and want `/in-cloud` sessions to start with iEvo already installed | `.cursor/environment.json` (captured after `/ievo:init`) — persists installed-plugin state across ephemeral cloud VMs; pair it with `/ievo:handoff` when the new session also needs your current context |
 
 ## Inputs
 

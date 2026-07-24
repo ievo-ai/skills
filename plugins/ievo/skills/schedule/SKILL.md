@@ -8,7 +8,7 @@ allowed-tools:
   - Bash(claude --version)
   - Bash(env | grep*)
   - Read
-compatibility: "Claude Code only — Routines are a research preview (behavior, limits, and surface may change) and require a Pro/Max/Team/Enterprise subscription with Claude Code on the web enabled; the /schedule command needs Claude Code v2.1.81+ and a claude.ai login (API-key auth hides it). The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io; the scheduling wrapper is Claude Code-specific. Codex and other platforms: use the CI cron fallback."
+compatibility: "Routines are Claude Code-only — a research preview (behavior, limits, and surface may change) requiring a Pro/Max/Team/Enterprise subscription with Claude Code on the web enabled; the /schedule command needs Claude Code v2.1.81+ and a claude.ai login (API-key auth hides it). The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io. Cursor v3.8+: native `/automate` creates a Cursor Automation instead. Codex and others: CI cron fallback."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

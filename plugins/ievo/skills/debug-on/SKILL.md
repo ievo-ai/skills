@@ -1,6 +1,6 @@
 ---
 name: debug-on
-description: "Enable verbose / trace-level logging across the iEvo pipeline. Use when the user wants to debug an init, evo, or security-audit session — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting). Trigger words — \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\"."
+description: "Use this skill when the user wants to debug an init, evo, or security-audit session — trigger words \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\". Enables verbose / trace-level logging across the iEvo pipeline — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting)."
 license: MIT
 effort: low
 compatibility: "Any agentskills.io platform. Flag is project-local (`.ievo/debug.flag`). Requires write access to `.ievo/`, POSIX shell (bash/zsh), `gh`, `git`, `node` (18+). On Windows use Git Bash or WSL."

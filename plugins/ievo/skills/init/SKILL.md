@@ -1,6 +1,6 @@
 ---
 name: init
-description: "Initialize iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem (via own discover.mjs script, no prereq install), audit them for safety via senior-security-engineer review, install through an interactive interview. Composes two lower-level skills (index-repos, security-check) plus discover.mjs + repo-indexer + security-auditor sub-agents into a complete setup pipeline. Use when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks \"set up iEvo here\" / \"find skills for this project\"."
+description: "Use this skill when the user runs `/ievo:init`, opens a new project that does not yet have `.ievo/`, or asks \"set up iEvo here\" / \"find skills for this project\" — not for configuring lifecycle hooks alone (use /ievo:hooks-setup for that). Initializes iEvo in the current project — discover relevant skills and agents from skills.sh and the broader GitHub ecosystem (via own discover.mjs script, no prereq install), audit them for safety via senior-security-engineer review, install through an interactive interview. Composes two lower-level skills (index-repos, security-check) plus discover.mjs + repo-indexer + security-auditor sub-agents into a complete setup pipeline."
 license: MIT
 effort: max
 # Heavyweight skill — 6-stage install pipeline that dispatches sub-agents and

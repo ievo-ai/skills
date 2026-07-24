@@ -12,7 +12,7 @@ allowed-tools:
   - Bash(chmod*)
   - Bash(claude*)
   - Bash(echo*)
-compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop hook `background_tasks`/`session_crons` fields — on older versions the hook installs but fires on every stop instead of only when background agents are clear); v2.1.198+ (`Notification`, `claude agents`: `agent_needs_input`/`agent_completed`). Cursor v3.11+: own `.cursor/hooks.json` (`stop`/`afterAgentResponse`, below). Codex/other platforms: schema may differ."
+compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop `background_tasks`/`session_crons`); v2.1.163+ (Stop/SubagentStop `additionalContext`); v2.1.195+ (hyphenated matchers exact-match, e.g. `mcp__brave-search__.*`); v2.1.198+ (`Notification` `agent_needs_input`/`agent_completed`). Cursor v3.11+: own `.cursor/hooks.json` (below). Codex rust-v0.133.0+: `SubagentStart`/`SubagentStop`/`PostToolUse` (below)."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -227,6 +227,18 @@ For Step 6's merge stage, build this entry (to be added to `hooks.Stop[]`):
 
 Stop hook entries don't have a `matcher` field — Claude Code calls every Stop hook on every stop, the script itself decides whether to act. Dedup at merge time by checking whether an existing entry has the same `args` array.
 
+### Step 5.5.5: Optional — feedback via `additionalContext` (v2.1.163+)
+
+Claude Code v2.1.163+ ([release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.163)) lets `Stop` **and** `SubagentStop` hooks also return `hookSpecificOutput.additionalContext` — a string injected back into the model's conversation, "to give Claude feedback and keep the turn going without being labeled a hook error." This is separate from the notification Steps 5.5.1–5.5.4 configure (sound/banner only, nothing reaches the model); Claude Code below v2.1.163 simply ignores the field. To report a one-line status alongside (or instead of) the notification, have the Step 5.5.3 script's success branch also print, after `<notify-cmd>`, a single line of JSON:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"iEvo: all background agents complete."}}
+```
+
+The four `<notify-cmd>` choices (`osascript`, `notify-send`, `printf '\a'`, and a well-behaved `custom` command per Step 5.5.3's table) emit nothing to stdout on success, so this JSON line stays the hook's only stdout output — verify a custom notification command does the same before combining the two, since any stray stdout ahead of it would break the JSON parse.
+
+Applies equally to `SubagentStop` output (`"hookEventName":"SubagentStop"`) — relevant because `security-check`'s own per-skill `Stop` hook (see "Two complementary hook tiers" above) converts to `SubagentStop` when it runs inside a parallel `security-auditor` sub-agent dispatch. This skill does not wire that up today (that hook ships with `security-check/SKILL.md` itself, not `/ievo:hooks-setup`) — noted here as a pointer for anyone extending it.
+
 ## Step 5.6: Optional — Notification hook for `claude agents` background sessions
 
 **Different agent-dispatch model from Step 5.5 — read this scope note first.** Step 5.5's Stop hook and this Notification hook are NOT interchangeable; they cover two genuinely different dispatch models:
@@ -242,6 +254,8 @@ Keep Step 5.5 for in-session Task sub-agents; use Step 5.6 for `claude agents` b
 |---------|------------|-------------|
 | `agent_needs_input` | a `claude agents` background session is blocked waiting on input | **Yes** — the session is stalled until you respond |
 | `agent_completed`   | a `claude agents` background session finishes | No — informational status update |
+
+**Audited against v2.1.195's hyphenated-matcher fix** ([release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.195)): hook matchers with hyphenated identifiers (e.g. `code-reviewer`, `mcp__brave-search`) now exact-match instead of substring-match — use `mcp__brave-search__.*` to match a whole hyphenated MCP server's tool family. Neither matcher this skill writes is hyphenated (`agent_needs_input`/`agent_completed` here; `startup` in Step 5.7; the Step 5 signal-file event names like `init-complete` sit inside a `Write(...)` argument, not the bare `matcher` value this fix changes — see the existing Known-gap note above), so this is a compatibility note, not a functional fix.
 
 ### Step 5.6.1: Ask whether to configure
 
@@ -300,6 +314,7 @@ Mechanism (verified against the [SessionStart hook reference](https://code.claud
 - **SessionStart is context-only** — it *cannot* block or delay startup (exit code is ignored for flow control). A `command` hook's job is to optionally emit `hookSpecificOutput.additionalContext`, which is injected into the model's context before the first prompt. So the hook must be fast and **fail-silent**: any error (offline, missing tool, parse failure, up-to-date) emits nothing and exits 0.
 - **Throttle (required).** SessionStart runs every session, so the script self-throttles the *network* call to **≤ once per 24h** via a cache file (`${XDG_CACHE_HOME:-$HOME/.cache}/ievo/version-check.json` holding `{checked_at, latest_version}`). On a cache hit within 24h it uses the cached latest and makes **no network call**; the compare is a cheap local read, so the cache-hit path adds no measurable startup latency.
 - **Source of truth** for "latest" is the marketplace manifest on the default branch — `plugins[0].version` in `https://raw.githubusercontent.com/ievo-ai/skills/main/.claude-plugin/marketplace.json` (a single unauthenticated `GET`; the once/day cache keeps well under GitHub's unauthenticated rate limit). "Installed" is `.version` from the plugin's own `plugin.json`.
+- **Other SessionStart return fields exist but are unused here** (v2.1.152+, [release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.152)): `reloadSkills: true` (re-scans skill directories so a hook-installed skill becomes usable the same session) and `hookSpecificOutput.sessionTitle` (sets the session title). Neither applies to a version-check nudge — noted for anyone extending this hook to also install/update skills or brand the session.
 
 ### Step 5.7.1: Ask whether to configure
 
@@ -487,6 +502,10 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 
 **Different platform, different mechanism — not a further step in Steps 1–8.** Cursor (v3.11+, "Cloud Agent Hooks") uses its own `.cursor/hooks.json` schema, distinct from the Claude Code `.claude/settings.json` mechanism Steps 1–8 configure. Full reference — config scopes, the `stop`/`afterAgentResponse` hook types, stdin/stdout contract, exit-code semantics, and a worked example — lives in **[references/cursor-hooks.md](references/cursor-hooks.md)**.
 
+## Codex hooks
+
+**Different platform, different mechanism — not a further step in Steps 1–8.** Codex CLI (rust-v0.133.0+, [PR #22782](https://github.com/openai/codex/pull/22782) / [PR #22873](https://github.com/openai/codex/pull/22873)) ships its own native hook system, distinct from the Claude Code `.claude/settings.json` mechanism Steps 1–8 configure — closer in shape (JSON or TOML config, `matcher` + `hooks[]` entries, a stdin/stdout JSON contract) but with its own event catalog, config paths, and blocking semantics. Full reference — config scopes, the `SubagentStart`/`SubagentStop`/`PostToolUse` event schemas, the exit-code contract, and a worked example — lives in **[references/codex-hooks.md](references/codex-hooks.md)**.
+
 ## See also
 
 - `init/SKILL.md` **Step 11.5** — writes `.ievo/hooks/init-complete` at the end of the pipeline.
@@ -499,6 +518,10 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - [Claude Code v2.1.141 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.141) — `terminalSequence` desktop-notification field
 - [Claude Code v2.1.143 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.143) — `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` env var (default 8) for blocking Stop hooks
 - [Claude Code v2.1.145 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.145) — Stop + SubagentStop hook input gains `background_tasks` and `session_crons` fields
+- [Claude Code v2.1.152 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) — new `MessageDisplay` hook event (transforms/hides assistant message text as displayed; not configured by this skill); SessionStart hooks gain `reloadSkills`/`hookSpecificOutput.sessionTitle` (Step 5.7 note above); new `/reload-skills` command for the manual re-scan path
+- [Claude Code v2.1.163 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) — Stop/SubagentStop hooks may return `hookSpecificOutput.additionalContext` (Step 5.5.5 above)
+- [Claude Code v2.1.183 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.183) — auto mode blocks the agent's own destructive git tool calls (`git reset --hard`, `git checkout -- .`, `git clean -fd`, `git stash drop`, out-of-session `git commit --amend`) and `terraform`/`pulumi`/`cdk destroy` unless explicitly requested. Verified against the hooks reference: this gates the agent's Bash **tool calls** via the auto-mode classifier, not hook-subprocess execution — this skill's generated scripts (`on-stop.sh`, `version-check.sh`) run as host subprocesses outside that gate and are unaffected. It does matter for a hook whose `additionalContext` recommends the model run one of these commands next — that recommendation becomes a normal Bash tool call and can be silently blocked by the same classifier
+- [Claude Code v2.1.195 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.195) — hook matchers with hyphenated identifiers now exact-match instead of substring-match (Step 5.6 audit note above)
 - [Claude Code v2.1.198 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.198) — `Notification` hook fires for `claude agents` background sessions with matchers `agent_needs_input` / `agent_completed`
 - [Claude Code hooks reference — SessionStart](https://code.claude.com/docs/en/hooks) — `command`/`mcp_tool` only, context-only (cannot block), `hookSpecificOutput.additionalContext` injected before the first prompt; matchers `startup`/`resume`/`clear`/`compact` (Step 5.7 version-check nudge)
 - [Claude Code plugins — configure auto-updates](https://code.claude.com/docs/en/discover-plugins#configure-auto-updates) — third-party marketplaces default auto-update OFF; the Step 5.7 nudge is the fallback for users who keep it off
@@ -506,3 +529,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - Signal-file trigger pattern (`PostToolUse` + `Write(<path>)` matcher) is portable across any host that matches Write-tool calls to a path pattern
 - [Cursor changelog — v3.11](https://www.cursor.com/changelog) — "Cloud Agent Hooks": `beforeSubmitPrompt`, `afterAgentResponse`, `afterAgentThought`, `stop`, `subagentStart` added to the agent-conversation hook surface
 - [Cursor hooks reference](https://cursor.com/docs/hooks) — full hook catalog, `hooks.json` config scopes (Enterprise/Team/Project/User), stdin/stdout contract, exit-code semantics (Cursor hooks section above)
+- [Codex hooks reference](https://developers.openai.com/codex/hooks) — full event catalog (`SessionStart`, `SessionEnd`, `PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `PermissionRequest`, `UserPromptSubmit`, `PreCompact`, `PostCompact`, `Stop`), config scopes, stdin/stdout contract (Codex hooks section above)
+- [Codex PR #22782](https://github.com/openai/codex/pull/22782) / [PR #22873](https://github.com/openai/codex/pull/22873) — `SubagentStart` / `SubagentStop` hooks added, merged 2026-05-19/20 (first stable release carrying both: rust-v0.133.0)
+- [Codex rust-v0.141.0 release notes](https://github.com/openai/codex/releases/tag/rust-v0.141.0) — blocking `PostToolUse` hooks now correctly reject code-mode tool calls (previously passed through silently)
+- [Codex PR #23980](https://github.com/openai/codex/pull/23980) — `trace_id` added to `TurnStartedEvent`; verified this is a Codex **app-server protocol** event, not part of the hook system documented above — out of scope for this skill (references/codex-hooks.md)

@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.57.0
+
+Consolidate six verified hook-surface deltas into `hooks-setup/SKILL.md` (Claude Code v2.1.152–v2.1.195 + Codex) — closes #429, folding in #239 (same delta, filed separately and not part of #429's original consolidation list).
+
+- **CC v2.1.152** — References-section note for the new `MessageDisplay` hook event and `/reload-skills` command (neither configured by this skill); Step 5.7 gains a bullet on SessionStart's new `reloadSkills`/`hookSpecificOutput.sessionTitle` return fields (unused by the version-check nudge, noted for anyone extending it).
+- **CC v2.1.163** — new Step 5.5.5 documents `Stop`/`SubagentStop` hooks' optional `hookSpecificOutput.additionalContext` return value, with a one-line JSON example and a stdout-ordering caveat against the existing `<notify-cmd>` choices. Folds in #239's ask: also notes the field applies to `SubagentStop`, which `security-check`'s own per-skill Stop hook converts to inside a parallel `security-auditor` dispatch.
+- **CC v2.1.183** — References-section note on auto mode blocking destructive git/infra-destroy commands. Verified against the hooks reference during this build: the block applies to the agent's own Bash **tool calls** via the auto-mode classifier, not to hook-subprocess execution — this skill's generated scripts run as host subprocesses and are unaffected; it does matter for a hook whose `additionalContext` recommends the model run one of the blocked commands next, since that recommendation becomes a normal tool call.
+- **CC v2.1.195** — audit note added after Step 5.6's matcher table confirming none of this skill's own matchers (`agent_needs_input`/`agent_completed`, `startup`) are hyphenated, so the new exact-match semantics change nothing functionally here; compatibility field and References gain the citation.
+- **New `## Codex hooks` section** (mirrors the existing `## Cursor hooks` pointer-plus-`references/` pattern) — `SubagentStart`/`SubagentStop` (added PRs [#22782](https://github.com/openai/codex/pull/22782)/[#22873](https://github.com/openai/codex/pull/22873), first carried together in the stable rust-v0.133.0) and the rust-v0.141.0 `PostToolUse` code-mode blocking fix, documented in new `references/codex-hooks.md` — config scopes, event schemas, exit-code semantics, a worked `SubagentStop` example. Corrects one premise from the original research: verified against current Codex docs, `TurnStartedEvent`/`trace_id` (rust-v0.134.0) is an app-server protocol event, not part of the hook system — documented as explicitly out of scope rather than folded in as a hook.
+- **Scope** — confined to `plugins/ievo/skills/hooks-setup/SKILL.md` and its new `references/codex-hooks.md`; documentation only, no script or test changes.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
+---
+
 ## v0.56.0
 
 Wire opt-in tool-failure capture (`PostToolUseFailure`/`PermissionDenied` → scrubbed evolution candidates) into `evo-auto-enable`/`evo-auto-disable` — closes #424 (part 2/2 of #422; part 1 added `scrub.mjs` in v0.55.0/#423).

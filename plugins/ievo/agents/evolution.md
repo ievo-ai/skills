@@ -2,9 +2,15 @@
 name: evolution
 description: Capture a lesson and add it to the appropriate evolution overlay file. Use when the user identifies a behavior to improve, mistake to prevent, project convention, team role, or tech-stack constraint worth persisting. Appends to `.ievo/evolution/<scope>/<name>.md`. The target agent/skill body is never modified — overlays are read live at dispatch via a one-time marker injection.
 model: opus
-# Mechanical, structured overlay append (Steps 2-4) — xhigh reasoning (Opus 4.8's
-# default) is wasted token spend on a task this deterministic.
-effort: low
+# Steps 2-4 (overlay append) are mechanical, but Step 2.5 applies
+# `security-check`'s full threat-pattern deep-scan + GREEN/YELLOW/RED verdict
+# to freshly-vendored content before it lands in `.claude/agents/`/
+# `.claude/skills/` — the same antivirus guarantee `security-auditor` and
+# `vuln-scanner` pin `high` for. `effort` is per-agent, not per-step, so the
+# security gate sets the floor: pinned high so a low-effort caller session
+# can't silently degrade that audit. The mechanical majority path pays some
+# extra reasoning; a silently shallower vendor-time audit is the worse trade.
+effort: high
 tools:
   - Read
   - Write

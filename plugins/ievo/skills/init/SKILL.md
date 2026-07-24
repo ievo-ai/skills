@@ -386,7 +386,7 @@ Each sub-agent invokes `scan_repo.mjs` which does ONE shallow clone + filesystem
 
 Wait for all to complete. Collect their one-line summaries.
 
-Each `repo-indexer` writes to `<project>/.ievo/cache/index/<owner>-<repo>.md` (no conflicts — different paths per repo).
+Each `repo-indexer` writes to `<project>/.ievo/cache/index/<owner>-<repo>-<hash>.md` (no conflicts — different paths per repo, hash-suffixed so colliding slugs can't overwrite each other; the hash isn't computable from text alone, so resolve the actual file via Glob `<owner>-<repo>-*.md` rather than assuming the literal name).
 
 (Parallel via sub-agents: ~30-60s cold-cache wall-clock for 8 repos vs ~4-8 min
 sequential — slowest repo wins, each has isolated context + returns one summary

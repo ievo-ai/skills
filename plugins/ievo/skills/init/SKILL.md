@@ -251,6 +251,10 @@ skip this step there; see Step 2.3 for the Codex-side note.
    ```
 3. Write the merged JSON back.
 
+**Failure handling.** If the read/merge/write fails (malformed existing JSON,
+write permission denied, etc.), report it in the final summary (Step 12) and
+continue — do NOT abort init, same as Step 9's per-item failure handling.
+
 **No `autoUpdate` key.** Claude Code's own default for a third-party marketplace
 entry is `autoUpdate: false` — matches the "must remain an explicit user choice"
 constraint on auto-updates. Step 12's existing summary already tells the user how

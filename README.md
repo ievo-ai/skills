@@ -93,6 +93,10 @@ With auto-update off you can still update manually by re-running `/plugin instal
 
 **Codex** tracks plugin versions via git refs/tags in the marketplace `source` block — re-run the marketplace add/install to pick up a newer ref.
 
+### iEvo bootstraps itself for teammates (Claude Code, plugin-mode)
+
+Once one teammate has run `/ievo:init` in a project, it self-registers iEvo's own `ievo-skills` marketplace + `ievo@ievo-skills` plugin entry into the committed `.claude/settings.json` — the same team-portable mechanism `/ievo:init` already uses for discovered candidates. Everyone else who `git pull`s the project gets prompted by Claude Code to trust and install iEvo automatically; no more manual `/plugin install` on every machine. `autoUpdate` is left off by default (see above for the manual opt-in). This only applies when iEvo is running as an installed plugin — a vendored copy has no marketplace entry to register. **Codex:** not yet possible — project-level plugin config isn't persisted upstream today ([openai/codex#18115](https://github.com/openai/codex/issues/18115)).
+
 **Cross-platform skills inside the plugin** are fully portable via [agentskills.io](https://agentskills.io) spec. Slash commands and sub-agents work on Claude Code; Codex's own command/agent semantics may differ — refer to your platform's docs for exact behavior of the commands.
 
 > **Always type the full `ievo:` prefix** (e.g. `/ievo:feedback`) in non-CLI Claude surfaces — autocomplete there doesn't reliably suggest the prefix, and a bare skill name can silently resolve to an unrelated built-in command instead.

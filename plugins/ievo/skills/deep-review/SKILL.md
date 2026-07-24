@@ -74,11 +74,11 @@ Use `AskUserQuestion`:
   - `Yes, review working tree` — description: `Run git diff (unstaged changes)`
   - `Cancel` — description: `Nothing to review`
 
-If both staged and unstaged are empty, fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch:
+If both staged and unstaged are empty, fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch, always as a remote-qualified ref (`origin/<branch>`) so both the primary and fallback commands agree on what `<default-branch>` diffs against:
 
 ```bash
 git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null \
-  || git remote show origin 2>/dev/null | sed -n '/HEAD branch/s/.*: //p'
+  || git remote show origin 2>/dev/null | sed -n '/HEAD branch/s#.*: #origin/#p'
 ```
 
 If a default branch resolves and `<default-branch>..HEAD` is non-empty, ask:
@@ -97,7 +97,7 @@ Use `AskUserQuestion`:
 
 If confirmed, treat the scope as **range** with `<range>` = `<default-branch>..HEAD` for Step 2 onward.
 
-Otherwise — the default branch doesn't resolve (detached HEAD, no `origin` remote, shallow clone without the symbolic ref), or `<default-branch>..HEAD` is itself empty (branch has no commits ahead) — report cleanly and exit:
+Otherwise — the default branch doesn't resolve (detached HEAD, no `origin` remote, shallow clone without the symbolic ref), `<default-branch>..HEAD` is itself empty (branch has no commits ahead), or the diff command errors (e.g. the resolved ref doesn't exist locally) — report cleanly and exit:
 
 ```
 Nothing to review — no staged or unstaged changes detected.

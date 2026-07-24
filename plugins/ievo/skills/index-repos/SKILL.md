@@ -30,8 +30,8 @@ For each repo:
 4. Parse YAML frontmatter for each item
 5. Compute risk signals (hooks events, allowed-tools, license, etc.)
 6. Emit structural facts only — NO risk_tier (removed in v0.5.2). Risk verdicts come from `security-auditor` antivirus deep scan per selected item before install.
-7. Write `<owner>-<repo>.md` matching `ievo-ai/community-index/indices/_TEMPLATE.md` format
-8. Write `<owner>-<repo>.json` (manifest entry update for community-index)
+7. Write `<owner>-<repo>-<hash>.md` (same hash-suffixed naming as the checkout dir above, so a colliding slug can't overwrite another repo's index) matching `ievo-ai/community-index/indices/_TEMPLATE.md` format
+8. Write `<owner>-<repo>-<hash>.json` (manifest entry update for community-index, includes an `owner_repo` identity field)
 
 No LLM. No API tokens. Just `git`, `node`, filesystem ops, native JSON parsing in stdlib.
 
@@ -71,7 +71,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/scan_repo.mjs" \
   --checkout-dir ~/.ievo/checkouts
 ```
 
-The script writes `<owner>-<repo>.md` (full structured index) and `<owner>-<repo>.json` (manifest entry).
+The script writes `<owner>-<repo>-<hash>.md` (full structured index) and `<owner>-<repo>-<hash>.json` (manifest entry).
 
 It prints one-line summary to stdout:
 ```

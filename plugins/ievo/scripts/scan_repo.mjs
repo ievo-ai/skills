@@ -4,8 +4,17 @@
 // Clones a GitHub repo shallowly, enumerates skills/agents/plugins/commands/hooks/MCP
 // (Claude Code + Codex marketplace formats), and writes two artifacts:
 //
-//   <output_dir>/<owner>-<repo>.md       — index file (structural facts only, no risk verdict)
-//   <output_dir>/<owner>-<repo>.json     — manifest entry update (stats, sha, has_hooks/has_mcp/has_pretooluse_hooks/has_userpromptsubmit_hooks as factual booleans)
+//   <output_dir>/<owner>-<repo>-<hash>.md   — index file (structural facts only, no risk verdict)
+//   <output_dir>/<owner>-<repo>-<hash>.json — manifest entry update (stats, sha, owner_repo,
+//                                              has_hooks/has_mcp/has_pretooluse_hooks/has_userpromptsubmit_hooks
+//                                              as factual booleans)
+//
+// The `<hash>` suffix is a 12-hex SHA-256 digest of the full pre-flattening
+// `<owner>/<repo>` slug (via checkoutCacheKey, shared with the checkout-cache
+// naming fixed in v0.51.5/#382) — the bare flattened name is not injective
+// (both owner and repo segments permit hyphens), so without it a
+// slug-collision repo scanned into the same --output-dir could silently
+// overwrite another repo's published index artifacts (CWE-706).
 //
 // v0.5.2: removed all heuristic risk_tier / per-hook RISK / per-MCP RISK fields.
 // Verdicts come from security-auditor antivirus deep scan per item before install.
@@ -38,7 +47,7 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SCRIPT_VERSION = "1.1.5";
+export const SCRIPT_VERSION = "1.1.6";
 export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
@@ -850,7 +859,12 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     standalone_commands: standaloneCommands,
   };
 
-  const safeName = args.repo.replace(/\//g, "-");
+  // Reuse checkoutCacheKey (v0.51.5/#382) rather than a bare flattening: the
+  // same non-injective owner/repo collision it fixed for the checkout-cache
+  // directory applies identically to these output filenames — an attacker's
+  // slug-colliding repo scanned into the same --output-dir would otherwise
+  // silently overwrite a trusted repo's published index artifacts (CWE-706).
+  const safeName = checkoutCacheKey(args.repo);
   const mdPath = join(outputDir, `${safeName}.md`);
   assertContained(mdPath, outputDir);
   writeFileSync(mdPath, renderIndexMd(data), "utf-8");
@@ -858,6 +872,10 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
   const totalAgents = standaloneAgents.length + plugins.reduce((s, p) => s + p.agents.length, 0);
   const totalSkills = standaloneSkills.length + plugins.reduce((s, p) => s + p.skills.length, 0);
   const manifestEntry = {
+    // Identity field so a downstream consumer keyed purely by filename can
+    // independently verify which repo this entry actually claims to describe
+    // (the persisted .json previously carried no such field — see #401).
+    owner_repo: args.repo,
     last_scan: scannedAt,
     scanner_sha: commitSha,
     default_branch: defaultBranch,

@@ -13,13 +13,17 @@ allowed-tools:
   - Bash(claude*)
   - Bash(echo*)
 compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop `background_tasks`/`session_crons`); v2.1.163+ (Stop/SubagentStop `additionalContext`); v2.1.195+ (hyphenated matchers exact-match, e.g. `mcp__brave-search__.*`); v2.1.198+ (`Notification` `agent_needs_input`/`agent_completed`). Cursor v3.11+: own `.cursor/hooks.json` (below). Codex rust-v0.133.0+: `SubagentStart`/`SubagentStop`/`PostToolUse` (below)."
-# Auto-activation is relevant when working with Claude Code settings or skill
-# files — a genuinely predictive file-context signal (operator example,
-# skills#157). Ignored gracefully on platforms without `paths` support.
-paths:
-  - ".claude/settings.json"
-  - ".claude/settings.local.json"
-  - "**/SKILL.md"
+# No `paths:` gate here, deliberately — `.claude/settings.json` looks like a
+# genuinely predictive file-context signal, but this skill's PRIMARY case is
+# the run where that file does not exist yet: Step 4 treats an absent settings
+# file as `{}` and Step 8 has a dedicated Write-tool branch to create it. Per
+# the docs, `paths` means Claude "loads the skill automatically only when
+# working with files matching the patterns"
+# (code.claude.com/docs/en/skills) — so gating on the settings file makes the
+# skill un-activatable in exactly the first-run session that most needs it,
+# while a user asking "notify me when ievo finishes" typically has no
+# settings file and no SKILL.md in context at all. Per AGENTS.md § Skills
+# format, wrong gating is worse than none (skills#157/#175).
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

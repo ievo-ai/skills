@@ -5,15 +5,16 @@ argument-hint: "[owner/repo ...]"
 license: MIT
 effort: medium
 compatibility: Requires `git` CLI + Node.js 18+ (ships with Claude Code — guaranteed available). Same script is used by ievo-ai/community-index GHA — single source of truth.
-# Auto-activation is relevant when working with plugin/skill repo structure,
-# not general projects. Ignored gracefully on platforms without `paths`
-# support (skills#157).
-paths:
-  - "**/SKILL.md"
-  - "**/AGENTS.md"
-  - "**/agent.yaml"
-  - "**/.claude-plugin/**"
-  - "**/.codex-plugin/**"
+# No `paths:` gate here, deliberately — the subject of this skill is a REMOTE
+# repo named by the caller (`## Input` below: a list of `<owner>/<repo>`
+# strings, shallow-cloned into `~/.ievo/checkouts/`), so no local file in the
+# user's working tree is evidence of relevance. `paths` limits automatic
+# loading to sessions "working with files matching the patterns"
+# (code.claude.com/docs/en/skills), and the ordinary project that wants to
+# expand a candidate skill into its host repo's full breadth carries no local
+# `SKILL.md` / `AGENTS.md` / `.claude-plugin/` — those match only in a repo
+# that authors skills, which is the rarer case, not the target one. Per
+# AGENTS.md § Skills format, wrong gating is worse than none (skills#157/#175).
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

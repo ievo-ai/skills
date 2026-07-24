@@ -1,6 +1,7 @@
 ---
 name: deep-review
 description: Use this skill before committing significant changes, after a refactor, or when you want a second opinion on a diff — not for auditing a third-party skill/plugin's safety before install (use /ievo:security-check for that). Structured 11-point gap-detection review of a diff before commit. Spawns a deep-reviewer subagent for independent eyes (fresh context, separate token budget). Catches issues that survive pre-commit hooks, linters, and test suites but surface in human PR review — completeness gaps, test/impl drift, dead code from partial refactors, naming/behaviour mismatch, doc-paraphrase drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, concurrency/state, and leaked secrets. Supports scope modes — staged changes (default), working tree, or arbitrary git range.
+argument-hint: "[--staged|--working|--range <ref>..<ref>]"
 license: MIT
 effort: medium
 # Heavyweight skill — dispatches a deep-reviewer sub-agent in fresh context

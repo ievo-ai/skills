@@ -1,6 +1,10 @@
 ---
 name: security-check
 description: Use this skill before installing ANY third-party skill, agent, or plugin — not for scanning your own project's source code (use /ievo:vuln-scan for that) and not for a structured pre-commit gap-detection review of a diff (use /ievo:deep-review for that). Vulnerability assessment by a senior application security engineer for a skill, agent, or plugin (Claude Code or Codex marketplace item) before installation. Domain expertise — prompt injection, credential exfiltration, supply-chain compromise, hook abuse, indirection attacks, encoded payloads, social engineering in technical artifacts, tool-model bypass. Deep content review across SKILL.md/agent.md body + ALL dependencies (scripts/, references/, assets/, bundled plugin files). Threat detection by expert reasoning, not regex. Returns structured verdict (GREEN/YELLOW/RED) with cited evidence (file + excerpt + concern). Invoked by the security-auditor agent in parallel per selected item.
+# Direct `/ievo:security-check` invocation takes the candidate identifier +
+# type documented under `## Input` below; the agent-dispatched path passes the
+# same values programmatically.
+argument-hint: "[owner/repo@skill] [skill|agent|plugin]"
 license: MIT
 effort: high
 # Turn-level model pin: when this skill is invoked DIRECTLY (not via the

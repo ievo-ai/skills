@@ -115,11 +115,22 @@ export function parseArgs(argv) {
  * other line (indented or not) is independently checked for its own
  * `key: value` pattern — deliberately, so a forbidden field (e.g. `model:`)
  * can't be smuggled past this validator by nesting it under an unrelated
- * parent key. This is intentional: SKILL.md frontmatter uses only flat
- * scalar fields (name, description, license, compatibility, model), so a
- * full YAML parser is unnecessary. If the agentskills.io spec ever adds
- * structured frontmatter fields, this function must be replaced with a proper
- * YAML parser (e.g. `yaml` npm package).
+ * parent key. This is intentional: every field this validator ENFORCES
+ * (name, description, compatibility, model, effort) is a flat scalar, so a
+ * full YAML parser is unnecessary.
+ *
+ * Consequence worth knowing before adding a rule (skills#443): the
+ * list-valued frontmatter fields SKILL.md does use — `allowed-tools` and
+ * `paths` — are consequently INVISIBLE here. A `paths:` list is never parsed,
+ * so AGENTS.md § Skills format's root-anchoring rule (a pattern is anchored at
+ * the project root unless it opens with a globstar segment) cannot be enforced
+ * by this script and a typo'd or mis-anchored pattern lints clean; it is
+ * checked by hand in review instead.
+ * Enforcing it would require modeling sequences, which would forfeit the
+ * nested-key-smuggling guarantee above unless carefully re-established. If
+ * the agentskills.io spec ever adds a structured field this validator must
+ * ENFORCE, replace this function with a proper YAML parser (e.g. the `yaml`
+ * npm package) rather than extending it ad hoc.
  */
 export function parseFrontmatter(content) {
   const normalized = content.replace(/\r\n?/g, "\n");

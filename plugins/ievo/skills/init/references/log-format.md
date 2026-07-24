@@ -121,6 +121,17 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 ### Dropped: out-of-stack (<N>)
 <list with name + reason "no signal match for project's stack">
 
+### Dropped: stack-irrelevant — packaging/publishing (<N>)
+<list with name + reason "stack-irrelevant: no publish/registry signal detected">
+(empty if no packaging-category candidates were discovered this run)
+
+### Demoted: capability-overlap, tail-pending (<N>)
+<list with name + rule (O1 or O2) + reason, e.g.
+ "ruff-recursive-fix — O1: overlap: ruff already covered by python-code-style"
+ "python-pro — O2: overlap: 6 python specialists already installed">
+(empty if O1/O2 found no overlap this run)
+Carried forward to Step 7b's batched tail question — not yet a final outcome.
+
 ### Categorized candidates by category
 
 #### testing (<N kept of M scored>)
@@ -162,6 +173,17 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 | name | type | source repo | reason (if known from question) |
 |------|------|-------------|----------------------------------|
 [...all candidates user skipped or rejected via security in step 8...]
+
+### Overlap tail — batched decision (<N>)
+| name | rule (O1/O2) | demotion reason | user decision |
+|------|--------------|------------------|---------------|
+[...one row per `overlap_tail[]` item, decision = "installed anyway" or "stayed filtered"...]
+(empty if `overlap_tail[]` was empty — no batched question was asked)
+
+### Filter overrides (<N>)
+| name | rule | triggering item | outcome |
+|------|------|------------------|---------|
+[...rows where user checked a tail item despite the demotion — feeds Step 13 feedback capture; empty if no overrides...]
 ```
 
 ---

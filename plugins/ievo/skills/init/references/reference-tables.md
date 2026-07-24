@@ -62,4 +62,5 @@ If it fits multiple, pick the **most specific** one.
 | `devops` | docker-helper, kubernetes-pro, github-actions |
 | `agent-tooling` | code-reviewer, refactor-pro, test-writer, codebase-audit/planning-advisor tools like shadcn/improve (general-purpose dev agents — includes read-only auditors that produce plans/findings, not implementers) |
 | `domain-specific` | stripe-pro, openai-pro, slack-bot (specific to a dep in step 4) |
+| `packaging` | python-packaging, npm-publish-helper, semantic-release, crates-publisher (registry-publish/release-lifecycle tools — gated by Step 7a's stack-relevance filter using the `packaging` sub-type from Step 4.5; not shown to projects with no publish/registry signal) |
 | `other` | anything not fitting above |

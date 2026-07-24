@@ -129,6 +129,7 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 <list with name + rule (O1 or O2) + reason, e.g.
  "ruff-recursive-fix — O1: overlap: ruff already covered by python-code-style"
  "python-pro — O2: overlap: 6 python specialists already installed">
+(empty if O1/O2 found no overlap this run)
 Carried forward to Step 7b's batched tail question — not yet a final outcome.
 
 ### Categorized candidates by category
@@ -177,6 +178,7 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 | name | rule (O1/O2) | demotion reason | user decision |
 |------|--------------|------------------|---------------|
 [...one row per `overlap_tail[]` item, decision = "installed anyway" or "stayed filtered"...]
+(empty if `overlap_tail[]` was empty — no batched question was asked)
 
 ### Filter overrides (<N>)
 | name | rule | triggering item | outcome |

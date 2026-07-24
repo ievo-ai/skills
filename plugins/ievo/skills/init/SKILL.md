@@ -414,12 +414,12 @@ Filter and rank **per category** (not overall):
   - Direct keyword match (skill named "pytest" for Python project with pytest) → high score
   - Description mentions deps from step 4 → medium
   - Generic universally-useful (e.g. "code-reviewer") → low but non-zero
-- **Capability-overlap filter** (issue #427 — real `/ievo:init` telemetry: 3 of 4 declines in one run were pure overlap against something already covered, not quality complaints about the candidate itself). Check each candidate against the **installed inventory** (Step 3) here; Step 7b re-runs both rules **live** against candidates the user has already *accepted this run* — that state doesn't exist yet at this static pass, so the check happens twice by design, not redundantly:
+- **Capability-overlap filter** (issue #427 — real `/ievo:init` telemetry: 3 of 4 declines in one run were pure overlap against something already covered, not quality complaints about the candidate itself). Check each candidate against the **installed inventory** (Step 3) here; Step 7b *(per-candidate interview, below)* re-runs both rules **live** against candidates the user has already *accepted this run* — that state doesn't exist yet at this static pass, so the check happens twice by design, not redundantly:
   - **O1 — tool-specific vs already-covered**: the candidate's name/description ties it to one specific tool/library (e.g. `ruff-recursive-fix`) AND an installed item's description already covers that same tool (e.g. `python-code-style` already covers ruff) → **demote**, don't drop outright (see tail list below). Reason: `"overlap: <tool> already covered by <installed-item>"`.
-  - **O2 — generalist vs ≥3 covered specialists**: the candidate reads as a domain generalist (broad description, no narrow tool-tie — e.g. `python-pro`) AND ≥3 same-domain specialist items are already installed (e.g. 3+ installed `python-*` specialists) → **demote**. Reason: `"overlap: N <domain> specialists already installed"`. "Domain" is judged the same way as the category table below, not a separate taxonomy.
+  - **O2 — generalist vs ≥3 covered specialists**: the candidate reads as a domain generalist (broad description, no narrow tool-tie — e.g. `python-pro`) AND ≥3 same-domain specialist items are already installed (e.g. 3+ installed `python-*` specialists) → **demote**. Reason: `"overlap: N <domain> specialists already installed"`. "Domain" here means the **language/stack grouping from Step 4** (e.g. all items tied to the detected `python` language) — NOT the functional category table below (that groups by testing/linting/frameworks/etc., which cuts across languages and has no per-language rows).
   - Demoted candidates are **not** dropped from the run and **not** silently hidden — they move to an `overlap_tail[]` list surfaced as one batched question after Step 7b's individual interview (acceptance criterion: drops must be visible with a one-line reason). They're pulled out of the category's ranking pool for Step 7c — they don't occupy or count against that category's top-5 cut.
 - **Stack-relevance filter (lifecycle-dependent categories)** — for a candidate categorized (or keyword-matched, pre-categorization) as `packaging`/publish/release lifecycle tooling, use the `packaging` sub-type resolved in Step 4.5:
-  - `internal-only` → **drop** entirely, reason `"stack-irrelevant: no publish/registry signal detected"`.
+  - `internal-only` → **drop** entirely, reason `"stack-irrelevant: no publish/registry signal detected"`. If this candidate was already added to `overlap_tail[]` by O1/O2 above, remove it from there too — a hard drop always wins over a demotion, so it never surfaces in the tail question either.
   - `published` → keep, score normally.
   - Still tagged `packaging/ambiguous` (Step 4.5 couldn't resolve it) → the Step 7a *(ambiguous-category resolution, below)* question gates the **whole category** with one ask instead of one decline per packaging candidate.
 
@@ -456,18 +456,18 @@ For each category from step 4.5 tagged `/ambiguous`, ask user via `AskUserQuesti
 - **Options** (single-select):
   - `<sub-type-1>` — short description
   - `<sub-type-2>` — short description
-  - `Both` — show both
-  - `Skip category` — drop all candidates in this category
+  - `Both` — show both (omit this option for `packaging`: its sub-types `published`/`internal-only` are mutually exclusive, so the question is yes/no-shaped — 3 options, no "Both")
+  - `Skip category` — drop all candidates in this category, including any already demoted to `overlap_tail[]` by Step 7a *(the Filter subsection above)* — a skipped category never reaches the tail question either
 
 Filter candidates accordingly. Log resolutions (section 7a).
 
 ## Step 7b: Per-candidate interview
 
-For each remaining candidate (i.e. not already demoted to `overlap_tail[]` in Step 7a), ask via `AskUserQuestion`. **One question per candidate**, batched in groups of 4.
+For each remaining candidate (i.e. not already demoted to `overlap_tail[]` in Step 7a *(the Filter subsection above, not the ambiguous-category step immediately above this one)*), ask via `AskUserQuestion`. **One question per candidate**, batched in groups of 4.
 
 ### Live overlap re-check (before each question)
 
-Immediately before asking about a candidate, re-run rules **O1**/**O2** from Step 7a — this time against `vendor_queue` + `plugin_queue` as accumulated **so far this run** (in addition to the static Step 7a pass against the installed inventory). A specialist accepted two questions ago can trigger O2 for a generalist reached later in the same batch — that's the whole point of checking "candidates already accepted this run," which doesn't exist as data until the interview is underway. If either rule now matches:
+Immediately before asking about a candidate, re-run rules **O1**/**O2** from Step 7a *(the Filter subsection)* — this time against `vendor_queue` + `plugin_queue` as accumulated **so far this run** (in addition to the static Step 7a pass against the installed inventory). This is a between-batches check at minimum: a specialist accepted in an earlier batch of 4 can trigger O2 for a generalist reached in a later batch — that's the whole point of checking "candidates already accepted this run," which doesn't exist as data until the interview is underway. If the harness resolves a batch's `AskUserQuestion` calls one answer at a time (rather than all 4 at once), apply the re-check within the batch too; if answers only become available once the whole batch resolves, the re-check still applies at the next batch boundary. If either rule now matches:
 - Skip the individual question for this candidate.
 - Move it to `overlap_tail[]` instead, with the live reason (which just-accepted item triggered it) — same demotion semantics as Step 7a, not a silent drop.
 
@@ -681,12 +681,14 @@ If any candidates were skipped, rejected on security, dropped/demoted by the Ste
 
 ```
 AskUserQuestion:
-"You skipped <N> of <M> candidates (<K> filtered by overlap/relevance rules). Share why?"
+"You skipped <N> of <M> candidates (<K> filtered by overlap/relevance rules<, O installed despite a filter warning> if filter_override[] is non-empty). Share why?"
 Options:
   - "Share rejection reasons" — invokes feedback skill flow B. In the context passed to flow B, call out `filter_override[]` entries explicitly (which rule — O1/O2/relevance — and which item triggered it), separate from the ordinary skip list. Flow B already offers to attach the init log, which now carries the filter's drop/demote/override rows (section 6b/7b) as corroborating detail. A user overriding a filter's drop (installing a demoted candidate anyway) is distinguishable signal from an ordinary skip: it means that rule fired a false positive for this case, not that the user didn't want the candidate.
   - "General feedback" — invokes feedback skill flow A
   - "Skip"
 ```
+
+The `<, O installed despite a filter warning>` clause is conditional text — include it (with the actual override count) only when `filter_override[]` is non-empty; omit it entirely otherwise. This also covers the override-only case: if `filter_override[]` is the sole non-empty list (N=0, K=0 — nothing was skipped or left filtered), the question still renders sensibly as "You skipped 0 of <M> candidates (0 filtered by overlap/relevance rules, O installed despite a filter warning). Share why?" rather than a bare, contextless "0 skipped" prompt.
 
 If no skips, no filter drops/demotions, and no overrides, simpler prompt: "Init complete — share feedback?" → Skip default.
 

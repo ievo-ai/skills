@@ -765,9 +765,9 @@ updated" line above — no separate confirmation line needed there.
 **Cursor cloud sessions (v3.7+).** Cursor's `.cursor/environment.json` captures a
 reusable environment snapshot — installed plugins included — for `/in-cloud`
 sessions. After this init completes, Cursor users can capture a snapshot (Cursor's
-Environment menu, or see the [Cursor changelog](https://cursor.com/changelog) for
-current CLI syntax) so future cloud sessions start with iEvo pre-installed instead
-of re-running `/ievo:init` in every ephemeral VM.
+Environment menu, or see the [Cursor changelog entry](https://cursor.com/changelog/cloud-in-agents-window)
+for current CLI syntax) so future cloud sessions start with iEvo pre-installed
+instead of re-running `/ievo:init` in every ephemeral VM.
 
 ## Step 13: Invite feedback (especially on skips)
 

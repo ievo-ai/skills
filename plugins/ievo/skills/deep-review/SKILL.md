@@ -12,7 +12,7 @@ disable-model-invocation: true
 # Turn-level model pin (per-turn override; reverts next prompt) — the 11-point
 # gap-detection review needs reasoning depth beyond Haiku on direct invocation.
 model: sonnet
-compatibility: "Requires git CLI for diff generation. Subagent dispatch (Task tool) available on Claude Code and Codex with the iEvo plugin — other agentskills.io-compatible platforms execute the deep-reviewer steps inline. Designed for Sonnet-tier reasoning via the deep-reviewer agent frontmatter and this skill's own `model: sonnet` pin. Cursor v3.7+: native `/review` (Bugbot) is a faster platform alternative (~90s); prefer `/ievo:deep-review` for the structured checklist."
+compatibility: "Requires git CLI for diff generation. Subagent dispatch (Task tool) available on Claude Code and Codex with the iEvo plugin — other agentskills.io-compatible platforms execute the deep-reviewer steps inline. Designed for Sonnet-tier reasoning via the deep-reviewer agent frontmatter and this skill's own `model: sonnet` pin. Cursor v3.7+: native `/review` (Bugbot) is a faster platform alternative (~90s); prefer `/ievo:deep-review` for the structured 11-point checklist."
 disallowed-tools:
   - Write
   - Edit

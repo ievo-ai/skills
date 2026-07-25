@@ -32,6 +32,7 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
+  existsSync,
   rmSync,
   chmodSync,
 } from "node:fs";
@@ -363,6 +364,29 @@ describe("literals stay in sync with their SKILL.md sources", () => {
     );
   });
 
+  it("the companion-on-disk check is ordered after the step that writes the last companion", () => {
+    // The check loops over all three companions, but `failure-capture.local.sh`
+    // is only written by Step 3.6. Placed in Step 3.5.4 (where it originally
+    // shipped) a linear enable run prints `MISSING: failure-capture.local.sh`
+    // and the step's own rule says "do NOT claim success" — a false failure on
+    // the happy path. Pin the ordering rather than the prose.
+    const checkAt = ENABLE_SKILL_SRC.indexOf(
+      'for f in correction-capture evo-analysis-nudge failure-capture; do',
+    );
+    const step36At = ENABLE_SKILL_SRC.indexOf(
+      "### 3.6 Write + wire the failure-capture hook",
+    );
+    const companionWriteAt = ENABLE_SKILL_SRC.indexOf(
+      "chmod +x .ievo/hooks/scripts/failure-capture.local.sh",
+    );
+    assert.ok(checkAt > 0, "companion-on-disk check missing from " + ENABLE_SKILL);
+    assert.ok(step36At > 0 && companionWriteAt > step36At);
+    assert.ok(
+      checkAt > companionWriteAt,
+      `the companion-on-disk check precedes the step that writes failure-capture.local.sh in ${ENABLE_SKILL} — a linear enable run would report a spurious MISSING: line`,
+    );
+  });
+
   it("SKILL.md wires exactly the three shim paths this file exercises", () => {
     for (const name of Object.keys(SHIMS)) {
       assert.ok(
@@ -433,8 +457,10 @@ describe("clean clone (before any per-clone regeneration)", () => {
       ".ievo/hooks/scripts/correction-capture.local.sh",
       ".ievo/hooks/init-complete",
     ]) {
-      const r = spawnSync("test", ["-e", join(CLONE, missingOnDisk)]);
-      assert.notEqual(r.status, 0, `expected ${missingOnDisk} absent from clone`);
+      assert.ok(
+        !existsSync(join(CLONE, missingOnDisk)),
+        `expected ${missingOnDisk} absent from clone`,
+      );
     }
   });
 
@@ -461,9 +487,7 @@ describe("clean clone (before any per-clone regeneration)", () => {
 
   it("resolves the exact command+args .claude/settings.json wires, with no 127", () => {
     const settings = JSON.parse(
-      spawnSync("cat", [join(CLONE, ".claude/settings.json")], {
-        encoding: "utf-8",
-      }).stdout,
+      readFileSync(join(CLONE, ".claude/settings.json"), "utf-8"),
     );
     const invocations = [
       ...settings.hooks.UserPromptSubmit.flatMap((e) => e.hooks),
@@ -485,9 +509,7 @@ describe("clean clone (before any per-clone regeneration)", () => {
 
   it("resolves the exact Codex command string .codex/hooks.json wires, with no 127", () => {
     const hooksJson = JSON.parse(
-      spawnSync("cat", [join(CLONE, ".codex/hooks.json")], {
-        encoding: "utf-8",
-      }).stdout,
+      readFileSync(join(CLONE, ".codex/hooks.json"), "utf-8"),
     );
     const invocations = [
       ...hooksJson.hooks.UserPromptSubmit.flatMap((e) => e.hooks),

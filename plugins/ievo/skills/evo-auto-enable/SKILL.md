@@ -331,6 +331,27 @@ generated script) simply replaces whatever was there with the shim — the
 next sub-step immediately regenerates the real logic at the `.local.sh`
 companion path, so nothing is lost.
 
+**Security note — committing these makes them a review-gated exec path.**
+Before #446 every script under `.ievo/hooks/scripts/` was gitignored, so what
+ran on a teammate's machine could only ever be what *they* generated locally.
+Tracking the three shims changes that: they are now code in the repo that
+`.claude/settings.json`/`.codex/hooks.json` execute on every prompt and every
+session start, on every clone that pulls them — so a pull request touching
+them is a pull request touching everyone's execution path (the classic
+committed-hook-script tradeoff, and the reason the bodies above are kept to a
+four-line dispatch). One consequence to state to the user in Step 5 (its
+confirmation block says this in one line), plus the tradeoff behind it:
+
+- Review any diff to `.ievo/hooks/scripts/*.sh` as executable code, not as
+  config. The shim content is **static** — identical on every project and
+  every plugin version — so a diff to it is never a routine update; treat one
+  from an untrusted contributor as suspicious by default.
+- The tradeoff is deliberate and bounded: the alternative (wiring committed
+  hook config at a path no clone has) is the 127-on-every-message bug this
+  step exists to close, and the shims deliberately hold no capture logic —
+  the real, generated logic stays in the gitignored `.local.sh` companions,
+  which are never committed and so never travel with a PR.
+
 #### 3.5.2 Write the correction-capture hook (UserPromptSubmit)
 
 Use the Write tool to create `.ievo/hooks/scripts/correction-capture.local.sh`
@@ -536,33 +557,17 @@ wired command once from the project root via Bash (`sh
 .ievo/hooks/scripts/evo-analysis-nudge.sh < /dev/null; echo "exit=$?"`) and
 confirm exit 0 — the same command `.claude/settings.json`/`.codex/hooks.json`
 will actually invoke, so this proves the wired path resolves and the tracked
-shim runs without a 127; (3) assert every `.local.sh` companion is actually on
-disk:
+shim runs without a 127.
 
-```sh
-for f in correction-capture evo-analysis-nudge failure-capture; do
-  [ -f ".ievo/hooks/scripts/$f.local.sh" ] || echo "MISSING: $f.local.sh"
-done
-```
-
-**(3) is not redundant with (2)** — it is the half that makes the check mean
-anything. The tracked shim exits 0 *by design* when its companion is absent:
-that silent no-op IS the clean-clone contract (Step 3.5.1b). So a green
-dry-run says nothing about whether Steps 3.5.2/3.5.3/3.6 ever wrote the real
-logic; enable could report success on a project where nothing captures —
-precisely issue #432's "says ENABLED, captures nothing". Only (2) **and** (3)
-together show the tracked-shim → `.local.sh`-companion delegation chain is
-complete on disk, and even then only its two halves individually: the shim's
-`exec` of a present companion is exercised by the test suite
-(`.github/scripts/validators/tests/evo-auto-hooks-lifecycle.test.mjs`), not by
-this check.
-
-All three companions are written by a full enable — including
-`failure-capture.local.sh`, which installs unconditionally and self-gates on
-the flag's `signal:` value (Step 3.6) — so any `MISSING:` line is a real
-failure, not an opt-out. If one prints, do NOT claim success: name the missing
-companion to the user and re-run the step that writes it (3.5.2 / 3.5.3 / 3.6
-respectively).
+A green dry-run does **not** prove anything captures: the tracked shim exits 0
+*by design* when its companion is absent — that silent no-op IS the clean-clone
+contract (Step 3.5.1b) — so (2) cannot tell "delegation works" apart from
+"nothing was ever written". The complementary assertion, that every `.local.sh`
+companion is actually on disk, is **check (3) at the end of Step 3.6**. It runs
+there, not here: `failure-capture.local.sh` is written by Step 3.6, so at this
+point in a linear enable run it does not exist yet and the check would print a
+spurious `MISSING: failure-capture.local.sh` for a companion the run is about
+to write. Do not claim success until Step 3.6's check (3) has also passed.
 
 Only hooks Codex/Claude Code fire on a real session boundary can prove
 end-to-end delivery — say so in Step 5's confirmation instead of implying the
@@ -585,7 +590,9 @@ the shims, a safe no-op default), the local `.local.sh` companions do the
 inject). This is iEvo's own first-party, flag-gated hook that only injects a
 self-assessment nudge and writes solely under `.ievo/` — a known, purpose-built
 exception, documented in `security-check/SKILL.md` so iEvo's own tooling does not
-self-flag it.
+self-flag it. The separate question of the now-*committed* dispatcher shims
+being a repo-resident exec path — and how to review a diff to one — is covered
+in Step 3.5.1b's security note.
 
 ### 3.6 Write + wire the failure-capture hook (opt-in, `PostToolUseFailure` + `PermissionDenied`; on Codex: `PermissionRequest`)
 
@@ -727,6 +734,37 @@ step:
 
 Include this entry in Step 3.5.4's functional check (JSON re-parse + dry-run).
 
+**Check (3) — every `.local.sh` companion is on disk.** This is the third part
+of Step 3.5.4's functional check, deferred to here because *this* step writes
+`failure-capture.local.sh`: run in 3.5.4 it would print a spurious
+`MISSING: failure-capture.local.sh` on every linear enable run. Run it now,
+from the project root, once all three companions have been written:
+
+```sh
+for f in correction-capture evo-analysis-nudge failure-capture; do
+  [ -f ".ievo/hooks/scripts/$f.local.sh" ] || echo "MISSING: $f.local.sh"
+done
+```
+
+**(3) is not redundant with 3.5.4's (2)** — it is the half that makes the check
+mean anything. The tracked shim exits 0 *by design* when its companion is
+absent: that silent no-op IS the clean-clone contract (Step 3.5.1b). So a green
+dry-run says nothing about whether Steps 3.5.2/3.5.3/3.6 ever wrote the real
+logic; enable could report success on a project where nothing captures —
+precisely issue #432's "says ENABLED, captures nothing". Only (2) **and** (3)
+together show the tracked-shim → `.local.sh`-companion delegation chain is
+complete on disk, and even then only its two halves individually: the shim's
+`exec` of a present companion is exercised by the test suite
+(`.github/scripts/validators/tests/evo-auto-hooks-lifecycle.test.mjs`), not by
+this check.
+
+All three companions are written by a full enable — including
+`failure-capture.local.sh`, which installs unconditionally and self-gates on
+the flag's `signal:` value (this step) — so any `MISSING:` line is a real
+failure, not an opt-out. If one prints, do NOT claim success: name the missing
+companion to the user and re-run the step that writes it (3.5.2 / 3.5.3 / 3.6
+respectively).
+
 ### 4. Offer to gitignore the candidate queue
 
 Captured candidates can contain verbatim conversation snippets. On first enable in
@@ -761,6 +799,8 @@ below so a fresh clone never hits "command not found" — skills#446):
   holds the real capture logic; the companions stay gitignored (machine-local,
   like /ievo:hooks-setup's scripts) — re-run this skill once per clone to
   regenerate them.
+  Because they are committed, they also run on every teammate's machine: their
+  content is static, so review any future diff to them as executable code.
 
 From now on, corrections you make during a session are captured as evolution
 candidates. At the next session start you'll be nudged to review them: unambiguous
@@ -790,6 +830,8 @@ clone never hits "command not found": skills#446):
   on every clone. Each delegates to a same-named *.local.sh companion that
   holds the real capture logic; the companions stay gitignored (machine-local)
   — re-run this skill once per clone to regenerate them.
+  Because they are committed, they also run on every teammate's machine: their
+  content is static, so review any future diff to them as executable code.
 
 From now on, corrections you make during a session are captured as evolution
 candidates. First end-to-end proof is the next session start (hook configs
@@ -875,7 +917,10 @@ MUST:
   3.5.2/3.5.3/3.6 write. This is what keeps a clean clone (flag +
   `.claude/settings.json`/`.codex/hooks.json` + shims, all committed) safe:
   the wired command always exists, and no-ops until a teammate re-runs this
-  skill once to generate the companions.
+  skill once to generate the companions. Being committed also makes them a
+  repo-resident exec path — a diff to one changes what runs on every
+  teammate's machine, so review any such diff as executable code, never as
+  config (Step 3.5.1b's security note).
 - **Project-local:** the setting lives in `.ievo/`, not user config, so it is
   per-project and survives sessions — except the three tracked shims above,
   which are deliberately committed so a fresh clone is never missing the

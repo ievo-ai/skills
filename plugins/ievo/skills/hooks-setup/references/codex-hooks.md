@@ -1,6 +1,20 @@
 # Codex hooks
 
-**Different platform, different mechanism — this reference is documentation, not a further step.** `hooks-setup/SKILL.md` Steps 1–8 configure Claude Code's `.claude/settings.json`. Codex CLI (rust-v0.133.0+) uses its own native hook system — a `hooks.json` file, or inline `[hooks]` tables in `config.toml` — with a different event catalog and blocking model. A Codex user wanting the same iEvo-event notifications builds a Codex hooks config following the pattern below rather than running Steps 1–8.
+**Different platform, different mechanism — this reference is documentation, not a further step.** `hooks-setup/SKILL.md` Steps 1–8 configure Claude Code's `.claude/settings.json`. Codex CLI (rust-v0.133.0+) uses its own native hook system — a `hooks.json` file, or inline `[hooks]` tables in `config.toml` — with a largely overlapping event catalog (below) but its own config shape and blocking model. A Codex user wanting the same iEvo-event notifications builds a Codex hooks config following the pattern below rather than running Steps 1–8.
+
+## Full event catalog
+
+Per the official [Codex hooks reference](https://developers.openai.com/codex/hooks) (redirects to the current docs host; read directly 2026-07-25), Codex supports **eleven** hook events:
+
+`SessionStart`, `SessionEnd`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`
+
+- `hookSpecificOutput.additionalContext` is accepted from `SessionStart`, `SubagentStart`, `PreToolUse`, `PostToolUse`, and `UserPromptSubmit` hooks — "that `additionalContext` text is added as extra developer context."
+- Every command hook receives JSON on stdin with `session_id`, `hook_event_name`, `cwd`, plus event-specific fields (`turn_id`, `tool_name`, `tool_input`, …).
+- `SessionStart`'s `matcher` filters on the session `source` — `startup`, `resume`, `clear`, `compact` — the same values Claude Code's SessionStart matcher takes.
+- `PermissionRequest` fires when a tool call needs approval (before the decision); a hook may decide it via `hookSpecificOutput.decision` (`{"behavior": "allow"}` / `{"behavior": "deny", ...}`; any deny wins). Codex has **no** `PostToolUseFailure` or `PermissionDenied` event — `PermissionRequest` is the closest analog, and it observes requests, not outcomes.
+- Handlers are `{"type": "command", "command": "<single string>"}` — no Claude-Code-style exec-form `args` array; `commandWindows` optionally overrides on Windows. In `hooks.json` the layout is `{"hooks": {"<EventName>": [{"matcher": ..., "hooks": [...]}]}}`.
+
+**Correction (issue #432):** an earlier revision of this reference described Codex as having "a different event catalog" and detailed only the three events below — which read as the full set and (wrongly) implied Codex lacks `SessionStart`/`UserPromptSubmit` equivalents. The catalog above is the verified, complete set; the sections below remain the deep-dive on the Codex-specific events and semantics.
 
 ## Config file location and scopes
 
@@ -58,7 +72,7 @@ printf '\a'
 exit 0
 ```
 
-**Field names verified against the Codex hooks docs on 2026-07-24.** Codex's hook config format has changed during rust-v0.13x's rapid iteration; re-check field names against current docs before relying on this table if your Codex CLI is materially older or newer than rust-v0.141.0.
+**Field names and the full event catalog verified against the Codex hooks docs on 2026-07-25** (catalog corrected per issue #432 — the previous "verified 2026-07-24" stamp sat on an under-counted catalog, so treat a verification stamp as covering only the claims it was checked against). Codex's hook config format has changed during rust-v0.13x's rapid iteration; re-check field names against current docs before relying on this table if your Codex CLI is materially older or newer than rust-v0.141.0.
 
 **Not a hook: Codex's `TurnStartedEvent`.** A companion Codex delta researched alongside the sub-agent hooks above described `TurnStartedEvent` (which gained a `trace_id` field in [PR #23980](https://github.com/openai/codex/pull/23980), first shipped rust-v0.134.0) as part of the hook surface. Verified against current Codex docs, it is not: `TurnStartedEvent` is an **app-server protocol** event — the same programmatic/IDE-integration layer AGENTS.md's "Codex sub-agent delegation" section already distinguishes from the CLI's proactive sub-agent dispatch — used for distributed tracing across turn operations, not a lifecycle hook Codex fires a configured command against. Out of scope for this hooks-focused skill.
 

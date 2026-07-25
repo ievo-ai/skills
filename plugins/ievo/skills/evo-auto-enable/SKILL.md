@@ -3,7 +3,7 @@ name: evo-auto-enable
 description: "Use this skill when the user wants to capture lessons automatically without invoking /ievo:evo explicitly — trigger words \"turn on auto evolution\", \"auto-evolve\", \"capture lessons automatically\", \"evo auto on\", \"evolve without asking\". Enables auto-evolution mode for this project — iEvo accumulates \"corrections from the user\" as evolution candidates during a session and surfaces them for review via /ievo:evo. Sets the project-local flag `.ievo/evo-auto.flag` and prepares the pending-candidate queue at `.ievo/evolution-candidates/`. Asks whether to also capture tool failures/denials (opt-in, scrubbed for privacy). Auto-mode writes ONLY unambiguous project-wide overlays; ambiguous or user-level matches are parked for manual review, never written silently."
 license: MIT
 effort: low
-compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Requires write access to `.ievo/`, POSIX shell (bash/zsh) or the Write tool. Paired with `/ievo:evo-auto-disable`. Installs a UserPromptSubmit correction-capture hook, a SessionStart analysis nudge, and (opt-in) a PostToolUseFailure/PermissionDenied failure-capture hook into `.claude/settings.json` (hook scripts need `node` + `jq`, both already required by iEvo)."
+compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Needs write access to `.ievo/`, POSIX shell or the Write tool; hook scripts need `node` + `jq`. Paired with `/ievo:evo-auto-disable`. Hooks — Claude Code: `.claude/settings.json` (UserPromptSubmit + SessionStart + opt-in PostToolUseFailure/PermissionDenied). Codex (`$CODEX_CLI`): `.codex/hooks.json` (UserPromptSubmit + SessionStart, Step 3.5.4; opt-in PermissionRequest, Step 3.6)."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -26,11 +26,14 @@ Auto-evolution is deliberately conservative — it never guesses at a silent wri
 
 - **Signal:** always **corrections from the user** — semantic, agent-judged
   ("actually, do X not Y"; "no, we always Z here"). Optionally, ALSO **tool
-  failures and permission denials** (`PostToolUseFailure` / `PermissionDenied`)
-  — a purely mechanical signal captured verbatim with no agent judgment
-  involved, opt-in via Step 2's `AskUserQuestion`, scrubbed for privacy before
-  it ever touches disk. Off by default (`signal: corrections-only`); an absent
-  or pre-existing flag with no `signal:` line behaves the same way.
+  failures and permission denials** (`PostToolUseFailure` / `PermissionDenied`;
+  on Codex, which has neither event, the closest true analog is approval
+  **requests** via `PermissionRequest` — a narrower signal, disclosed as such
+  in Step 3.6) — a purely mechanical signal captured verbatim with no agent
+  judgment involved, opt-in via Step 2's `AskUserQuestion`, scrubbed for
+  privacy before it ever touches disk. Off by default
+  (`signal: corrections-only`); an absent or pre-existing flag with no
+  `signal:` line behaves the same way.
 - **Auto-write is project-wide only.** A candidate is written to the overlay
   automatically **only** when its scope is unambiguously **project-wide**
   (`.ievo/evolution/project.md` — see `/ievo:evo` Step 1).
@@ -126,11 +129,18 @@ Each parked candidate is appended below as:
 ### 3.5 Install the correction-capture + analysis + failure-capture hooks
 
 This is what makes auto-evolution actually capture and surface corrections (and,
-opt-in, tool failures/denials). Three hooks are wired into the project's
-`.claude/settings.json`, all **gated on `.ievo/evo-auto.flag`** so they are
-no-ops the moment the mode is off (or `/ievo:evo-auto-disable` removes the
-flag), and all **fail-silent and non-blocking**. They follow
-`/ievo:hooks-setup`'s conventions — exec-form `args: string[]`, no `set -e`; the
+opt-in, tool failures/denials). Three hooks are wired into the **invoking
+client's own hook config** — Claude Code: the project's `.claude/settings.json`;
+Codex: the project's `.codex/hooks.json` (detect via the `$CODEX_CLI` env var
+ONLY, the same rule as `/ievo:init` Step 1.5 — never `command -v codex`). Writing
+Claude Code hooks from a Codex session enables nothing: Codex never reads
+`.claude/settings.json`, which left auto-mode claiming "ENABLED" with only a flag
+and queue on disk (issue #432). All three hooks are **gated on
+`.ievo/evo-auto.flag`** so they are no-ops the moment the mode is off (or
+`/ievo:evo-auto-disable` removes the flag), and all **fail-silent and
+non-blocking**. The generated scripts are identical on both platforms — only the
+wiring differs (Step 3.5.4): Claude Code uses `/ievo:hooks-setup`-convention
+exec-form `args: string[]`; Codex handlers take a single `command` string. The
 correction-capture and analysis-nudge hooks emit `additionalContext` from the
 hook command's stdout JSON, the failure-capture hook (Step 3.6) emits no stdout
 at all (nothing for the agent to act on mid-failure). Verified against the
@@ -138,7 +148,11 @@ at all (nothing for the agent to act on mid-failure). Verified against the
 (UserPromptSubmit + SessionStart both support
 `hookSpecificOutput.additionalContext`; SessionStart is context-only and cannot
 block startup; PostToolUseFailure's error payload field is `tool_error`, NOT a
-top-level `error` — see Step 3.6's note on this).
+top-level `error` — see Step 3.6's note on this) and against the
+[Codex hooks reference](https://developers.openai.com/codex/hooks)
+(same `hookSpecificOutput.additionalContext` support on UserPromptSubmit +
+SessionStart; same `session_id`/`hook_event_name` stdin JSON; hooks fail open on
+errors/timeouts).
 
 The correction-capture and analysis-nudge hooks call the per-session accumulator
 `plugins/ievo/scripts/evolution_candidates.mjs` (Node, stdlib-only) for
@@ -150,7 +164,8 @@ disk.
 
 #### 3.5.1 Resolve the plugin root and vendor a stable fallback copy
 
-A hook fired from the project's own `.claude/settings.json` does **not** get
+A hook fired from the project's own config (`.claude/settings.json` on Claude
+Code, `.codex/hooks.json` on Codex) does **not** get
 `CLAUDE_PLUGIN_ROOT` set at fire time, so every generated script below prefers a
 live `CLAUDE_PLUGIN_ROOT` when present and otherwise falls back to a
 **project-local vendored copy** — never a path baked from `CLAUDE_PLUGIN_ROOT` at
@@ -280,16 +295,17 @@ n=$(node "$ACC" count 2>/dev/null || echo 0)
 case "$n" in ""|*[!0-9]*) exit 0 ;; esac
 [ "$n" -gt 0 ] || exit 0
 
-msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured tool failures/denials, not corrections -- apply a failure-then-fixed-vs-noise judgment before folding one in: a failure later resolved toward the same goal is learnable, a failure inside normal iteration is noise. Remove each candidate from its session file as you consume it."
+msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured mechanical tool signals (tool failures/denials on Claude Code, approval requests on Codex), not corrections -- apply a signal-then-fixed-vs-noise judgment before folding one in: a signal later resolved toward the same goal is learnable, a signal inside normal iteration is noise. Remove each candidate from its session file as you consume it."
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
 exit 0
 ```
 
 Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/evo-analysis-nudge.sh`.
 
-#### 3.5.4 Wire the correction-capture + analysis hooks into `.claude/settings.json`
+#### 3.5.4 Wire the correction-capture + analysis hooks into the client's hook config
 
-Read the project's `.claude/settings.json` first (treat absent as `{}`); if it
+**On Claude Code** (`$CODEX_CLI` unset) — read the project's
+`.claude/settings.json` first (treat absent as `{}`); if it
 exists but is **not valid JSON**, halt without writing (do not clobber manual
 edits) and tell the user to fix it. Merge with the **Read + Edit** tools (not
 shell JSON edits — preserves comments and key order), appending these two entries
@@ -336,6 +352,73 @@ mid-work resume/compact never re-injects the nudge):
 }
 ```
 
+**On Codex** (`$CODEX_CLI` set) — wire the SAME two scripts into the project's
+`.codex/hooks.json` instead. Codex's native hook system supports both events
+with the same semantics ([Codex hooks reference](https://developers.openai.com/codex/hooks)):
+`UserPromptSubmit` and `SessionStart` are first-class Codex events, both accept
+`hookSpecificOutput.additionalContext`, hooks receive the same
+`session_id`-bearing JSON on stdin, and the `SessionStart` matcher filters by
+source with the same `startup` value (possible values: `startup`, `resume`,
+`clear`, `compact`). Differences from the Claude Code entries: a Codex handler
+takes a single `command` **string** (no exec-form `args` array), and the
+top-level key layout is `{"hooks": {<EventName>: [...]}}`.
+
+Read `.codex/hooks.json` first (treat absent as `{"hooks": {}}`); if it exists
+but is not valid JSON, halt without writing and tell the user to fix it — same
+no-clobber rule as above. Merge with Read + Edit, deduping by the handler's
+`command` string:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .ievo/hooks/scripts/correction-capture.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .ievo/hooks/scripts/evo-analysis-nudge.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Two Codex-specific caveats — state both to the user rather than claiming
+unconditional success (the "claims enabled while nothing captures" failure is
+this skill's issue #432 bug class):
+
+- **Trust gate:** Codex loads project-local `.codex/` hooks only when that
+  config layer is trusted. If the user hasn't trusted this project's `.codex/`
+  layer, the hooks sit inert until they do.
+- **Relative paths:** the entries use project-root-relative script paths — the
+  same pattern as the worked Codex example in
+  `hooks-setup/references/codex-hooks.md`. Codex hooks fail open (a failing
+  hook never blocks the session), so a session started outside the project
+  root degrades to no capture, not an error.
+
+**Functional check (both platforms), before claiming success:** after writing
+the config, (1) re-read it and parse it as JSON (`node -e
+'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' <file>` —
+malformed config is a silent kill on a fail-open platform); (2) dry-run each
+script once from the project root via Bash (`sh
+.ievo/hooks/scripts/evo-analysis-nudge.sh < /dev/null; echo "exit=$?"`) and
+confirm exit 0. Only hooks Codex/Claude Code fire on a real session boundary
+can prove end-to-end delivery — say so in Step 5's confirmation instead of
+implying the capture loop was already observed working.
+
 The generated scripts live under `.ievo/hooks/` (gitignored by `/ievo:init`
 Step 10) — machine-local, like `/ievo:hooks-setup`'s scripts. Step 3.5.1 already
 ensured `.ievo/hooks/` is git-ignored before vendoring the redaction engine, so
@@ -351,7 +434,7 @@ self-assessment nudge and writes solely under `.ievo/` — a known, purpose-buil
 exception, documented in `security-check/SKILL.md` so iEvo's own tooling does not
 self-flag it.
 
-### 3.6 Write + wire the failure-capture hook (opt-in, `PostToolUseFailure` + `PermissionDenied`)
+### 3.6 Write + wire the failure-capture hook (opt-in, `PostToolUseFailure` + `PermissionDenied`; on Codex: `PermissionRequest`)
 
 Unlike the two hooks above, this one needs no agent judgment at all — a tool
 call either failed/was denied or it didn't, so the hook script does the whole
@@ -360,6 +443,20 @@ emits `additionalContext`. It always installs (so flipping `signal:` in the flag
 takes effect immediately, no re-run needed) but is a no-op unless
 `signal: corrections+failures` is set — mirroring how every other hook here
 self-gates on the flag rather than being conditionally wired.
+
+**Platform semantics differ here — disclose, don't paper over.** Claude Code
+fires `PostToolUseFailure` (a tool call failed) and `PermissionDenied` (a call
+was denied). Codex has **neither** event — its verified catalog
+([Codex hooks reference](https://developers.openai.com/codex/hooks)) offers
+`PermissionRequest` as the closest true analog, and it fires when a tool call
+*needs approval* — BEFORE the allow/deny decision, whose outcome the hook never
+sees. So on Codex this signal records "an approval was requested"
+(`outcome: requested`), not "a call failed/was denied". That is a real,
+narrower signal (approval friction points), captured under the same
+fixed-vs-noise review contract — never describe it to the user as
+failure/denial capture. The script emits no stdout, so it can never influence
+the permission decision itself (Codex only reads a decision from an explicit
+`hookSpecificOutput.decision` output, which this script never produces).
 
 Use the Write tool to create `.ievo/hooks/scripts/failure-capture.sh`:
 
@@ -399,6 +496,11 @@ event=$(printf '%s' "$input" | jq -r '.hook_event_name // "unknown"' 2>/dev/null
 case "$event" in
   PostToolUseFailure) outcome=failed ;;
   PermissionDenied) outcome=denied ;;
+  # Codex wiring (Step 3.6's .codex/hooks.json entry) -- fires when a tool call
+  # needs approval, BEFORE the allow/deny decision, so the honest outcome is
+  # "requested", never "failed"/"denied". Unreachable on Claude Code (this
+  # script is only wired under PostToolUseFailure/PermissionDenied there).
+  PermissionRequest) outcome=requested ;;
   *) exit 0 ;;
 esac
 
@@ -408,7 +510,9 @@ esac
 # confirmed), then error, then reason, so a naming discrepancy across Claude
 # Code versions doesn't silently drop the signal -- none of the three are
 # documented for PermissionDenied, so detail there falls back to tool_input
-# alone. jq -c keeps the whole record to a single line.
+# alone (same for Codex's PermissionRequest: no error field exists pre-decision;
+# its stdin payload carries tool_name/tool_input). jq -c keeps the whole record
+# to a single line.
 record=$(printf '%s' "$input" | jq -c --arg outcome "$outcome" '{event: .hook_event_name, tool: (.tool_name // "unknown"), outcome: $outcome, detail: {error: (.tool_error // .error // .reason // null), tool_input}}' 2>/dev/null)
 [ -n "$record" ] || exit 0
 
@@ -432,7 +536,8 @@ accumulator via `--text-file` at the **fixed** path
 interpolated into a Bash argument, so nothing a failing tool printed can break out
 of shell quoting (the same CWE-78 class closed in #373 for corrections).
 
-Wire it into `.claude/settings.json` with the same Read + Edit merge mechanics as
+**On Claude Code**, wire it into `.claude/settings.json` with the same Read +
+Edit merge mechanics as
 Step 3.5.4, under BOTH `hooks.PostToolUseFailure[]` and `hooks.PermissionDenied[]`
 (no `matcher` — fires on every tool; the script itself gates on flag + signal):
 
@@ -448,6 +553,25 @@ Step 3.5.4, under BOTH `hooks.PostToolUseFailure[]` and `hooks.PermissionDenied[
 }
 ```
 
+**On Codex** (`$CODEX_CLI` set), wire it into `.codex/hooks.json` with Step
+3.5.4's Codex merge mechanics, under `hooks.PermissionRequest[]` (no `matcher`;
+same flag + signal self-gating). The script's `PermissionRequest` case records
+`outcome: requested` — see the platform-semantics disclosure at the top of this
+step:
+
+```json
+{
+  "hooks": [
+    {
+      "type": "command",
+      "command": "sh .ievo/hooks/scripts/failure-capture.sh"
+    }
+  ]
+}
+```
+
+Include this entry in Step 3.5.4's functional check (JSON re-parse + dry-run).
+
 ### 4. Offer to gitignore the candidate queue
 
 Captured candidates can contain verbatim conversation snippets. On first enable in
@@ -459,7 +583,11 @@ setting; reviewed lessons land in the committed `.ievo/evolution/` overlays afte
 
 ### 5. Confirm to user
 
-Print:
+The hooks block is platform-conditional — never print the other client's file
+or events (claiming `.claude/settings.json` hooks from a Codex session is the
+exact "says ENABLED, captures nothing" bug this skill shipped — issue #432).
+
+**On Claude Code**, print:
 
 ```
 🧬 iEvo auto-evolution mode ENABLED
@@ -480,9 +608,35 @@ user-level ones are parked in the pending queue for review via /ievo:evo —
 never written silently.
 ```
 
-Then, if `signal: corrections+failures`, print one more line: "Also capturing
-tool failures/denials (scrubbed for privacy) — reviewed the same way." Finally,
-always print:
+**On Codex** (`$CODEX_CLI` set), print instead:
+
+```
+🧬 iEvo auto-evolution mode ENABLED (Codex)
+
+Flag: .ievo/evo-auto.flag (commit to share the setting with teammates)
+Signal: <corrections-only | corrections+failures, from Step 2's answer>
+Pending queue: .ievo/evolution-candidates/pending.md
+Hooks (local, in .codex/hooks.json — loads once this project's .codex/ layer
+is trusted in Codex):
+  UserPromptSubmit  → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
+  SessionStart      → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
+  PermissionRequest → .ievo/hooks/scripts/failure-capture.sh
+    (installed either way; active only when Signal is corrections+failures.
+    Codex has no failed-tool/denied event — this records approval REQUESTS,
+    a narrower signal than Claude Code's failure/denial capture)
+
+From now on, corrections you make during a session are captured as evolution
+candidates. First end-to-end proof is the next session start (hook configs
+load on session boundaries): expect the review nudge there when candidates
+are pending. Unambiguous project-wide lessons are written to the overlay
+automatically; ambiguous or user-level ones are parked in the pending queue
+for review via /ievo:evo — never written silently.
+```
+
+Then, if `signal: corrections+failures`, print one more line — on Claude Code:
+"Also capturing tool failures/denials (scrubbed for privacy) — reviewed the
+same way."; on Codex: "Also capturing tool approval requests (scrubbed for
+privacy) — reviewed the same way." Finally, always print:
 
 ```
 Review parked candidates any time: /ievo:evo
@@ -524,6 +678,12 @@ hook (`.ievo/hooks/scripts/failure-capture.sh`) honor, all backed by the
 
 ## Rules
 
+- **Wire the invoking client only:** detect via `$CODEX_CLI` (same rule as
+  `/ievo:init` Step 1.5) — Claude Code hooks go to `.claude/settings.json`,
+  Codex hooks to `.codex/hooks.json`. Never write the other client's config,
+  never claim the mode is enabled beyond what the invoking client will
+  actually fire, and never describe Codex's `PermissionRequest` capture as
+  failure/denial capture (issue #432).
 - **Idempotent:** if auto-mode is already on, just refresh `enabled_at` and confirm.
   Never clobber an existing `pending.md`.
 - **Never write silently outside project-wide scope:** ambiguity is parked, not

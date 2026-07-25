@@ -5,7 +5,8 @@ model: opus
 # Steps 2-4 (overlay append) are mechanical, but Step 2.5 applies
 # `security-check`'s full threat-pattern deep-scan + GREEN/YELLOW/RED verdict
 # to freshly-vendored content before it lands in `.claude/agents/`/
-# `.claude/skills/` — the same antivirus guarantee `security-auditor` and
+# `.claude/skills/` (`.agents/skills/` on Codex — Step 1's `$CODEX_CLI`
+# rule) — the same antivirus guarantee `security-auditor` and
 # `vuln-scanner` pin `high` for. `effort` is per-agent, not per-step, so the
 # security gate sets the floor: pinned high so a low-effort caller session
 # can't silently degrade that audit. The mechanical majority path pays some
@@ -86,33 +87,39 @@ Three possible scopes:
 2. **Agent-specific** — names an agent or describes sub-agent behavior. Signals: "the spec-writer should X". → `.ievo/evolution/agents/<name>.md`
 3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → `.ievo/evolution/skills/<name>.md`
 
-For agent/skill scope, determine the target name explicitly (from user) or by matching the lesson against available targets:
+For agent/skill scope, determine the target name explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (`$CODEX_CLI` env var ONLY — same rule as `evo/SKILL.md` Step 1 and `/ievo:init` Step 1.5) and scan that client's own load paths, never the other client's:
 
-**Project-level (preferred):**
+**On Claude Code (`$CODEX_CLI` unset) — project-level (preferred):**
 - `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`
 - `.claude/plugins/*/agents/*.md`, `.claude/plugins/*/skills/*/SKILL.md`
 
-**User-level (fallback):**
+**On Claude Code — user-level (fallback):**
 - `~/.claude/agents/*.md`, `~/.claude/skills/*/SKILL.md`
 - `~/.claude/plugins/*/agents/*.md`, `~/.claude/plugins/*/skills/*/SKILL.md`
+
+**On Codex (`$CODEX_CLI` set) — skills only:**
+- Project-level (preferred): `.agents/skills/*/SKILL.md`
+- User-level (fallback): `~/.agents/skills/*/SKILL.md`
+
+Codex documents no project-level custom-agent path (same platform filter as `evo/SKILL.md` Step 1), so an **agent-scope** lesson on Codex has no local target to vendor or inject a marker into. If `.ievo/evolution/agents/<name>.md` already exists (created from a Claude Code session of this project), append the lesson to that overlay (Step 4) and skip Steps 2–3 — the marker in the Claude-Code-side agent file keeps applying it there. Otherwise report in Step 5 that agent evolution isn't available on Codex and stop; never fall back to writing `.claude/agents/` from a Codex session.
 
 Project-level wins on name match. If a target is found only at user-level, ask the user before proceeding (see "User-level handling" below). If no clear match anywhere, ask which target. Do not guess.
 
 ## User-level handling
 
 If target found ONLY at user-level: ask `AskUserQuestion`:
-- `Copy to project (Recommended)` — copies to `.claude/<type>/<name>/`, proceeds with vendor/marker/overlay flow. Record trigger as `copied-from-user-level`.
+- `Copy to project (Recommended)` — copies into the invoking client's project path (`.claude/<type>/` on Claude Code, `.agents/skills/<name>/` on Codex), proceeds with vendor/marker/overlay flow. Record trigger as `copied-from-user-level`.
 - `Skip` — don't evolve user-level installs. Inform user the lesson was not captured.
 
 ## Step 2: Ensure target file exists locally (vendor if needed)
 
 Only for agent/skill scope. Skip for project-wide.
 
-If the target lives in a plugin (not already in `.claude/<type>/`):
+If the target lives in a plugin (not already in the invoking client's project-level load path from Step 1):
 
-**Vendor the file:**
-- For agent: copy `<plugin>/agents/<name>.md` → `.claude/agents/<name>.md`
-- For skill: copy `<plugin>/skills/<name>/` directory → `.claude/skills/<name>/` (whole tree)
+**Vendor the file — into the invoking client's own load path (`$CODEX_CLI` rule from Step 1), never the other client's:**
+- For agent: copy `<plugin>/agents/<name>.md` → `.claude/agents/<name>.md` (Claude Code only — Step 1's Codex filter never routes agent scope here)
+- For skill: copy `<plugin>/skills/<name>/` directory (whole tree) → Claude Code: `.claude/skills/<name>/`; Codex: `.agents/skills/<name>/` — vendoring to `.claude/skills/` from a Codex session strands the copy where Codex never scans (issue #432)
 
 ### How to fetch source — clone once, read/write with the Read/Write tools
 
@@ -212,9 +219,10 @@ not already local — skip this step entirely otherwise, same condition as
 Step 2's own "If the target lives in a plugin" gate).
 
 The content Step 2 just read into context is about to land in
-`.claude/agents/<name>.md` or `.claude/skills/<name>/` — the project's
-trusted execution directory, dispatched by name on every future session —
-and it has never been reviewed. Apply the antivirus deep-scan methodology
+`.claude/agents/<name>.md` or the client skill vendor path
+(`.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/` on
+Codex) — the project's trusted execution directory, dispatched by name on
+every future session — and it has never been reviewed. Apply the antivirus deep-scan methodology
 from the `ievo:security-check` skill (preloaded into this agent's context at
 startup via the `skills:` frontmatter above — no runtime tool call needed)
 to the content already in hand:
@@ -234,16 +242,18 @@ to the content already in hand:
 
 **GREEN** → write the content now: for an agent, write to
 `.claude/agents/<name>.md` with the **Write tool**; for a skill, write each
-file read in Step 2 to the matching relative location under
-`.claude/skills/<name>/` with the **Write tool**. Record `fetched_at` as the
+file read in Step 2 to the matching relative location under Step 2's client
+vendor path (`.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/`
+on Codex) with the **Write tool**. Record `fetched_at` as the
 current ISO timestamp. No user friction — matches `/ievo:init` Step 8a's and
 `update.md`'s own install-time/re-audit GREEN path. Continue to Step 3.
 **This is one-time**: subsequent evolutions on the same target find it
 already local (Step 2's own condition) and skip vendoring — and Step 2.5 —
 entirely.
 
-**YELLOW or RED** → do NOT write anything to `.claude/agents/` or
-`.claude/skills/`, and do not proceed to Step 3 (no local file exists to
+**YELLOW or RED** → do NOT write anything to `.claude/agents/` or the
+client skill vendor path (`.claude/skills/` / `.agents/skills/`), and do
+not proceed to Step 3 (no local file exists to
 inject a marker into) or Step 4 (no vendored target to append an overlay
 against) for this capture. You are a dispatched sub-agent: Claude Code
 unconditionally withholds `AskUserQuestion` from every Task-dispatched

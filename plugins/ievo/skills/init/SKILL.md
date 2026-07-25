@@ -8,12 +8,12 @@ effort: max
 # on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
-compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, network access. Orchestrator uses Task tool + AskUserQuestion, runs on **Claude Code and Codex**. Skills inside the pipeline are cross-platform via agentskills.io. v0.6.0+: no longer requires find-skills prereq — uses own discover.mjs script. v2.1.193+: Auto Mode's `classifyAllShell: true` routes every bash call through the classifier (Step 1). v2.1.195+: dual-gate plugin install consent (AskUserQuestion + CC dialog) — see AGENTS.md Security model."
+compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, network access. Orchestrator uses Task tool + AskUserQuestion, runs on **Claude Code and Codex**. Skills inside the pipeline are cross-platform via agentskills.io. On Codex (`$CODEX_CLI`): vendors to `.agents/skills/`, writes no `.claude/*` config, agents/whole-plugin installs are disclosed as unavailable. v2.1.193+: Auto Mode `classifyAllShell: true` classifier note (Step 1). v2.1.195+: dual-gate plugin install consent — see AGENTS.md Security model."
 hooks:
   Stop:
     - hooks:
         - type: command
-          command: "echo \"iEvo init complete. Run /reload-plugins to activate installed skills.\""
+          command: "if [ -n \"$CODEX_CLI\" ]; then echo \"iEvo init complete. Codex picks up skill changes automatically - restart Codex if a new skill doesn't appear.\"; else echo \"iEvo init complete. Run /reload-plugins to activate installed skills.\"; fi"
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -55,7 +55,7 @@ install (vendor or plugin, project-scope, copy + source SHA metadata)
 
 **v0.6.0 — zero-prereq architecture**: dropped `find-skills` manual install. Discovery happens via own `discover.mjs` script (skills.sh API direct). All scanning, ranking, audit, and install decisions happen on user's machine. Independent and verifiable per-user, no central trust gates.
 
-**Install model** (Step 9): project-scope (`.claude/agents/`, `.claude/skills/`), **copy** files via Write tool (NOT symlink — robust against source moves). Source repo + commit SHA recorded in `.ievo/evolution/<scope>/<name>.md` frontmatter for upstream-update tracking via `/ievo:update`.
+**Install model** (Step 9): project-scope, into the invoking client's own load paths — Claude Code: `.claude/agents/`, `.claude/skills/`; Codex (`$CODEX_CLI` set): `.agents/skills/` (skills only — see Step 7a's platform filter) — **copy** files via Write tool (NOT symlink — robust against source moves). Source repo + commit SHA recorded in `.ievo/evolution/<scope>/<name>.md` frontmatter for upstream-update tracking via `/ievo:update`.
 
 ## Step 0: Print version banner (read from disk — never infer)
 
@@ -134,6 +134,8 @@ Stop init on missing node. No graceful fallback — scan_repo.mjs is core to Ste
 
 ### Permission check (auto-mode classifier)
 
+**Platform — skip this entire subsection on Codex.** `.claude/settings.local.json` / `.claude/settings.json` `permissions.allow` entries are Claude Code's permission mechanism; Codex never reads them, so writing them from a Codex session configures the wrong client (this exact miss shipped `permissions` into `.claude/settings.json` from a Codex run — issue #432). If the host platform is Codex (`$CODEX_CLI` env var ONLY, per Step 1.5's detection rationale), skip the settings read, the `AskUserQuestion`, and any write — Codex's own approval flow prompts per command as needed. The hard prereq checks above (git / gh / node) still apply on every platform.
+
 Init will run network/CLI commands the auto-mode classifier may block: `gh api`, `gh search`. Without pre-approval, each call hits a confirmation prompt — friction during the discovery phase.
 
 (v0.6.0 dropped `npx skills` permissions — discovery now happens via local `discover.mjs` script which is a normal `node` invocation, not blocked by the auto-classifier.)
@@ -197,10 +199,22 @@ Create if missing:
 - `.ievo/log/hooks/` — append-only audit log for lifecycle hook fires (events.log appended by every hook configured via `/ievo:hooks-setup`)
 - `.ievo/cache/index/`
 - `.ievo/hooks/` — signal-file directory for lifecycle hooks; Step 11.5 writes `init-complete` here, evo/SKILL.md Step 5.5 writes `evolution-captured`, security-auditor.md Step 6 writes `security-red` (RED-only). Created defensively even if `/ievo:hooks-setup` hasn't been run yet
-- `.claude/` — root for vendored items
-- `.claude/agents/` — for vendored agents
-- `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add`)
 - `.ievo/log/pending-reports/` — for security-issue reports that couldn't be filed live (gh auth missing, rate limit, repo issues disabled). User can file manually later from these saved bodies.
+
+Plus the platform's vendor root — create only the invoking client's directories
+(`$CODEX_CLI` env var per Step 1.5), never both:
+
+- **Claude Code** (`$CODEX_CLI` unset):
+  - `.claude/` — root for vendored items
+  - `.claude/agents/` — for vendored agents
+  - `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add`)
+- **Codex** (`$CODEX_CLI` set):
+  - `.agents/skills/` — for vendored skills. Codex scans `.agents/skills` from the
+    working directory up to the repo root, plus `$HOME/.agents/skills`
+    ([Codex skills docs](https://developers.openai.com/codex/skills)); `.claude/*`
+    is invisible to Codex, so writing there from a Codex session installs nothing
+    (issue #432). No agents directory — Codex documents no project-level
+    custom-agent load path (see Step 7a's platform filter).
 
 Do NOT touch `CLAUDE.md` or `AGENTS.md` here.
 
@@ -304,7 +318,7 @@ cat > "$LOG_PATH" <<EOF
 ## 0. Plugin metadata
 - iEvo plugin: <version from Step 0 banner>
 - Plugin commit SHA: <or "marketplace-installed">
-- Claude Code: <claude --version>
+- Client: <Codex (\$CODEX_CLI set) | Claude Code (\`claude --version\`)>
 - OS: <uname -srm>
 - Run started: <ISO-8601 timestamp>
 EOF
@@ -316,7 +330,10 @@ If a step takes a long time (e.g. `discover.mjs` or `index-repos` for big repos)
 
 ## Step 3: Build installed inventory
 
-Collect names from:
+The inventory answers "what is already available to THIS client" — so scan the
+invoking client's load paths, not the other platform's.
+
+**On Claude Code** (`$CODEX_CLI` unset), collect names from:
 
 **Skills installed:**
 - `.claude/skills/<name>/SKILL.md`
@@ -332,6 +349,30 @@ Collect names from:
 
 **Plugins enabled:**
 - Parse `.claude/settings.json` field `enabledPlugins` keys
+
+**On Codex** (`$CODEX_CLI` set), collect names from the Codex-visible skill
+directories instead:
+
+- `.agents/skills/<name>/SKILL.md` (working directory up to repo root)
+- `~/.agents/skills/<name>/SKILL.md`
+
+Do NOT parse `.claude/settings.json` and do NOT count `.claude/skills/` /
+`.claude/agents/` contents as installed on Codex — Codex never loads them. If
+`.claude/skills/` does contain vendored items (a project previously initialized
+from Claude Code — the issue #432 migration case), list them in the log and the
+Step 12 summary as "present under `.claude/skills/` but not visible to Codex",
+and let them re-surface as candidates: re-accepting one re-vendors it to
+`.agents/skills/`, which is the repair path for a Claude-Code-configured
+project now driven from Codex. (The existing `.ievo/evolution/skills/<name>.md`
+overlay is preserved by install-protocol.md §9a step 4 when the re-vendored
+source matches its recorded `source.repo`.) Provenance guard for exactly this
+re-surface path: when a candidate shares its name with a `.claude/skills/`
+item, compare the candidate's `<owner>/<repo>` against that overlay's
+`source.repo` before Step 7b — on a mismatch, say so in the candidate's
+interview question ("same name, DIFFERENT source than your existing
+.claude/skills copy — this is a different item, not a repair") instead of
+letting it read as a plain re-install; §9a step 4's source-change rule then
+governs the overlay if the user proceeds.
 
 **Log section 3 NOW — do not defer.** Write the full inventory with **complete
 lists, never truncated** — if a project has 26 agents, log all 26 names;
@@ -485,6 +526,16 @@ Filter and rank **per category** (not overall):
 
 ### Step 7a — Filter
 
+- **Platform filter (Codex only, `$CODEX_CLI` set)** — drop every `type: agent`
+  candidate, reason `"not installable on Codex: Codex loads only skills
+  (.agents/skills); no documented project-level custom-agent path"` (per the
+  [Codex skills docs](https://developers.openai.com/codex/skills) — re-check on
+  a major Codex release and lift this filter if agent loading ships). Same
+  visible-drop semantics as the stack-relevance filter below: logged in
+  section 6b with the reason, never silent. Do NOT vendor an agent `.md`
+  anywhere on Codex — a copy under `.claude/agents/` would be invisible to the
+  client that installed it, the exact issue #432 failure. On Claude Code this
+  filter is a no-op.
 - **Drop candidates whose name conflicts with installed inventory** (already-installed check applies to expanded list, not just discover.mjs' direct returns).
 - **Match name + description against stack/deps**:
   - Direct keyword match (skill named "pytest" for Python project with pytest) → high score
@@ -572,6 +623,8 @@ Options:
 
 ### type=plugin
 
+On **Claude Code**:
+
 ```
 Question: `Install plugin <plugin-name>?`
 Header: <short tag>
@@ -581,7 +634,28 @@ Options:
   - "Skip"
 ```
 
-If user picks "Vendor specific items" for a plugin → enter sub-interview listing that plugin's agents and skills, one question per item.
+On **Codex** (`$CODEX_CLI` set), never offer "Install whole plugin" — that path
+is `extraKnownMarketplaces`/`enabledPlugins` in `.claude/settings.json`, a
+Claude Code mechanism Codex never reads (and Codex has no project-level plugin
+enable either — Step 2.3 / openai/codex#18115). Ask instead:
+
+```
+Question: `Plugin <plugin-name> — vendor its skills?`
+Header: <short tag>
+Options:
+  - "Vendor its skills" — description: "Copies this plugin's skills to .agents/skills/. Its agents/hooks/MCP/commands can't be installed from here on Codex."
+  - "Skip"
+```
+
+For a candidate tagged `source_origin: codex-marketplace`, add one line before
+the question: it came from Codex's own marketplace catalog, so the native
+route is Codex's plugin tooling (`codex plugin --help` lists the current
+subcommands) — vendoring here copies skills only.
+
+If user picks "Vendor specific items" (Claude Code) / "Vendor its skills"
+(Codex) for a plugin → enter sub-interview listing that plugin's agents and
+skills (skills only on Codex — agents fall under Step 7a's platform filter),
+one question per item.
 
 ### Tail question — demoted candidates (`overlap_tail[]`)
 
@@ -658,12 +732,17 @@ then aggregate. Format: [log-format.md §8](references/log-format.md).
 Two paths run in sequence — **vendor** (skills + agents) then **plugin** (whole
 plugins). Vendor = clone once + enumerate with Glob + fetch via Read/Write
 (never a Bash/`gh api` command built from the item's path — see
-install-protocol.md § "How to fetch the tree"), write to `.claude/skills/<name>/`
-or `.claude/agents/<name>.md`, inject the `<!-- ievo:start -->` overlay marker,
+install-protocol.md § "How to fetch the tree"), write to the **platform's
+vendor root** — Claude Code: `.claude/skills/<name>/` or
+`.claude/agents/<name>.md`; Codex (`$CODEX_CLI` set): `.agents/skills/<name>/`
+(skills only — agents never reach this step on Codex, per Step 7a's platform
+filter) — inject the `<!-- ievo:start -->` overlay marker,
 and create the `.ievo/evolution/<scope>/<name>.md` overlay (with the full
 evo-spec frontmatter — `target`/`target_name`/`created` plus `source` repo +
 commit SHA). Plugin = merge `extraKnownMarketplaces` + `enabledPlugins`
-into `.claude/settings.json` (committed → teammates auto-install on pull). Full
+into `.claude/settings.json` (committed → teammates auto-install on pull) —
+**Claude Code only**; on Codex `plugin_queue` is empty by construction (Step
+7b never offers whole-plugin install there), so 9b is a no-op. Full
 protocol incl. exact marker/frontmatter/JSON shapes:
 **[install-protocol.md](references/install-protocol.md)**.
 
@@ -721,9 +800,9 @@ If the user hasn't run `/ievo:hooks-setup`, the file is still written — it's a
 
 ## Step 12: Final summary and reload reminder
 
-This skill's own `hooks:` frontmatter (above) already prints a one-line "init complete" message via a `Stop` hook when the pipeline's turn ends, zero setup required — the print below is the full interactive summary, not a duplicate of the hook message.
+This skill's own `hooks:` frontmatter (above) already prints a one-line "init complete" message via a `Stop` hook when the pipeline's turn ends (platform-conditional on `$CODEX_CLI`, zero setup required) — the print below is the full interactive summary, not a duplicate of the hook message.
 
-Print to user:
+**On Claude Code** (`$CODEX_CLI` unset), print to user:
 
 ```
 ✓ iEvo init complete.
@@ -752,7 +831,36 @@ Diagnostic log: .ievo/log/init-<timestamp>.md
 Project settings updated: .claude/settings.json (commit to git for team sync)
 ```
 
-**Platform-conditional line — append only on Codex** (`$CODEX_CLI` set, per Step 2.3):
+Step 2.2 already folded iEvo's own entry into the "Project settings updated"
+line — no separate confirmation line needed on Claude Code.
+
+**On Codex** (`$CODEX_CLI` set), print this variant instead — never `/reload-plugins`
+(not a Codex command), never a `/plugin` menu path, never a `.claude/settings.json`
+claim (nothing was written there on this platform):
+
+```
+✓ iEvo init complete.
+
+Skills vendored: <N> (to .agents/skills/ — commit to git for team sync)
+Agents: <A> candidate(s) not installable on Codex (no documented custom-agent
+  path) — listed in the log, section 6b
+Plugins: whole-plugin install is a Claude Code mechanism; skills from chosen
+  plugins were vendored instead
+Skipped (security): <P>
+
+Codex picks up skill changes automatically — restart Codex if a new skill
+doesn't appear.
+
+To capture lessons going forward:
+  /ievo:evo "<rule>"
+
+To update vendored skills later:
+  /ievo:update
+
+Diagnostic log: .ievo/log/init-<timestamp>.md
+```
+
+Then append the Step 2.3 note (Codex only):
 
 ```
 iEvo's own project-level auto-bootstrap isn't available on Codex yet — Codex doesn't
@@ -760,8 +868,10 @@ persist project-scoped plugin config (openai/codex#18115). Install/update iEvo
 manually on each machine for now.
 ```
 
-On Claude Code, Step 2.2 already folded iEvo's own entry into the "Project settings
-updated" line above — no separate confirmation line needed there.
+If Step 3 found vendored items under `.claude/skills/` on a Codex run, also
+append: "Note: <M> item(s) under .claude/skills/ are not visible to Codex —
+re-run accepted ones to re-vendor into .agents/skills/ (they surfaced as
+candidates this run)."
 
 ## Step 13: Invite feedback (especially on skips)
 

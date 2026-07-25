@@ -23,9 +23,9 @@ grep -l '<!-- ievo:start -->' CLAUDE.md AGENTS.md 2>/dev/null
 grep -l '<!-- ievo:start -->' .claude/agents/*.md 2>/dev/null
 ```
 
-**Skill overlay markers** (in `.claude/skills/*/SKILL.md`):
+**Skill overlay markers** (in `.claude/skills/*/SKILL.md`, and in `.agents/skills/*/SKILL.md` — where Codex installs vendor; a mixed-client team can have both, so always scan both regardless of which client is invoking):
 ```bash
-grep -l '<!-- ievo:start -->' .claude/skills/*/SKILL.md 2>/dev/null
+grep -l '<!-- ievo:start -->' .claude/skills/*/SKILL.md .agents/skills/*/SKILL.md 2>/dev/null
 ```
 
 Collect three lists. If **all three are empty** → report "no iEvo markers found (already uninstalled or never used)" and exit. Do not delete anything.
@@ -53,7 +53,7 @@ Use `AskUserQuestion`:
 - **Question:** `Remove iEvo markers?`
 - **Header:** `Uninstall`
 - **Options** (single-select):
-  - `Remove all markers (Recommended)` — description: `Removes <!-- ievo:start -->...<!-- ievo:end --> blocks from CLAUDE.md/AGENTS.md, and from every .claude/agents/*.md and .claude/skills/*/SKILL.md that has them. Overlay files in .ievo/evolution/ remain — they just stop being read by Claude.`
+  - `Remove all markers (Recommended)` — description: `Removes <!-- ievo:start -->...<!-- ievo:end --> blocks from CLAUDE.md/AGENTS.md, and from every .claude/agents/*.md, .claude/skills/*/SKILL.md and .agents/skills/*/SKILL.md that has them. Overlay files in .ievo/evolution/ remain — they just stop being read.`
   - `Remove only project-wide marker` — description: `Keep agent/skill overlay markers (vendored content stays evolution-aware). Useful if you only want to detach project-level rules.`
   - `Cancel — keep everything` — description: `No changes. Run /ievo:uninstall again later if you change your mind.`
 
@@ -85,16 +85,17 @@ For each file that gets a marker removed:
 
 If user wants total cleanup, instruct them: "Run `rm -rf .ievo/` manually to also remove evolution data."
 
-### 6. Vendored content (`.claude/agents/`, `.claude/skills/`)
+### 6. Vendored content (`.claude/agents/`, `.claude/skills/`, `.agents/skills/`)
 
-When agents/skills were vendored via `/ievo:init`, they live in `.claude/`. With markers removed, they continue working but without overlay-aware loading.
+When agents/skills were vendored via `/ievo:init`, they live in `.claude/` (Claude Code installs) and/or `.agents/skills/` (Codex installs). With markers removed, they continue working but without overlay-aware loading.
 
-Do **not** delete the vendored content — it's the user's project's local files now. If they want to fully remove, they can `rm .claude/agents/<name>.md` and `rm -rf .claude/skills/<name>/`.
+Do **not** delete the vendored content — it's the user's project's local files now. If they want to fully remove, they can `rm .claude/agents/<name>.md`, `rm -rf .claude/skills/<name>/`, and `rm -rf .agents/skills/<name>/`.
 
 Mention in the final report:
 ```
-Vendored agents/skills (in .claude/) are preserved. They will continue to
-work without overlay-aware behavior. Run `rm` manually to fully remove.
+Vendored agents/skills (in .claude/ and/or .agents/skills/) are preserved.
+They will continue to work without overlay-aware behavior. Run `rm`
+manually to fully remove.
 ```
 
 ### 7. Plugin installs in `.claude/settings.json`

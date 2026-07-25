@@ -23,7 +23,7 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 - iEvo plugin version: <version-from-read (Step 0)>
 - Plugin path: ${CLAUDE_PLUGIN_ROOT}
 - Plugin commit SHA: <`git -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD` or "marketplace-installed">
-- Claude Code: <output of `claude --version`>
+- Client: <"Codex ($CODEX_CLI set)" when the Step 1.5 detection fired, else "Claude Code" + output of `claude --version` — never run `claude --version` on Codex, it's a client-specific command (issue #432)>
 - OS: <output of `uname -srm`>
 - Run started: <ISO-8601 timestamp>
 ```
@@ -33,6 +33,10 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 ---
 
 ## Section 3 — Installed inventory
+
+Platform-conditional (SKILL.md Step 3): use the invoking client's template.
+
+**On Claude Code** (`$CODEX_CLI` unset):
 
 ```markdown
 ## 3. Installed inventory
@@ -51,6 +55,24 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 
 ### Plugins enabled (`.claude/settings.json`)
 <comma-separated list of enabledPlugins keys, or "(none)">
+```
+
+**On Codex** (`$CODEX_CLI` set) — no plugins-enabled line (`.claude/settings.json`
+is never parsed on Codex) and no agents scan (Codex has no project-level
+custom-agent path); the migration note is included only when `.claude/skills/`
+holds vendored items invisible to Codex (SKILL.md Step 3):
+
+```markdown
+## 3. Installed inventory (Codex)
+
+### Skills (<N> total)
+**Project-level** (`.agents/skills/`, CWD → repo root): <full comma-separated list>
+**User-level** (`~/.agents/skills/`): <full list>
+
+### Not visible to Codex (migration note)
+<full list of vendored items found under `.claude/skills/`, or omit this
+subsection when there are none — these are NOT counted as installed and may
+re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 ```
 
 ---
@@ -124,6 +146,12 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 ### Dropped: stack-irrelevant — packaging/publishing (<N>)
 <list with name + reason "stack-irrelevant: no publish/registry signal detected">
 (empty if no packaging-category candidates were discovered this run)
+
+### Dropped: not installable on Codex — agent candidates (<N>)
+<list with name + reason "not installable on Codex: Codex loads only skills
+(.agents/skills); no documented project-level custom-agent path">
+(Codex runs only — omit this subsection entirely on Claude Code, where the
+Step 7a platform filter is a no-op)
 
 ### Demoted: capability-overlap, tail-pending (<N>)
 <list with name + rule (O1 or O2) + reason, e.g.

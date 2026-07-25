@@ -33,6 +33,10 @@ For each overlay file:
 - Read its YAML frontmatter `source:` block to find the upstream `repo` + `path` + `commit_sha`.
 - If `source:` block is missing (overlay was created from a local-only agent/skill, never vendored) → skip in this update. Local-only targets have no upstream to refresh.
 
+**Resolve each target's local copy in the invoking client's own load path** (detect once via the `$CODEX_CLI` env var ONLY, same rule as `/ievo:init` Step 1.5) — Claude Code (`$CODEX_CLI` unset): agents at `.claude/agents/<name>.md`, skills at `.claude/skills/<name>/`; Codex (`$CODEX_CLI` set): skills at `.agents/skills/<name>/`. Every later step that reads or overwrites "the local copy" means this resolved path. Two Codex-only skips fall out of this:
+- **Agent targets** — Codex documents no project-level custom-agent path, and refreshing `.claude/agents/<name>.md` from a Codex session would write config only the *other* client reads. Skip with a Step 6 line: `SKIPPED — agent target, Claude Code-only (run /ievo:update from Claude Code)`.
+- **Stranded skills** — if a skill's local copy is absent from `.agents/skills/<name>/` but present under `.claude/skills/<name>/` (a pre-#432 Codex install), skip it here and point the user at `/ievo:init`, whose Step 3 re-vendor path owns that migration — refreshing the `.claude/skills/` copy would refresh content Codex never loads.
+
 **Validate before any Bash use.** `<name>` comes from the overlay's own filename and `source.repo`/`source.path` come from its frontmatter — both are just as untrusted as any other content in the project's git tree (a malicious/compromised PR touching `.ievo/evolution/`, or content vendored via the separate gap tracked in #357, can control either). Steps 2, 2.5, and 3.5 below build `gh api`/`cp`/`sed`/`rm` command lines using these values, so validate them here, once, before any target proceeds past this step:
 
 1. **Validate `<name>`** against `^[A-Za-z0-9_-]+$`. Refuse (skip this target) if it fails.
@@ -66,16 +70,17 @@ If the ref/commit resolution fails, the containment check in sub-step 3 fails, o
 
 ### 2.5. Re-audit content that changed since the last audit
 
-Diff the staged fetch against the current local copy (`.claude/agents/<name>.md`, or the whole `.claude/skills/<name>/` tree for a skill) — but never compare the raw local file directly. The local copy carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker block (injected by Step 3 below, or by `/ievo:init` Step 9 at first vendor); the staged upstream fetch never does. Diffing them raw would show a "difference" on effectively every run even when the underlying upstream content is byte-identical, defeating the point of this fast path.
+Diff the staged fetch against the current local copy (Step 1's client-resolved path — `.claude/agents/<name>.md`, or the whole skills tree: `.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/` on Codex) — but never compare the raw local file directly. The local copy carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker block (injected by Step 3 below, or by `/ievo:init` Step 9 at first vendor); the staged upstream fetch never does. Diffing them raw would show a "difference" on effectively every run even when the underlying upstream content is byte-identical, defeating the point of this fast path.
 
 The `cp`/`sed` commands below interpolate `<name>` into their command lines — this is safe only because Step 1 already validated `<name>` against `^[A-Za-z0-9_-]+$` for every target reaching this step; a target that failed that check never gets here.
 
 Instead:
 1. Copy the local target to a scratch path — never mutate the actual local file just to run this comparison:
    ```bash
-   cp .claude/agents/<name>.md /tmp/ievo-update-localcopy-<name>.md   # agent
-   # or, for a skill:
-   cp -r .claude/skills/<name>/ /tmp/ievo-update-localcopy-<name>/
+   cp .claude/agents/<name>.md /tmp/ievo-update-localcopy-<name>.md   # agent (Claude Code only — Step 1 skips agents on Codex)
+   # or, for a skill -- from the invoking client's skills dir (Step 1):
+   cp -r .claude/skills/<name>/ /tmp/ievo-update-localcopy-<name>/    # Claude Code
+   cp -r .agents/skills/<name>/ /tmp/ievo-update-localcopy-<name>/    # Codex
    ```
 2. Strip the marker block (inclusive) from the scratch copy. For a skill, only `SKILL.md` ever carries the marker — `scripts/`, `references/`, `assets/` files never do, so strip it there and leave the rest of the scratch tree untouched:
    ```bash
@@ -109,7 +114,7 @@ This closes the gap `/ievo:init` already closes at install time: upstream conten
 
 For each target cleared by Step 2.5 (identical content, GREEN verdict, or the user chose "Apply anyway"):
 
-1. Move the staged fetch over the local copy — agent: `.claude/agents/<name>.md`; skill: replace the `.claude/skills/<name>/` tree.
+1. Move the staged fetch over the local copy (Step 1's client-resolved path) — agent: `.claude/agents/<name>.md`; skill: replace the `.claude/skills/<name>/` tree on Claude Code, the `.agents/skills/<name>/` tree on Codex.
 2. The applied file does NOT have our overlay marker yet — it was upstream content. Re-inject:
 
 After the file's YAML frontmatter `---` closing line, insert:
@@ -177,21 +182,30 @@ For each target, output one line:
 - `<scope>/<name>: UPSTREAM MISSING — overlay preserved, please review` if the repo/branch/commit resolution 404'd, or `source.path` was not found in the cloned tree
 - `<scope>/<name>: SKIPPED — no source metadata (local-only)` for local targets
 - `<scope>/<name>: SKIPPED — invalid source metadata` if Step 1's `<name>`/`source.repo` validation failed, or Step 2's `source.path` containment check failed
+- `<scope>/<name>: SKIPPED — agent target, Claude Code-only (run /ievo:update from Claude Code)` — Codex run; Codex has no project-level custom-agent path (Step 1)
+- `<scope>/<name>: SKIPPED — stranded under .claude/skills/, not Codex-visible — re-vendor via /ievo:init` — Codex run; the migration path owns this (Step 1)
 
 Final summary:
 - Refreshed: N agents, M skills
 - Re-audited (content changed since last audit): J targets
 - Flagged for review: K targets (upstream missing, invalid source metadata, or refresh declined — explicitly or auto-skipped for lack of an interactive session — after a YELLOW/RED re-audit)
 
-Remind user:
+Remind user — **on Claude Code** (`$CODEX_CLI` unset):
 ```
 Run /reload-skills to pick up refreshed skill definitions in this session (requires Claude Code v2.1.152+).
 Run /reload-plugins to reload plugin manifests if any `.claude-plugin/plugin.json` files changed.
 Run git diff .claude/ .ievo/evolution/ to review changes before commit.
 ```
 
+**On Codex** (`$CODEX_CLI` set) — `/reload-skills`/`/reload-plugins` are not Codex commands:
+```
+Codex picks up skill changes automatically — restart Codex if a refreshed skill doesn't appear.
+Run git diff .agents/skills/ .ievo/evolution/ to review changes before commit.
+```
+
 ## Rules
 
+- **Refresh the invoking client's copies only:** detect via `$CODEX_CLI` (same rule as `/ievo:init` Step 1.5) — Claude Code reads/overwrites `.claude/agents/`+`.claude/skills/`, Codex reads/overwrites `.agents/skills/` (skills only). Never write the other client's load path (issue #432): on Codex, agent targets and skills stranded under `.claude/skills/` are skipped with explicit Step 6 lines, not silently refreshed where the invoking client never looks.
 - **Overlay files are sacred.** Never overwrite `.ievo/evolution/<scope>/<name>.md` content (except appending the "Upstream rebase" section). Frontmatter sha + fetched_at update; sections accumulate.
 - **No Opus replay.** Under overlay model, the agent/skill body never contained evolution patches in the first place. Refresh-from-upstream is just file copy + marker re-injection, gated by a security re-audit when the content actually changed (Step 2.5).
 - **Re-audit gates content changes, not every refresh.** Step 2.5 only dispatches `security-auditor` when the freshly-fetched content differs from what's on disk — an unchanged upstream (the common case) never pays the audit cost. A GREEN verdict applies silently; YELLOW/RED requires explicit `AskUserQuestion` confirmation before the local copy is touched — a simplified two-option gate compared to `/ievo:init` Step 8a, which also offers a report-to-source option; that option is out of scope here (single-file router, not the full install pipeline). Declining leaves the local copy and the overlay's `source.commit_sha` untouched so the next `/ievo:update` re-attempts.

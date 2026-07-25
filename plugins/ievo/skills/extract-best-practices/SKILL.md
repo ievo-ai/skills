@@ -66,15 +66,18 @@ Do NOT flag:
 
 ## Phase 2: Cross-check against installed skills/agents
 
-Enumerate what's already installed, same target set `evo/SKILL.md` Step 1 matches lesson targets against:
+Enumerate what's already installed, same client-gated target set `evo/SKILL.md` Step 1 matches lesson targets against (detect the invoking client once via the `$CODEX_CLI` env var — same rule):
 
-**Project-level (preferred):**
+**On Claude Code (`$CODEX_CLI` unset) — project-level (preferred):**
 - `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`
 - `.claude/plugins/*/skills/*/SKILL.md`, `.claude/plugins/*/agents/*.md`
 
-**User-level (fallback):**
+**On Claude Code — user-level (fallback):**
 - `~/.claude/skills/*/SKILL.md`, `~/.claude/agents/*.md`
 - `~/.claude/plugins/*/skills/*/SKILL.md`, `~/.claude/plugins/*/agents/*.md`
+
+**On Codex (`$CODEX_CLI` set) — skills only:**
+- `.agents/skills/*/SKILL.md` (project-level, preferred), `~/.agents/skills/*/SKILL.md` (user-level fallback) — Codex documents no project-level custom-agent path, so there is no agent set to cross-check on Codex
 
 For each pattern from Phase 1, check whether an existing skill/agent's `description` (and, if ambiguous, its body) already covers it. This feeds Phase 3's disposition call — it does not itself write or propose anything.
 

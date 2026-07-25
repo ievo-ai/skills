@@ -660,8 +660,9 @@ plugins). Vendor = clone once + enumerate with Glob + fetch via Read/Write
 (never a Bash/`gh api` command built from the item's path — see
 install-protocol.md § "How to fetch the tree"), write to `.claude/skills/<name>/`
 or `.claude/agents/<name>.md`, inject the `<!-- ievo:start -->` overlay marker,
-and create the `.ievo/evolution/<scope>/<name>.md` overlay (with source repo +
-commit SHA frontmatter). Plugin = merge `extraKnownMarketplaces` + `enabledPlugins`
+and create the `.ievo/evolution/<scope>/<name>.md` overlay (with the full
+evo-spec frontmatter — `target`/`target_name`/`created` plus `source` repo +
+commit SHA). Plugin = merge `extraKnownMarketplaces` + `enabledPlugins`
 into `.claude/settings.json` (committed → teammates auto-install on pull). Full
 protocol incl. exact marker/frontmatter/JSON shapes:
 **[install-protocol.md](references/install-protocol.md)**.

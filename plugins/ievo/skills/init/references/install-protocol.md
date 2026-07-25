@@ -9,13 +9,19 @@ progress live in `tail -f`.
 
 For each item in `final_vendor_list`:
 
+The **vendor root** is platform-dependent (detect via `$CODEX_CLI`, per
+SKILL.md Step 1.5): Claude Code → `<project>/.claude/skills/<name>/`; Codex →
+`<project>/.agents/skills/<name>/` (the directory Codex actually scans — a
+`.claude/skills/` copy is invisible to Codex, issue #432). Everything else in
+this protocol (marker, overlay file, fetch mechanics) is identical on both.
+
 **Skill:**
 1. Determine `<owner>`, `<repo>`, and `<source-path-in-repo>` from the
    index-repos output (the skill's directory containing SKILL.md +
    `scripts/`/`references/`/`assets/`).
 2. Fetch the tree via clone-once + Glob + Read/Write (see "How to fetch the
    tree" below — never a Bash/`gh api` command built from these values).
-   Write it to `<project>/.claude/skills/<name>/`.
+   Write it to the platform's vendor root (above).
 3. Inject the overlay marker at the top of SKILL.md (after frontmatter):
    ```markdown
    <!-- ievo:start -->
@@ -46,6 +52,23 @@ For each item in `final_vendor_list`:
    needed. This is the same frontmatter schema `evo/SKILL.md` Step 4 defines
    for agent/skill overlays (`target`/`target_name`/`created`, `source`
    optional); keep the two in sync if either changes.
+
+   If the overlay file already exists AND its `source.repo` equals the
+   `<owner>/<repo>` resolved in "How to fetch the tree" step 2, leave it
+   untouched — a re-vendor (idempotent re-run, or the issue #432
+   cross-platform repair: re-vendoring a `.claude/skills/` item into
+   `.agents/skills/` from Codex) must never clobber an overlay that already
+   holds captured lessons. If it exists but records a DIFFERENT
+   `source.repo`, the candidate is a same-named but different-source item
+   (name collision or squat), not the same upstream: tell the user before
+   writing anything, and if they confirm the install, update ONLY the
+   overlay's `source:` block (`repo`/`path`/`commit_sha`/`fetched_at`) to the
+   newly-installed origin and append a dated `## <date> — Source changed:
+   <old-repo> → <new-repo>` line after the existing sections — keep every
+   captured-lesson section. Never leave a `source:` block describing content
+   that is no longer what's installed: `/ievo:update` trusts that block as
+   the upstream pointer, so stale provenance would refresh (and eventually
+   overwrite) the installed item from the wrong repo.
 
 ### How to fetch the tree — clone once, enumerate with Glob, read/write with Read/Write
 
@@ -84,7 +107,8 @@ stop this. Fetch this way instead — no untrusted byte ever crosses a shell:
    enumerate `$CHECKOUT_DIR/<source-path-in-repo>` with the **Glob tool**
    (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source-path-in-repo>"` — never a
    Bash `find`/`ls`), then **Read** each listed file and **Write** it to the
-   matching relative location under `<project>/.claude/skills/<name>/`.
+   matching relative location under the platform's vendor root (§9a above —
+   `.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/` on Codex).
 5. **For an agent** (`<source-path-in-repo>` is the single agent `.md` file,
    not a directory — Glob-enumerating a file path returns nothing): **Read**
    `$CHECKOUT_DIR/<source-path-in-repo>` directly with the **Read tool**, then
@@ -98,7 +122,9 @@ If cloning or resolution fails (private repo, no network), report the
 failure — do NOT fall back to per-file `gh api` fetching, which reintroduces
 the injection this replaces.
 
-**Agent:** same as skill, but:
+**Agent:** same as skill, but (Claude Code only — on Codex, agent candidates
+are dropped with a visible reason at SKILL.md Step 7a's platform filter and
+never reach this step; Codex documents no project-level custom-agent path):
 - `<source-path-in-repo>` is the single agent `.md` file (not a directory) —
   fetch it via "How to fetch the tree" sub-step 5, not sub-step 4
 - File path: `<project>/.claude/agents/<name>.md`
@@ -107,7 +133,14 @@ the injection this replaces.
 - Overlay frontmatter: `target: agent` (not `skill`), `target_name: <name>` —
   same schema as the skill stub above otherwise
 
-## 9b — Plugin install path (whole plugins)
+## 9b — Plugin install path (whole plugins) — Claude Code only
+
+`extraKnownMarketplaces`/`enabledPlugins` in `.claude/settings.json` is a
+Claude Code mechanism; Codex never reads it (and ignores project-level plugin
+config — SKILL.md Step 2.3 / openai/codex#18115). On Codex,
+`final_plugin_list` is empty by construction (SKILL.md Step 7b never offers
+whole-plugin install there), so this path is a no-op — never write
+`.claude/settings.json` from a Codex run.
 
 For each item in `final_plugin_list`:
 

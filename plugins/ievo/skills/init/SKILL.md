@@ -954,14 +954,19 @@ costs nothing and mirrors how evo-auto's own hooks capture without asking —
 
 **The handoff is overlay-only.** `/ievo:evo`'s Step 1 carve-out for this path
 runs Step 4 (append the overlay entry), then Steps 5, 5.5, 5.6 and 5.7 — and
-skips Steps 1.5, 2, 2.5 and 3. Nothing vendors `init` into
-`.claude/skills/`|`.agents/skills/`, so this step never shadows the running
-plugin copy with a frozen snapshot, and never triggers Step 2.5's
-security-re-audit confirmation. The trade it accepts, stated plainly: with no
-local copy there is no marker pointing at `.ievo/evolution/skills/init.md`, so
-that overlay is a dated **record** of what was caught rather than a rule
-applied on later runs. The actionable path for a bug in this skill's own
-shipped behavior is the upstream escalation below, which is unaffected.
+skips Steps 1.5, 2 and 2.5 unconditionally. Its Step 3 (marker injection) is
+**conditional**, on the same test Step 2 makes: in the normal case `init` runs
+from the plugin with no copy in the project's load path, so Step 3 is skipped
+too; only if the user has *already* vendored `init` into
+`.claude/skills/init/`|`.agents/skills/init/` on their own initiative does it
+run, injecting the marker (idempotently) into that pre-existing file. Either
+way nothing here vendors `init`, so this step never shadows the running plugin
+copy with a frozen snapshot, and never triggers Step 2.5's security-re-audit
+confirmation. The trade the normal case accepts, stated plainly: with no local
+copy there is no marker pointing at `.ievo/evolution/skills/init.md`, so that
+overlay is a dated **record** of what was caught rather than a rule applied on
+later runs. The actionable path for a bug in this skill's own shipped behavior
+is the upstream escalation below, which is unaffected.
 
 Step 5.6 then classifies the lesson — one naming `/ievo:init` and describing a
 bug in its own behavior satisfies its upstream-relevant signal — and offers,

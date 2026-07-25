@@ -108,27 +108,42 @@ appear at all; resolving normally would find no match and force a question the
 calling skill's no-question contract forbids.
 
 This handoff is **overlay-only**. Go straight to Step 4 (append to
-`.ievo/evolution/skills/<name>.md`), then Steps 5, 5.5, 5.6, 5.7 as usual, and
-skip Steps 1.5, 2, 2.5, and 3 entirely — no user-level copy prompt, no
-vendoring, no security re-audit, no marker injection. Vendoring `init` or
-`evo-auto-enable` into `.claude/skills/`|`.agents/skills/` would shadow the
-plugin's own live copy with a frozen snapshot that stops tracking plugin
-updates — a far larger, unrequested change than the one note being recorded,
-and one that would also drag in Step 2.5's own YELLOW/RED confirmation.
+`.ievo/evolution/skills/<name>.md`), then Steps 5, 5.5, 5.6, 5.7 as usual.
+Skip Steps 1.5, 2, and 2.5 **unconditionally** — no user-level copy prompt, no
+vendoring, no security re-audit. Vendoring `init` or `evo-auto-enable` into
+`.claude/skills/`|`.agents/skills/` would shadow the plugin's own live copy
+with a frozen snapshot that stops tracking plugin updates — a far larger,
+unrequested change than the one note being recorded, and one that would also
+drag in Step 2.5's own YELLOW/RED confirmation.
+
+Step 3 (marker injection) is the **one conditional** skip. The condition is the
+same one Step 2 tests — whether the target already exists in the invoking
+client's project-level load path (`.claude/skills/<name>/SKILL.md`, or
+`.agents/skills/<name>/SKILL.md` on Codex):
+
+- **No local copy** — the normal case, because `init`/`evo-auto-enable` run
+  from the plugin: **skip Step 3 as well.** There is no local file to inject a
+  marker into, and creating one would be exactly the vendoring this carve-out
+  exists to prevent. Never inject into the plugin's own shipped copy.
+- **Local copy already present** — the user vendored that skill into their
+  project earlier, on their own initiative: **run Step 3 as written** against
+  that pre-existing file. It shadows nothing that is not already there, it
+  makes the overlay live, and Step 3 is idempotent (a file that already carries
+  the marker is left untouched). Both call sites state this same condition, so
+  the injection is never a surprise write mid-run.
 
 Two consequences to state honestly rather than paper over:
 
-- **The overlay is a record, not an active rule.** With no local copy of the
-  target there is no marker pointing at
+- **In the normal case the overlay is a record, not an active rule.** Taking
+  the no-local-copy branch above means no marker points at
   `.ievo/evolution/skills/<name>.md`, so nothing reads it while the skill runs
   from the plugin. It stands as the local, dated record of what the self-check
   caught — the actionable path for a plugin-side bug is Step 5.6's upstream
   escalation, which this carve-out leaves fully intact.
-- **An already-local target behaves normally.** If the user has separately
-  vendored `init`/`evo-auto-enable` into their project, Steps 2 and 2.5 are
-  already no-ops by their own conditions, and Step 3's one-time marker
-  injection still applies to that existing copy — it shadows nothing that is
-  not already there, and it makes the overlay live.
+- **An already-local target behaves normally.** On the other branch, Steps 2
+  and 2.5 are already no-ops by their own conditions (the file is local, so
+  there is nothing to vendor or re-audit), and Step 3 makes the overlay live
+  on the copy the user chose to keep.
 
 ## Step 1.5: Handle user-level-only targets (downgrade to project)
 

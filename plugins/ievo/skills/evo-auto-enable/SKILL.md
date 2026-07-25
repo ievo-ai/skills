@@ -904,12 +904,18 @@ contract as init Step 12.5:
 
 Same overlay-only handoff as init Step 12.5, and for the same reason — see it
 for the full rationale. `/ievo:evo` takes scope/target as given, appends the
-overlay entry (its Step 4), and skips Steps 1.5/2/2.5/3, so this skill never
-vendors itself into `.claude/skills/`|`.agents/skills/` (which would shadow the
-running plugin copy) and never triggers Step 2.5's re-audit confirmation. Same
-accepted trade: without a local copy there is no marker reading
-`.ievo/evolution/skills/evo-auto-enable.md`, so it is a record rather than an
-applied rule, and the upstream escalation is the actionable path.
+overlay entry (its Step 4), and skips Steps 1.5/2/2.5 unconditionally, so this
+skill never vendors itself into `.claude/skills/`|`.agents/skills/` (which
+would shadow the running plugin copy) and never triggers Step 2.5's re-audit
+confirmation. Its Step 3 (marker injection) is **conditional** on the same test
+Step 2 makes: skipped in the normal case, where this skill runs from the plugin
+with no copy in the project's load path; run only against a
+`.claude/skills/evo-auto-enable/`|`.agents/skills/evo-auto-enable/` copy the
+user had already vendored themselves, where it is idempotent and shadows
+nothing new. Same accepted trade in that normal case: without a local copy
+there is no marker reading `.ievo/evolution/skills/evo-auto-enable.md`, so it
+is a record rather than an applied rule, and the upstream escalation is the
+actionable path.
 
 Up to two conditional confirmations follow, both `/ievo:evo`'s own: Step 5.6's
 upstream-feedback offer (this lesson does classify as upstream-relevant), and

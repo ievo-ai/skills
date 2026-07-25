@@ -11,7 +11,9 @@
 // are TRACKED, STATIC dispatcher shims (`evo-auto-enable/SKILL.md` Step
 // 3.5.1b) that `exec` a gitignored `*.local.sh` companion when present, else
 // no-op. The shim bodies and the gitignore block below are byte-identical to
-// that SKILL.md section — keep them in sync by hand if either changes.
+// that SKILL.md section, and the first describe below ASSERTS that against
+// the real file — an edit to either side fails the suite instead of letting
+// the SKILL.md source drift away from what is actually exercised here.
 //
 // This actually shells the flow through a real, scratch git repo (init →
 // commit → clone) so the gitignore negation pattern is verified against
@@ -22,9 +24,26 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs";
-import { join } from "node:path";
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  chmodSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// The SKILL.md this whole file re-derives. Read once, asserted against every
+// literal below so a SKILL.md-side edit can never ship with this suite green.
+const ENABLE_SKILL = resolve(
+  __dirname,
+  "../../../../plugins/ievo/skills/evo-auto-enable/SKILL.md",
+);
+const ENABLE_SKILL_SRC = readFileSync(ENABLE_SKILL, "utf-8");
 
 const GIT_ENV = {
   ...process.env,
@@ -51,6 +70,7 @@ function sh(cwd, relPath, stdin = "{}") {
 // Byte-identical to the three fenced code blocks in
 // evo-auto-enable/SKILL.md Step 3.5.1b -- literal, not templated, so a
 // change to either place is visible as a diff instead of silently drifting.
+// Enforced by the "literals stay in sync" describe below, not by convention.
 const SHIMS = {
   "correction-capture.sh": `#!/bin/sh
 # iEvo auto-evolution -- tracked dispatcher shim (UserPromptSubmit), skills#446.
@@ -60,9 +80,11 @@ const SHIMS = {
 # this never prints anything of its own). Static and identical across every
 # project -- safe to overwrite unconditionally on every enable/re-enable.
 # CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
+# \`sh "$REAL"\` needs no exec bit on the companion, so there is deliberately
+# no \`[ -x ]\` guard -- one would silently no-op if the chmod never stuck.
 
 REAL=.ievo/hooks/scripts/correction-capture.local.sh
-[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+[ -f "$REAL" ] && exec sh "$REAL"
 exit 0
 `,
 
@@ -73,7 +95,7 @@ exit 0
 # CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
 
 REAL=.ievo/hooks/scripts/evo-analysis-nudge.local.sh
-[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+[ -f "$REAL" ] && exec sh "$REAL"
 exit 0
 `,
 
@@ -85,7 +107,7 @@ exit 0
 # CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
 
 REAL=.ievo/hooks/scripts/failure-capture.local.sh
-[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+[ -f "$REAL" ] && exec sh "$REAL"
 exit 0
 `,
 };
@@ -263,6 +285,36 @@ after(() => {
   rmSync(ROOT, { recursive: true, force: true });
 });
 
+describe("literals stay in sync with evo-auto-enable/SKILL.md", () => {
+  // Without these, every assertion below tests only this file's own copy of
+  // the shims: a SKILL.md-side edit (the source of truth users actually get)
+  // would ship broken with the suite green. It drifted once already.
+  it("each shim body appears verbatim in Step 3.5.1b", () => {
+    for (const [name, body] of Object.entries(SHIMS)) {
+      assert.ok(
+        ENABLE_SKILL_SRC.includes(body),
+        `${name}: this file's shim literal is not present verbatim in ${ENABLE_SKILL} — one side drifted; re-sync both`,
+      );
+    }
+  });
+
+  it("the gitignore block appears verbatim in Step 3.5.1", () => {
+    assert.ok(
+      ENABLE_SKILL_SRC.includes(GITIGNORE_BLOCK),
+      `this file's gitignore block is not present verbatim in ${ENABLE_SKILL} — one side drifted; re-sync both`,
+    );
+  });
+
+  it("SKILL.md wires exactly the three shim paths this file exercises", () => {
+    for (const name of Object.keys(SHIMS)) {
+      assert.ok(
+        ENABLE_SKILL_SRC.includes(`.ievo/hooks/scripts/${name}`),
+        `${name}: wired path missing from ${ENABLE_SKILL}`,
+      );
+    }
+  });
+});
+
 describe("gitignore negation pattern (real git, skills#446)", () => {
   it("tracks exactly the three dispatcher shims, nothing else under .ievo/hooks/", () => {
     const tracked = git(ORIGIN, "ls-files", ".ievo/hooks/")
@@ -422,6 +474,27 @@ describe("per-clone step (companions regenerated locally)", () => {
       assert.equal(result.status, 0, shimName);
       const payload = JSON.parse(result.stdout);
       assert.equal(payload.hookSpecificOutput.hookEventName, eventName, shimName);
+    }
+  });
+
+  it("delegates to a companion that lacks the exec bit (no `[ -x ]` guard)", () => {
+    // `sh "$REAL"` never needs the exec bit, so the shim must not gate on
+    // one -- an `[ -x ]` guard would turn a chmod that didn't stick into a
+    // silent, permanent no-op instead of a working hook.
+    const companion = join(
+      CLONE,
+      ".ievo/hooks/scripts/correction-capture.local.sh",
+    );
+    chmodSync(companion, 0o644);
+    try {
+      const result = sh(CLONE, ".ievo/hooks/scripts/correction-capture.sh");
+      assert.equal(result.status, 0);
+      assert.equal(
+        JSON.parse(result.stdout).hookSpecificOutput.hookEventName,
+        "UserPromptSubmit",
+      );
+    } finally {
+      chmodSync(companion, 0o755);
     }
   });
 

@@ -282,9 +282,11 @@ exactly — do not rename):
 # this never prints anything of its own). Static and identical across every
 # project -- safe to overwrite unconditionally on every enable/re-enable.
 # CONTRACT: fail-silent, non-blocking. NO `set -e`.
+# `sh "$REAL"` needs no exec bit on the companion, so there is deliberately
+# no `[ -x ]` guard -- one would silently no-op if the chmod never stuck.
 
 REAL=.ievo/hooks/scripts/correction-capture.local.sh
-[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+[ -f "$REAL" ] && exec sh "$REAL"
 exit 0
 ```
 
@@ -296,7 +298,7 @@ exit 0
 # CONTRACT: fail-silent, non-blocking. NO `set -e`.
 
 REAL=.ievo/hooks/scripts/evo-analysis-nudge.local.sh
-[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+[ -f "$REAL" ] && exec sh "$REAL"
 exit 0
 ```
 
@@ -309,7 +311,7 @@ exit 0
 # CONTRACT: fail-silent, non-blocking. NO `set -e`.
 
 REAL=.ievo/hooks/scripts/failure-capture.local.sh
-[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+[ -f "$REAL" ] && exec sh "$REAL"
 exit 0
 ```
 

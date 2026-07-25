@@ -889,7 +889,10 @@ about a non-existent bug.
 **Mismatch found:** hand off to `/ievo:evo` immediately, same no-question-first
 contract as init Step 12.5:
 
-- **Target:** `evo-auto-enable` (skill scope — this skill).
+- **Target:** `evo-auto-enable` (skill scope — this skill), passed as **given**.
+  `/ievo:evo`'s Step 1 carve-out for this handoff takes scope/target from the
+  caller and skips matching, so it cannot ask — including on Codex, where Step
+  1 scans only `.agents/skills/*` and a plugin-shipped skill never appears.
 - **Lesson text (verbatim English)**, e.g.: "`/ievo:evo-auto-enable` Step 5
   printed '<the offending phrase>' on Codex ($CODEX_CLI set), which names a
   Claude-Code-only config/event. Detected platform was Codex; hooks were
@@ -899,9 +902,19 @@ contract as init Step 12.5:
 - **Trigger value:** `agent self-correction: platform-detection mismatch`
   (same value as init Step 12.5 — one convention, two call sites).
 
-`/ievo:evo` resolves scope/target without asking (both fixed above), writes
-the overlay entry, and its own Step 5.6 offers the one upstream-feedback
-confirmation this adds. Once it returns, this skill's own turn is already
+Same overlay-only handoff as init Step 12.5, and for the same reason — see it
+for the full rationale. `/ievo:evo` takes scope/target as given, appends the
+overlay entry (its Step 4), and skips Steps 1.5/2/2.5/3, so this skill never
+vendors itself into `.claude/skills/`|`.agents/skills/` (which would shadow the
+running plugin copy) and never triggers Step 2.5's re-audit confirmation. Same
+accepted trade: without a local copy there is no marker reading
+`.ievo/evolution/skills/evo-auto-enable.md`, so it is a record rather than an
+applied rule, and the upstream escalation is the actionable path.
+
+Up to two conditional confirmations follow, both `/ievo:evo`'s own: Step 5.6's
+upstream-feedback offer (this lesson does classify as upstream-relevant), and
+Step 5.7's extraction offer if that overlay already holds a cluster — never on
+a first capture. Once `/ievo:evo` returns, this skill's own turn is already
 done (Step 5.5 is the last step) — nothing further to continue to.
 
 ## What auto-evolution mode does while `evo-auto.flag` exists

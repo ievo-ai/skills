@@ -29,7 +29,7 @@ metadata:
 2. **Step 7a** (resolve ambiguous categories) — `AskUserQuestion`, only if any categories were marked `/ambiguous`
 3. **Step 7b** (per-candidate interview) — `AskUserQuestion`, including the single batched tail question for `overlap_tail[]` items, if any
 4. **Step 8** (RED security verdict) — `AskUserQuestion`, only for RED candidates
-5. **Step 12.5** (platform-mismatch self-check) — only if a mismatch is actually caught; the pause itself happens inside the `/ievo:evo` handoff's own Step 5.6 upstream-feedback offer, not in this step directly
+5. **Step 12.5** (platform-mismatch self-check) — only if a mismatch is actually caught, and never in this step directly: the pauses belong to the `/ievo:evo` handoff, which under its own Step 1 overlay-only carve-out can raise **at most two**, each independently conditional — Step 5.6's upstream-feedback offer (if the lesson classifies as upstream-relevant, which this one does) and Step 5.7's extraction offer (only if that overlay already holds a cluster). Choosing to share at Step 5.6 hands off to `/ievo:feedback`, which adds its own public-posting gate
 6. **Step 13** (final feedback prompt) — `AskUserQuestion`
 
 Between every other step, **proceed immediately** to the next step. If you find yourself thinking "should I confirm with the user before doing X?" — the answer is NO. Just do it. Write to the log so the user can monitor via `tail -f`.
@@ -937,8 +937,13 @@ something that doesn't hold for the platform it detected — hand off to
 costs nothing and mirrors how evo-auto's own hooks capture without asking —
 `evo-auto-enable/SKILL.md` Step 3.5):
 
-- **Target:** `init` (skill scope — this skill, unambiguous, so `/ievo:evo`
-  Step 1 needs no clarifying question).
+- **Target:** `init` (skill scope — this skill). Pass it as **given**, not as
+  something for `/ievo:evo` to resolve: its Step 1 carve-out for this handoff
+  takes scope/target from the caller and skips matching entirely, so no
+  clarifying question is possible. That carve-out exists because normal
+  resolution would break here — on Codex, Step 1 scans only `.agents/skills/*`,
+  where a plugin-shipped skill like `init` never appears, so it would find no
+  match and fall through to its "ask the user, do not guess" rule.
 - **Lesson text (verbatim English)**, e.g.: "`/ievo:init` Step 12 printed '<the
   offending phrase>' on Codex ($CODEX_CLI set), which is a Claude-Code-only
   <command|path|menu>. Detected platform was Codex." Name `/ievo:init`
@@ -947,16 +952,27 @@ costs nothing and mirrors how evo-auto's own hooks capture without asking —
   session context.
 - **Trigger value** (`/ievo:evo` Step 5): `agent self-correction: platform-detection mismatch`.
 
-`/ievo:evo` runs its normal Steps 1–5.7 unchanged: Step 1/4 resolve and write
-the overlay entry (both scope and target are already fixed above — nothing to
-ask), and Step 5.6 classifies it — a lesson naming `/ievo:init` and describing
-a bug in its own behavior satisfies Step 5.6's upstream-relevant signal — and
-offers, via its own single `AskUserQuestion`, to also share it as feedback to
-`ievo-ai/skills`. That is the one confirmation gate this step adds, not a
-second bespoke one — and it is conditional: it only fires when a mismatch was
-actually found above (see the "ONLY user-facing pauses" directive at the top
-of this file). Once `/ievo:evo` returns (whatever the user chose at that
-gate), continue to Step 13 regardless.
+**The handoff is overlay-only.** `/ievo:evo`'s Step 1 carve-out for this path
+runs Step 4 (append the overlay entry), then Steps 5, 5.5, 5.6 and 5.7 — and
+skips Steps 1.5, 2, 2.5 and 3. Nothing vendors `init` into
+`.claude/skills/`|`.agents/skills/`, so this step never shadows the running
+plugin copy with a frozen snapshot, and never triggers Step 2.5's
+security-re-audit confirmation. The trade it accepts, stated plainly: with no
+local copy there is no marker pointing at `.ievo/evolution/skills/init.md`, so
+that overlay is a dated **record** of what was caught rather than a rule
+applied on later runs. The actionable path for a bug in this skill's own
+shipped behavior is the upstream escalation below, which is unaffected.
+
+Step 5.6 then classifies the lesson — one naming `/ievo:init` and describing a
+bug in its own behavior satisfies its upstream-relevant signal — and offers,
+via `AskUserQuestion`, to also share it as feedback to `ievo-ai/skills`,
+reusing the existing evo → feedback flow rather than adding a bespoke gate.
+Step 5.7 may add a second, independent offer (extract the overlay's entries
+into a dedicated skill), but only if that overlay already holds a cluster —
+never on a first capture. Both are conditional on a mismatch having been found
+at all, which is why the "ONLY user-facing pauses" directive at the top of this
+file lists this step as at-most-two, not one. Once `/ievo:evo` returns
+(whatever the user chose at either gate), continue to Step 13 regardless.
 
 ## Step 13: Invite feedback (especially on skips)
 

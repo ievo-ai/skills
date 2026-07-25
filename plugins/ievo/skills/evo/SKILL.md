@@ -94,6 +94,42 @@ Codex documents no project-level custom-agent path (same platform filter as `/ie
 
 Match priority: project-level wins if same name appears in both. If no clear match anywhere, ask the user. Do not guess.
 
+### Carve-out: platform-mismatch self-check handoff (overlay-only)
+
+A lesson arriving from a bundled skill's **own** platform-mismatch self-check —
+`/ievo:init` Step 12.5 or `/ievo:evo-auto-enable` Step 5.5, recognizable by the
+caller passing Trigger `agent self-correction: platform-detection mismatch` —
+is the one case where scope and target are **given, not resolved**: skill scope,
+target `init` or `evo-auto-enable`. Do **not** match it against the load paths
+above, and do **not** ask — the "ask the user, do not guess" rule above does not
+apply, because there is nothing to guess. In particular, on Codex the paths
+above list only `.agents/skills/*`, where a plugin-shipped iEvo skill does not
+appear at all; resolving normally would find no match and force a question the
+calling skill's no-question contract forbids.
+
+This handoff is **overlay-only**. Go straight to Step 4 (append to
+`.ievo/evolution/skills/<name>.md`), then Steps 5, 5.5, 5.6, 5.7 as usual, and
+skip Steps 1.5, 2, 2.5, and 3 entirely — no user-level copy prompt, no
+vendoring, no security re-audit, no marker injection. Vendoring `init` or
+`evo-auto-enable` into `.claude/skills/`|`.agents/skills/` would shadow the
+plugin's own live copy with a frozen snapshot that stops tracking plugin
+updates — a far larger, unrequested change than the one note being recorded,
+and one that would also drag in Step 2.5's own YELLOW/RED confirmation.
+
+Two consequences to state honestly rather than paper over:
+
+- **The overlay is a record, not an active rule.** With no local copy of the
+  target there is no marker pointing at
+  `.ievo/evolution/skills/<name>.md`, so nothing reads it while the skill runs
+  from the plugin. It stands as the local, dated record of what the self-check
+  caught — the actionable path for a plugin-side bug is Step 5.6's upstream
+  escalation, which this carve-out leaves fully intact.
+- **An already-local target behaves normally.** If the user has separately
+  vendored `init`/`evo-auto-enable` into their project, Steps 2 and 2.5 are
+  already no-ops by their own conditions, and Step 3's one-time marker
+  injection still applies to that existing copy — it shadows nothing that is
+  not already there, and it makes the overlay live.
+
 ## Step 1.5: Handle user-level-only targets (downgrade to project)
 
 If the target was matched **only at user-level** (no project-level instance), evolution can't directly apply to it — overlay files live in `<project>/.ievo/evolution/`, so they only affect this project. The user-level installation is shared across all projects on this machine.
@@ -117,7 +153,9 @@ If user picks **Skip**: exit without writing anything. Inform the user that the 
 
 ## Step 2: Ensure target file exists locally (vendor if needed)
 
-Only for agent/skill scope. Skip for project-wide.
+Only for agent/skill scope. Skip for project-wide, and skip for a
+platform-mismatch self-check handoff (Step 1's carve-out — that path never
+vendors, so this step and Step 2.5 never run for it).
 
 If the target lives in a plugin (not already in the invoking client's project-level load path from Step 1):
 
@@ -491,7 +529,7 @@ Otherwise, output a short summary to the user:
 - **Idempotent failures.** If any step fails (write fails, gh api error), report what was done and what was not. Don't leave inconsistent state.
 - **Project-wide overlay is shared.** All project-wide rules accumulate in one `project.md`. No splitting by topic — chronological with `## Trigger` field for context.
 - **Never interpolate a path — `<owner>`, `<repo>`, or the target `<path>` — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read/write with the Read/Write tools instead — see § "How to fetch source" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
-- **Re-audit gates vendoring, not every capture.** Step 2.5 only applies when Step 2 is vendoring fresh content from a plugin — an already-local target, or a project-wide lesson, skips it entirely. A YELLOW/RED verdict that isn't explicitly overridden aborts the whole capture (no overlay write, no marker injection) — never fabricate a lower verdict, or silently write anyway, to force the capture through.
+- **Re-audit gates vendoring, not every capture.** Step 2.5 only applies when Step 2 is vendoring fresh content from a plugin — an already-local target, a project-wide lesson, or a platform-mismatch self-check handoff (Step 1's carve-out, which never vendors) skips it entirely. A YELLOW/RED verdict that isn't explicitly overridden aborts the whole capture (no overlay write, no marker injection) — never fabricate a lower verdict, or silently write anyway, to force the capture through.
 
 ## Why overlay model
 
@@ -513,4 +551,4 @@ The overlay file is also a self-contained record: anyone reading `<name>.md` see
 - `consolidate/SKILL.md` — `/ievo:consolidate` restructures fragmented docs (doc-graph mode) or extracts a generalizable cluster of overlay entries into a new project-local skill/agent (entry-cluster mode). Step 5.7 above hands off to it, scoped to `root=<overlay path>`, for any overlay — `project.md`, an agent's, or a skill's — whose accumulated entries look like they describe one recurring procedure or role. All extraction stays behind `consolidate`'s own 3 checkpoints — nothing is removed from the overlay without explicit approval there.
 - `extract-best-practices/SKILL.md` — mines a live session for patterns nobody ever `/evo`'d, independent of whether anything is captured in an overlay. Its "too narrow" and "refines an existing target" candidates hand off here (this skill's own scope/target classification in Step 1 resolves where they land); a genuinely new, generalizable pattern instead becomes a new skill/agent there, with its own Step 5.6-style upstream-sharing offer for the resulting package.
 - `security-check/SKILL.md` — the antivirus deep-scan methodology Step 2.5 above applies to a freshly-vendored agent/skill before it touches `.claude/agents/`/`.claude/skills/` (or `.agents/skills/` on Codex), either via a dispatched `security-auditor` sub-agent (Claude Code/Codex) or applied directly (other platforms). Same skill `/ievo:init` Step 8 and `/ievo:update` Step 2.5 already gate on.
-- `init/SKILL.md` Step 12.5, `evo-auto-enable/SKILL.md` Step 5.5 — a third way lessons reach this skill besides an explicit `/ievo:evo` call or the auto-evolution backlog (Step 0 above): a skill's own mid-run self-check catching its printed output mismatching the detected platform hands off here directly, with scope/target already fixed (`agent self-correction: platform-detection mismatch`, Step 5's Trigger list) — no clarifying question needed before Step 5.6's usual upstream-escalation offer.
+- `init/SKILL.md` Step 12.5, `evo-auto-enable/SKILL.md` Step 5.5 — a third way lessons reach this skill besides an explicit `/ievo:evo` call or the auto-evolution backlog (Step 0 above): a skill's own mid-run self-check catching its printed output mismatching the detected platform hands off here directly, with scope/target already fixed (`agent self-correction: platform-detection mismatch`, Step 5's Trigger list). Step 1's overlay-only carve-out governs that path — no target resolution, no clarifying question, and no vendoring/re-audit/marker injection of the plugin-shipped skill; it goes straight to Step 4, then Steps 5.6 and 5.7 offer their usual conditional gates.

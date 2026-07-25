@@ -369,6 +369,11 @@ Use the Write tool to create `.ievo/hooks/scripts/version-check.sh` (Write creat
 #     NO network call and adds no measurable latency.
 #   - NO `set -e`: every fallible step is individually guarded so `exit 0` is
 #     always reachable and a partial failure never surfaces to the user.
+#   - Untrusted input: `installed`/`latest` (local plugin.json, but `latest` can
+#     come from a network fetch or a cache file, either tamperable) are rejected
+#     unless they're a strict X.Y.Z SemVer form BEFORE being cached, compared, or
+#     placed in the SessionStart additionalContext the model reads as instructions.
+#     Output JSON is built with `jq -n`/`--arg`, never raw string interpolation.
 
 MARKETPLACE_URL="https://raw.githubusercontent.com/ievo-ai/skills/main/.claude-plugin/marketplace.json"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ievo"
@@ -379,9 +384,23 @@ TTL=86400  # 24h, in seconds
 PLUGIN_JSON="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json}"
 [ -n "$PLUGIN_JSON" ] && [ -f "$PLUGIN_JSON" ] || PLUGIN_JSON="<plugin-json-abs-path>"
 
+# Strict X.Y.Z SemVer gate (this repo's own version convention — no
+# pre-release/build metadata). Reject empty, any byte outside [0-9.], a
+# leading/trailing/doubled dot, or a component count other than 3.
+is_semver() {
+  case "$1" in
+    ""|*[!0-9.]*|.*|*.|*..*) return 1 ;;
+  esac
+  case "$1" in
+    *.*.*.*) return 1 ;;
+    *.*.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # jq is a hard dependency of gh, which iEvo already requires; bail silently if absent.
 installed=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null) || exit 0
-[ -n "$installed" ] || exit 0
+is_semver "$installed" || exit 0
 
 now=$(date +%s 2>/dev/null) || exit 0
 case "$now" in ""|*[!0-9]*) exit 0 ;; esac
@@ -394,6 +413,7 @@ if [ -f "$CACHE" ]; then
   age=$((now - checked_at))
   if [ "$age" -ge 0 ] && [ "$age" -lt "$TTL" ]; then
     latest=$(jq -r '.latest_version // empty' "$CACHE" 2>/dev/null || echo "")
+    is_semver "$latest" || latest=""
   fi
 fi
 
@@ -401,9 +421,10 @@ fi
 if [ -z "$latest" ]; then
   latest=$(curl -fsS --max-time 5 "$MARKETPLACE_URL" 2>/dev/null \
     | jq -r '.plugins[0].version // empty' 2>/dev/null || echo "")
-  [ -n "$latest" ] || exit 0
+  is_semver "$latest" || exit 0
   mkdir -p "$CACHE_DIR" 2>/dev/null || true
-  printf '{"checked_at":%s,"latest_version":"%s"}\n' "$now" "$latest" \
+  jq -n --argjson checked_at "$now" --arg latest_version "$latest" \
+    '{checked_at: $checked_at, latest_version: $latest_version}' \
     > "$CACHE" 2>/dev/null || true
 fi
 
@@ -421,10 +442,12 @@ behind=$(awk -v a="$installed" -v b="$latest" 'BEGIN{
 [ "$behind" = "1" ] || exit 0
 
 # Behind -> inject a nudge as SessionStart additionalContext. The message is
-# read by the model, which relays it to the user. ASCII only + no double quotes,
-# so the values interpolate safely into the JSON string below.
+# read by the model, which relays it to the user. Built with `jq -n --arg` (a
+# real JSON encoder), not string interpolation — installed/latest are already
+# semver-validated above, but the encoder is the actual guarantee, not an
+# unenforced formatting assumption.
 msg="iEvo plugin update available: installed ${installed}, latest ${latest}. Tell the user they can enable native plugin auto-update (/plugin -> Marketplaces -> ievo-skills -> Enable auto-update) so Claude Code keeps iEvo current automatically, or update now by re-running /plugin install ievo@ievo-skills, then /reload-plugins."
-printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
+jq -n --arg msg "$msg" '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":$msg}}' 2>/dev/null
 exit 0
 ```
 

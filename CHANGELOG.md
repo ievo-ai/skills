@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.62.2
+
+Fix `/ievo:init` step-9 overlay stubs to emit the full evo-spec frontmatter — closes #449.
+
+- **Bug** — `install-protocol.md` §9a step 4 wrote the vendored skill/agent overlay stub with `source:` only (`repo`/`path`/`commit_sha`/`fetched_at`), omitting the `target`/`target_name`/`created` fields `evo/SKILL.md` Step 4 defines as required for every agent/skill overlay. The stub's `Trigger:` line also read `/ievo:init step 9`, diverging from the canonical `vendored from <upstream>` value `evo/SKILL.md` Step 5 reserves for `/ievo:init`. Result: the first `/ievo:evo` capture on a freshly-vendored skill either had to repair the frontmatter or appended onto a schema that silently disagreed with every overlay `/ievo:evo` creates directly.
+- **Fix** — `install-protocol.md` §9a step 4's skill stub template now emits `target: skill`, `target_name: <name>`, `created: <ISO-timestamp>` alongside the existing `source:` block, and `**Trigger:** vendored from <owner>/<repo>`. The agent case (§9a "Agent: same as skill, but…") is fixed symmetrically — `target: agent` — since it inherits the same template and the bug applied equally to both. `init/SKILL.md`'s Step 9 one-line summary updated to describe the full frontmatter instead of just "source repo + commit SHA".
+- **Scope** — `plugins/ievo/skills/init/**` prose only (reference doc + its SKILL.md pointer); no script, no CI, no security-model change. Does not migrate already-vendored stubs in existing projects — `target`/`created` would have to be back-filled from vendor history that isn't reliably recoverable, and this only changes what *new* stubs look like going forward, matching the issue's own scope.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.62.1 → 0.62.2).
+
+---
+
 ## v0.62.1
 
 Validate and JSON-encode SessionStart version-check hook metadata — closes #450.

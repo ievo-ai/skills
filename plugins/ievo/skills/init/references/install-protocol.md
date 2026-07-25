@@ -26,6 +26,9 @@ For each item in `final_vendor_list`:
 4. Create the overlay file `.ievo/evolution/skills/<name>.md`:
    ```markdown
    ---
+   target: skill
+   target_name: <name>
+   created: <ISO-timestamp>
    source:
      repo: <owner>/<repo>
      path: <source-path-in-repo>
@@ -36,9 +39,13 @@ For each item in `final_vendor_list`:
    # <name> — Evolution Overlay
 
    ## <date> — Vendored from <owner>/<repo>
-   **Trigger:** /ievo:init step 9
+   **Trigger:** vendored from <owner>/<repo>
    Initial copy. No customizations yet.
    ```
+   `created` and `fetched_at` are the same instant — no new timestamp source
+   needed. This is the same frontmatter schema `evo/SKILL.md` Step 4 defines
+   for agent/skill overlays (`target`/`target_name`/`created`, `source`
+   optional); keep the two in sync if either changes.
 
 ### How to fetch the tree — clone once, enumerate with Glob, read/write with Read/Write
 
@@ -97,6 +104,8 @@ the injection this replaces.
 - File path: `<project>/.claude/agents/<name>.md`
 - Overlay marker inserted in the agent body (after frontmatter)
 - Overlay file path: `.ievo/evolution/agents/<name>.md`
+- Overlay frontmatter: `target: agent` (not `skill`), `target_name: <name>` —
+  same schema as the skill stub above otherwise
 
 ## 9b — Plugin install path (whole plugins)
 

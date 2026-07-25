@@ -198,7 +198,13 @@ export function main(
     return exit(2);
   }
 
-  const result = checkVersionBump({ mergeBase, head, execImpl, readFileImpl, readdirImpl });
+  let result;
+  try {
+    result = checkVersionBump({ mergeBase, head, execImpl, readFileImpl, readdirImpl });
+  } catch (e) {
+    errLog(`check-version-bump: unexpected failure while checking the bump (a git diff error, or malformed plugin.json/marketplace.json JSON): ${e.message}`);
+    return exit(2);
+  }
 
   if (result.skipped) {
     log(`check-version-bump: skip — ${result.reason}`);

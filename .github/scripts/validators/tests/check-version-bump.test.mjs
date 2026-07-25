@@ -418,6 +418,45 @@ describe("main", () => {
     assert.match(errLog.calls[0][0], /failed to compute merge-base/);
   });
 
+  it("errors cleanly (instead of an uncaught exception) when checkVersionBump throws — e.g. a git diff failure", () => {
+    const execImpl = makeFakeExec([
+      { stdout: "sha123" }, // merge-base succeeds
+      { throw: new Error("fatal: ambiguous argument") }, // git diff --name-only fails
+    ]);
+    const log = makeRecorder();
+    const errLog = makeRecorder();
+    const exit = makeExitRecorder();
+    main(["node", "script", "--base", "main", "--head", "HEAD"], { GITHUB_EVENT_NAME: "pull_request" }, execImpl, () => {}, () => [], log, errLog, exit);
+    assert.equal(exit.calls[0], 2);
+    assert.match(errLog.calls[0][0], /unexpected failure while checking the bump/);
+    assert.match(errLog.calls[0][0], /ambiguous argument/);
+  });
+
+  it("errors cleanly when the head-side plugin.json is malformed JSON", () => {
+    const execImpl = makeFakeExec([
+      { stdout: "sha123" }, // merge-base
+      { stdout: "plugins/ievo/scripts/discover.mjs\n" }, // diff --name-only
+    ]);
+    const readFileImpl = makeFakeReadFile({
+      [PLUGIN_JSON_PATH]: "{not valid json at head",
+    });
+    const log = makeRecorder();
+    const errLog = makeRecorder();
+    const exit = makeExitRecorder();
+    main(
+      ["node", "script", "--base", "main", "--head", "HEAD"],
+      { GITHUB_EVENT_NAME: "pull_request" },
+      execImpl,
+      readFileImpl,
+      () => [],
+      log,
+      errLog,
+      exit,
+    );
+    assert.equal(exit.calls[0], 2);
+    assert.match(errLog.calls[0][0], /unexpected failure while checking the bump/);
+  });
+
   it("resolves base from $BASE_SHA and head defaults to HEAD when neither --head nor $HEAD_SHA is given, then reports skip", () => {
     const execImpl = makeFakeExec([
       { stdout: "sha123" }, // merge-base

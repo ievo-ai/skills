@@ -87,15 +87,9 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 - Forward-looking roadmap (planned items) stays in `AGENTS.md` § Roadmap.
 - Shipped-version history lives in `CHANGELOG.md`.
-- **Every PR that changes plugin files MUST bump the version.** Bump all FOUR files in the same commit:
-  1. `.claude-plugin/marketplace.json` → `metadata.version` + `plugins[0].version`
-  2. `plugins/ievo/.claude-plugin/plugin.json` → `version`
-  3. `plugins/ievo/scripts/discover.mjs` → `export const SCRIPT_VERSION`
-  4. AGENTS.md → compliance ledger header `(vX.Y.Z)`
+- **Every PR that changes plugin files MUST bump the version** — see § "Version bumping — in every PR" below for the full file list and the CI gate that enforces it. (Kept as a single source of truth there, not duplicated here, after this list itself went stale twice.)
 - Bump type: `fix:` → patch, `feat:` → minor, `feat!:` → minor (pre-1.0).
-- Query main's CURRENT version at push time (not branch time) to avoid race with parallel PRs. Check open PRs for in-flight version claims and pick the next free slot.
 - Add a CHANGELOG.md entry in the same commit — reverse-chronological, `## vX.Y.Z` header.
-- The coupling assertion in `discover.test.mjs` catches drift on the coverage-gate.
 
 ### Skills format
 - Every `SKILL.md` MUST conform to [agentskills.io spec](https://agentskills.io/specification)
@@ -195,8 +189,8 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
   4. AGENTS.md → compliance ledger header `**Current compliance ledger (vX.Y.Z):**`
 - Also add a `## vX.Y.Z` entry in `CHANGELOG.md` (reverse-chronological).
 - To avoid race with parallel PRs: query main's CURRENT version at push time via `gh api`, check open PRs for claimed versions, pick next free slot.
-- The coupling assertions in `discover.test.mjs` / `evolution_candidates.test.mjs` / `scrub.test.mjs` catch DRIFT (a bumped `plugin.json` whose `SCRIPT_VERSION` disagrees) on the coverage-gate — they do NOT catch an ABSENT bump: a PR that touches plugin files but bumps nothing keeps every file mutually consistent at the OLD value, so those tests (and both product gates) stay green regardless. That gap is closed mechanically, not by prose — see the next bullet.
-- **CI gates the bump itself** — `.github/scripts/check-version-bump.mjs`, wired into `pre-commit-gate.yml`. It diffs the PR against its merge-base and, whenever any changed path is under `plugins/ievo/**` or `.claude-plugin/**`, fails unless `plugin.json`'s version actually changed AND every coupled `SCRIPT_VERSION` AND `marketplace.json`'s two version fields all agree with it — globbing `plugins/ievo/scripts/*.mjs` at runtime rather than hardcoding the coupled-file list, so a future new coupled script can't silently fall outside the gate the way this list itself twice did (skills evolution-store L-2026-07-23-02 / L-2026-07-23-03). A non-`pull_request` run (push-to-main) is a no-op — the PR gate already covered it before merge.
+- The coupling assertions in `discover.test.mjs` / `evolution_candidates.test.mjs` / `scrub.test.mjs` catch DRIFT (a bumped `plugin.json` whose `SCRIPT_VERSION` disagrees) on the coverage-gate — they do NOT catch an ABSENT bump: a PR that touches plugin files but bumps nothing keeps every file mutually consistent at the OLD value, so those tests (and both product gates) stay green regardless. That gap is closed mechanically for items 1–3 above, not by prose — see the next bullet.
+- **CI gates the bump of items 1–3 above** — `.github/scripts/check-version-bump.mjs`, wired into `pre-commit-gate.yml`. It diffs the PR against its merge-base and, whenever any changed path is under `plugins/ievo/**` or `.claude-plugin/**`, fails unless `plugin.json`'s version actually changed AND every coupled `SCRIPT_VERSION` AND `marketplace.json`'s two version fields all agree with it — globbing `plugins/ievo/scripts/*.mjs` at runtime rather than hardcoding the coupled-file list, so a future new coupled script can't silently fall outside the gate the way this list itself twice did (skills evolution-store L-2026-07-23-02 / L-2026-07-23-03). A non-`pull_request` run (push-to-main) is a no-op — the PR gate already covered it before merge. **Item 4 (the AGENTS.md ledger header) is NOT mechanically checked** — it stays a manual, PR-review-level convention; a PR that bumps items 1–3 but leaves the ledger header stale still passes this gate.
 - **Infra-only PRs do NOT bump the version.** Changes confined to `.github/` (workflows, prompts, CI scripts) or repo docs (`AGENTS.md`, `README.md`) with **no** edit to plugin files (`plugins/ievo/**`, `.claude-plugin/**`) leave the version untouched. The version represents the *plugin* — bumping it for a CI/docs change would fire `notify-release` (a false release announcement) and misrepresent the changelog. The coupling test still passes (SCRIPT_VERSION == plugin.json, both unchanged), and `check-version-bump.mjs` skips entirely (no plugin-path changes detected).
 - **Codex marketplace** (`.codex-plugin/marketplace.json`) currently has **no version field** — Codex tracks versioning via git refs/tags in the `source` block.
 - **Codex discovery schema** — `discover.mjs` reads `codex plugin list --json` → `available[]` with the fields `pluginId` / `name` / `marketplaceName` / `marketplaceSource.source`. Manually validated against **codex-cli 0.142.3**. The code degrades gracefully on schema drift (missing fields → fallback id or filtered out), but re-verify these field names on a major Codex CLI update.

@@ -4,6 +4,13 @@ name: Pre-commit Gate
 # scripts in .github/scripts/validators/ run locally via `pre-commit run`
 # and here via `pre-commit run --all-files`. Single source of truth in
 # the config; this workflow is the can't-bypass-with-no-verify safety net.
+#
+# Also runs check-version-bump.mjs (not a local pre-commit hook — it needs
+# the PR's base-branch history to diff against, which a single-file
+# pass_filenames hook can't provide): fails a PR that touches
+# plugins/ievo/**/.claude-plugin/** without bumping plugin.json (+ coupled
+# SCRIPT_VERSIONs + marketplace.json) per AGENTS.md's version-bump rule. See
+# .github/scripts/check-version-bump.mjs's header for the full rationale.
 
 on:
   pull_request:
@@ -20,7 +27,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
-          fetch-depth: 1
+          # Full history (not the default shallow fetch-depth: 1): the version-bump
+          # gate below needs `git merge-base`/`git diff` against the PR's base
+          # branch, which requires that ancestry to actually be present locally.
+          fetch-depth: 0
 
       - name: Setup Node.js (validator runtime)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -34,6 +44,11 @@ jobs:
 
       - name: Run validator regression tests
         run: node --test .github/scripts/validators/tests/*.test.mjs
+
+      - name: Gate the plugins/ievo/**/.claude-plugin/** version bump
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node .github/scripts/check-version-bump.mjs
 
       - name: Run pre-commit hooks
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd  # v3.0.1

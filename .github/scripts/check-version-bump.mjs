@@ -41,10 +41,20 @@
 // Lives outside plugins/ievo/scripts/, so the 100% coverage GATE does not
 // apply to itself (same carve-out as check-coverage.mjs) — it is still
 // tested to 100% by hand in tests/check-version-bump.test.mjs.
+//
+// Every plugins/ievo/scripts/*.mjs file this reads is fully PR-controlled: an
+// attacker's PR could commit a symlinked ".mjs" entry pointing at a FIFO/
+// special file, and a plain readFileSync would follow it and hang the CI job
+// until the workflow timeout. Reads go through the validators' shared
+// safeReadFileSync (lstat-rejects anything that isn't a regular file first)
+// for the same reason validate_agents.mjs/validate_skills.mjs guard their
+// own PR-controlled reads — see _safe-read.mjs's header (closes #364-class
+// CWE-59/61 for this script too, found by /ievo:vuln-scan on this diff).
 
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { safeReadFileSync } from "./validators/_safe-read.mjs";
 
 export const PLUGIN_JSON_PATH = "plugins/ievo/.claude-plugin/plugin.json";
 export const MARKETPLACE_JSON_PATH = ".claude-plugin/marketplace.json";
@@ -119,7 +129,7 @@ export function checkVersionBump({
   mergeBase,
   head,
   execImpl = execFileSync,
-  readFileImpl = readFileSync,
+  readFileImpl = safeReadFileSync,
   readdirImpl = readdirSync,
 }) {
   const changed = getChangedPaths(mergeBase, head, execImpl);
@@ -170,7 +180,7 @@ export function main(
   argv = process.argv,
   env = process.env,
   execImpl = execFileSync,
-  readFileImpl = readFileSync,
+  readFileImpl = safeReadFileSync,
   readdirImpl = readdirSync,
   log = console.log,
   errLog = console.error,

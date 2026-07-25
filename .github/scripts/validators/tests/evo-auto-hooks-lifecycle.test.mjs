@@ -13,7 +13,10 @@
 // no-op. The shim bodies and the gitignore block below are byte-identical to
 // that SKILL.md section, and the first describe below ASSERTS that against
 // the real file — an edit to either side fails the suite instead of letting
-// the SKILL.md source drift away from what is actually exercised here.
+// the SKILL.md source drift away from what is actually exercised here. The
+// same describe pins `init/SKILL.md` Step 10 to the identical gitignore block,
+// since an init re-run that reverted to a blanket `.ievo/hooks/` line would
+// silently re-ignore the shims this suite proves must stay tracked.
 //
 // This actually shells the flow through a real, scratch git repo (init →
 // commit → clone) so the gitignore negation pattern is verified against
@@ -44,6 +47,15 @@ const ENABLE_SKILL = resolve(
   "../../../../plugins/ievo/skills/evo-auto-enable/SKILL.md",
 );
 const ENABLE_SKILL_SRC = readFileSync(ENABLE_SKILL, "utf-8");
+
+// `/ievo:init` Step 10 writes the SAME gitignore block (skills#446): an init
+// re-run must never re-add a blanket `.ievo/hooks/` line over the negations,
+// so the two skills have to agree byte-for-byte on the pattern.
+const INIT_SKILL = resolve(
+  __dirname,
+  "../../../../plugins/ievo/skills/init/SKILL.md",
+);
+const INIT_SKILL_SRC = readFileSync(INIT_SKILL, "utf-8");
 
 const GIT_ENV = {
   ...process.env,
@@ -285,7 +297,7 @@ after(() => {
   rmSync(ROOT, { recursive: true, force: true });
 });
 
-describe("literals stay in sync with evo-auto-enable/SKILL.md", () => {
+describe("literals stay in sync with their SKILL.md sources", () => {
   // Without these, every assertion below tests only this file's own copy of
   // the shims: a SKILL.md-side edit (the source of truth users actually get)
   // would ship broken with the suite green. It drifted once already.
@@ -302,6 +314,25 @@ describe("literals stay in sync with evo-auto-enable/SKILL.md", () => {
     assert.ok(
       ENABLE_SKILL_SRC.includes(GITIGNORE_BLOCK),
       `this file's gitignore block is not present verbatim in ${ENABLE_SKILL} — one side drifted; re-sync both`,
+    );
+  });
+
+  it("init/SKILL.md Step 10 writes the same block, never a blanket line", () => {
+    assert.ok(
+      INIT_SKILL_SRC.includes(GITIGNORE_BLOCK),
+      `${INIT_SKILL} Step 10 no longer emits the negation-capable block verbatim — an init re-run would re-ignore the tracked shims; re-sync both`,
+    );
+    // A bare `.ievo/hooks/` directory-form entry re-ignores everything under
+    // it and cannot be un-ignored by the negations that follow, so it must not
+    // survive anywhere in the file. Matched line-anchored: `.ievo/hooks/*` and
+    // `!.ievo/hooks/scripts/` are legitimate and must not trip this.
+    const blanket = INIT_SKILL_SRC.split("\n").filter(
+      (l) => l.trim() === ".ievo/hooks/",
+    );
+    assert.deepEqual(
+      blanket,
+      [],
+      `${INIT_SKILL} still emits a blanket \`.ievo/hooks/\` gitignore line`,
     );
   });
 

@@ -757,17 +757,28 @@ it completes so progress shows live in `tail -f`. Format: [log-format.md §9](re
 Project `.gitignore` should ignore:
 - `.ievo/log/` — diagnostic logs (local-only)
 - `.ievo/cache/` — repo indices (re-derivable)
-- `.ievo/hooks/` — ephemeral one-line signal-file timestamps written by Step 11.5 / evo Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state)
+- everything under `.ievo/hooks/` **except three named files** — the directory holds ephemeral one-line signal-file timestamps written by Step 11.5 / evo Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state), plus `/ievo:evo-auto-enable`'s machine-local `*.local.sh` hook companions and its vendored script copies
 
 But NOT ignore (must be committed for team portability):
 - `.ievo/evolution/` — overlay files (project-owned evolution data)
+- `.ievo/hooks/scripts/{correction-capture,evo-analysis-nudge,failure-capture}.sh` — the **tracked, static dispatcher shims** `/ievo:evo-auto-enable` Step 3.5.1b writes. They are committed on purpose: `.claude/settings.json`/`.codex/hooks.json` wire hook entries to those exact paths, so a clean clone that has the settings but not the files exits 127 on every user message (skills#446)
 
-Check project's `.gitignore`. If it doesn't already cover `.ievo/log/`, `.ievo/cache/`, and `.ievo/hooks/`, append:
+**Never write a blanket `.ievo/hooks/` line.** git cannot re-include a file whose parent directory is excluded ("you cannot re-include a file if a parent directory of that file is excluded"), so a bare directory-form entry makes those three shims permanently un-trackable — and it wins over any negation added later, so an init re-run appending it would silently re-ignore shims a previous `/ievo:evo-auto-enable` had already carved out. Use the negation-capable form below; its six `.ievo/hooks/` lines are byte-identical to the block `evo-auto-enable/SKILL.md` Step 3.5.1 writes, so the two skills converge on the same `.gitignore` state in either order.
+
+Check project's `.gitignore`:
+- If it already covers `.ievo/log/`, `.ievo/cache/`, and the six `.ievo/hooks/` lines below, nothing to do.
+- If it contains a blanket `.ievo/hooks/` line (a pre-#446 init run, or a hand-written entry), REPLACE that one line with the six `.ievo/hooks/` lines below via the Edit tool, leaving every other line untouched — replace, never append alongside, since a bare `dir/` entry still wins over later negations.
+- Otherwise append whichever groups are missing:
 ```
 # iEvo local-only artifacts
 .ievo/log/
 .ievo/cache/
-.ievo/hooks/
+.ievo/hooks/*
+!.ievo/hooks/scripts/
+.ievo/hooks/scripts/*
+!.ievo/hooks/scripts/correction-capture.sh
+!.ievo/hooks/scripts/evo-analysis-nudge.sh
+!.ievo/hooks/scripts/failure-capture.sh
 ```
 
 If no `.gitignore` exists, do not create one — note in summary.

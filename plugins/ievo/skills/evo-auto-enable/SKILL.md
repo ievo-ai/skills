@@ -186,22 +186,25 @@ before copying anything, ensure `.ievo/hooks/` is git-ignored except the three
 dispatcher-shim filenames Step 3.5.1b tracks — a security gate here, not the
 convenience offer Step 3.5.1b makes for those shims.
 
-`/ievo:init` Step 10 writes a blanket `.ievo/hooks/` line — the whole directory
-ignored as one opaque unit. git's own semantics make that form impossible to
-selectively un-ignore later ("you cannot re-include a file if a parent
-directory of that file is excluded"), so this skill needs a
-**negation-capable** pattern instead: everything under `.ievo/hooks/` stays
-ignored by default, with exactly the three tracked shim filenames carved out.
-Read the project's `.gitignore` (absent = nothing to check, fall through to the
-append below):
+A blanket `.ievo/hooks/` line ignores the whole directory as one opaque unit,
+and git's own semantics make that form impossible to selectively un-ignore
+later ("you cannot re-include a file if a parent directory of that file is
+excluded"), so this skill needs a **negation-capable** pattern instead:
+everything under `.ievo/hooks/` stays ignored by default, with exactly the
+three tracked shim filenames carved out. `/ievo:init` Step 10 writes this same
+six-line block (kept byte-identical there, so the two skills converge on one
+`.gitignore` state whichever runs first, and an init re-run after an enable can
+never re-ignore the shims); a project initialised before #446, or one with a
+hand-written entry, can still carry the old blanket line. Read the project's
+`.gitignore` (absent = nothing to check, fall through to the append below):
 
 - If it already contains the six-line block below, nothing to do.
-- If it contains the OLD blanket `.ievo/hooks/` line instead (from `/ievo:init`
-  Step 10, or a pre-#446 run of this skill), REPLACE that one line with the
-  block below via the Edit tool — leave every other line untouched. The
-  blanket line must be replaced, not left alongside the new one: a bare `dir/`
-  entry still wins over later negations for paths inside it, so leaving both
-  would silently keep the shims ignored.
+- If it contains a blanket `.ievo/hooks/` line instead (a pre-#446 `/ievo:init`
+  Step 10 run, a pre-#446 run of this skill, or a hand-written entry), REPLACE
+  that one line with the block below via the Edit tool — leave every other line
+  untouched. The blanket line must be replaced, not left alongside the new one:
+  a bare `dir/` entry still wins over later negations for paths inside it, so
+  leaving both would silently keep the shims ignored.
 - If `.ievo/hooks/` is not mentioned at all, append the block (creating
   `.gitignore` first if the project lacks one).
 
@@ -531,12 +534,39 @@ the config, (1) re-read it and parse it as JSON (`node -e
 malformed config is a silent kill on a fail-open platform); (2) dry-run each
 wired command once from the project root via Bash (`sh
 .ievo/hooks/scripts/evo-analysis-nudge.sh < /dev/null; echo "exit=$?"`) and
-confirm exit 0 — this exercises the full tracked-shim → `.local.sh`-companion
-delegation chain (Step 3.5.1b), the same command `.claude/settings.json`/
-`.codex/hooks.json` will actually invoke. Only hooks Codex/Claude Code fire on
-a real session boundary can prove end-to-end delivery — say so in Step 5's
-confirmation instead of implying the capture loop was already observed
-working.
+confirm exit 0 — the same command `.claude/settings.json`/`.codex/hooks.json`
+will actually invoke, so this proves the wired path resolves and the tracked
+shim runs without a 127; (3) assert every `.local.sh` companion is actually on
+disk:
+
+```sh
+for f in correction-capture evo-analysis-nudge failure-capture; do
+  [ -f ".ievo/hooks/scripts/$f.local.sh" ] || echo "MISSING: $f.local.sh"
+done
+```
+
+**(3) is not redundant with (2)** — it is the half that makes the check mean
+anything. The tracked shim exits 0 *by design* when its companion is absent:
+that silent no-op IS the clean-clone contract (Step 3.5.1b). So a green
+dry-run says nothing about whether Steps 3.5.2/3.5.3/3.6 ever wrote the real
+logic; enable could report success on a project where nothing captures —
+precisely issue #432's "says ENABLED, captures nothing". Only (2) **and** (3)
+together show the tracked-shim → `.local.sh`-companion delegation chain is
+complete on disk, and even then only its two halves individually: the shim's
+`exec` of a present companion is exercised by the test suite
+(`.github/scripts/validators/tests/evo-auto-hooks-lifecycle.test.mjs`), not by
+this check.
+
+All three companions are written by a full enable — including
+`failure-capture.local.sh`, which installs unconditionally and self-gates on
+the flag's `signal:` value (Step 3.6) — so any `MISSING:` line is a real
+failure, not an opt-out. If one prints, do NOT claim success: name the missing
+companion to the user and re-run the step that writes it (3.5.2 / 3.5.3 / 3.6
+respectively).
+
+Only hooks Codex/Claude Code fire on a real session boundary can prove
+end-to-end delivery — say so in Step 5's confirmation instead of implying the
+capture loop was already observed working.
 
 The wired paths (`.ievo/hooks/scripts/correction-capture.sh`,
 `evo-analysis-nudge.sh`, `failure-capture.sh`) are the **tracked dispatcher

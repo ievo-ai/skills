@@ -876,10 +876,12 @@ cross-check that the printed file (`.claude/settings.json` vs
 contract as init Step 12.5:
 
 - **Target:** `evo-auto-enable` (skill scope — this skill).
-- **Lesson text (verbatim English)**, e.g.: "On Codex ($CODEX_CLI set), Step 5
-  printed '<the offending phrase>', which names a Claude-Code-only
-  config/event. Detected platform was Codex; hooks were actually wired into
-  <file Step 3.5.4 wrote>."
+- **Lesson text (verbatim English)**, e.g.: "`/ievo:evo-auto-enable` Step 5
+  printed '<the offending phrase>' on Codex ($CODEX_CLI set), which names a
+  Claude-Code-only config/event. Detected platform was Codex; hooks were
+  actually wired into <file Step 3.5.4 wrote>." Name `/ievo:evo-auto-enable`
+  explicitly (not just "Step 5") so the text literally satisfies Step 5.6's
+  "names an iEvo capability" signal, same reasoning as init Step 12.5.
 - **Trigger value:** `agent self-correction: platform-detection mismatch`
   (same value as init Step 12.5 — one convention, two call sites).
 

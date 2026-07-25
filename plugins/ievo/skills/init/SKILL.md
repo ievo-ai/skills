@@ -29,7 +29,8 @@ metadata:
 2. **Step 7a** (resolve ambiguous categories) — `AskUserQuestion`, only if any categories were marked `/ambiguous`
 3. **Step 7b** (per-candidate interview) — `AskUserQuestion`, including the single batched tail question for `overlap_tail[]` items, if any
 4. **Step 8** (RED security verdict) — `AskUserQuestion`, only for RED candidates
-5. **Step 13** (final feedback prompt) — `AskUserQuestion`
+5. **Step 12.5** (platform-mismatch self-check) — only if a mismatch is actually caught; the pause itself happens inside the `/ievo:evo` handoff's own Step 5.6 upstream-feedback offer, not in this step directly
+6. **Step 13** (final feedback prompt) — `AskUserQuestion`
 
 Between every other step, **proceed immediately** to the next step. If you find yourself thinking "should I confirm with the user before doing X?" — the answer is NO. Just do it. Write to the log so the user can monitor via `tail -f`.
 
@@ -916,11 +917,13 @@ costs nothing and mirrors how evo-auto's own hooks capture without asking —
 
 - **Target:** `init` (skill scope — this skill, unambiguous, so `/ievo:evo`
   Step 1 needs no clarifying question).
-- **Lesson text (verbatim English)**, e.g.: "On Codex ($CODEX_CLI set), Step
-  12 printed '<the offending phrase>', which is a Claude-Code-only
-  <command|path|menu>. Detected platform was Codex."
-- **Trigger value** (`/ievo:evo` Step 5): `agent self-correction: platform-
-  detection mismatch`.
+- **Lesson text (verbatim English)**, e.g.: "`/ievo:init` Step 12 printed '<the
+  offending phrase>' on Codex ($CODEX_CLI set), which is a Claude-Code-only
+  <command|path|menu>. Detected platform was Codex." Name `/ievo:init`
+  explicitly in the text (not just "Step 12") so it literally satisfies Step
+  5.6's own "names an iEvo capability" signal below, not just the surrounding
+  session context.
+- **Trigger value** (`/ievo:evo` Step 5): `agent self-correction: platform-detection mismatch`.
 
 `/ievo:evo` runs its normal Steps 1–5.7 unchanged: Step 1/4 resolve and write
 the overlay entry (both scope and target are already fixed above — nothing to
@@ -928,7 +931,9 @@ ask), and Step 5.6 classifies it — a lesson naming `/ievo:init` and describing
 a bug in its own behavior satisfies Step 5.6's upstream-relevant signal — and
 offers, via its own single `AskUserQuestion`, to also share it as feedback to
 `ievo-ai/skills`. That is the one confirmation gate this step adds, not a
-second bespoke one. Once `/ievo:evo` returns (whatever the user chose at that
+second bespoke one — and it is conditional: it only fires when a mismatch was
+actually found above (see the "ONLY user-facing pauses" directive at the top
+of this file). Once `/ievo:evo` returns (whatever the user chose at that
 gate), continue to Step 13 regardless.
 
 ## Step 13: Invite feedback (especially on skips)

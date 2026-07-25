@@ -14,7 +14,12 @@ Add a platform-mismatch self-check to `/ievo:init` and `/ievo:evo-auto-enable` t
 - **Routing** — on a caught mismatch, the skill hands off directly to `/ievo:evo` with scope/target already fixed (`init` or `evo-auto-enable`, skill scope — no clarifying question), so the local overlay entry is captured without asking first. `/ievo:evo`'s own Step 5.6 (unchanged) then classifies the lesson as upstream-relevant — it names an iEvo skill and describes a bug in its own behavior — and offers its single `AskUserQuestion` gate to also share it as public feedback to `ievo-ai/skills`, reusing the existing evo → feedback flow C confirmation instead of adding a second one.
 - **Scope, deliberately narrow** — this is a third capture trigger for the platform-detection-mismatch failure class specifically (the one issue #432 demonstrated), not a blanket self-check added to all 19 bundled skills; per the no-premature-abstraction convention, generalizing further waits on a second, independent trigger case.
 - **Trigger taxonomy** — `evo/SKILL.md` Step 5's `agent self-correction` value (previously a `(future)` placeholder) is now live: `agent self-correction: platform-detection mismatch`, set by both new self-check steps.
-- No new dependencies, no script changes — both additions are SKILL.md instruction steps that reuse `/ievo:evo`'s existing scope/target/Step-5.6 mechanics as-is.
+- **Scope, files touched** — two substantive skill files (`init/SKILL.md`, `evo-auto-enable/SKILL.md`) plus the `evo/SKILL.md` Trigger-list and "See also" entries that document the new hand-off; no new dependencies and no script changes — all three additions are SKILL.md instruction steps that reuse `/ievo:evo`'s existing scope/target/Step-5.6 mechanics as-is.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.62.4 → 0.63.0).
+
+---
+
+## v0.62.4
 
 Commit tracked dispatcher shims for `evo-auto-enable`'s three hook scripts so a clean clone of `.claude/settings.json`/`.codex/hooks.json` never exits 127 — closes #446.
 

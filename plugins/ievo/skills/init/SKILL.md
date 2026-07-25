@@ -897,14 +897,36 @@ a re-review of the branching logic itself, and not a general "did I do a good
 job" audit.
 
 Re-read the block Step 12 just printed and check it against the platform this
-run actually detected:
+run actually detected. Judge every phrase by what its sentence *asserts*, never
+by substring match: a phrase is a mismatch only when the block routes the user
+**to** the other platform's surface — presenting it as a step to follow, or as
+a claim about what this run did or wrote.
 
-- **`$CODEX_CLI` unset (Claude Code run):** the printed block must not contain
-  a Codex-only phrase — `.agents/skills/`, "Codex picks up skill changes
-  automatically", or similar.
-- **`$CODEX_CLI` set (Codex run):** the printed block must not contain a
-  Claude-Code-only phrase — `/reload-plugins`, `.claude/settings.json`,
-  `/plugin →`, or similar.
+- **`$CODEX_CLI` unset (Claude Code run):** the printed block must not send the
+  user to a Codex-only path or behavior — `.agents/skills/`, "Codex picks up
+  skill changes automatically", or similar.
+- **`$CODEX_CLI` set (Codex run):** the printed block must not send the user to
+  a Claude-Code-only command, path, or menu — `/reload-plugins`,
+  `.claude/settings.json`, `/plugin →`, or similar.
+
+**Carve-out — a deliberate contrastive mention is NOT a mismatch.** Step 12's
+Codex block names Claude-Code-only mechanisms on purpose, precisely to say they
+do *not* apply here; that is correct output and must never be flagged. Both of
+these appear on healthy Codex runs and are in-scope-correct:
+
+- "Plugins: whole-plugin install is a Claude Code mechanism; skills from chosen
+  plugins were vendored instead" — names the mechanism in order to exclude it,
+  and the action it reports is the Codex-correct one.
+- "Note: <M> item(s) under `.claude/skills/` are not visible to Codex — re-run
+  accepted ones to re-vendor into `.agents/skills/`" — the Step 3 stranded-items
+  migration note. The Claude-Code path here is the *problem being reported*, and
+  the remedy it points at is `.agents/skills/`.
+
+So: a phrase that is negated, contrasted, or named to explain what does **not**
+apply on the detected platform is no mismatch — continue. Without this carve-out
+the check would fire on every healthy Codex run that has either line, writing a
+spurious overlay entry and offering to file an upstream issue about a
+non-existent bug.
 
 **No mismatch (the expected outcome on every healthy run):** do nothing — no
 message, no write, no question. Continue straight to Step 13.

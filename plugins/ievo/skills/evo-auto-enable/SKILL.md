@@ -851,24 +851,38 @@ Review parked candidates any time: /ievo:evo
 Turn off: /ievo:evo-auto-disable
 ```
 
-## Step 5.5: Platform-mismatch self-check (issue #433)
+### 5.5 Platform-mismatch self-check (issue #433)
 
 Same self-check pattern as `init/SKILL.md` Step 12.5 (read that step for the
-full rationale — this is the delta, not a re-derivation) — applied to the
-confirmation block Step 5 just printed instead of init's Step 12 one. This is
-the skill whose Codex/`.claude/settings.json` mismatch was the second concrete
-example in issue #432: the confirmation claimed hooks were "ENABLED" while
-describing `.claude/settings.json` entries wired from a Codex run, which Codex
-never reads.
+full rationale, including its contrastive-mention carve-out — this is the
+delta, not a re-derivation) — applied to the confirmation block Step 5 just
+printed instead of init's Step 12 one. This is the skill whose
+Codex/`.claude/settings.json` mismatch was the second concrete example in issue
+#432: the confirmation claimed hooks were "ENABLED" while describing
+`.claude/settings.json` entries wired from a Codex run, which Codex never
+reads.
 
-Re-check what Step 5 just printed against `$CODEX_CLI` (Step 3.5.4's
-detection rule): a Claude Code run's confirmation must not name
-`.codex/hooks.json` or a Codex-only event (`PermissionRequest`,
-"approval requests"); a Codex run's confirmation must not name
-`.claude/settings.json` or a Claude-Code-only event
-(`PostToolUseFailure`/`PermissionDenied`, "tool failures/denials"). Also
-cross-check that the printed file (`.claude/settings.json` vs
-`.codex/hooks.json`) matches whichever file Step 3.5.4 actually wrote to.
+Re-check what Step 5 just printed against `$CODEX_CLI` (Step 3.5.4's detection
+rule), judging each phrase by what its sentence claims **this run wired**
+rather than by substring match: a Claude Code run's confirmation must not
+present `.codex/hooks.json` or a Codex-only event (`PermissionRequest`,
+"approval requests") as this run's wiring; a Codex run's confirmation must not
+present `.claude/settings.json` or a Claude-Code-only event
+(`PostToolUseFailure`/`PermissionDenied`, "tool failures/denials") as this
+run's wiring. Also cross-check that the printed file (`.claude/settings.json`
+vs `.codex/hooks.json`) matches whichever file Step 3.5.4 actually wrote to.
+
+**Carve-out — a deliberate contrastive mention is NOT a mismatch**, same rule
+as init Step 12.5. Step 5's Codex block names the Claude Code events on purpose,
+to scope the narrower signal Codex can offer: "Codex has no failed-tool/denied
+event — this records approval REQUESTS, a narrower signal than Claude Code's
+failure/denial capture". That line is correct output on every
+healthy Codex run — it states what Codex does *not* have, and the wiring it
+describes (`PermissionRequest` → `.codex/hooks.json`) is the Codex-correct one.
+Flag only when the block presents the other platform's file or event as what
+this run actually wired; otherwise the check would fire on every healthy Codex
+run, writing a spurious overlay entry and offering to file an upstream issue
+about a non-existent bug.
 
 **No mismatch (expected):** do nothing, continue.
 

@@ -13,8 +13,11 @@
 //
 // When any changed path (merge-base..head) is under plugins/ievo/** or
 // .claude-plugin/**, asserts:
-//   1. plugin.json's `version` at head differs from its value at the
-//      merge-base (i.e. this PR actually bumped it).
+//   1. plugin.json's `version` at head is strictly GREATER than its value at
+//      the merge-base (i.e. this PR actually bumped it, forwards — an equal
+//      version means no bump, a lower one means a downgrade). Versions that
+//      aren't plain dotted-numeric can't be ordered, so those fall back to
+//      "must at least differ" — see compareVersions.
 //   2. Every `export const SCRIPT_VERSION` literal under
 //      plugins/ievo/scripts/*.mjs — globbed at runtime, never hardcoded (a
 //      hardcoded file list is exactly how AGENTS.md's own bump checklist
@@ -53,7 +56,8 @@
 
 import { readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { safeReadFileSync } from "./validators/_safe-read.mjs";
 
 export const PLUGIN_JSON_PATH = "plugins/ievo/.claude-plugin/plugin.json";
@@ -114,6 +118,28 @@ export function extractScriptVersion(source) {
   return m ? m[1] : null;
 }
 
+// Plain dotted-numeric version (the only shape this repo ships — "0.62.4").
+// Anything else (a pre-release/build tag like "1.0.0-rc.1") is deliberately
+// NOT ordered here; see compareVersions.
+const NUMERIC_VERSION_RE = /^\d+(?:\.\d+)*$/;
+
+// Numeric-segment comparison of two dotted versions. Returns 1 / 0 / -1 for
+// a > b / a == b / a < b, and null when either side is not plain dotted-numeric
+// — an unorderable tag is reported as "cannot compare" rather than guessed at,
+// and the caller then falls back to the weaker "must at least differ" check.
+// Missing trailing segments count as 0, so "1.1" == "1.1.0" and "1.1.1" > "1.1".
+export function compareVersions(a, b) {
+  if (!NUMERIC_VERSION_RE.test(a ?? "") || !NUMERIC_VERSION_RE.test(b ?? "")) return null;
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+}
+
 function parseJsonOrError(text, label) {
   if (text === null) return { error: `${label}: missing at merge-base` };
   try {
@@ -145,10 +171,23 @@ export function checkVersionBump({
   const baseParsed = parseJsonOrError(readFileAtRef(mergeBase, PLUGIN_JSON_PATH, execImpl), "plugin.json");
   if (baseParsed.error) {
     errors.push(baseParsed.error);
-  } else if (baseParsed.value.version === headVersion) {
-    errors.push(
-      `plugin.json: version unchanged ('${headVersion}') — plugins/ievo/**/.claude-plugin/** changed but the version was not bumped`,
-    );
+  } else {
+    const baseVersion = baseParsed.value.version;
+    const unchanged = `plugin.json: version unchanged ('${headVersion}') — plugins/ievo/**/.claude-plugin/** changed but the version was not bumped`;
+    // A bump must go FORWARD: "differs from the merge-base" alone would let a
+    // downgrade (0.62.4 -> 0.62.3, whether a bad merge or a deliberate
+    // republish of an already-released version) satisfy the gate.
+    const cmp = compareVersions(headVersion, baseVersion);
+    if (cmp === null) {
+      // Unorderable on at least one side — fall back to "must at least differ".
+      if (headVersion === baseVersion) errors.push(unchanged);
+    } else if (cmp === 0) {
+      errors.push(unchanged);
+    } else if (cmp < 0) {
+      errors.push(
+        `plugin.json: version went BACKWARDS ('${baseVersion}' at the merge-base -> '${headVersion}' at head) — a bump must increase the version`,
+      );
+    }
   }
 
   for (const file of findScriptFiles(SCRIPTS_DIR, readdirImpl)) {
@@ -231,8 +270,20 @@ export function main(
   return exit(0);
 }
 
+// Exported (rather than inlined into the guard below) so it is testable with
+// argv shapes Node would never produce — same contract as every
+// plugins/ievo/scripts/*.mjs entry guard.
+//
+// Normalises both sides: process.argv[1] is often a relative path
+// (`node .github/scripts/check-version-bump.mjs`) while import.meta.url is
+// always an absolute, percent-ENCODED file: URL. A naive
+// `metaUrl === \`file://${argv[1]}\`` therefore mismatches whenever the
+// checkout path contains a space or any non-ASCII character (encoded as %20 /
+// %XX in import.meta.url, literal in argv[1]) — and a mismatch here means
+// main() never runs, so the gate exits 0 and passes silently. fileURLToPath()
+// decodes, resolve() absolutises; both sides then compare like-for-like.
 export function isCliEntry(metaUrl, argv) {
-  return metaUrl === `file://${argv[1]}`;
+  return fileURLToPath(metaUrl) === resolve(argv[1] ?? "");
 }
 
 if (isCliEntry(import.meta.url, process.argv)) {

@@ -5,7 +5,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { relative } from "node:path";
 
 import {
   PLUGIN_JSON_PATH,
@@ -19,6 +20,7 @@ import {
   readFileAtRef,
   findScriptFiles,
   extractScriptVersion,
+  compareVersions,
   checkVersionBump,
   main,
   isCliEntry,
@@ -158,6 +160,33 @@ describe("extractScriptVersion", () => {
 });
 
 // ---------------------------------------------------------------------------
+// compareVersions
+// ---------------------------------------------------------------------------
+
+describe("compareVersions", () => {
+  it("orders a forward bump, a downgrade and an equal pair", () => {
+    assert.equal(compareVersions("0.62.4", "0.62.3"), 1);
+    assert.equal(compareVersions("0.62.3", "0.62.4"), -1);
+    assert.equal(compareVersions("0.62.4", "0.62.4"), 0);
+  });
+  it("compares numerically, not lexically (10 > 9)", () => {
+    assert.equal(compareVersions("0.10.0", "0.9.0"), 1);
+    assert.equal(compareVersions("0.9.0", "0.10.0"), -1);
+  });
+  it("treats missing trailing segments as 0", () => {
+    assert.equal(compareVersions("1.1", "1.1.0"), 0);
+    assert.equal(compareVersions("1.1.1", "1.1"), 1);
+    assert.equal(compareVersions("1.1", "1.1.1"), -1);
+  });
+  it("returns null when either side is not plain dotted-numeric", () => {
+    assert.equal(compareVersions("1.0.0-rc.1", "1.0.0"), null);
+    assert.equal(compareVersions("1.0.0", "1.0.0-rc.1"), null);
+    assert.equal(compareVersions(undefined, "1.0.0"), null);
+    assert.equal(compareVersions("1.0.0", undefined), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // checkVersionBump — the core gate logic
 // ---------------------------------------------------------------------------
 
@@ -191,6 +220,53 @@ describe("checkVersionBump", () => {
     assert.equal(result.skipped, false);
     assert.equal(result.errors.length, 1);
     assert.match(result.errors[0], /version unchanged/);
+  });
+
+  it("flags a DOWNGRADE: head version lower than the merge-base (a changed version is not enough)", () => {
+    const execImpl = makeFakeExec([
+      { stdout: "plugins/ievo/scripts/discover.mjs\n" },
+      { stdout: JSON.stringify({ version: "1.0.1" }) }, // plugin.json @ merge-base — HIGHER than head
+    ]);
+    const readFileImpl = makeFakeReadFile({
+      [PLUGIN_JSON_PATH]: JSON.stringify({ version: "1.0.0" }),
+      [`${SCRIPTS_DIR}/discover.mjs`]: scriptSrc("1.0.0"),
+      [MARKETPLACE_JSON_PATH]: JSON.stringify({ metadata: { version: "1.0.0" }, plugins: [{ version: "1.0.0" }] }),
+    });
+    const readdirImpl = makeFakeReaddir({ [SCRIPTS_DIR]: ["discover.mjs"] });
+    const result = checkVersionBump({ mergeBase: "base", head: "HEAD", execImpl, readFileImpl, readdirImpl });
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0], /went BACKWARDS \('1\.0\.1' at the merge-base -> '1\.0\.0' at head\)/);
+  });
+
+  it("flags an unorderable version pair that is identical (falls back to the 'must at least differ' check)", () => {
+    const execImpl = makeFakeExec([
+      { stdout: "plugins/ievo/scripts/discover.mjs\n" },
+      { stdout: JSON.stringify({ version: "1.0.0-rc.1" }) },
+    ]);
+    const readFileImpl = makeFakeReadFile({
+      [PLUGIN_JSON_PATH]: JSON.stringify({ version: "1.0.0-rc.1" }),
+      [`${SCRIPTS_DIR}/discover.mjs`]: scriptSrc("1.0.0-rc.1"),
+      [MARKETPLACE_JSON_PATH]: JSON.stringify({ metadata: { version: "1.0.0-rc.1" }, plugins: [{ version: "1.0.0-rc.1" }] }),
+    });
+    const readdirImpl = makeFakeReaddir({ [SCRIPTS_DIR]: ["discover.mjs"] });
+    const result = checkVersionBump({ mergeBase: "base", head: "HEAD", execImpl, readFileImpl, readdirImpl });
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0], /version unchanged/);
+  });
+
+  it("accepts an unorderable version pair that differs — the ordering is not guessed at", () => {
+    const execImpl = makeFakeExec([
+      { stdout: "plugins/ievo/scripts/discover.mjs\n" },
+      { stdout: JSON.stringify({ version: "1.0.0" }) },
+    ]);
+    const readFileImpl = makeFakeReadFile({
+      [PLUGIN_JSON_PATH]: JSON.stringify({ version: "1.0.1-rc.1" }),
+      [`${SCRIPTS_DIR}/discover.mjs`]: scriptSrc("1.0.1-rc.1"),
+      [MARKETPLACE_JSON_PATH]: JSON.stringify({ metadata: { version: "1.0.1-rc.1" }, plugins: [{ version: "1.0.1-rc.1" }] }),
+    });
+    const readdirImpl = makeFakeReaddir({ [SCRIPTS_DIR]: ["discover.mjs"] });
+    const result = checkVersionBump({ mergeBase: "base", head: "HEAD", execImpl, readFileImpl, readdirImpl });
+    assert.deepEqual(result.errors, []);
   });
 
   it("flags plugin.json missing at merge-base (new file introduced without valid history)", () => {
@@ -573,6 +649,30 @@ describe("isCliEntry", () => {
   });
   it("is false when imported as a module (different path)", () => {
     assert.ok(!isCliEntry("file:///path/to/check-version-bump.mjs", ["node", "/path/to/other-script.mjs"]));
+  });
+
+  // Regression: a naive `metaUrl === `file://${argv[1]}`` compares an encoded
+  // URL against a raw path, so ANY checkout path with a space or non-ASCII
+  // character mismatches — main() never runs and the gate exits 0, silently
+  // green. fileURLToPath() decodes both sides back to the same path.
+  it("is true when the checkout path contains a space (percent-encoded in import.meta.url)", () => {
+    assert.ok(isCliEntry("file:///path/to/my%20repo/check-version-bump.mjs", ["node", "/path/to/my repo/check-version-bump.mjs"]));
+  });
+
+  it("is true when the checkout path contains non-ASCII characters", () => {
+    assert.ok(isCliEntry("file:///srv/d%C3%A9pot/check-version-bump.mjs", ["node", "/srv/dépot/check-version-bump.mjs"]));
+  });
+
+  // The other half of the same normalisation: argv[1] is relative whenever the
+  // script is invoked as `node .github/scripts/check-version-bump.mjs`, which
+  // is exactly how pre-commit-gate.yml runs it.
+  it("is true when argv[1] is a relative path (resolved against cwd)", () => {
+    const abs = fileURLToPath(new URL("../../check-version-bump.mjs", import.meta.url));
+    assert.ok(isCliEntry(pathToFileURL(abs).href, ["node", relative(process.cwd(), abs)]));
+  });
+
+  it("is false when argv[1] is absent entirely", () => {
+    assert.ok(!isCliEntry("file:///path/to/check-version-bump.mjs", ["node"]));
   });
 });
 

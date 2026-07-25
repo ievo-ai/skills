@@ -106,7 +106,7 @@ With auto-update off you can still update manually by re-running `/plugin instal
 
 > **Optional nudge.** If you prefer to keep auto-update off, `/ievo:hooks-setup` can install a fail-silent `SessionStart` hook that checks the marketplace at most once per day and — only when your installed version is behind — reminds you to update. See [hooks-setup](plugins/ievo/skills/hooks-setup/SKILL.md).
 
-**Codex** tracks plugin versions via git refs/tags in the marketplace `source` block — re-run the marketplace add/install to pick up a newer ref.
+**Codex** tracks plugin versions via git refs/tags in the marketplace `source` block — re-run the marketplace add/install to pick up a newer ref immediately. Codex *also* upgrades configured git marketplaces (iEvo's included) on a best-effort basis at session startup, so a newer iEvo release can land with no manual action: the startup task activates the new marketplace revision and reinstalls the plugin cache ([openai/codex#17425](https://github.com/openai/codex/pull/17425), merged 2026-04-16; observed with no manual upgrade on codex-cli 0.142.5 in [openai/codex#31383](https://github.com/openai/codex/issues/31383)). That reinstall prunes the superseded versioned cache directory — read § *Known configuration gotcha — Codex plugin auto-upgrade and an already-open task* below before invoking an `ievo:*` skill in a task that was already open when it happened.
 
 ### iEvo bootstraps itself for teammates (Claude Code, plugin-mode)
 
@@ -324,6 +324,14 @@ Claude Code v2.1.169 added two settings that sound similar but have opposite imp
 - **`disableBundledSkills` / `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`** only hides Claude Code's own **bundled** skills, workflows, and built-in slash commands. iEvo is plugin-installed, not bundled, and remains fully active — a minimal-noise environment built with this setting keeps full iEvo security coverage.
 
 See the [v2.1.169 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.169) for both.
+
+### Known configuration gotcha — Codex plugin auto-upgrade and an already-open task
+
+Codex upgrades configured git marketplaces at session startup (§ *Keep iEvo up to date* above) and prunes the superseded versioned plugin-cache directory. A Codex task that was already open when that happened keeps referencing the **old** `<codex-cache>/ievo/<old-version>/skills` root, so invoking any `ievo:*` skill in that task fails with `No such file or directory` (`ENOENT`) — even though `codex plugin list --json` correctly reports the newer iEvo version installed and enabled, and the new version's cache directory is present and readable on disk.
+
+Your install is fine, and iEvo cannot fix this from its side: the stale path is produced by Codex's own plugin loader ([openai/codex#24390](https://github.com/openai/codex/issues/24390), open as of 2026-07-25 — `PluginsManager` caches its plugin-load outcome without keying on the active plugin-cache version, and the refresh path clears only that cache, not `SkillsManager`). The same mechanism can also break plugin **hooks** for the remainder of an affected session ([openai/codex#31383](https://github.com/openai/codex/issues/31383)), so a hook installed by `/ievo:hooks-setup` may go quiet until the session is restarted.
+
+**Mitigation**: after an iEvo plugin update on Codex, start a new task — or restart Codex Desktop / the CLI session — before invoking an `ievo:*` skill again. Reported against an iEvo 0.62.3 → 0.63.0 upgrade on Codex Desktop ([ievo-ai/skills#459](https://github.com/ievo-ai/skills/issues/459)).
 
 ## Install paths
 

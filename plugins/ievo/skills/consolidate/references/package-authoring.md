@@ -18,7 +18,7 @@ Length ceilings: skill `description` ≤1024 chars (agentskills.io spec, enforce
 
 Do not add a `when_to_use` frontmatter field — it is not yet a supported field in this repo (proposed but unmerged as of this writing; `validate_skills.mjs` does not recognize it). Fold trigger phrasing into `description` per the current convention instead.
 
-## Skill template (`.claude/skills/<name>/SKILL.md`)
+## Skill template (`SKILL.md` — target path per § Registration below)
 
 ```markdown
 ---
@@ -84,11 +84,11 @@ Author both templates above. Cross-reference them: the skill's body gets a `## S
 
 ## Registration (project scope only)
 
-Write via the Write tool (not a shell redirect — same reasoning as `feedback/SKILL.md` Step 6 and `init/SKILL.md` Step 8b: synthesized body text may contain backticks or `$(...)`-shaped substrings that a shell would try to expand). Target paths:
-- Skill: `<project>/.claude/skills/<name>/SKILL.md`
-- Agent: `<project>/.claude/agents/<name>.md`
+Write via the Write tool (not a shell redirect — same reasoning as `feedback/SKILL.md` Step 6 and `init/SKILL.md` Step 8b: synthesized body text may contain backticks or `$(...)`-shaped substrings that a shell would try to expand). Target paths — the invoking client's own load path (`$CODEX_CLI` env var rule, same as `evo/SKILL.md` Step 1; a package written to the other client's dir is stranded where the invoking client never scans, issue #432):
+- Skill: Claude Code (`$CODEX_CLI` unset): `<project>/.claude/skills/<name>/SKILL.md`; Codex (`$CODEX_CLI` set): `<project>/.agents/skills/<name>/SKILL.md`
+- Agent: `<project>/.claude/agents/<name>.md` — Claude Code only; Codex documents no project-level custom-agent path (see the calling skill for how an agent-shaped candidate is handled on Codex)
 
-No `.claude/settings.json` edit is needed — project-scoped `.claude/skills/` and `.claude/agents/` files are picked up automatically by Claude Code and Codex, the same as any other project-local skill/agent (this differs from `init/SKILL.md` Step 9b's *plugin* install path, which does need a settings.json merge — that path is for installing a whole third-party plugin, not authoring a single project-local file).
+No settings/config edit is needed — Claude Code picks up project-scoped `.claude/skills/` and `.claude/agents/` files automatically, and Codex picks up `.agents/skills/` automatically, the same as any other project-local skill/agent (this differs from `init/SKILL.md` Step 9b's *plugin* install path, which does need a settings.json merge — that path is for installing a whole third-party plugin, not authoring a single project-local file).
 
 ## Validation before CHECKPOINT 2
 

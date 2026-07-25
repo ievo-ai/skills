@@ -29,7 +29,8 @@ metadata:
 2. **Step 7a** (resolve ambiguous categories) — `AskUserQuestion`, only if any categories were marked `/ambiguous`
 3. **Step 7b** (per-candidate interview) — `AskUserQuestion`, including the single batched tail question for `overlap_tail[]` items, if any
 4. **Step 8** (RED security verdict) — `AskUserQuestion`, only for RED candidates
-5. **Step 13** (final feedback prompt) — `AskUserQuestion`
+5. **Step 12.5** (platform-mismatch self-check) — only if a mismatch is actually caught, and never in this step directly: the pauses belong to the `/ievo:evo` handoff, which under its own Step 1 overlay-only carve-out can raise **at most two**, each independently conditional — Step 5.6's upstream-feedback offer (if the lesson classifies as upstream-relevant, which this one does) and Step 5.7's extraction offer (only if that overlay already holds a cluster). Choosing to share at Step 5.6 hands off to `/ievo:feedback`, which adds its own public-posting gate
+6. **Step 13** (final feedback prompt) — `AskUserQuestion`
 
 Between every other step, **proceed immediately** to the next step. If you find yourself thinking "should I confirm with the user before doing X?" — the answer is NO. Just do it. Write to the log so the user can monitor via `tail -f`.
 
@@ -883,6 +884,100 @@ If Step 3 found vendored items under `.claude/skills/` on a Codex run, also
 append: "Note: <M> item(s) under .claude/skills/ are not visible to Codex —
 re-run accepted ones to re-vendor into .agents/skills/ (they surfaced as
 candidates this run)."
+
+## Step 12.5: Platform-mismatch self-check (issue #433)
+
+Step 12 just printed one of two hand-authored, platform-conditional blocks —
+exactly the kind of text that shipped a wrong recommendation before (`/ievo:init`
+telling a Codex user to run `/reload-plugins`, issue #432): a real mismatch
+between the branch this run actually took (`$CODEX_CLI`, Step 1.5's rule) and
+the platform-specific commands/paths/menus named in the block it printed. This
+step is a cheap, mechanical self-check against exactly that failure class — not
+a re-review of the branching logic itself, and not a general "did I do a good
+job" audit.
+
+Re-read the block Step 12 just printed and check it against the platform this
+run actually detected. Judge every phrase by what its sentence *asserts*, never
+by substring match: a phrase is a mismatch only when the block routes the user
+**to** the other platform's surface — presenting it as a step to follow, or as
+a claim about what this run did or wrote.
+
+- **`$CODEX_CLI` unset (Claude Code run):** the printed block must not send the
+  user to a Codex-only path or behavior — `.agents/skills/`, "Codex picks up
+  skill changes automatically", or similar.
+- **`$CODEX_CLI` set (Codex run):** the printed block must not send the user to
+  a Claude-Code-only command, path, or menu — `/reload-plugins`,
+  `.claude/settings.json`, `/plugin →`, or similar.
+
+**Carve-out — a deliberate contrastive mention is NOT a mismatch.** Step 12's
+Codex block names Claude-Code-only mechanisms on purpose, precisely to say they
+do *not* apply here; that is correct output and must never be flagged. Both of
+these appear on healthy Codex runs and are in-scope-correct:
+
+- "Plugins: whole-plugin install is a Claude Code mechanism; skills from chosen
+  plugins were vendored instead" — names the mechanism in order to exclude it,
+  and the action it reports is the Codex-correct one.
+- "Note: <M> item(s) under `.claude/skills/` are not visible to Codex — re-run
+  accepted ones to re-vendor into `.agents/skills/`" — the Step 3 stranded-items
+  migration note. The Claude-Code path here is the *problem being reported*, and
+  the remedy it points at is `.agents/skills/`.
+
+So: a phrase that is negated, contrasted, or named to explain what does **not**
+apply on the detected platform is no mismatch — continue. Without this carve-out
+the check would fire on every healthy Codex run that has either line, writing a
+spurious overlay entry and offering to file an upstream issue about a
+non-existent bug.
+
+**No mismatch (the expected outcome on every healthy run):** do nothing — no
+message, no write, no question. Continue straight to Step 13.
+
+**Mismatch found:** this run's own platform branching just told the user
+something that doesn't hold for the platform it detected — hand off to
+`/ievo:evo` immediately, no question asked first (writing a local overlay note
+costs nothing and mirrors how evo-auto's own hooks capture without asking —
+`evo-auto-enable/SKILL.md` Step 3.5):
+
+- **Target:** `init` (skill scope — this skill). Pass it as **given**, not as
+  something for `/ievo:evo` to resolve: its Step 1 carve-out for this handoff
+  takes scope/target from the caller and skips matching entirely, so no
+  clarifying question is possible. That carve-out exists because normal
+  resolution would break here — on Codex, Step 1 scans only `.agents/skills/*`,
+  where a plugin-shipped skill like `init` never appears, so it would find no
+  match and fall through to its "ask the user, do not guess" rule.
+- **Lesson text (verbatim English)**, e.g.: "`/ievo:init` Step 12 printed '<the
+  offending phrase>' on Codex ($CODEX_CLI set), which is a Claude-Code-only
+  <command|path|menu>. Detected platform was Codex." Name `/ievo:init`
+  explicitly in the text (not just "Step 12") so it literally satisfies Step
+  5.6's own "names an iEvo capability" signal below, not just the surrounding
+  session context.
+- **Trigger value** (`/ievo:evo` Step 5): `agent self-correction: platform-detection mismatch`.
+
+**The handoff is overlay-only.** `/ievo:evo`'s Step 1 carve-out for this path
+runs Step 4 (append the overlay entry), then Steps 5, 5.5, 5.6 and 5.7 — and
+skips Steps 1.5, 2 and 2.5 unconditionally. Its Step 3 (marker injection) is
+**conditional**, on the same test Step 2 makes: in the normal case `init` runs
+from the plugin with no copy in the project's load path, so Step 3 is skipped
+too; only if the user has *already* vendored `init` into
+`.claude/skills/init/`|`.agents/skills/init/` on their own initiative does it
+run, injecting the marker (idempotently) into that pre-existing file. Either
+way nothing here vendors `init`, so this step never shadows the running plugin
+copy with a frozen snapshot, and never triggers Step 2.5's security-re-audit
+confirmation. The trade the normal case accepts, stated plainly: with no local
+copy there is no marker pointing at `.ievo/evolution/skills/init.md`, so that
+overlay is a dated **record** of what was caught rather than a rule applied on
+later runs. The actionable path for a bug in this skill's own shipped behavior
+is the upstream escalation below, which is unaffected.
+
+Step 5.6 then classifies the lesson — one naming `/ievo:init` and describing a
+bug in its own behavior satisfies its upstream-relevant signal — and offers,
+via `AskUserQuestion`, to also share it as feedback to `ievo-ai/skills`,
+reusing the existing evo → feedback flow rather than adding a bespoke gate.
+Step 5.7 may add a second, independent offer (extract the overlay's entries
+into a dedicated skill), but only if that overlay already holds a cluster —
+never on a first capture. Both are conditional on a mismatch having been found
+at all, which is why the "ONLY user-facing pauses" directive at the top of this
+file lists this step as at-most-two, not one. Once `/ievo:evo` returns
+(whatever the user chose at either gate), continue to Step 13 regardless.
 
 ## Step 13: Invite feedback (especially on skips)
 

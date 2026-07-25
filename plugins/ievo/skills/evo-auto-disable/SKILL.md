@@ -3,7 +3,7 @@ name: evo-auto-disable
 description: "Use this skill when the user wants to stop iEvo from capturing lessons automatically — trigger words \"turn off auto evolution\", \"stop auto-evolve\", \"evo auto off\", \"stop capturing lessons automatically\". Disables auto-evolution mode for this project. Stops iEvo from accumulating \"corrections from the user\" as evolution candidates; reverts to explicit `/ievo:evo` only. Removes the project-local flag `.ievo/evo-auto.flag`. Non-destructive: already-parked candidates in `.ievo/evolution-candidates/` are preserved for review. Inverse of `/ievo:evo-auto-enable`."
 license: MIT
 effort: low
-compatibility: "Any agentskills.io platform. Inverse of `/ievo:evo-auto-enable`. Uses POSIX shell (`rm -f`) with Node `fs.unlinkSync` and Windows `Remove-Item` fallbacks. Removes the flag, the auto-evolution hook entries from BOTH `.claude/settings.json` and `.codex/hooks.json` (whichever exist — either client may have written its own), their `.ievo/hooks/scripts/` scripts, and the vendored fallback copies — the `.ievo/evolution-candidates/` queue is left intact."
+compatibility: "Any agentskills.io platform. Inverse of `/ievo:evo-auto-enable`. Uses POSIX shell (`rm -f`) with Node `fs.unlinkSync` and Windows `Remove-Item` fallbacks. Removes the flag, the auto-evolution hook entries from BOTH `.claude/settings.json` and `.codex/hooks.json` (whichever exist — either client may have written its own), their `.ievo/hooks/scripts/*.local.sh` companions, and the vendored fallback copies — the tracked dispatcher shims and the `.ievo/evolution-candidates/` queue are left intact."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -98,22 +98,31 @@ disable everywhere:
   the entries `/ievo:evo-auto-enable` Step 3.5.4/3.6 writes on Codex. Leave
   every other hook untouched; a `hooks.<Event>` array left empty may be
   dropped.
-- **Hook scripts + vendored fallback copies** — delete
-  `.ievo/hooks/scripts/correction-capture.sh`, `.ievo/hooks/scripts/evo-analysis-nudge.sh`,
-  and `.ievo/hooks/scripts/failure-capture.sh` if present (idempotent, narrow —
-  one named file each, no glob/recursion), then remove the vendored fallback copy
-  directory those scripts fell back to (`/ievo:evo-auto-enable` Step 3.5.1) — safe
-  to remove wholesale since nothing else references it once every auto-mode
-  script above is gone:
+- **Per-clone companion scripts + vendored fallback copies** — since #446,
+  `.ievo/hooks/scripts/correction-capture.sh`, `evo-analysis-nudge.sh`, and
+  `failure-capture.sh` are **tracked, static dispatcher shims**
+  (`/ievo:evo-auto-enable` Step 3.5.1b) — identical content on every project,
+  committed alongside `.claude/settings.json`/`.codex/hooks.json` precisely so
+  a clean clone's wired command always exists. Do NOT delete them: removing a
+  tracked file leaves the working tree dirty for no benefit, since a shim with
+  no companion already behaves exactly like "no capture happening" (it
+  `test -f`s the companion and no-ops when absent). Delete instead the
+  per-clone `.local.sh` companions that hold the actual capture logic, then
+  remove the vendored fallback copy directory those companions fell back to
+  (`/ievo:evo-auto-enable` Step 3.5.1) — safe to remove wholesale since nothing
+  else references it once every companion above is gone:
 
 ```
-rm -f .ievo/hooks/scripts/correction-capture.sh .ievo/hooks/scripts/evo-analysis-nudge.sh .ievo/hooks/scripts/failure-capture.sh
+rm -f .ievo/hooks/scripts/correction-capture.local.sh .ievo/hooks/scripts/evo-analysis-nudge.local.sh .ievo/hooks/scripts/failure-capture.local.sh
 rm -rf .ievo/hooks/scripts/vendor
 ```
 
-Do NOT touch `.ievo/evolution-candidates/` — captured candidates are preserved
-(Step 4). Re-enabling with `/ievo:evo-auto-enable` re-installs the hooks (and
-refreshes the vendored copies).
+The tracked shims themselves are left in place, unmodified — with their
+companion gone they already no-op, and leaving them avoids a spurious
+tracked-file deletion in `git status`. Do NOT touch `.ievo/evolution-candidates/`
+— captured candidates are preserved (Step 4). Re-enabling with
+`/ievo:evo-auto-enable` regenerates the companions (and refreshes the vendored
+copies).
 
 ### 4. Report the pending queue (do NOT delete it)
 
@@ -145,10 +154,16 @@ Re-enable: /ievo:evo-auto-enable
 - **Idempotent:** if already off, just say so — no error.
 - **Flag + its hooks only:** this skill removes `.ievo/evo-auto.flag`, the
   auto-evolution hook entries from `.claude/settings.json` AND
-  `.codex/hooks.json` (whichever exist), the (up to) three
-  hook scripts under `.ievo/hooks/scripts/`, and the vendored fallback copy
-  directory those scripts read from — nothing else. The
+  `.codex/hooks.json` (whichever exist), the (up to) three per-clone
+  `.ievo/hooks/scripts/*.local.sh` companions, and the vendored fallback copy
+  directory those companions read from — nothing else. The
   `.ievo/evolution-candidates/` queue and every other hook are left intact.
+- **Never delete the tracked dispatcher shims (skills#446).**
+  `.ievo/hooks/scripts/{correction-capture,evo-analysis-nudge,failure-capture}.sh`
+  are committed alongside `.claude/settings.json`/`.codex/hooks.json` so a
+  clean clone's wired command never 127s — deleting them here would leave the
+  working tree dirty and undo that guarantee for no behavioral benefit (a shim
+  with its companion removed already no-ops).
 
 ## See also
 

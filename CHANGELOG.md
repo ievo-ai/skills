@@ -6,6 +6,26 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.62.0
+
+Document three Cursor v3.7/v3.8 platform-native alternatives across `deep-review`, `schedule`, and `handoff` — a Cursor compat sweep folding in two companion proposals — closes #203, #220, #225.
+
+- **Gap closed (#203)** — `deep-review/SKILL.md`'s `compatibility:` field acknowledged the Task-tool sub-agent limitation on non-Claude-Code/Codex platforms but said nothing about Cursor v3.7+'s native `/review` (Bugbot) command, leaving Cursor users without guidance on which review tool to reach for.
+- **Fix** — appended a one-sentence note to the `compatibility:` field: Cursor v3.7+ users get `/review` as a faster (~90s) platform-native alternative; `/ievo:deep-review` remains the pick for the structured 11-point checklist. Field stays within the 500-char `COMPATIBILITY_MAX_LENGTH` (471/500).
+- **Gap closed (#220)** — `schedule/SKILL.md` only documented Claude Code Routines with a generic CI-cron fallback for "Codex and other platforms" — no mention of Cursor v3.8's `/automate` command, which creates Cursor Automations (including a GitHub "workflow run completed" trigger) without requiring a Claude subscription.
+- **Fix** — added a two-sentence paragraph after the skill's intro naming `/automate` as a Cursor-native alternative, linking to the Cursor changelog for current syntax rather than duplicating a tutorial; the existing Routines wizard and CI-cron fallback (Step 1b) are unchanged. The `compatibility:` field was rewritten to match: its blanket "Claude Code only … Codex and other platforms: use the CI cron fallback" framing scoped the Claude-Code-only constraint to Routines themselves and now routes Cursor v3.8+ to `/automate` rather than CI cron (488/500 chars).
+- **Gap closed (#225)** — no skill told Cursor v3.7+ users how to persist the iEvo-ready environment across `/in-cloud` cloud sessions via `.cursor/environment.json`.
+- **Fix** — `handoff/SKILL.md`'s "lighter alternatives" table gained one row whose situation ("you want `/in-cloud` sessions to start with iEvo already installed") is genuinely better served by `environment.json`'s installed-plugin-state snapshot than by a handoff, with a pointer to pair the two when the new session also needs cognitive-state context.
+  - `init/SKILL.md` is deliberately unchanged. A Cursor-only addition to Step 12's printed summary has to be platform-conditional the way the neighbouring Codex line is, and that needs a way to tell a Cursor host apart: no `$CODEX_CLI`-equivalent signal is documented for Cursor, so the condition could never be evaluated and the line would never print. A guard that cannot fire is worse than no note at all — the handoff row is the single home for this guidance.
+- **Scope** — two companion proposals (#220, #225, both `backlog-verified` and closed) folded into this build per operator scope-extension comment on #203; one version bump for all three per "one build" framing. Each note kept to 1-3 sentences with no feature tutorials, per operator direction — a deliberate scope-down from the more elaborate wizard/subsection changes #220 and #225 originally proposed.
+- **Sources** — each claim cites a dated Cursor changelog permalink, independently re-fetched and quoted verbatim during this build (the generic `cursor.com/changelog` listing paginates these entries out):
+  - `/review` — `cursor.com/changelog/bugbot-updates-june-2026` (Cursor 3.7+, Jun 10 2026): the native command, ~90s review time, +10% bug detection, duplicate-PR sync.
+  - `/automate` — `cursor.com/changelog/06-18-26` (Cursor 3.8, Jun 18 2026): "Use /automate to create an automation directly in your local agent session", plus the "Workflow run completed" GitHub trigger.
+  - `.cursor/environment.json` — `cursor.com/changelog/cloud-in-agents-window` (Cursor 3.7, Jun 17 2026): the reusable environment snapshot, that it "benefits your entire team when committed to `.cursor/environment.json`", and `/in-cloud` cloud subagents.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.61.1 → 0.62.0).
+
+---
+
 ## v0.61.1
 
 Fix `/ievo:deep-review` exiting without reviewing a clean PR branch's committed diff — closes #445.

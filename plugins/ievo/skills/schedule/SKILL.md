@@ -8,7 +8,7 @@ allowed-tools:
   - Bash(claude --version)
   - Bash(env | grep*)
   - Read
-compatibility: "Claude Code only — Routines are a research preview (behavior, limits, and surface may change) and require a Pro/Max/Team/Enterprise subscription with Claude Code on the web enabled; the /schedule command needs Claude Code v2.1.81+ and a claude.ai login (API-key auth hides it). The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io; the scheduling wrapper is Claude Code-specific. Codex and other platforms: use the CI cron fallback."
+compatibility: "Routines are Claude Code-only — a research preview (behavior, limits, and surface may change) requiring a Pro/Max/Team/Enterprise subscription with Claude Code on the web enabled; the /schedule command needs Claude Code v2.1.81+ and a claude.ai login (API-key auth hides it). The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io. Cursor v3.8+: native `/automate` creates a Cursor Automation instead. Codex and others: CI cron fallback."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -19,6 +19,8 @@ metadata:
 Set up a recurring Claude Code Routine that runs iEvo operations on a schedule — security audits, skill-update checks, or a custom iEvo command. Routines execute on Anthropic-managed infrastructure, so they run even when the local machine is off. Routines are a research preview: behavior, limits, and the surface may change.
 
 Routines are created from three surfaces that all write to the same cloud account: the web UI at claude.ai/code/routines, the Desktop app, and the in-session `/schedule` command. This skill drives the `/schedule` path and falls back to the web UI, then to a CI cron template.
+
+**Cursor v3.8+ users** have a platform-native alternative: the `/automate` command creates a Cursor Automation directly (including a GitHub "workflow run completed" trigger), no Claude subscription required — see the [Cursor changelog entry](https://cursor.com/changelog/06-18-26) for current syntax. This skill's wizard below still applies for Claude Code Routines, and the CI cron fallback (Step 1b) still applies on Codex and other platforms.
 
 ## When to use
 

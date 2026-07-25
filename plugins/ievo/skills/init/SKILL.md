@@ -884,6 +884,53 @@ append: "Note: <M> item(s) under .claude/skills/ are not visible to Codex —
 re-run accepted ones to re-vendor into .agents/skills/ (they surfaced as
 candidates this run)."
 
+## Step 12.5: Platform-mismatch self-check (issue #433)
+
+Step 12 just printed one of two hand-authored, platform-conditional blocks —
+exactly the kind of text that shipped a wrong recommendation before (`/ievo:init`
+telling a Codex user to run `/reload-plugins`, issue #432): a real mismatch
+between the branch this run actually took (`$CODEX_CLI`, Step 1.5's rule) and
+the platform-specific commands/paths/menus named in the block it printed. This
+step is a cheap, mechanical self-check against exactly that failure class — not
+a re-review of the branching logic itself, and not a general "did I do a good
+job" audit.
+
+Re-read the block Step 12 just printed and check it against the platform this
+run actually detected:
+
+- **`$CODEX_CLI` unset (Claude Code run):** the printed block must not contain
+  a Codex-only phrase — `.agents/skills/`, "Codex picks up skill changes
+  automatically", or similar.
+- **`$CODEX_CLI` set (Codex run):** the printed block must not contain a
+  Claude-Code-only phrase — `/reload-plugins`, `.claude/settings.json`,
+  `/plugin →`, or similar.
+
+**No mismatch (the expected outcome on every healthy run):** do nothing — no
+message, no write, no question. Continue straight to Step 13.
+
+**Mismatch found:** this run's own platform branching just told the user
+something that doesn't hold for the platform it detected — hand off to
+`/ievo:evo` immediately, no question asked first (writing a local overlay note
+costs nothing and mirrors how evo-auto's own hooks capture without asking —
+`evo-auto-enable/SKILL.md` Step 3.5):
+
+- **Target:** `init` (skill scope — this skill, unambiguous, so `/ievo:evo`
+  Step 1 needs no clarifying question).
+- **Lesson text (verbatim English)**, e.g.: "On Codex ($CODEX_CLI set), Step
+  12 printed '<the offending phrase>', which is a Claude-Code-only
+  <command|path|menu>. Detected platform was Codex."
+- **Trigger value** (`/ievo:evo` Step 5): `agent self-correction: platform-
+  detection mismatch`.
+
+`/ievo:evo` runs its normal Steps 1–5.7 unchanged: Step 1/4 resolve and write
+the overlay entry (both scope and target are already fixed above — nothing to
+ask), and Step 5.6 classifies it — a lesson naming `/ievo:init` and describing
+a bug in its own behavior satisfies Step 5.6's upstream-relevant signal — and
+offers, via its own single `AskUserQuestion`, to also share it as feedback to
+`ievo-ai/skills`. That is the one confirmation gate this step adds, not a
+second bespoke one. Once `/ievo:evo` returns (whatever the user chose at that
+gate), continue to Step 13 regardless.
+
 ## Step 13: Invite feedback (especially on skips)
 
 If any candidates were skipped, rejected on security, dropped/demoted by the Step 7a filters (O1/O2 overlap, stack-relevance), or had a filter decision overridden via the `overlap_tail[]` batch question (`filter_override[]` non-empty):

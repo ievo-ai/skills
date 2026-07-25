@@ -381,7 +381,9 @@ Pick one from this list (or write a short custom string if none fits):
 - `user-defined convention` — establishing a new rule, not fixing
 - `vendored from <upstream>` — initial vendor (only set by /ievo:init)
 - `upstream rebase` — added by /ievo:update during replay
-- `agent self-correction` (future)
+- `agent self-correction: platform-detection mismatch` — set by `/ievo:init`
+  Step 12.5 / `/ievo:evo-auto-enable` Step 5.5 when a skill's own platform
+  self-check catches its printed output mismatching the detected platform
 - `curator pattern (from N projects)` (future)
 
 If unclear from the conversation, default to `user-observed mistake` or `user-defined convention` based on lesson tone.
@@ -511,3 +513,4 @@ The overlay file is also a self-contained record: anyone reading `<name>.md` see
 - `consolidate/SKILL.md` — `/ievo:consolidate` restructures fragmented docs (doc-graph mode) or extracts a generalizable cluster of overlay entries into a new project-local skill/agent (entry-cluster mode). Step 5.7 above hands off to it, scoped to `root=<overlay path>`, for any overlay — `project.md`, an agent's, or a skill's — whose accumulated entries look like they describe one recurring procedure or role. All extraction stays behind `consolidate`'s own 3 checkpoints — nothing is removed from the overlay without explicit approval there.
 - `extract-best-practices/SKILL.md` — mines a live session for patterns nobody ever `/evo`'d, independent of whether anything is captured in an overlay. Its "too narrow" and "refines an existing target" candidates hand off here (this skill's own scope/target classification in Step 1 resolves where they land); a genuinely new, generalizable pattern instead becomes a new skill/agent there, with its own Step 5.6-style upstream-sharing offer for the resulting package.
 - `security-check/SKILL.md` — the antivirus deep-scan methodology Step 2.5 above applies to a freshly-vendored agent/skill before it touches `.claude/agents/`/`.claude/skills/` (or `.agents/skills/` on Codex), either via a dispatched `security-auditor` sub-agent (Claude Code/Codex) or applied directly (other platforms). Same skill `/ievo:init` Step 8 and `/ievo:update` Step 2.5 already gate on.
+- `init/SKILL.md` Step 12.5, `evo-auto-enable/SKILL.md` Step 5.5 — a third way lessons reach this skill besides an explicit `/ievo:evo` call or the auto-evolution backlog (Step 0 above): a skill's own mid-run self-check catching its printed output mismatching the detected platform hands off here directly, with scope/target already fixed (`agent self-correction: platform-detection mismatch`, Step 5's Trigger list) — no clarifying question needed before Step 5.6's usual upstream-escalation offer.

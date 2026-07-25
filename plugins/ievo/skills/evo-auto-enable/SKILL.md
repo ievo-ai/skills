@@ -851,6 +851,43 @@ Review parked candidates any time: /ievo:evo
 Turn off: /ievo:evo-auto-disable
 ```
 
+## Step 5.5: Platform-mismatch self-check (issue #433)
+
+Same self-check pattern as `init/SKILL.md` Step 12.5 (read that step for the
+full rationale — this is the delta, not a re-derivation) — applied to the
+confirmation block Step 5 just printed instead of init's Step 12 one. This is
+the skill whose Codex/`.claude/settings.json` mismatch was the second concrete
+example in issue #432: the confirmation claimed hooks were "ENABLED" while
+describing `.claude/settings.json` entries wired from a Codex run, which Codex
+never reads.
+
+Re-check what Step 5 just printed against `$CODEX_CLI` (Step 3.5.4's
+detection rule): a Claude Code run's confirmation must not name
+`.codex/hooks.json` or a Codex-only event (`PermissionRequest`,
+"approval requests"); a Codex run's confirmation must not name
+`.claude/settings.json` or a Claude-Code-only event
+(`PostToolUseFailure`/`PermissionDenied`, "tool failures/denials"). Also
+cross-check that the printed file (`.claude/settings.json` vs
+`.codex/hooks.json`) matches whichever file Step 3.5.4 actually wrote to.
+
+**No mismatch (expected):** do nothing, continue.
+
+**Mismatch found:** hand off to `/ievo:evo` immediately, same no-question-first
+contract as init Step 12.5:
+
+- **Target:** `evo-auto-enable` (skill scope — this skill).
+- **Lesson text (verbatim English)**, e.g.: "On Codex ($CODEX_CLI set), Step 5
+  printed '<the offending phrase>', which names a Claude-Code-only
+  config/event. Detected platform was Codex; hooks were actually wired into
+  <file Step 3.5.4 wrote>."
+- **Trigger value:** `agent self-correction: platform-detection mismatch`
+  (same value as init Step 12.5 — one convention, two call sites).
+
+`/ievo:evo` resolves scope/target without asking (both fixed above), writes
+the overlay entry, and its own Step 5.6 offers the one upstream-feedback
+confirmation this adds. Once it returns, this skill's own turn is already
+done (Step 5.5 is the last step) — nothing further to continue to.
+
 ## What auto-evolution mode does while `evo-auto.flag` exists
 
 This is the contract the correction-capture hook

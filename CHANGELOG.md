@@ -6,7 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
-## v0.62.4
+## v0.63.0
+
+Add a platform-mismatch self-check to `/ievo:init` and `/ievo:evo-auto-enable` that offers to report a caught bug via the existing evo → feedback pipe — closes #433.
+
+- **Feature** — `/ievo:init` Step 12.5 and `/ievo:evo-auto-enable` Step 5.5: after either skill prints its platform-conditional final message (Claude Code vs. Codex, gated on `$CODEX_CLI`), it re-checks that message against the detected platform for exactly the failure class #432 shipped (a Claude-Code-only phrase surfacing on Codex, or vice versa). The check is silent on the overwhelmingly common no-mismatch case.
+- **Routing** — on a caught mismatch, the skill hands off directly to `/ievo:evo` with scope/target already fixed (`init` or `evo-auto-enable`, skill scope — no clarifying question), so the local overlay entry is captured without asking first. `/ievo:evo`'s own Step 5.6 (unchanged) then classifies the lesson as upstream-relevant — it names an iEvo skill and describes a bug in its own behavior — and offers its single `AskUserQuestion` gate to also share it as public feedback to `ievo-ai/skills`, reusing the existing evo → feedback flow C confirmation instead of adding a second one.
+- **Scope, deliberately narrow** — this is a third capture trigger for the platform-detection-mismatch failure class specifically (the one issue #432 demonstrated), not a blanket self-check added to all 19 bundled skills; per the no-premature-abstraction convention, generalizing further waits on a second, independent trigger case.
+- **Trigger taxonomy** — `evo/SKILL.md` Step 5's `agent self-correction` value (previously a `(future)` placeholder) is now live: `agent self-correction: platform-detection mismatch`, set by both new self-check steps.
+- No new dependencies, no script changes — both additions are SKILL.md instruction steps that reuse `/ievo:evo`'s existing scope/target/Step-5.6 mechanics as-is.
 
 Commit tracked dispatcher shims for `evo-auto-enable`'s three hook scripts so a clean clone of `.claude/settings.json`/`.codex/hooks.json` never exits 127 — closes #446.
 

@@ -34,6 +34,23 @@ If the lesson is too vague (e.g. "be better"), ask for clarification first.
 
 If the `evolution` sub-agent is available, delegate via Task tool with `subagent_type: "evolution"`. Pass the lesson verbatim. Otherwise execute the steps below directly.
 
+**One exception — never delegate a platform-mismatch self-check handoff.** When
+the caller passed Trigger `agent self-correction: platform-detection mismatch`
+(`/ievo:init` Step 12.5 or `/ievo:evo-auto-enable` Step 5.5), execute the steps
+below **inline in this session**, under Step 1's carve-out — on every platform,
+however the sub-agent got here. `agents/evolution.md` deliberately carries no
+equivalent carve-out, so delegating that handoff would undo the whole thing: its
+own Step 1 resolves the target normally, which on Claude Code matches the
+plugin-shipped `init`/`evo-auto-enable` under `.claude/plugins/*/skills/*/SKILL.md`
+and sends its Step 2 on to vendor that whole tree into `.claude/skills/<name>/` —
+precisely the frozen-snapshot shadowing the carve-out exists to prevent — with its
+Step 2.5 re-audit on top, whose YELLOW/RED branch aborts the capture outright. On
+Codex it instead matches nothing (that scan covers only `.agents/skills/*`) and
+falls through to "ask which target". Either way a dispatched sub-agent has no
+`AskUserQuestion`, so the lesson is silently lost rather than recorded. Keeping
+this one path in the main session also keeps the carve-out stated in exactly one
+place, instead of duplicated into a second file that can drift from it.
+
 ## Step 0: Auto-evolution candidate intake (optional)
 
 Run this step **only** when reviewing the auto-evolution backlog — e.g. the user
@@ -106,6 +123,10 @@ apply, because there is nothing to guess. In particular, on Codex the paths
 above list only `.agents/skills/*`, where a plugin-shipped iEvo skill does not
 appear at all; resolving normally would find no match and force a question the
 calling skill's no-question contract forbids.
+
+This carve-out lives here and only here, so it only binds when these steps run
+here: the handoff is **never** delegated to the `evolution` sub-agent — see the
+exception under "On Claude Code with the iEvo plugin" above.
 
 This handoff is **overlay-only**. Go straight to Step 4 (append to
 `.ievo/evolution/skills/<name>.md`), then Steps 5, 5.5, 5.6, 5.7 as usual.

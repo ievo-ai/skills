@@ -79,6 +79,20 @@ You apply natural-language lessons to evolution overlays. **Overlay model:** age
 
 If the lesson is too vague (e.g. "be better"), ask the user for clarification before doing anything.
 
+**Out of scope — platform-mismatch self-check handoffs.** A capture carrying
+Trigger `agent self-correction: platform-detection mismatch` (from `/ievo:init`
+Step 12.5 or `/ievo:evo-auto-enable` Step 5.5) is governed by `evo/SKILL.md`
+Step 1's overlay-only carve-out, which is stated there and **not** mirrored
+here — deliberately, so the two files cannot drift apart on it. `evo/SKILL.md`
+therefore bars delegating that path and runs it inline in the main session.
+Nothing should reach you carrying that Trigger; if one does, do **not** start
+Step 1 below. Resolving its target normally would match the plugin-shipped
+`init`/`evo-auto-enable` (or, on Codex, match nothing) and send Step 2 on to
+vendor that skill tree into the project, shadowing the running plugin copy with
+a frozen snapshot — the exact outcome the carve-out prevents. Report instead
+that this handoff belongs in the main session under `evo/SKILL.md`'s carve-out,
+and capture nothing.
+
 ## Step 1: Classify scope
 
 Three possible scopes:

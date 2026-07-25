@@ -48,34 +48,46 @@ function sh(cwd, relPath, stdin = "{}") {
   return spawnSync("sh", [relPath], { cwd, input: stdin, encoding: "utf-8" });
 }
 
-// Byte-identical to evo-auto-enable/SKILL.md Step 3.5.1b.
-function shimBody(localName, comment) {
-  return `#!/bin/sh
-# iEvo auto-evolution -- tracked dispatcher shim (${comment}), skills#446.
+// Byte-identical to the three fenced code blocks in
+// evo-auto-enable/SKILL.md Step 3.5.1b -- literal, not templated, so a
+// change to either place is visible as a diff instead of silently drifting.
+const SHIMS = {
+  "correction-capture.sh": `#!/bin/sh
+# iEvo auto-evolution -- tracked dispatcher shim (UserPromptSubmit), skills#446.
 # Committed so a clean clone of \`.claude/settings.json\` + this file never
 # 127s. Delegates to the per-clone companion when present; otherwise a
-# silent no-op. Static and identical across every project.
+# silent no-op (correction-capture.sh's stdout is parsed as hook JSON, so
+# this never prints anything of its own). Static and identical across every
+# project -- safe to overwrite unconditionally on every enable/re-enable.
 # CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
 
-REAL=.ievo/hooks/scripts/${localName}
+REAL=.ievo/hooks/scripts/correction-capture.local.sh
 [ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
 exit 0
-`;
-}
+`,
 
-const SHIMS = {
-  "correction-capture.sh": shimBody(
-    "correction-capture.local.sh",
-    "UserPromptSubmit",
-  ),
-  "evo-analysis-nudge.sh": shimBody(
-    "evo-analysis-nudge.local.sh",
-    "SessionStart",
-  ),
-  "failure-capture.sh": shimBody(
-    "failure-capture.local.sh",
-    "PostToolUseFailure",
-  ),
+  "evo-analysis-nudge.sh": `#!/bin/sh
+# iEvo auto-evolution -- tracked dispatcher shim (SessionStart), skills#446.
+# Same contract as correction-capture.sh's shim above -- see that file for
+# the full rationale. Static and identical across every project.
+# CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
+
+REAL=.ievo/hooks/scripts/evo-analysis-nudge.local.sh
+[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+exit 0
+`,
+
+  "failure-capture.sh": `#!/bin/sh
+# iEvo auto-evolution -- tracked dispatcher shim (PostToolUseFailure /
+# PermissionDenied / Codex PermissionRequest), skills#446. Same contract as
+# correction-capture.sh's shim above. Static and identical across every
+# project.
+# CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
+
+REAL=.ievo/hooks/scripts/failure-capture.local.sh
+[ -f "$REAL" ] && [ -x "$REAL" ] && exec sh "$REAL"
+exit 0
+`,
 };
 
 // Byte-identical to evo-auto-enable/SKILL.md Step 3.5.1's gitignore block.
@@ -139,6 +151,46 @@ const SETTINGS_JSON = {
   },
 };
 
+// Same JSON shape evo-auto-enable/SKILL.md Step 3.5.4/3.6 writes into
+// .codex/hooks.json on Codex ($CODEX_CLI) -- a Codex handler's `command` is a
+// single shell string (no exec-form `args` array), unlike Claude Code's
+// entries above, but it wires the SAME shim paths.
+const CODEX_HOOKS_JSON = {
+  hooks: {
+    UserPromptSubmit: [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: "sh .ievo/hooks/scripts/correction-capture.sh",
+          },
+        ],
+      },
+    ],
+    SessionStart: [
+      {
+        matcher: "startup",
+        hooks: [
+          {
+            type: "command",
+            command: "sh .ievo/hooks/scripts/evo-analysis-nudge.sh",
+          },
+        ],
+      },
+    ],
+    PermissionRequest: [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: "sh .ievo/hooks/scripts/failure-capture.sh",
+          },
+        ],
+      },
+    ],
+  },
+};
+
 // A minimal stand-in for the real, accumulator-calling companion Steps
 // 3.5.2/3.5.3/3.6 generate -- not byte-identical to those (much larger)
 // scripts. Exercises the dispatch mechanism end-to-end without re-testing
@@ -162,6 +214,11 @@ function writeShimsAndFlag(dir) {
   writeFileSync(
     join(dir, ".claude/settings.json"),
     JSON.stringify(SETTINGS_JSON, null, 2),
+  );
+  mkdirSync(join(dir, ".codex"), { recursive: true });
+  writeFileSync(
+    join(dir, ".codex/hooks.json"),
+    JSON.stringify(CODEX_HOOKS_JSON, null, 2),
   );
   writeFileSync(
     join(dir, ".ievo/evo-auto.flag"),
@@ -315,30 +372,57 @@ describe("clean clone (before any per-clone regeneration)", () => {
       assert.equal(result.status, 0, JSON.stringify(hook));
     }
   });
+
+  it("resolves the exact Codex command string .codex/hooks.json wires, with no 127", () => {
+    const hooksJson = JSON.parse(
+      spawnSync("cat", [join(CLONE, ".codex/hooks.json")], {
+        encoding: "utf-8",
+      }).stdout,
+    );
+    const invocations = [
+      ...hooksJson.hooks.UserPromptSubmit.flatMap((e) => e.hooks),
+      ...hooksJson.hooks.SessionStart.flatMap((e) => e.hooks),
+      ...hooksJson.hooks.PermissionRequest.flatMap((e) => e.hooks),
+    ];
+    assert.ok(invocations.length >= 3);
+    for (const hook of invocations) {
+      // Codex's `command` is a single shell string, not command+args --
+      // matches how Codex itself would invoke it.
+      const result = spawnSync("sh", ["-c", hook.command], {
+        cwd: CLONE,
+        input: "{}",
+        encoding: "utf-8",
+      });
+      assert.notEqual(result.status, 127, JSON.stringify(hook));
+      assert.equal(result.status, 0, JSON.stringify(hook));
+    }
+  });
 });
 
 describe("per-clone step (companions regenerated locally)", () => {
   before(() => {
-    writeFileSync(
-      join(CLONE, ".ievo/hooks/scripts/correction-capture.local.sh"),
-      realCompanion("UserPromptSubmit"),
-    );
-    chmodSync(join(CLONE, ".ievo/hooks/scripts/correction-capture.local.sh"), 0o755);
-    writeFileSync(
-      join(CLONE, ".ievo/hooks/scripts/evo-analysis-nudge.local.sh"),
-      realCompanion("SessionStart"),
-    );
-    chmodSync(join(CLONE, ".ievo/hooks/scripts/evo-analysis-nudge.local.sh"), 0o755);
+    for (const [companion, eventName] of [
+      ["correction-capture.local.sh", "UserPromptSubmit"],
+      ["evo-analysis-nudge.local.sh", "SessionStart"],
+      ["failure-capture.local.sh", "PostToolUseFailure"],
+    ]) {
+      const p = join(CLONE, ".ievo/hooks/scripts", companion);
+      writeFileSync(p, realCompanion(eventName));
+      chmodSync(p, 0o755);
+    }
   });
 
-  it("the shim delegates to the companion once one exists", () => {
-    const result = sh(CLONE, ".ievo/hooks/scripts/correction-capture.sh");
-    assert.equal(result.status, 0);
-    const payload = JSON.parse(result.stdout);
-    assert.equal(
-      payload.hookSpecificOutput.hookEventName,
-      "UserPromptSubmit",
-    );
+  it("each shim delegates to its own companion once one exists", () => {
+    for (const [shimName, eventName] of [
+      ["correction-capture.sh", "UserPromptSubmit"],
+      ["evo-analysis-nudge.sh", "SessionStart"],
+      ["failure-capture.sh", "PostToolUseFailure"],
+    ]) {
+      const result = sh(CLONE, `.ievo/hooks/scripts/${shimName}`);
+      assert.equal(result.status, 0, shimName);
+      const payload = JSON.parse(result.stdout);
+      assert.equal(payload.hookSpecificOutput.hookEventName, eventName, shimName);
+    }
   });
 
   it("the tracked shim file itself is unmodified (clean git status)", () => {
@@ -369,12 +453,13 @@ describe("per-clone step (companions regenerated locally)", () => {
 
 describe("disable (companions removed, shims left in place)", () => {
   before(() => {
-    rmSync(join(CLONE, ".ievo/hooks/scripts/correction-capture.local.sh"), {
-      force: true,
-    });
-    rmSync(join(CLONE, ".ievo/hooks/scripts/evo-analysis-nudge.local.sh"), {
-      force: true,
-    });
+    for (const companion of [
+      "correction-capture.local.sh",
+      "evo-analysis-nudge.local.sh",
+      "failure-capture.local.sh",
+    ]) {
+      rmSync(join(CLONE, ".ievo/hooks/scripts", companion), { force: true });
+    }
   });
 
   it("the shim returns to a safe silent no-op, same as a clean clone", () => {

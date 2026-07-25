@@ -369,8 +369,10 @@ exit 0
 
 Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/correction-capture.local.sh`.
 
-The temp file lives under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10, same as
-the `.local.sh` companion itself) at a **fixed** path — `.ievo/hooks/tmp/correction-pending.txt`
+The temp file lives under `.ievo/hooks/` (gitignored by Step 3.5.1's pattern —
+which supersedes `/ievo:init` Step 10's original blanket line when present —
+same as the `.local.sh` companion itself) at a **fixed** path —
+`.ievo/hooks/tmp/correction-pending.txt`
 — never a path built from the correction text or any other untrusted value, so the
 Write tool call itself can't be steered by a crafted correction either. Each capture
 overwrites the same file; only the latest pending write matters until the agent

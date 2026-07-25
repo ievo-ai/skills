@@ -471,7 +471,7 @@ For Step 6's merge stage, build this entry (added to `hooks.SessionStart[]`). Ma
 
 Dedup at merge time by checking whether an existing `hooks.SessionStart` entry has both the same `matcher` (`startup`) and the same inner `args`.
 
-**Scope note (like the Stop hook):** the check is machine-level (the plugin install and the `~/.cache/ievo` throttle file are per-user, not per-project), so **global scope suits it best** — recommend it if the user chose `project` in Step 3. The generated `version-check.sh` lives under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10), so a project-scoped SessionStart entry would reference a script teammates don't have — Claude Code logs a cosmetic hook-launch error (SessionStart is non-blocking, so session flow is unaffected). Each teammate re-runs `/ievo:hooks-setup` once per clone to write their own copy.
+**Scope note (like the Stop hook):** the check is machine-level (the plugin install and the `~/.cache/ievo` throttle file are per-user, not per-project), so **global scope suits it best** — recommend it if the user chose `project` in Step 3. The generated `version-check.sh` lives at `.ievo/hooks/scripts/version-check.sh`, which `/ievo:init` Step 10's `.ievo/hooks/scripts/*` line keeps gitignored (Step 10's negations carve out only the three `evo-auto-enable` dispatcher shims, by name — never this file), so a project-scoped SessionStart entry would reference a script teammates don't have — Claude Code logs a cosmetic hook-launch error (SessionStart is non-blocking, so session flow is unaffected). Each teammate re-runs `/ievo:hooks-setup` once per clone to write their own copy.
 
 ## Step 6: Merge entries into settings.json
 
@@ -502,7 +502,23 @@ If the file existed in Step 4: use the **Edit** tool to apply the new hook entri
 
 If the file did NOT exist in Step 4: use the **Write** tool to create it (Edit requires the file to exist first). The `mkdir -p .ievo/log/hooks &&` prefix in the hook `args` handles directory creation lazily on first fire — no separate Step-8 dir-creation needed (Write tool would create parent dirs anyway, but the hook itself runs without a guaranteed cwd context).
 
-**Gitignore note**: `/ievo:init` Step 10 already adds both `.ievo/log/` and `.ievo/hooks/` to `.gitignore`. If init was run before hooks-setup (the typical install path), no further gitignore action is needed. If hooks-setup runs in a project that never ran init (unusual but possible if hooks-setup is invoked standalone), check whether `.ievo/log/` and `.ievo/hooks/` are already listed in `.gitignore`; if either is missing, prompt the user via `AskUserQuestion` whether to append the missing entries. Skip the prompt entirely if both are already there.
+**Gitignore note**: `/ievo:init` Step 10 already adds `.ievo/log/` plus a six-line, **negation-capable** `.ievo/hooks/` block — everything under `.ievo/hooks/` ignored, with exactly the three tracked dispatcher shims `/ievo:evo-auto-enable` Step 3.5.1b commits carved back out (skills#446). If init was run before hooks-setup (the typical install path), no further gitignore action is needed: this skill's own `on-stop.sh` and `version-check.sh` are already covered by that block's `.ievo/hooks/scripts/*` line.
+
+**Never write a blanket `.ievo/hooks/` line here either.** git cannot re-include a file whose parent directory is excluded ("you cannot re-include a file if a parent directory of that file is excluded"), and a bare directory-form entry wins over any negation that follows it — so appending one would silently re-ignore the shims a previous `/ievo:evo-auto-enable` or `/ievo:init` run had already carved out, reintroducing the exact clean-clone `exit 127` those negations exist to prevent. The block below is byte-identical to the one `/ievo:init` Step 10 and `evo-auto-enable/SKILL.md` Step 3.5.1 write, so all three skills converge on the same `.gitignore` state whichever runs first.
+
+If hooks-setup runs in a project that never ran init (unusual but possible if hooks-setup is invoked standalone), read `.gitignore` and decide before writing anything:
+- If `.ievo/log/` and the six `.ievo/hooks/` lines below are all already present, skip the prompt entirely — nothing to do.
+- If it contains a blanket `.ievo/hooks/` line (a pre-#446 init run, a pre-#446 run of this skill, or a hand-written entry), prompt the user via `AskUserQuestion` to REPLACE that one line with the six lines below via the Edit tool, leaving every other line untouched. Replace, never append alongside — a bare `dir/` entry still wins over later negations, so leaving both would keep the shims ignored.
+- Otherwise prompt via `AskUserQuestion` to append whichever is missing: `.ievo/log/` and/or the six-line block (creating `.gitignore` first if the project lacks one).
+
+```
+.ievo/hooks/*
+!.ievo/hooks/scripts/
+.ievo/hooks/scripts/*
+!.ievo/hooks/scripts/correction-capture.sh
+!.ievo/hooks/scripts/evo-analysis-nudge.sh
+!.ievo/hooks/scripts/failure-capture.sh
+```
 
 Print a final confirmation:
 
@@ -532,7 +548,7 @@ Logs accumulate at .ievo/log/hooks/events.log (single append-only file; `tail -f
 - **Signal files are written by other iEvo skills** (init, evo, security-auditor). Do NOT write them from this skill — that would falsely trigger hooks the user expected only on real pipeline completion.
 - **Version-check nudge is fail-silent + throttled.** `.ievo/hooks/scripts/version-check.sh` emits nothing on any error or when up to date, makes at most one network call per 24h (cache-hit path is offline), and — SessionStart being context-only — can never block or delay a session. Recommend native plugin auto-update as the primary fix; the nudge is the keep-auto-update-off fallback. Its `plugin.json` path is baked at setup time because a user-`settings.json` hook has no `CLAUDE_PLUGIN_ROOT`.
 - **Stop hook is non-blocking always.** `.ievo/hooks/scripts/on-stop.sh` exits 0 unconditionally. A blocking Stop hook is force-released after `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive blocks (default 8, v2.1.143+); iEvo's hook never blocks, so the block-cap is informational only.
-- **Stop hook script is local, not team-shared.** Notification commands are OS- and preference-specific (macOS osascript vs Linux notify-send vs custom path), so `.ievo/hooks/scripts/on-stop.sh` is intentionally written under `.ievo/hooks/` (gitignored by `/ievo:init` Step 10). The Stop hook entry in `settings.json` is project-scope-tracked, but the script it references is not — when a team member pulls a project that uses the Stop hook, Claude Code will log a hook-launch error if their `.ievo/hooks/scripts/on-stop.sh` is absent. The error is cosmetic (Stop hook is non-blocking by design; the missing-script `sh` exit is also non-blocking on session flow). To activate the hook locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copy of the script.
+- **Stop hook script is local, not team-shared.** Notification commands are OS- and preference-specific (macOS osascript vs Linux notify-send vs custom path), so `.ievo/hooks/scripts/on-stop.sh` is intentionally written under `.ievo/hooks/scripts/`, which `/ievo:init` Step 10's `.ievo/hooks/scripts/*` line keeps gitignored (only the three named `evo-auto-enable` dispatcher shims are carved back out; this script is not one of them). The Stop hook entry in `settings.json` is project-scope-tracked, but the script it references is not — when a team member pulls a project that uses the Stop hook, Claude Code will log a hook-launch error if their `.ievo/hooks/scripts/on-stop.sh` is absent. The error is cosmetic (Stop hook is non-blocking by design; the missing-script `sh` exit is also non-blocking on session flow). To activate the hook locally, each team member re-runs `/ievo:hooks-setup` once per clone to write their own copy of the script.
 
 ## Cursor hooks
 

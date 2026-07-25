@@ -14,9 +14,10 @@
 // that SKILL.md section, and the first describe below ASSERTS that against
 // the real file — an edit to either side fails the suite instead of letting
 // the SKILL.md source drift away from what is actually exercised here. The
-// same describe pins `init/SKILL.md` Step 10 to the identical gitignore block,
-// since an init re-run that reverted to a blanket `.ievo/hooks/` line would
-// silently re-ignore the shims this suite proves must stay tracked.
+// same describe pins `init/SKILL.md` Step 10 AND `hooks-setup/SKILL.md` Step 8
+// — the other two skills that write this gitignore block — to the identical
+// literal, since a re-run of either that reverted to a blanket `.ievo/hooks/`
+// line would silently re-ignore the shims this suite proves must stay tracked.
 //
 // This actually shells the flow through a real, scratch git repo (init →
 // commit → clone) so the gitignore negation pattern is verified against
@@ -56,6 +57,17 @@ const INIT_SKILL = resolve(
   "../../../../plugins/ievo/skills/init/SKILL.md",
 );
 const INIT_SKILL_SRC = readFileSync(INIT_SKILL, "utf-8");
+
+// `/ievo:hooks-setup` Step 8 is the third writer of this block: it may run
+// standalone in a project that never ran init, and it writes its own scripts
+// under `.ievo/hooks/scripts/`. A blanket line appended there re-ignores the
+// shims just as effectively as one appended by init, so it is pinned the same
+// way.
+const HOOKS_SETUP_SKILL = resolve(
+  __dirname,
+  "../../../../plugins/ievo/skills/hooks-setup/SKILL.md",
+);
+const HOOKS_SETUP_SKILL_SRC = readFileSync(HOOKS_SETUP_SKILL, "utf-8");
 
 const GIT_ENV = {
   ...process.env,
@@ -333,6 +345,21 @@ describe("literals stay in sync with their SKILL.md sources", () => {
       blanket,
       [],
       `${INIT_SKILL} still emits a blanket \`.ievo/hooks/\` gitignore line`,
+    );
+  });
+
+  it("hooks-setup/SKILL.md Step 8 writes the same block, never a blanket line", () => {
+    assert.ok(
+      HOOKS_SETUP_SKILL_SRC.includes(GITIGNORE_BLOCK),
+      `${HOOKS_SETUP_SKILL} Step 8 no longer emits the negation-capable block verbatim — a standalone hooks-setup run would re-ignore the tracked shims; re-sync both`,
+    );
+    const blanket = HOOKS_SETUP_SKILL_SRC.split("\n").filter(
+      (l) => l.trim() === ".ievo/hooks/",
+    );
+    assert.deepEqual(
+      blanket,
+      [],
+      `${HOOKS_SETUP_SKILL} still emits a blanket \`.ievo/hooks/\` gitignore line`,
     );
   });
 

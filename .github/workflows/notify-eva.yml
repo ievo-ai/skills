@@ -73,9 +73,25 @@ jobs:
           # per_page=100 (not --paginate): a single page holds all of a PR's
           # check-runs, and `--paginate` would apply the --jq filter per-page,
           # which could malform the result if checks ever spanned pages.
-          CONCS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "coverage-gate" or .name == "pre-commit-gate")]
-                  | group_by(.name) | map(max_by(.started_at) | .conclusion) | sort | join(",")')
+          #
+          # Bounded retry (#425): the check-runs API can lag a few seconds
+          # behind a gate's actual completion, so a firing landing right after
+          # ITS OWN triggering gate finishes can read the OTHER gate as still
+          # empty/pending even though it already finished. Both firings can
+          # hit this at once, in which case neither ever dispatches (observed
+          # live on PR #410). Retry up to 3 total attempts, 15s apart, before
+          # falling through to the unchanged skip path below — 30s worst-case
+          # added latency, well under a minute and inside the 5min job timeout.
+          for attempt in 1 2 3; do
+            CONCS=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "coverage-gate" or .name == "pre-commit-gate")]
+                    | group_by(.name) | map(max_by(.started_at) | .conclusion) | sort | join(",")')
+            [ "$CONCS" = "success,success" ] && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Not all product gates green yet (got: [$CONCS]), attempt $attempt/3 — retrying in 15s (check-runs visibility race)"
+              sleep 15
+            fi
+          done
           if [ "$CONCS" != "success,success" ]; then
             echo "Not all product gates green yet (got: [$CONCS]) — skip; the other gate's completion will re-check"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0

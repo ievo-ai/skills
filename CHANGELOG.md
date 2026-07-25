@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.62.1
+
+Validate and JSON-encode SessionStart version-check hook metadata — closes #450.
+
+- **Bug** — `hooks-setup/SKILL.md` Step 5.7.3's generated `.ievo/hooks/scripts/version-check.sh` used `installed`/`latest` (`plugin.json`'s local version and the marketplace's `plugins[0].version`, fetched over network or read from a 24h local cache) without any SemVer validation, then interpolated both raw into `additionalContext` (SessionStart hands this to the model as trusted context) via `printf '...%s...'` — a live prompt-injection vector if either value were ever crafted or the marketplace source compromised. The same unvalidated `printf '%s'` pattern also wrote `latest` into the cache file, so a crafted value would poison the cache and re-propagate on the next session; a `"` or newline in either value also produced malformed hook JSON.
+- **Fix** — added a strict X.Y.Z SemVer gate (`is_semver()`, POSIX `case`-pattern, no bashisms) applied to `installed` right after it's read, to `latest` after a cache hit, and to `latest` after a network fetch — the last check runs BEFORE the cache write, so a bad fetched value can never poison the cache. A rejection falls through to the existing fail-silent `exit 0` contract (a cache-read rejection instead falls through to a fresh network fetch, so one bad/tampered cache entry doesn't kill the nudge for the rest of the TTL window). Both JSON emission points (the cache write and the final `hookSpecificOutput` line) now use `jq -n --arg`/`--argjson` instead of `printf %s` string interpolation, so quotes/newlines can never produce malformed JSON even though the SemVer gate already excludes them. Manually verified against the issue's exact repro payloads (injected instruction text, embedded newline, embedded double quote) plus a simulated compromised-marketplace response and a pre-poisoned cache file — all rejected with nothing emitted; the legitimate behind-version nudge still emits valid JSON.
+- **Scope** — one substantive file changed, `plugins/ievo/skills/hooks-setup/SKILL.md` (Step 5.7.3's embedded script + its CONTRACT comment). No checked-in script file or test-coverage obligation — the fix lives entirely inside SKILL.md prose, per the existing coverage carve-out for embedded shell templates. The rest of the diff is this changelog plus the mechanical version bump below.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.62.0 → 0.62.1).
+
+---
+
 ## v0.62.0
 
 Document three Cursor v3.7/v3.8 platform-native alternatives across `deep-review`, `schedule`, and `handoff` — a Cursor compat sweep folding in two companion proposals — closes #203, #220, #225.

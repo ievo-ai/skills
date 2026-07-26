@@ -144,6 +144,14 @@ enabled = true
 
 **What this prevents.** The profile stops this skill's own execution context from writing outside the workspace and the clone's temp dir, or reaching any host off the audit allowlist — even if a candidate under review attempts prompt injection to influence that context. That is the Codex-side equivalent of `disallowed-tools` plus the `WebFetch(domain:...)` allowlist, expressed in Codex's own filesystem/network terms rather than by tool name, and without disabling the fetch flow the scan depends on.
 
+## Cursor setup — `.cursor/permissions.json` + `/in-cloud` isolation
+
+**Auto-review permissions.** Cursor's Auto-review Run Mode ([v3.6, 2026-05-29](https://cursor.com/changelog/auto-review)) reads `autoRun.allow_instructions`/`autoRun.block_instructions` — flat string-array hints, no per-skill nesting — from `<workspace>/.cursor/permissions.json` or `~/.cursor/permissions.json` ([permissions reference](https://cursor.com/docs/reference/permissions)) to steer its classifier, the same best-effort role `disallowed-tools` plays above — not a security boundary on its own.
+
+**`/in-cloud` for HIGH-RISK candidates.** Cursor v3.7's [`/in-cloud`](https://cursor.com/changelog/cloud-in-agents-window) (2026-06-17) runs a cloud subagent in its own VM and branch, so a successful prompt injection during the scan can't reach your local workspace — isolation from your machine, not containment. That VM still holds the read-write repo grant Cursor's git app requires to clone and push, and "the agent has internet access by default" ([cloud agent security & network](https://cursor.com/docs/cloud-agent/security-network), verified 2026-07-26), so an injected session can still push commits and exfiltrate repo contents — restrict it with that page's outbound-domain egress controls, and treat any branch it pushed as unreviewed. Prefer it over a local Cursor session when scanning an unknown-author or heavily-obfuscated candidate.
+
+**Computer use caveat.** Cursor v3.8 ([2026-06-18](https://cursor.com/changelog/06-18-26)) enables the computer use tool by default only for **automation-triggered** cloud agents, not `/in-cloud` sessions generally — if this skill runs inside a Cursor Automation, disable computer use for that automation, or keep the scan in an ad-hoc `/in-cloud` session instead.
+
 ## Input
 
 A candidate identifier:

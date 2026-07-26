@@ -6,6 +6,26 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.68.0
+
+Document four Cursor v3.6-v3.9 platform-native surfaces across the README, AGENTS.md, and `security-check/SKILL.md` — a Cursor compat sweep folding in three companion proposals — closes #235, #213, #223, #229.
+
+- **Gap closed (#235)** — README Quick Start documented Claude Code and Codex install paths only; a Cursor v3.9 user had no documented way to find or install iEvo.
+- **Fix** — a one-sentence note after the Codex Quick Start block: Cursor v3.9's unified Customize page is the install surface, and iEvo is added there by repo URL, because no `.cursor-plugin/` manifest exists yet means it is not surfaced in Cursor's own marketplace search. The note deliberately gives no "search for ievo" step — a search step and the no-manifest caveat contradict each other, and the search is the clause that fails. `AGENTS.md`'s "Universal via agentskills.io" positioning note carries the same claim in the same one-clause form, naming Cursor v3.9 as the Cursor-side install surface.
+- **Gap closed (#213)** — no Cursor-native equivalent of `disallowed-tools`/Codex's named permission profiles was documented for Cursor's Auto-review Run Mode.
+- **Correction to the proposal** — the issue proposed a `.cursor-plugin/`-rooted, per-skill-nested manifest; that location and schema are wrong. The real file is `<workspace>/.cursor/permissions.json` or `~/.cursor/permissions.json`, with a flat `autoRun.allow_instructions`/`autoRun.block_instructions` string-array structure and no per-skill nesting — verified against Cursor's own [permissions reference](https://cursor.com/docs/reference/permissions). The shipped note documents the corrected path/schema in one sentence rather than proposing a new manifest file against an undocumented schema.
+- **Gap closed (#223, #229)** — `security-check/SKILL.md` had zero Cursor-specific content: no mention of `/in-cloud` VM-level isolation (v3.7) for reviewing adversarial candidates, and no caveat that Cursor v3.8 enables the computer use tool by default in cloud agent sessions.
+- **Fix** — new "Cursor setup" section (mirroring the existing "Codex setup" section's placement, after "Sandbox hardening"), three short paragraphs: Auto-review permissions (#213, above); `/in-cloud` for HIGH-RISK candidates (#223); and the computer-use caveat (#229). Both of the latter two are scoped more narrowly than their proposals were. `/in-cloud` is isolation from the operator's local machine, **not** containment — the cloud VM still holds the read-write repo grant Cursor's git app needs and has internet access by default ([cloud agent security & network](https://cursor.com/docs/cloud-agent/security-network), verified 2026-07-26), so an injected session can still push commits and exfiltrate repo contents; the note says so and points at the egress controls. Computer use is enabled by default only for **automation-triggered** cloud agents, not `/in-cloud` sessions generally, a nuance the original proposal didn't distinguish.
+- **Scope** — three companion proposals (#213, #223, #229, all `backlog-verified`) folded into this build per operator scope-down comments on all four issues; one version bump for all four per "one build" framing. Each note kept to 1-3 sentences with a dated Cursor changelog permalink, no feature tutorials — a deliberate scope-down from the more elaborate subsection/wizard changes originally proposed in #235 and the ~30-line addition originally proposed in #223.
+- **Sources** — each claim cites a dated Cursor changelog permalink, independently re-fetched during this build:
+  - Customize page — `cursor.com/changelog/customize` (Cursor 3.9, Jun 22 2026): unified interface for plugins/skills/MCPs/subagents/rules/commands/hooks at user/team/workspace level; team marketplace imports from GitLab/BitBucket/Azure DevOps.
+  - Auto-review Run Mode — `cursor.com/changelog/auto-review` (Cursor 3.6, May 29 2026): the feature that consults `.cursor/permissions.json`.
+  - `/in-cloud` — `cursor.com/changelog/cloud-in-agents-window` (Cursor 3.7, Jun 17 2026): cloud subagent in its own VM and branch.
+  - Computer use default — `cursor.com/changelog/06-18-26` (Cursor 3.8, Jun 18 2026): "The computer use tool is enabled by default for every automation."
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.66.0 → 0.68.0 — 0.67.0 already claimed by a concurrent open PR at push time).
+
+---
+
 ## v0.66.0
 
 Add an explicit MVP boundary (out-of-scope list) to `deep-review/SKILL.md` and `agents/deep-reviewer.md` — closes #243.

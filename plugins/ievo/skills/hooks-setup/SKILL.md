@@ -12,7 +12,7 @@ allowed-tools:
   - Bash(chmod*)
   - Bash(claude*)
   - Bash(echo*)
-compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` desktop notifications); v2.1.145+ (Stop `background_tasks`/`session_crons`); v2.1.163+ (Stop/SubagentStop `additionalContext`); v2.1.195+ (hyphenated matchers exact-match, e.g. `mcp__brave-search__.*`); v2.1.198+ (`Notification` `agent_needs_input`/`agent_completed`). Cursor v3.11+: own `.cursor/hooks.json` (below). Codex rust-v0.133.0+: own `hooks.json`/`config.toml`, full 11-event catalog (below)."
+compatibility: "Claude Code v2.1.139+ (exec-form `args: string[]` hook field); v2.1.141+ (`terminalSequence` notifications); v2.1.145+ (Stop `background_tasks`/`session_crons`); v2.1.163+ (Stop/SubagentStop `additionalContext`); v2.1.176+ (`if:` Read/Edit/Write paths fixed); v2.1.195+ (hyphenated matchers exact-match); v2.1.198+ (`Notification` `agent_needs_input`/`agent_completed`). Cursor v3.11+: `.cursor/hooks.json` (below). Codex rust-v0.133.0+: `hooks.json`/`config.toml`, 11-event catalog (below)."
 # No `paths:` gate here, deliberately — `.claude/settings.json` looks like a
 # genuinely predictive file-context signal, but this skill's PRIMARY case is
 # the run where that file does not exist yet: Step 4 treats an absent settings

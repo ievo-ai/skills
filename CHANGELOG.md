@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.70.1
+
+Add the CC v2.1.176 `if:` condition version-boundary note to `hooks-setup/SKILL.md`'s `compatibility` frontmatter field — closes #201.
+
+- **Gap closed (#201)** — Claude Code v2.1.176 fixed hook `if:` conditions for Read/Edit/Write tool path patterns (e.g. `Edit(src/**)`, `Read(.env)`), which were silently ignored on older versions. `hooks-setup/SKILL.md` already uses this exact pattern in its own examples (`if: "Write(.ievo/hooks/evolution-captured)"`) but had no version boundary documenting when path-pattern matching in `if:` actually started working.
+- **Fix** — added a `v2.1.176+ (\`if:\` Read/Edit/Write paths fixed)` clause to the `compatibility` field, in version order between the existing v2.1.163 and v2.1.195 clauses.
+- **Scope** — per the issue author's 2026-07-26 scope-down comment, this is narrowed to the frontmatter clause only; the issue's originally proposed ~18-line "Advanced: conditional filtering" body section was dropped as duplicative, since `if:` conditions are already documented and demonstrated in the skill body.
+- **Compatibility field budget** — the field was already at 495/500 chars before this change, leaving no room for a new clause. Trimmed incidental wording elsewhere in the same field (dropped "desktop" from the `terminalSequence` clause, the `mcp__brave-search__.*` illustrative example from the v2.1.195 clause, and "own"/"full" from the Cursor/Codex clauses) to fit the new clause within the 500-char `validate_skills.mjs` limit (491/500 after).
+- **Verified against source** — re-fetched the [v2.1.176 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.176) directly: confirms "Fixed hook `if` conditions for Read/Edit/Write tool paths: documented patterns like `Edit(src/**)`, `Read(~/.ssh/**)`, and `Read(.env)` now match correctly."
+- **Version** — `fix:` → patch per AGENTS.md's bump table; this is a docs-only frontmatter correction, not new capability. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.70.0 → 0.70.1).
+
+---
+
 ## v0.70.0
 
 Add a platform-conditional `## Plugin state` snapshot and a Codex `/app` CLI→Desktop alternative note to `handoff/SKILL.md` — closes #204, absorbs #192 (closed as a duplicate scope, consolidated into this build per the operator's 2026-07-24 comment).

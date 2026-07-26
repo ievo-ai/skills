@@ -103,9 +103,9 @@ For the file count + size, use whatever the host shell supports — `ls + du` on
 - **Idempotent**: if already off, just say so. No error.
 - **Preserve audit trail**: even if user later does debug-on again, prior sessions are kept under their own session-ids.
 
-## Native session verbosity (`/config verbose=false`, Claude Code v2.1.181+)
+## Native verbose output (`/config verbose=false`, Claude Code v2.1.181+)
 
-`/config verbose=false` turns off Claude Code's own `verbose` setting (full tool output instead of truncated summaries) for the current session ([settings reference](https://code.claude.com/docs/en/settings)) — narrower in scope than this skill (Claude Code-only, controls what's *displayed*, nothing persisted). See `/ievo:debug-on`'s "Native session verbosity" section for the full comparison. It does not touch `.ievo/debug.flag` or `.ievo/log/debug/` — use this skill (`/ievo:debug-off`) for that.
+`/config verbose=false` turns off Claude Code's own `verbose` setting (full tool output instead of truncated summaries) ([settings reference](https://code.claude.com/docs/en/settings)) — narrower in scope than this skill (Claude Code-only, controls what's *displayed*, produces no log artifact). It is a persisted setting rather than a session toggle, so this is what you run to turn `verbose` back off after `/config verbose=true` — it stays on across sessions otherwise. See `/ievo:debug-on`'s "Native verbose output" section for the full comparison. It does not touch `.ievo/debug.flag` or `.ievo/log/debug/` — use this skill (`/ievo:debug-off`) for that.
 
 ## See also
 

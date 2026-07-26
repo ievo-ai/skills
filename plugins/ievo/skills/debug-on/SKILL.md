@@ -151,11 +151,13 @@ export OTEL_RESOURCE_ATTRIBUTES="ievo_skill=security-check,project=myapp"
 - **Org-wide enforcement is a managed-settings mechanism, not `.claude/settings.json`.** `.claude/settings.json` is project-scope and user-overridable. To enforce these env vars org-wide, an administrator distributes them via the managed settings file (`/etc/claude-code/managed-settings.json` on Linux/WSL, `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, `C:\Program Files\ClaudeCode\managed-settings.json` on Windows) through MDM — managed settings sit at the top of Claude Code's precedence chain and can't be overridden by a user's own env vars.
 - **Scope.** Labels apply to ALL Claude Code token usage for that process, not just iEvo-dispatched sub-agents.
 
-## Native session verbosity (`/config verbose=true`, Claude Code v2.1.181+)
+## Native verbose output (`/config verbose=true`, Claude Code v2.1.181+)
 
-Claude Code has its own `verbose` setting (default `false`): it shows full tool output instead of truncated summaries for the current session. Since v2.1.181, toggle it inline with `/config verbose=true` instead of opening the full Settings UI ([settings reference](https://code.claude.com/docs/en/settings)).
+Claude Code has its own `verbose` setting (default `false`): it shows full tool output instead of truncated summaries. Since v2.1.181, toggle it inline with `/config verbose=true` instead of opening the full Settings UI ([settings reference](https://code.claude.com/docs/en/settings)).
 
-That's narrower than what this skill does: `verbose` is Claude Code-only and changes how much of Claude Code's own tool output is *displayed* — nothing is written to disk, and nothing persists once the session ends. It doesn't touch iEvo's pipeline internals either (full sub-agent prompts/returns, `gh api` calls, decision points across `/ievo:init`/`/ievo:evo`/`/ievo:security-check`). Reach for `/config verbose=true` to see more of Claude Code's own output; use `/ievo:debug-on` for persistent, structured logs — attachable to a bug report, replayable later, and working on any agentskills.io platform (Codex, Cursor, …), not just Claude Code. `/config verbose=false` reverses it — see `/ievo:debug-off`.
+**It persists — it is not a session toggle.** `/config` sets the same `verbose` settings key the Settings UI's **Verbose output** row writes, so once on it stays on for later sessions until you turn it back off with `/config verbose=false`. The session-scoped equivalent is the `--verbose` CLI flag, which the settings reference documents as overriding the setting for one session.
+
+That's still narrower than what this skill does: `verbose` is Claude Code-only and changes how much of Claude Code's own tool output is *displayed* — it produces no log artifact, so there is nothing to attach to a bug report or re-read afterwards. It doesn't touch iEvo's pipeline internals either (full sub-agent prompts/returns, `gh api` calls, decision points across `/ievo:init`/`/ievo:evo`/`/ievo:security-check`). Reach for `/config verbose=true` to see more of Claude Code's own output; use `/ievo:debug-on` for persistent, structured logs — attachable to a bug report, replayable later, and working on any agentskills.io platform (Codex, Cursor, …), not just Claude Code. `/config verbose=false` reverses it — see `/ievo:debug-off`.
 
 ## See also
 

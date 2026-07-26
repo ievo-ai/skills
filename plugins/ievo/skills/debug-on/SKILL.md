@@ -132,7 +132,7 @@ export OTEL_RESOURCE_ATTRIBUTES="ievo_skill=security-check,project=myapp"
 |-----------------|------------------------------------------------|
 | Init / discovery | `ievo_skill=init,project=<project>` |
 | Security audit | `ievo_skill=security-check,project=<project>` |
-| Evolution capture | `ievo_skill=evolution,project=<project>` |
+| Evolution capture | `ievo_skill=evo,project=<project>` |
 | Vuln scan | `ievo_skill=vuln-scan,project=<project>` |
 
 - **Binding time — one process per attribute set.** `OTEL_RESOURCE_ATTRIBUTES` is resolved once, at Claude Code process start, and applies to every metric for that process's entire lifetime — there is no in-session way to change it. This means **no iEvo skill can set this automatically when it activates**: by the time any skill runs, the process (and its resolved attributes) already exists. Export the variable, then start a fresh session or a one-shot `claude -p` run per operation you want labeled separately; never try to set/clear it mid-session — that recipe does not execute.

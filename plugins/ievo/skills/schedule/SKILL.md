@@ -8,7 +8,7 @@ allowed-tools:
   - Bash(claude --version)
   - Bash(env | grep*)
   - Read
-compatibility: "Routines are Claude Code-only — a research preview (behavior, limits, and surface may change) requiring a Pro/Max/Team/Enterprise subscription with Claude Code on the web enabled; the /schedule command needs Claude Code v2.1.81+ and a claude.ai login (API-key auth hides it). The underlying iEvo operations (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io. Cursor v3.8+: native `/automate` creates a Cursor Automation instead. Codex and others: CI cron fallback."
+compatibility: "Routines are Claude Code-only — a research preview requiring Pro/Max/Team/Enterprise + Claude Code on the web enabled; /schedule needs v2.1.81+ and a claude.ai login (API-key auth hides it). Underlying iEvo ops (/ievo:security-check, /ievo:update) are cross-platform via agentskills.io. Cursor v3.8+: native `/automate` instead. Codex/others: CI cron fallback. v2.1.178+: nested `.claude/skills/` dirs no longer trigger permission prompts in non-interactive Routine/CI runs."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills

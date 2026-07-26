@@ -6,7 +6,7 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
-## v0.69.0
+## v0.68.2
 
 Note Claude Code v2.1.181's `/config verbose=true` as a lighter, zero-install alternative in `debug-on`/`debug-off/SKILL.md` — closes #218.
 
@@ -16,7 +16,7 @@ Note Claude Code v2.1.181's `/config verbose=true` as a lighter, zero-install al
 - **Resolved the issue's open question — hooks.** `/config` has no documented support for nested/object settings — the docs describe it as changing "a single option" and give no dot-notation example — so `hooks-setup/SKILL.md` is left unchanged, matching the issue's own conditional scope ("optionally modified... if `/config` applies to hooks").
 - **Resolved the issue's open question — version phrasing.** Used `Claude Code v2.1.181+`, matching the convention already used throughout `hooks-setup/SKILL.md` and `debug-on/SKILL.md`'s existing "Cost monitoring (Claude Code v2.1.161+)" section, rather than `≥v2.1.181`.
 - **Scope** — two doc files (`debug-on/SKILL.md`, `debug-off/SKILL.md`) plus the mechanical version bump; no script or CI change. Docs-only, no coverage obligation.
-- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.68.1 → 0.69.0 — 0.67.0 already claimed by a concurrent open PR).
+- **Version** — patch, not minor. AGENTS.md's bump table maps `fix:` → patch and `feat:` → minor and does not list `docs:`; this PR ships no feature, only a doc note, so it follows the immediately preceding docs-only entry v0.68.1 (a two-file `SKILL.md`/`AGENTS.md` note) and takes a patch. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.68.1 → 0.68.2).
 
 ---
 

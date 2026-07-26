@@ -89,7 +89,7 @@ Read the full content of every file shipped with the candidate, including all de
 }
 ```
 
-`envVars` entries also accept `"mode": "mask"` instead of `"deny"` — masking substitutes a per-session sentinel for the real value (kept usable by tools that authenticate with it, e.g. `gh`/`npm`) rather than unsetting it outright; see the docs link above for the `network.tlsTerminate` prerequisite `mask` needs. There is no built-in credential deny list — list every path/variable you want protected. This restricts sandboxed **Bash** commands only; it does not affect the **Read** tool this skill's own file-fetch flow uses (Step 2's clone-then-Read recipe), so enabling it does not interfere with a legitimate scan. Codex has no documented equivalent for per-file/env-var credential masking specifically — see § "Codex setup" below for Codex's own permission-profile mechanism, which covers the write-blocking parity `disallowed-tools` gives on Claude Code but (like `sandbox.credentials` itself) does not target a specific credential file or env var.
+`envVars` entries also accept `"mode": "mask"` instead of `"deny"` — masking substitutes a per-session sentinel for the real value (kept usable by tools that authenticate with it, e.g. `gh`/`npm`) rather than unsetting it outright; see the docs link above for the `network.tlsTerminate` prerequisite `mask` needs. There is no built-in credential deny list — list every path/variable you want protected. This restricts sandboxed **Bash** commands only; it does not affect the **Read** tool this skill's own file-fetch flow uses (Step 2's clone-then-Read recipe), so enabling it does not interfere with a legitimate scan. Codex has no documented equivalent for per-file/env-var credential masking specifically — see § "Codex setup" below for Codex's own permission-profile mechanism, which confines a session by filesystem path and network domain rather than by credential: like `sandbox.credentials` it targets no specific credential file or env var, and it needs a *custom* profile here, since the built-in `:read-only` one would block this skill's own Step 2 clone.
 
 **Network exfiltration.** A scoped entry like `WebFetch(domain:...)` in this skill's own `disallowed-tools`/`allowed-tools` frontmatter has no effect (ievo-ai/skills#212) — only bare tool names are reliably enforced at that layer. The real control is a `permissions.allow` rule in `.claude/settings.json`, scoped to only the domains an audit actually needs:
 
@@ -443,18 +443,38 @@ Tone rules:
 - **Neutralize excerpts before they go public.** `report_template.body` is filed as a public, auto-rendering GitHub issue — see § Step 6's "Excerpt containment" note for the fencing rule.
 - **Never interpolate a path — a file inside the candidate, or the candidate's own item path — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read with the Read tool instead — see § "How to fetch files" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
 
-## Codex setup — named permission profiles (parity for `disallowed-tools`)
+## Codex setup — named permission profiles (Codex's analog of `disallowed-tools`)
 
-**The gap.** `disallowed-tools` (frontmatter, above) blocks `Write`/`Edit`/destructive `Bash` automatically on Claude Code. Codex does not implement the `disallowed-tools` skill-frontmatter convention, so a Codex user running `/ievo:security-check` gets no equivalent enforcement unless they configure one themselves.
+**The gap.** `disallowed-tools` (frontmatter, above) blocks the agent's own `Write`/`Edit` tools and destructive `Bash` prefixes automatically on Claude Code. Codex does not implement the `disallowed-tools` skill-frontmatter convention, so a Codex user running `/ievo:security-check` gets no equivalent enforcement unless they configure one themselves.
 
-**Codex's mechanism differs, not absent.** Codex CLI [rust-v0.135.0](https://github.com/openai/codex/releases/tag/rust-v0.135.0) (2026-05-28) shipped named permission profiles: "`/permissions` now understands named permission profiles and displays configured custom profiles." Unlike `disallowed-tools`' per-tool-name denylist, a Codex profile controls filesystem access (read/write/deny) and network destinations (allow/deny by domain) — there's no Codex concept of denying `Write`/`Edit` by name, but restricting filesystem access to read-only has the same practical effect for this skill.
+**Codex's mechanism differs in kind.** Codex CLI [rust-v0.135.0](https://github.com/openai/codex/releases/tag/rust-v0.135.0) (2026-05-28, verified 2026-07-26) shipped named permission profiles: "`/permissions` now understands named permission profiles and displays configured custom profiles." Per the [Permissions docs](https://developers.openai.com/codex/permissions) (verified 2026-07-26), a profile governs **filesystem** access (`read`/`write`/`deny`, per path or special token) and **network** access (per-domain `allow`/`deny`, `enabled = false` by default) for sandboxed tool calls. There is no Codex concept of denying `Write`/`Edit` by tool name.
 
-**Quickest parity — the built-in `:read-only` profile, no config file needed:**
-1. Open (or start) a Codex session.
-2. Type `/permissions` and press Enter.
-3. Select the **Read Only** preset from the picker.
-4. Run `/ievo:security-check` — local command execution stays read-only for the rest of the session; switch back the same way afterward.
+**Don't reach for the built-in `:read-only` profile here — it breaks the scan.** It is not the equivalent of `disallowed-tools`, it is strictly broader: `disallowed-tools` denies the agent's *own* write tools while leaving Bash `git` fully usable, whereas `:read-only` blocks filesystem writes outright and leaves network disabled. That kills Step 2's mandatory `mktemp -d` + `git clone --depth 1` + `git fetch`/`checkout` fetch flow — the scan can't obtain the candidate at all — and the RED-only `.ievo/hooks/security-red` write the `security-auditor` agent performs. (`:read-only` *is* the right profile for `/ievo:vuln-scan`, which reviews local source and needs neither a clone nor network.)
 
-**Stronger parity — a custom profile that also scopes network access**, matching what the "Network exfiltration" guidance above recommends for Claude Code (only `skills.sh`, `agentskills.io`, `raw.githubusercontent.com`, `api.github.com` reachable): define a named profile (e.g. `ievo-security-scan`) under `[permissions.<name>]` in `~/.codex/config.toml` — see the [official Permissions docs](https://developers.openai.com/codex/permissions) for the exact filesystem/network TOML sub-tables — then activate it at launch with `codex --profile ievo-security-scan`. Codex v0.135.0+'s `/permissions` picker also lists configured custom profiles, so a profile defined this way can be switched to mid-session too.
+**Use a custom profile instead** — writes confined to the workspace plus the temp dir the clone lands in, network narrowed to exactly the hosts an audit needs. The built-in `:workspace` already permits writes inside active workspace roots and system temp directories, so extend it and add the network allowlist in `~/.codex/config.toml`:
 
-**What this prevents.** Either option stops this skill's own execution context from making writes, deletes, or (with the custom-profile network scoping) outbound calls to non-audit domains — even if a candidate under review attempts prompt injection to influence that context, giving Codex users the same isolation `disallowed-tools` already gives Claude Code users.
+```toml
+# Applies to every session; to scope it to the scan only, leave this out and
+# switch to the profile from the `/permissions` picker instead (see below).
+default_permissions = "ievo-security-scan"
+
+[permissions.ievo-security-scan]
+description = "iEvo security-check — workspace + tmp writes, audit domains only"
+extends = ":workspace"
+
+[permissions.ievo-security-scan.network]
+enabled = true
+
+[permissions.ievo-security-scan.network.domains]
+"github.com" = "allow"                # Step 2's git clone/fetch of the candidate
+"api.github.com" = "allow"            # gh api metadata, default-branch + SHA resolution
+"raw.githubusercontent.com" = "allow"
+"skills.sh" = "allow"
+"agentskills.io" = "allow"
+```
+
+`github.com` is on that list even though it is absent from the Claude Code `WebFetch(domain:...)` block above, and the difference is load-bearing: that block scopes only the `WebFetch` tool, which never clones, while a Codex network policy governs every sandboxed process — `git` and `gh` included. Copy the four WebFetch domains across without adding `github.com` and Step 2's clone fails.
+
+**Activating it.** Either set the top-level `default_permissions` key shown above, or switch mid-session from the `/permissions` picker, which lists configured custom profiles once profile mode is active. `codex --profile <name>` is a **different** mechanism and will not do it: since Codex 0.134.0 that flag overlays `~/.codex/<name>.config.toml` as a config layer and no longer reads any `[profiles.<name>]` table ([Advanced configuration](https://developers.openai.com/codex/config-advanced), verified 2026-07-26), so it selects a permission profile only indirectly, if that overlay file itself sets `default_permissions`. Note also that the picker shows friendly labels — **Read Only**, **Full Access** — for the built-ins whose config identifiers are `:read-only` and `:danger-full-access` ([openai/codex#21559](https://github.com/openai/codex/pull/21559)); same profiles, two spellings.
+
+**What this prevents.** The profile stops this skill's own execution context from writing outside the workspace and the clone's temp dir, or reaching any host off the audit allowlist — even if a candidate under review attempts prompt injection to influence that context. That is the Codex-side equivalent of `disallowed-tools` plus the `WebFetch(domain:...)` allowlist, expressed in Codex's own filesystem/network terms rather than by tool name, and without disabling the fetch flow the scan depends on.

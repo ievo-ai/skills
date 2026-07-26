@@ -19,8 +19,19 @@ Activates trace-level logging for all subsequent iEvo skill invocations in this 
 - User reports a bug in init/evo/security-audit and wants reproducible logs
 - User wants to share a session for issue filing on ievo-ai/skills
 - User wants to understand iEvo's internal decision-making
+- **Documentation only — nothing is enabled:** user asks how to attribute, label, or slice iEvo token spend ("cost monitoring", "tag iEvo usage by team or project", `OTEL_RESOURCE_ATTRIBUTES`). Answer from § "Cost monitoring (Claude Code v2.1.161+)" and stop — see Step 0.
 
 ## Steps
+
+### 0. Route the request — verbose logging, or cost monitoring?
+
+The `description:` above activates this skill on two unrelated intents. Decide which one applies before touching the filesystem:
+
+**(A) Enable verbose logging** — the user asked to turn on debug/verbose/trace logging, or wants reproducible logs for a bug report. Continue with Step 1.
+
+**(B) Cost monitoring only** — the user asked how to attribute, label, or slice iEvo token spend ("cost monitoring", "tag iEvo usage by team or project", `OTEL_RESOURCE_ATTRIBUTES`) and did **not** ask for verbose logging. Answer from § "Cost monitoring (Claude Code v2.1.161+)" below, then stop: skip Steps 1-5 entirely — no `.ievo/` check, no `.ievo/debug.flag`, no log directory. That section documents Claude Code environment variables, so it needs no `.ievo/` and no initialized project (Step 1 would otherwise exit and leave the answer unreachable), and enabling trace logging would produce confidential logs (§ Rules) the user never asked for.
+
+If the user asked for both, run flow A and answer the cost-monitoring question alongside Step 5's confirmation.
 
 ### 1. Verify `.ievo/` exists
 

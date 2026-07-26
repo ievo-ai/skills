@@ -1,6 +1,6 @@
 ---
 name: debug-on
-description: "Use this skill when the user wants to debug an init, evo, or security-audit session — trigger words \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\". Enables verbose / trace-level logging across the iEvo pipeline — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting)."
+description: "Use this skill when the user wants to debug an init, evo, or security-audit session, or wants to attribute iEvo token costs in a usage dashboard — trigger words \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\", \"cost monitoring\", \"OTel cost attribution\", \"OTEL_RESOURCE_ATTRIBUTES\", \"tag iEvo usage by team or project\". Enables verbose / trace-level logging across the iEvo pipeline — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump — and documents how to label Claude Code's OTel metrics so iEvo token spend can be sliced separately from ordinary coding usage in an OTel-backed dashboard. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting)."
 license: MIT
 effort: low
 compatibility: "Any agentskills.io platform. Flag is project-local (`.ievo/debug.flag`). Requires write access to `.ievo/`, POSIX shell (bash/zsh), `gh`, `git`, `node` (18+). On Windows use Git Bash or WSL."
@@ -119,6 +119,26 @@ When invoked, other iEvo skills MUST:
 - **Size cap**: if any single log file exceeds 5MB, truncate to first 4.5MB + footer noting truncation. Saves disk + makes review tractable.
 - **Commit-friendly (with review)**: `.ievo/debug.flag` and `.ievo/log/debug/` are project-scope artifacts. The flag itself (intent only) is committable as-is; the log directory is gitignored by default (see above), so sharing logs requires `git add -f .ievo/log/debug/<session-id>/` after the per-file review below — the force-add is the explicit consent step. When user wants to share logs (issue filing, teammate help): tell them explicitly to review every file in `.ievo/log/debug/<session-id>/` for secrets/PII before `git add -f` or attaching to an issue. Suggest running `grep -RiE '(api[_-]?key|secret|token|password|bearer|x-api)' .ievo/log/debug/<session-id>/` as a final sanity check.
 - **Auto-cleanup of old sessions**: if `.ievo/log/debug/` contains more than 10 session subdirs, suggest user run cleanup. Don't delete without confirmation.
+
+## Cost monitoring (Claude Code v2.1.161+)
+
+Claude Code labels every metrics datapoint and event record with the key/value pairs from `OTEL_RESOURCE_ATTRIBUTES` ([v2.1.161 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.161), 2026-06-02), letting a team running iEvo across many repos slice usage-cost dashboards by iEvo skill, project, or any other custom dimension — separating iEvo token spend from ordinary coding usage. Requires an OTel-capable metrics backend; individual developers without one can skip this section.
+
+```bash
+export OTEL_RESOURCE_ATTRIBUTES="ievo_skill=security-check,project=myapp"
+```
+
+| iEvo operation | Suggested value before launching that session |
+|-----------------|------------------------------------------------|
+| Init / discovery | `ievo_skill=init,project=<project>` |
+| Security audit | `ievo_skill=security-check,project=<project>` |
+| Evolution capture | `ievo_skill=evolution,project=<project>` |
+| Vuln scan | `ievo_skill=vuln-scan,project=<project>` |
+
+- **Binding time — one process per attribute set.** `OTEL_RESOURCE_ATTRIBUTES` is resolved once, at Claude Code process start, and applies to every metric for that process's entire lifetime — there is no in-session way to change it. This means **no iEvo skill can set this automatically when it activates**: by the time any skill runs, the process (and its resolved attributes) already exists. Export the variable, then start a fresh session or a one-shot `claude -p` run per operation you want labeled separately; never try to set/clear it mid-session — that recipe does not execute.
+- **Prerequisites** (per [Claude Code's monitoring docs](https://code.claude.com/docs/en/monitoring-usage)): an OTel metrics pipeline — `CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_METRICS_EXPORTER` (e.g. `otlp`), `OTEL_EXPORTER_OTLP_PROTOCOL` (`grpc` / `http/json` / `http/protobuf`), `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_EXPORTER_OTLP_HEADERS` if the collector requires auth. `OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES` (default `true`) is the actual switch that puts these keys onto datapoints as queryable labels — if an administrator has set it `false` (e.g. to control cardinality), metrics keep flowing but every dashboard built on these labels silently returns nothing.
+- **Org-wide enforcement is a managed-settings mechanism, not `.claude/settings.json`.** `.claude/settings.json` is project-scope and user-overridable. To enforce these env vars org-wide, an administrator distributes them via the managed settings file (`/etc/claude-code/managed-settings.json` on Linux/WSL, `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, `C:\Program Files\ClaudeCode\managed-settings.json` on Windows) through MDM — managed settings sit at the top of Claude Code's precedence chain and can't be overridden by a user's own env vars.
+- **Scope.** Labels apply to ALL Claude Code token usage for that process, not just iEvo-dispatched sub-agents.
 
 ## See also
 

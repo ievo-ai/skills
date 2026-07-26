@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.69.1
+
+Document Claude Code v2.1.176's hook `if:` fix for Read/Edit/Write path patterns in `hooks-setup/SKILL.md`'s `compatibility` field — closes #201.
+
+- **Gap closed (#201)** — Claude Code v2.1.176 (2026-06-12) fixed hook `if:` conditions for Read/Edit/Write tool paths: patterns like `Edit(src/**)`/`Read(~/.ssh/**)`/`Read(.env)` were silently ignored before that release and now match correctly. `hooks-setup/SKILL.md` already uses an `if:` path pattern in its own Step 5 example (`if: "Write(.ievo/hooks/evolution-captured)"`) but had no version boundary documenting when that pattern actually started working.
+- **Fix** — added a `v2.1.176+` clause to the skill's `compatibility` frontmatter field, in chronological order alongside the existing version-boundary notes.
+- **Scope** — per the issue author's MEMBER comment, narrowed from the original proposal (which also wanted a new ~18-line "Advanced: conditional filtering" body section): the section was dropped as duplicating the existing Step 5 example, so only the `compatibility` field changed.
+- **Verified against source** — re-fetched the [v2.1.176 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.176) directly rather than trusting the issue's citation at face value: confirmed the fix is stated verbatim as claimed.
+- **`compatibility` field** — capped at 500 chars by `validate_skills.mjs`'s agentskills.io spec check, and already at 495/500. Tightened existing clauses (dropped "hook field"/"desktop"/"own"/"full", merged the trailing Cursor/Codex sentences) to make room for the new clause without losing any existing fact, landing at 499/500.
+- **Version** — `fix:` → patch per AGENTS.md's bump table; this ships a doc note, not a feature. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.69.0 → 0.69.1).
+
+---
+
 ## v0.69.0
 
 Add an `## Active plan state` section and an explicit `/ievo:overlay-status` pointer to `handoff/SKILL.md`'s context-capsule template — closes #206.

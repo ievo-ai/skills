@@ -8,7 +8,7 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ## v0.68.1
 
-Document Codex's MCP tool-call timeout as a **scoped** operator gotcha — it governs the `codex mcp-server` topology, not iEvo's ordinary `spawn_agent` dispatch of `security-auditor` — and note the matching Codex `rust-v0.141.0+` floor on `security-check/SKILL.md` — closes #227.
+Document Codex's MCP tool-call timeout as a **scoped** operator gotcha and note the matching Codex `rust-v0.141.0+` floor on `security-check/SKILL.md` — closes #227.
 
 - **Gap closed (#227)** — `AGENTS.md` § Security model documented `CLAUDE_CODE_SUBAGENT_MODEL` and other model-downgrade vectors as ways `security-auditor`'s guarantee can silently degrade, but said nothing about Codex's MCP tool-call timeout — including the fact that it does *not* apply to the way iEvo actually dispatches the auditor. `security-check/SKILL.md`'s `compatibility` field had no Codex version note either.
 - **Fix** — new "Codex MCP tool-call timeout — scoped gotcha, NOT the default dispatch path" bullet in `AGENTS.md` § Security model, placed immediately after the existing "Codex sub-agent delegation" bullet whose `spawn_agent` mechanism it has to reconcile with (and grouped with the other Codex-platform gotchas), plus a scoped one-clause addition to `security-check/SKILL.md`'s `compatibility` field.

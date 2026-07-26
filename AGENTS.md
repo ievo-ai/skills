@@ -58,7 +58,7 @@ ievo-ai/skills/
         └── vuln-scan/SKILL.md         # /ievo:vuln-scan — CWE-aware source vulnerability scan
 ```
 
-**Nested-directory context (Claude Code v2.1.178+).** When this repo is cloned into a nested `.claude/skills/` path (e.g. `packages/myapp/.claude/skills/ievo/`), Claude Code loads these skills with the `ievo:<skill-name>` qualified form only when the working directory is within that nested scope AND a name clash with another loaded skill forces disambiguation — otherwise they load as plain `/ievo:<skill-name>`, same as a root/global install. This is expected: `<dir>:<name>` is CC's own disambiguation strategy, not an iEvo behavior. The trigger-intent wording in each `SKILL.md`'s `description` remains the primary discovery surface (semantic activation), so users typically never need to type either form.
+**Nested-directory context (Claude Code v2.1.178+).** When this repo is cloned into a nested `.claude/skills/` path (e.g. `packages/myapp/.claude/skills/ievo/`), Claude Code auto-loads these skills while the working directory is within that nested scope; on a name clash with another already-loaded skill set, CC disambiguates using its own `<dir>:<skill-name>` qualified form (the exact qualifier follows CC's own resolution, not necessarily `ievo`) — otherwise these skills load as plain `/ievo:<skill-name>`, same as a root/global install. This is expected: `<dir>:<name>` is CC's own disambiguation strategy, not an iEvo behavior. The trigger-intent wording in each `SKILL.md`'s `description` remains the primary discovery surface (semantic activation), so users typically never need to type either form.
 
 ## Key conventions
 

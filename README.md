@@ -62,6 +62,8 @@ cd <your-project>
 
 To update: `cd ~/ievo-skills-src && git pull` (the symlink stays valid). This is the recommended path for contributors tracking `main` directly; most users should use the marketplace install above instead, which brings routine version pinning and update prompts.
 
+**Monorepo note (Claude Code v2.1.178+).** iEvo skills load from whichever `.claude/skills/ievo/` directory is closest to your working directory. In a monorepo where a subdirectory also has its own `.claude/skills/`, those nested skills appear as `<subdir>:<skill-name>` only on a name clash — iEvo skills installed at the project root or globally remain plain `/ievo:<skill-name>` with no prefix change. Non-interactive runs (CI, Routines) on v2.1.178+ no longer hit extra permission prompts for directory-qualified nested skills, a bug present in earlier versions.
+
 ### Codex (CLI / app / VS Code extension)
 
 ```bash

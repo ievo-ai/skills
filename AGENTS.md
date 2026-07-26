@@ -58,6 +58,8 @@ ievo-ai/skills/
         └── vuln-scan/SKILL.md         # /ievo:vuln-scan — CWE-aware source vulnerability scan
 ```
 
+**Nested-directory context (Claude Code v2.1.178+).** When this repo is cloned into a nested `.claude/skills/` path (e.g. `packages/myapp/.claude/skills/ievo/`), Claude Code loads these skills with the `ievo:<skill-name>` qualified form only when the working directory is within that nested scope AND a name clash with another loaded skill forces disambiguation — otherwise they load as plain `/ievo:<skill-name>`, same as a root/global install. This is expected: `<dir>:<name>` is CC's own disambiguation strategy, not an iEvo behavior. The trigger-intent wording in each `SKILL.md`'s `description` remains the primary discovery surface (semantic activation), so users typically never need to type either form.
+
 ## Key conventions
 
 ### Public-repo content safety — no sensitive names in public artefacts
@@ -170,7 +172,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.68.2):**
+**Current compliance ledger (v0.68.3):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.

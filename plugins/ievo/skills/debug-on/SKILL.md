@@ -124,7 +124,7 @@ When invoked, other iEvo skills MUST:
 
 Separate from the verbose logging above: attributing iEvo's own token cost inside an organization's usage dashboard. Only relevant for teams with an OTel metrics backend already configured — individual developers without that infrastructure can skip this section.
 
-Claude Code [v2.1.161](https://github.com/anthropics/claude-code/releases/tag/v2.1.161) (2026-06-02) started including `OTEL_RESOURCE_ATTRIBUTES` values as labels on every metric datapoint, so usage can be sliced by custom dimensions. Set it before activating an iEvo skill to tag that session's token usage:
+Claude Code [v2.1.161](https://github.com/anthropics/claude-code/releases/tag/v2.1.161) (2026-06-02) started including `OTEL_RESOURCE_ATTRIBUTES` values as labels on every metric datapoint, so usage can be sliced by custom dimensions. The value is read once, at process start, so export it **before launching Claude Code** to tag that whole session's token usage:
 
 ```bash
 export OTEL_RESOURCE_ATTRIBUTES="ievo_skill=security-check,project=<project>"
@@ -139,7 +139,7 @@ export OTEL_RESOURCE_ATTRIBUTES="ievo_skill=security-check,project=<project>"
 
 **Prerequisites** (per [Claude Code's monitoring docs](https://code.claude.com/docs/en/monitoring-usage)): `CLAUDE_CODE_ENABLE_TELEMETRY=1` plus an OTLP endpoint — `OTEL_METRICS_EXPORTER=otlp` and `OTEL_EXPORTER_OTLP_ENDPOINT=<collector-url>` (add `OTEL_EXPORTER_OTLP_HEADERS` if the backend needs auth). These are ordinary env vars, not dedicated settings.json keys — there is no `metrics.endpoint`/`metrics.headers` field. They can also live in the `env` block of a settings file, but mind the scope: `.claude/settings.json` is *project* scope (team-shared, committed) and is still overridden by `.claude/settings.local.json` and CLI args. Org-wide **enforcement** is the MDM-distributed managed settings file — `/etc/claude-code/managed-settings.json` (Linux/WSL), `/Library/Application Support/ClaudeCode/managed-settings.json` (macOS), `C:\Program Files\ClaudeCode\managed-settings.json` (Windows, since v2.1.75) — which sits at the top of the [settings precedence chain](https://code.claude.com/docs/en/settings); only settings there can't be overridden by users.
 
-**Scope**: labels apply to *all* Claude Code token usage for the session, not just iEvo-dispatched sub-agents — set the var immediately before activating the skill and clear it afterward for per-skill granularity. Values must be comma-separated `key=value` pairs with no spaces (percent-encode special characters, e.g. space → `%20`).
+**Scope**: because the value is captured at startup, its labels apply to *all* Claude Code token usage for that session, not just iEvo-dispatched sub-agents — and exporting or clearing the var partway through a session has no effect, since a running process's environment can't be changed from outside. Per-skill granularity therefore needs one session per slice: launch a fresh `claude` session (or a one-shot `claude -p` run) with the matching value already exported, rather than switching values inside a single session. Values must be comma-separated `key=value` pairs with no spaces (percent-encode special characters, e.g. space → `%20`).
 
 ## See also
 

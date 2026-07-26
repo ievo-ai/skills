@@ -63,7 +63,7 @@ Check if the user specified a scope mode. Three user-selectable modes are suppor
 
 **Working-tree scope also covers untracked files.** `git diff` alone never shows untracked paths — standard git behaviour, since it diffs the index against the working tree and an untracked file is in neither. Left uncovered, a brand-new file the user just created would get zero review coverage while the report still comes back clean. Step 2's working-tree row supplements the diff with `git ls-files --others --exclude-standard` so working mode reviews the whole tree, not just tracked edits. Staged, range, and committed modes are unaffected — each already covers everything in its scope.
 
-If the user didn't specify a mode, default to **staged**. If there are no staged changes in staged mode, check for unstaged changes and ask:
+If the user didn't specify a mode, default to **staged**. If there are no staged changes in staged mode, check for unstaged changes — tracked (`git diff`) or untracked (`git ls-files --others --exclude-standard`) — and ask:
 
 ```
 No staged changes found. There are unstaged changes in the working tree.
@@ -74,10 +74,10 @@ Use `AskUserQuestion`:
 - **Question:** `No staged changes. Review unstaged working tree changes instead?`
 - **Header:** `Scope`
 - **Options:**
-  - `Yes, review working tree` — description: `Run git diff (unstaged changes)`
+  - `Yes, review working tree` — description: `Run git diff, plus any untracked files (unstaged changes)`
   - `Cancel` — description: `Nothing to review`
 
-If both staged and unstaged are empty, fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch, then take its **merge base** with `HEAD` — the same merge-base form, and the same first two resolution tiers (`git symbolic-ref` → `gh repo view --json defaultBranchRef`), that `commands/vuln-scan.md`'s `--diff` scope uses. Deliberately drop that command's third tier, which warns and hardcodes `BASE_BRANCH="main"`: a scan that guesses a base and over-reports is recoverable, but a review silently diffing against a `main` the repo may not have would hand the reviewer a fabricated range — so an unresolvable default branch falls through to the clean exit below instead of guessing. Never diff two-dot against `origin/<default-branch>` directly: on a branch that has fallen behind, `git diff origin/<b>..HEAD` renders the default-branch-only commits as reversed deletions and the reviewer reports them as findings.
+If both staged and unstaged are empty — unstaged here again meaning tracked *and* untracked — fall back to the committed diff on this branch before giving up — the common case on a clean PR branch, where the changes to review are already committed and neither staged nor unstaged. Resolve the remote default branch, then take its **merge base** with `HEAD` — the same merge-base form, and the same first two resolution tiers (`git symbolic-ref` → `gh repo view --json defaultBranchRef`), that `commands/vuln-scan.md`'s `--diff` scope uses. Deliberately drop that command's third tier, which warns and hardcodes `BASE_BRANCH="main"`: a scan that guesses a base and over-reports is recoverable, but a review silently diffing against a `main` the repo may not have would hand the reviewer a fabricated range — so an unresolvable default branch falls through to the clean exit below instead of guessing. Never diff two-dot against `origin/<default-branch>` directly: on a branch that has fallen behind, `git diff origin/<b>..HEAD` renders the default-branch-only commits as reversed deletions and the reviewer reports them as findings.
 
 ```bash
 # Try git symbolic-ref first, then the gh API
@@ -125,7 +125,7 @@ git diff
 git diff <range>
 ```
 
-**Working-tree mode only — supplement with untracked files.** List non-ignored untracked paths and synthesize a diff for each, without touching the index:
+**Working-tree mode only — supplement with untracked files.** List non-ignored untracked paths and synthesize a diff for each, without touching the index. Quote `<path>` when running the command below — an unquoted path breaks on filenames containing spaces or shell metacharacters:
 
 ```bash
 git ls-files --others --exclude-standard
@@ -134,7 +134,7 @@ git ls-files --others --exclude-standard
 For each path returned:
 
 ```bash
-git diff --no-index -- /dev/null <path>
+git diff --no-index -- /dev/null "<path>"
 ```
 
 This prints a standard "new file" unified diff (`--- /dev/null` / `+++ b/<path>`) and exits 1 — expected, the same nonzero exit `git diff --no-index` always returns when a difference exists, not an error. `--exclude-standard` respects `.gitignore`, so ignored files stay excluded, matching every other mode's git-tracked-or-intentionally-untracked scope; a binary untracked file reports `Binary files /dev/null and b/<path> differ`, same as git already does for binary changes elsewhere. Append each generated diff to the `git diff` output captured above — the combined text is the working-tree diff for Step 4. Nothing is staged: `git status` still reports these paths as untracked afterward.

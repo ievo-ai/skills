@@ -3,7 +3,7 @@ name: debug-on
 description: "Use this skill when the user wants to debug an init, evo, or security-audit session, or wants to attribute iEvo token costs in a usage dashboard — trigger words \"turn on debug\", \"verbose mode\", \"log everything\", \"trace level\", \"debug logging\", \"cost monitoring\", \"OTel cost attribution\", \"OTEL_RESOURCE_ATTRIBUTES\", \"tag iEvo usage by team or project\". Enables verbose / trace-level logging across the iEvo pipeline — captures full prompts, full sub-agent returns, every Task tool dispatch, every gh/git/network call, environment dump — and documents how to label Claude Code's OTel metrics so iEvo token spend can be sliced separately from ordinary coding usage in an OTel-backed dashboard. Output goes to `.ievo/log/debug/<session-id>/` for post-mortem analysis. Activates by writing `.ievo/debug.flag` (project-level setting)."
 license: MIT
 effort: low
-compatibility: "Any agentskills.io platform. Flag is project-local (`.ievo/debug.flag`). Requires write access to `.ievo/`, POSIX shell (bash/zsh), `gh`, `git`, `node` (18+). On Windows use Git Bash or WSL."
+compatibility: "Any agentskills.io platform. Flag is project-local (`.ievo/debug.flag`). Requires write access to `.ievo/`, POSIX shell (bash/zsh), `gh`, `git`, `node` (18+). On Windows use Git Bash or WSL. Claude Code v2.1.181+ can toggle its own `verbose` setting inline via `/config verbose=true` — narrower in scope than this skill; see body."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -150,6 +150,12 @@ export OTEL_RESOURCE_ATTRIBUTES="ievo_skill=security-check,project=myapp"
 - **Prerequisites** (per [Claude Code's monitoring docs](https://code.claude.com/docs/en/monitoring-usage)): an OTel metrics pipeline — `CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_METRICS_EXPORTER` (e.g. `otlp`), `OTEL_EXPORTER_OTLP_PROTOCOL` (`grpc` / `http/json` / `http/protobuf`), `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_EXPORTER_OTLP_HEADERS` if the collector requires auth. `OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES` (default `true`) is the actual switch that puts these keys onto datapoints as queryable labels — if an administrator has set it `false` (e.g. to control cardinality), metrics keep flowing but every dashboard built on these labels silently returns nothing.
 - **Org-wide enforcement is a managed-settings mechanism, not `.claude/settings.json`.** `.claude/settings.json` is project-scope and user-overridable. To enforce these env vars org-wide, an administrator distributes them via the managed settings file (`/etc/claude-code/managed-settings.json` on Linux/WSL, `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, `C:\Program Files\ClaudeCode\managed-settings.json` on Windows) through MDM — managed settings sit at the top of Claude Code's precedence chain and can't be overridden by a user's own env vars.
 - **Scope.** Labels apply to ALL Claude Code token usage for that process, not just iEvo-dispatched sub-agents.
+
+## Native session verbosity (`/config verbose=true`, Claude Code v2.1.181+)
+
+Claude Code has its own `verbose` setting (default `false`): it shows full tool output instead of truncated summaries for the current session. Since v2.1.181, toggle it inline with `/config verbose=true` instead of opening the full Settings UI ([settings reference](https://code.claude.com/docs/en/settings)).
+
+That's narrower than what this skill does: `verbose` is Claude Code-only and changes how much of Claude Code's own tool output is *displayed* — nothing is written to disk, and nothing persists once the session ends. It doesn't touch iEvo's pipeline internals either (full sub-agent prompts/returns, `gh api` calls, decision points across `/ievo:init`/`/ievo:evo`/`/ievo:security-check`). Reach for `/config verbose=true` to see more of Claude Code's own output; use `/ievo:debug-on` for persistent, structured logs — attachable to a bug report, replayable later, and working on any agentskills.io platform (Codex, Cursor, …), not just Claude Code. `/config verbose=false` reverses it — see `/ievo:debug-off`.
 
 ## See also
 

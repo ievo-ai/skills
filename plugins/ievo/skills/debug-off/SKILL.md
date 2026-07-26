@@ -3,7 +3,7 @@ name: debug-off
 description: "Use this skill when debugging is complete and the user wants to stop accumulating large trace logs — trigger words \"turn off debug\", \"stop verbose\", \"disable trace\", \"debug off\". Disables verbose / trace-level logging for the iEvo pipeline. Reverts to normal logging (concise `.ievo/log/init-*.md` only)."
 license: MIT
 effort: low
-compatibility: "Works on any agent platform that supports the agentskills.io standard. Inverse of `/ievo:debug-on`. The current implementation uses POSIX shell commands (`rm -f`, `ls`, `du`); on Windows hosts run via WSL or Git Bash, or fall back to the Write/Read tool equivalents documented inline."
+compatibility: "Works on any agent platform that supports the agentskills.io standard. Inverse of `/ievo:debug-on`. The current implementation uses POSIX shell commands (`rm -f`, `ls`, `du`); on Windows hosts run via WSL or Git Bash, or fall back to the Write/Read tool equivalents documented inline. Claude Code v2.1.181+ can toggle its own `verbose` setting inline via `/config verbose=false` — narrower in scope than this skill; see body."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -102,6 +102,10 @@ For the file count + size, use whatever the host shell supports — `ls + du` on
 - **Non-destructive**: do NOT delete `.ievo/log/debug/` contents. The flag goes away, the logs stay.
 - **Idempotent**: if already off, just say so. No error.
 - **Preserve audit trail**: even if user later does debug-on again, prior sessions are kept under their own session-ids.
+
+## Native session verbosity (`/config verbose=false`, Claude Code v2.1.181+)
+
+`/config verbose=false` turns off Claude Code's own `verbose` setting (full tool output instead of truncated summaries) for the current session ([settings reference](https://code.claude.com/docs/en/settings)) — narrower in scope than this skill (Claude Code-only, controls what's *displayed*, nothing persisted). See `/ievo:debug-on`'s "Native session verbosity" section for the full comparison. It does not touch `.ievo/debug.flag` or `.ievo/log/debug/` — use this skill (`/ievo:debug-off`) for that.
 
 ## See also
 

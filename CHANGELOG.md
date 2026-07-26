@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.69.0
+
+Document Claude Code v2.1.181's `/config verbose=true` as a narrower native alternative to `/ievo:debug-on`/`/ievo:debug-off` — closes #218.
+
+- **Feature** — new "Native session verbosity" section in both `debug-on/SKILL.md` and `debug-off/SKILL.md` (plus a matching `compatibility:` mention), documenting Claude Code's own `verbose` setting (default `false`; shows full tool output instead of truncated summaries) and its v2.1.181+ single-command toggle, `/config verbose=true` / `/config verbose=false`, in place of opening the full Settings UI ([settings reference](https://code.claude.com/docs/en/settings)).
+- **Open question resolved** — the issue flagged the exact `/config` setting key as unverified, listing `verbose`, `debug`, `verboseOutput`, `outputVerbose` as candidates. Only `verbose` exists as a settings.json key; the others aren't real. The settings reference page's own `verbose` table row also does not name any dedicated environment-variable toggle (only a `--verbose` CLI flag override) — draft text citing one was dropped after checking the page's raw source, since a fetched summary of the same page had invented one.
+- **Not equivalent, narrower** — `/config verbose=true` is Claude Code-only and session-scoped, and only changes how much of Claude Code's *own* tool output is displayed on screen; nothing is written to disk. It has no bearing on `/ievo:debug-on`'s structured, persisted, cross-platform (Codex, Cursor, …) pipeline logs (full sub-agent prompts/returns, `gh api` calls, decision points), so both sections frame the native setting as a lighter side-option, not a replacement.
+- **Second open question resolved** — the issue also asked whether `/config key=value` covers hook configuration (for a possible `hooks-setup/SKILL.md` note). It does not: the settings reference documents `/config` as scalar-only, and hooks remain a structured object requiring direct settings-file edits. `hooks-setup/SKILL.md` is left unchanged, per the issue's own "optionally modified" framing for that file.
+- **Convention** — used "v2.1.181+" for the version floor, matching the phrasing already used throughout SKILL.md/AGENTS.md, rather than the issue's alternative "≥v2.1.181".
+- **Scope** — two doc files (`debug-on/SKILL.md`, `debug-off/SKILL.md`), no script or CI change. Docs-only, no coverage obligation.
+- **Version** — bump per AGENTS.md rules (doc-section addition → minor, matching prior `docs:`-prefixed SKILL.md additions); `discover.mjs`, `evolution_candidates.mjs`, `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.68.0 → 0.69.0).
+
+---
+
 ## v0.68.0
 
 Document four Cursor v3.6-v3.9 platform-native surfaces across the README, AGENTS.md, and `security-check/SKILL.md` — a Cursor compat sweep folding in three companion proposals — closes #235, #213, #223, #229.

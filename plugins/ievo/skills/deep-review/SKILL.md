@@ -61,7 +61,7 @@ Check if the user specified a scope mode. Three user-selectable modes are suppor
 | **range** | `--range <ref>..<ref>` | `git diff <ref>..<ref>` |
 | **committed** (fallback) | not user-selectable — offered whenever staged is empty: alongside the working-tree option if the tree has unstaged content, on its own if it's clean | `git diff "$(git merge-base HEAD origin/<default-branch>)"..HEAD` |
 
-**Working-tree scope also covers untracked files.** `git diff` alone never shows untracked paths — standard git behaviour, since it diffs the index against the working tree and an untracked file is in neither. Left uncovered, a brand-new file the user just created would get zero review coverage while the report still comes back clean. Step 2's working-tree row supplements the diff with `git ls-files --others --exclude-standard --full-name -- :/` so working mode reviews the whole tree, not just tracked edits. The `--full-name -- :/` pair is load-bearing, not decoration: bare `git ls-files` is scoped to the current directory and prints cwd-relative paths, while `git diff` takes no implicit cwd pathspec and prints root-relative ones — so invoked from a subdirectory the untracked half would silently cover less ground than the tracked half, reproducing #483's own bug class one level down. `-- :/` re-roots the pathspec at the repo top level; `--full-name` makes the printed paths root-relative, matching `git diff`. Staged, range, and committed modes are unaffected — each already covers everything in its scope.
+**Working-tree scope also covers untracked files.** `git diff` alone never shows untracked paths — standard git behaviour, since it diffs the index against the working tree and an untracked file is in neither. Left uncovered, a brand-new file the user just created would get zero review coverage while the report still comes back clean. Step 2's working-tree row supplements the diff with `git ls-files --others --exclude-standard --full-name -- :/` so working mode reviews the whole tree, not just tracked edits. The `--full-name -- :/` pair is load-bearing, not decoration: bare `git ls-files` is scoped to the current directory and prints cwd-relative paths, while `git diff` takes no implicit cwd pathspec and prints root-relative ones — so invoked from a subdirectory the untracked half would silently cover less ground than the tracked half, reproducing #483's own bug class one level down. `-- :/` re-roots the pathspec at the repo top level; `--full-name` makes the printed paths root-relative, matching `git diff`. The supplement is capped in Step 2 — an unignored `dist/` must not flood the reviewer's prompt — and a capped run always says so. Staged, range, and committed modes are unaffected — each already covers everything in its scope.
 
 If the user didn't specify a mode, default to **staged**. If there are no staged changes in staged mode, check the working tree for unstaged content — tracked (`git diff`) or untracked (`git ls-files --others --exclude-standard --full-name -- :/`).
 
@@ -140,13 +140,34 @@ git ls-files --others --exclude-standard --full-name -- :/
 
 `--full-name -- :/` is required for this to match `git diff`'s scope: without them `git ls-files` is scoped to the current directory and prints cwd-relative paths, so a run from a subdirectory would skip every untracked file outside it while the tracked half of the same diff stayed repo-wide.
 
-For each path returned — resolved from the repo root, since `--full-name` makes the paths root-relative rather than cwd-relative, and quoted, since an unquoted path breaks on filenames containing spaces or shell metacharacters:
+For each path returned — subject to the caps below, and resolved from the repo root, since `--full-name` makes the paths root-relative rather than cwd-relative, and quoted, since an unquoted path breaks on filenames containing spaces or shell metacharacters:
 
 ```bash
 git -C "$(git rev-parse --show-toplevel)" diff --no-index -- /dev/null "<path>"
 ```
 
 This prints a standard "new file" unified diff (`--- /dev/null` / `+++ b/<path>`, with `<path>` root-relative, matching `git diff`'s own headers) and exits 1 — expected, the same nonzero exit `git diff --no-index` always returns when a difference exists, not an error. `--exclude-standard` respects `.gitignore`, so ignored files stay excluded, matching every other mode's git-tracked-or-intentionally-untracked scope; a binary untracked file reports `Binary files /dev/null and b/<path> differ`, same as git already does for binary changes elsewhere. Append each generated diff to the `git diff` output captured above — the combined text is the working-tree diff for Step 4. Nothing is staged: `git status` still reports these paths as untracked afterward.
+
+**Bound the supplement — count and size caps.** Untracked paths are unbounded in a way tracked edits are not: one unignored `dist/`, `node_modules/`, `target/`, or coverage-output directory yields thousands of them, and inlining each in full would blow out the Step 4 prompt on generated noise before the reviewer reaches a single real change. Cap the untracked supplement at **50 paths** and **256 KB** of synthesized untracked-diff text — 50 mirrors `scripts/discover.mjs`'s `DEFAULT_TOTAL_LIMIT`, 256 KB mirrors the `MAX_SCAN_FILE_BYTES` / `MAX_VALIDATE_FILE_BYTES` ceiling `scripts/scan_repo.mjs` and the validators already use. Walk the paths in the order `git ls-files` returned them — sorted, so the same tree always yields the same selection — and apply both caps as you go:
+
+- Inline nothing past the 50th path.
+- Skip — never *partially* inline — any single file whose synthesized diff would push the running untracked-diff total past 256 KB, then keep walking: a later, smaller file still fits within the remaining budget. A truncated diff is worse than an omitted one, because it reads to the reviewer as a complete file.
+
+Both caps bound the untracked supplement only; the tracked `git diff` half is not capped and is unchanged.
+
+**A capped run must never read as full coverage.** Record every skipped path and why (`over the 50-path cap` / `over the 256 KB budget`), and carry that record to both consumers — an untracked file that was never reviewed has to stay distinguishable from one that was reviewed and found clean:
+
+- **Step 4** — pass the notice in the dispatch prompt, so the deep-reviewer knows its input is partial and reports it rather than marking all 11 points evaluated over files it never received.
+- **Step 5** — surface the same notice to the user, above the findings.
+
+Suggested wording — omit the block entirely when nothing was skipped:
+
+```
+⚠️ Untracked supplement truncated — N of M untracked files were not reviewed
+(50-path cap / 256 KB budget). Skipped: <first 10 skipped paths>, and K more.
+Add generated output to .gitignore, or stage the files you want reviewed, then
+re-run /ievo:deep-review.
+```
 
 Also capture the list of changed files:
 
@@ -161,13 +182,15 @@ git diff --name-only
 git diff --name-only <range>
 ```
 
-**Working-tree mode only:** append the `git ls-files --others --exclude-standard --full-name -- :/` output captured above to the `git diff --name-only` result — both are root-relative, so the two halves concatenate into one consistent list — the combined list is the working-tree `changed_files` for Step 4.
+**Working-tree mode only:** append the untracked paths that were **actually inlined** — the post-cap subset, not the raw `git ls-files` output — to the `git diff --name-only` result. Both halves are root-relative, so they concatenate into one consistent list, and that combined list is the working-tree `changed_files` for Step 4. Skipped paths stay out of it on purpose: a name in `changed_files` means the reviewer received a diff for that file, and the truncation notice is what accounts for the rest.
 
 If the resulting diff is empty (combined diff for working-tree mode; possible with `--range` if the refs are identical), report and exit:
 
 ```
 Empty diff — the specified range contains no changes.
 ```
+
+One exception: in working-tree mode the combined diff can come out empty *because* the caps skipped everything — no tracked edits, and every untracked file over the 256 KB budget. That is not an empty diff, and reporting it as one would be the same silent coverage loss the caps exist to make visible. Print the truncation notice instead and exit without dispatching.
 
 ## Step 3: Gather repo context
 
@@ -198,6 +221,9 @@ Review the following diff for gaps, drift, and consistency issues.
 ## Changed files
 <file list from Step 2>
 
+## Coverage caveats
+<truncation notice from Step 2 — omit this whole section when nothing was skipped>
+
 ## Diff
 <full diff from Step 2>
 ```
@@ -217,6 +243,8 @@ The inline path is functionally identical but shares context with the caller (no
 ## Step 5: Present the review results
 
 The deep-reviewer returns a structured report with findings and a checklist summary. Present it to the user as-is — do not editorialize, filter, or reorder findings.
+
+If Step 2 truncated the untracked supplement, print that notice **first**, above the report — including above the zero-findings block below. A clean verdict over a truncated input is not a clean verdict over the working tree, and the user has to be able to tell those apart.
 
 If the review found **zero findings**:
 
@@ -255,4 +283,5 @@ Lint and type-checker diagnostics are out of scope too, but that boundary is enf
 - **Present findings verbatim.** Do not filter, suppress, or editorialize the deep-reviewer's output. The user decides what to act on.
 - **Default to staged.** If the user says `/ievo:deep-review` with no flags, review staged changes. This matches the pre-commit mental model.
 - **Empty diff = clean exit.** Don't warn or suggest — just state the fact and exit. Exception: whenever staged is empty (Step 1), offer the committed merge-base fallback first (`git merge-base HEAD origin/<default-branch>`, then `<merge-base>..HEAD`) — as an extra option beside the working-tree one if the tree has unstaged content, or on its own if it's clean. Only exit immediately once that fallback is unavailable too (no resolvable default branch or merge base, or the range itself is empty), and the tree has nothing unstaged either.
+- **A truncated supplement is never silent.** Working-tree mode caps the untracked supplement at 50 paths / 256 KB of synthesized diff (Step 2). Whenever a cap trips, the notice reaches both the deep-reviewer's prompt and the user's report — a file that was never reviewed must never be indistinguishable from one that was reviewed and found clean.
 - **All 11 points, every time.** The checklist summary must show all 11 points evaluated. Skipping a point because "it doesn't apply" is not allowed — mark it clean instead.

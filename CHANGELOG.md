@@ -6,6 +6,20 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.68.2
+
+Note Claude Code v2.1.181's `/config verbose=true` as a lighter, zero-install alternative in `debug-on`/`debug-off/SKILL.md` — closes #218.
+
+- **Gap closed (#218)** — `debug-on/SKILL.md` and `debug-off/SKILL.md` had no mention of Claude Code v2.1.181's `/config key=value` syntax, even though both skills exist to toggle a session setting (verbose/trace logging) that CC can now also set inline.
+- **Fix** — a short callout note in each file's body, right after the intro paragraph: `debug-on/SKILL.md` points at `/config verbose=true` for a quick one-off check and is explicit that it is *not* a substitute for the skill (no `.ievo/log/debug/` write, no git-shareable flag, Claude Code only — this skill also captures sub-agent prompts/returns and works across Codex/Cursor/other agentskills.io platforms); `debug-off/SKILL.md` carries the matching `/config verbose=false` note.
+- **Resolved the issue's open question — the exact CC setting key.** Re-verified directly against [Claude Code's settings docs](https://code.claude.com/docs/en/settings): the `verbose` key ("Enable verbose logging output for debugging... equivalent to setting `CLAUDE_CODE_VERBOSE` to `1`") is the documented example for `/config key=value` itself (`/config verbose=true`), not `thinking=false` from the [v2.1.181 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.181) (which only demonstrates the syntax, not the debug-relevant key). No `debug`/`outputVerbose`/`verboseOutput` key exists.
+- **Resolved the issue's open question — hooks.** `/config` has no documented support for nested/object settings — the docs describe it as changing "a single option" and give no dot-notation example — so `hooks-setup/SKILL.md` is left unchanged, matching the issue's own conditional scope ("optionally modified... if `/config` applies to hooks").
+- **Resolved the issue's open question — version phrasing.** Used `Claude Code v2.1.181+`, matching the convention already used throughout `hooks-setup/SKILL.md` and `debug-on/SKILL.md`'s existing "Cost monitoring (Claude Code v2.1.161+)" section, rather than `≥v2.1.181`.
+- **Scope** — two doc files (`debug-on/SKILL.md`, `debug-off/SKILL.md`) plus the mechanical version bump; no script or CI change. Docs-only, no coverage obligation.
+- **Version** — patch, not minor. AGENTS.md's bump table maps `fix:` → patch and `feat:` → minor and does not list `docs:`; this PR ships no feature, only a doc note, so it follows the immediately preceding docs-only entry v0.68.1 (a two-file `SKILL.md`/`AGENTS.md` note) and takes a patch. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.68.1 → 0.68.2).
+
+---
+
 ## v0.68.1
 
 Document Codex's MCP tool-call timeout as a **scoped** operator gotcha and note the matching Codex `rust-v0.141.0+` floor on `security-check/SKILL.md` — closes #227.

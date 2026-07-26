@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.65.0
+
+Add a Cost monitoring section to `debug-on/SKILL.md` documenting Claude Code's `OTEL_RESOURCE_ATTRIBUTES` metric labeling — closes #171.
+
+- **Feature** — new "Cost monitoring (Claude Code v2.1.161+)" section in `debug-on/SKILL.md`, giving a per-iEvo-operation `OTEL_RESOURCE_ATTRIBUTES` recipe (`ievo_skill=<skill>,project=<project>`) so a team running iEvo across many repos can slice usage-cost dashboards by skill or project, separating iEvo token spend from ordinary coding usage. Cites the [v2.1.161 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.161) (2026-06-02) for the labeling behavior and [Claude Code's monitoring docs](https://code.claude.com/docs/en/monitoring-usage) for the full OTel prerequisite set (`CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`) and the `OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES` off-switch (default `true`).
+- **Correction to the proposal** — the issue's draft invented `metrics.endpoint`/`metrics.headers` settings.json keys and an `.claude/settings.json` "org-wide enforcement" claim; neither exists. The shipped section instead documents the real OTel env vars and points org-wide enforcement at Claude Code's managed-settings file (`/etc/claude-code/managed-settings.json` Linux/WSL, `/Library/Application Support/ClaudeCode/managed-settings.json` macOS, `C:\Program Files\ClaudeCode\managed-settings.json` Windows), the only mechanism that can't be overridden by a user's own env vars.
+- **Binding-time note** — `OTEL_RESOURCE_ATTRIBUTES` is resolved once at Claude Code process start and holds for that process's whole lifetime, so no iEvo skill can set it automatically on activation and per-operation granularity means one process per attribute set (a fresh session or a one-shot `claude -p` run), not a set/clear-mid-session recipe.
+- **Reachability** — `debug-on/SKILL.md`'s `description:` frontmatter extended with cost-monitoring/OTel trigger words so the new section is reachable by description-match activation, not just by users already in a debug-logging context. Because that also makes the skill auto-activate on a purely documentational question, a new routing Step 0 splits the two intents: a cost-monitoring-only request is answered from the new section and stops there — Steps 1-5 are skipped, so no `.ievo/` check gates the answer and no `.ievo/debug.flag` or confidential trace log is created unrequested. `## When to use` records the docs-only path alongside the debug-logging ones.
+- **Scope** — one doc file (`debug-on/SKILL.md`), no script or CI change. Docs-only, no coverage obligation.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.64.0 → 0.65.0).
+
+---
+
 ## v0.64.0
 
 Document Codex named permission profiles as the Codex-side analog of `disallowed-tools` in `security-check/SKILL.md` — closes #170.

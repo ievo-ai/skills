@@ -859,18 +859,28 @@ this skill can neither drive nor read back (the same reason `version/SKILL.md`
 claude plugin list --json
 ```
 
-It prints a JSON array of installed plugins — `{"id", "version", "scope",
-"enabled", "installPath", ...}` per entry. Parse it directly (no `jq` needed) and
-find the entry whose `id` matches `^ievo(@.*)?$`:
+It prints a top-level JSON array of installed plugins — `{"id", "version",
+"scope", "enabled", "installPath", ...}` per entry (field shape and flag surface
+confirmed by running `claude plugin list --json` and `claude plugin list --help`
+on Claude Code v2.1.220, 2026-07-26 — `list` accepts only `--available` and
+`--json`). Parse it directly (no `jq` needed) and find the entry whose `id`
+matches `^ievo(@.*)?$`:
 
-- Entry found with `"enabled": true` → confirmed. Nothing further needed.
-- Entry found with `"enabled": false` → run `claude plugin enable
+- Entry found, `"enabled"` literally `true` → confirmed. Nothing further needed.
+- Entry found, `"enabled"` literally `false` → run `claude plugin enable
   ievo@ievo-skills -s <scope>`, passing that same entry's own `scope` value
-  rather than relying on `-s`'s auto-detect default, then re-run the check above.
-  Always the fully-qualified `ievo@ievo-skills` id — the bare `ievo` name fails
+  rather than relying on `-s`'s auto-detect default (omit `-s` altogether if that
+  entry carries no `scope`), then re-run the check above. Always the
+  fully-qualified `ievo@ievo-skills` id — the bare `ievo` name fails
   (`version/SKILL.md` § Rules).
-- Command succeeded but no matching entry → the install step did not actually
-  complete — re-run Step 9, or check `.claude/skills/` for a path conflict.
+- Command succeeded but no entry matched, or the match's `enabled` is not a
+  boolean → inconclusive, **not** a failed install: the shape above is only
+  confirmed for the version cited, and a build that wraps or renames the payload
+  parses fine and matches nothing. Degrade exactly like the unparseable case
+  below rather than pushing a possibly-healthy install back through a mutating
+  step — run `/ievo:overlay-status` first, and only if that too shows no overlay
+  layer treat the install as genuinely incomplete (re-run Step 9, or check
+  `.claude/skills/` for a path conflict).
 - Command unavailable or unparseable (no `claude` on `PATH`, non-zero exit, or
   output that isn't JSON — e.g. a build predating `plugin list --json`) → do not
   guess: skip the mechanical check and fall back to the manual smoke test

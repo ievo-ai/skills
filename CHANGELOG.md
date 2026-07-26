@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.68.0
+
+Document Codex v0.142.0 as the minimum version for reliable parallel MCP dispatch in `init/SKILL.md` — closes #232.
+
+- **Feature** — `init/SKILL.md`'s `compatibility` frontmatter now names **Codex rust-v0.142.0+** as the minimum for exec-server/MCP session disconnect recovery, and states the failure mode on earlier versions: a transient network blip during Step 6 (`repo-indexer`) or Step 8 (`security-auditor`) parallel dispatch can silently drop a sub-agent's MCP session — the scan appears to finish normally but with fewer verdicts than expected, no error shown. Companion to the existing v0.141.0 MCP-timeout note tracked separately in #227.
+- **Standalone, not merged with #227** — the issue gave two branches depending on #227's merge state at implementation time: combine into one note if #227 had already landed, otherwise ship this as its own note. #227 is still open (unmerged) as of this PR, so this ships standalone; whoever implements #227 next can fold both into one Codex-version clause then.
+- **Compatibility field was already at 495/500 chars, not the issue's assumed 443** — three PRs landed against this same field after the issue was filed (Auto Mode `classifyAllShell` and dual-gate install consent notes), leaving only 5 chars of headroom instead of the ~57 the issue estimated. Trimmed filler across the existing clauses (dropped the redundant `$CODEX_CLI` restatement — already documented 20+ times in this skill's body — and tightened wording) to make room for the new note while keeping every existing fact intact; final field is 490/500 chars. Matches the established precedent for this exact field (v0.47.5, v0.55.x: "trimming other clauses in the same field to stay under the agentskills.io 500-char limit").
+- **Scope** — one doc file (`init/SKILL.md`, frontmatter only, per the issue's own "API/UX surface" note). No script or CI change. Docs-only, no coverage obligation.
+- **Version** — bump per AGENTS.md rules (`docs:` touching plugin files → still bumps per convention); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.66.0 → 0.68.0 — 0.67.0 skipped, already claimed by in-flight PR #467 per AGENTS.md's race-avoidance convention).
+
+---
+
 ## v0.66.0
 
 Add an explicit MVP boundary (out-of-scope list) to `deep-review/SKILL.md` and `agents/deep-reviewer.md` — closes #243.

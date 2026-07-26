@@ -179,7 +179,7 @@ The deep-reviewer runs in a fresh context with separate token budget. It execute
 
 ### On other agentskills.io-compatible platforms
 
-If Task tool dispatch is not available, execute the deep-reviewer's steps inline:
+If Task tool dispatch is not available, execute the deep-reviewer's steps inline, bound by that agent's own `## Rules` — on this path you are the reviewer, so its finding-scope rules apply to you:
 
 1. Read the full content of every changed file (not just the diff hunks)
 2. Execute all 11 checklist points against the changes
@@ -214,11 +214,12 @@ After presenting results, suggest next steps based on severity:
 Draft findings, cite evidence, explain impact — one concrete suggestion per finding. This skill drafts and verifies; it does not merge, deploy, or own the outcome.
 
 **Out of scope — never return:**
-- Merge or deployment timing recommendations ("this is ready to merge", "deploy to staging first")
+- Merge, release, or deployment timing recommendations ("this is ready to merge", "deploy to staging first") — *commit* readiness is in scope and expected of a pre-commit review, so Step 5's "ready to commit" line and its severity-based next-step suggestions stand as written; this boundary starts at what happens *after* the commit.
 - Architecture refactors beyond the diff under review
 - Sprint/backlog priority suggestions
-- Lint or type errors (pre-commit tooling already caught those)
 - Unqualified approval with no findings — even a clean diff gets the full Step 5 "clean" report and checklist, never a bare "LGTM"
+
+Lint and type-checker diagnostics are out of scope too, but that boundary is enforced in `agents/deep-reviewer.md`'s `## Rules`, not here: findings originate in the reviewer, and this skill is explicitly forbidden from filtering them (Step 5, and **Present findings verbatim** below). On Step 4's inline fallback the boundary reaches you directly — that path runs the deep-reviewer's steps under its `## Rules`.
 
 ## Rules
 

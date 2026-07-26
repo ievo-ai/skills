@@ -120,6 +120,27 @@ When invoked, other iEvo skills MUST:
 - **Commit-friendly (with review)**: `.ievo/debug.flag` and `.ievo/log/debug/` are project-scope artifacts. The flag itself (intent only) is committable as-is; the log directory is gitignored by default (see above), so sharing logs requires `git add -f .ievo/log/debug/<session-id>/` after the per-file review below — the force-add is the explicit consent step. When user wants to share logs (issue filing, teammate help): tell them explicitly to review every file in `.ievo/log/debug/<session-id>/` for secrets/PII before `git add -f` or attaching to an issue. Suggest running `grep -RiE '(api[_-]?key|secret|token|password|bearer|x-api)' .ievo/log/debug/<session-id>/` as a final sanity check.
 - **Auto-cleanup of old sessions**: if `.ievo/log/debug/` contains more than 10 session subdirs, suggest user run cleanup. Don't delete without confirmation.
 
+## Cost monitoring (Claude Code v2.1.161+)
+
+Separate from the verbose logging above: attributing iEvo's own token cost inside an organization's usage dashboard. Only relevant for teams with an OTel metrics backend already configured — individual developers without that infrastructure can skip this section.
+
+Claude Code [v2.1.161](https://github.com/anthropics/claude-code/releases/tag/v2.1.161) (2026-06-02) started including `OTEL_RESOURCE_ATTRIBUTES` values as labels on every metric datapoint, so usage can be sliced by custom dimensions. Set it before activating an iEvo skill to tag that session's token usage:
+
+```bash
+export OTEL_RESOURCE_ATTRIBUTES="ievo_skill=security-check,project=<project>"
+```
+
+| iEvo operation | Suggested `OTEL_RESOURCE_ATTRIBUTES` |
+|-----------------|--------------------------------------|
+| `/ievo:init` | `ievo_skill=init,project=<project>` |
+| `/ievo:security-check` | `ievo_skill=security-check,project=<project>` |
+| `/ievo:evo` | `ievo_skill=evo,project=<project>` |
+| `/ievo:vuln-scan` | `ievo_skill=vuln-scan,project=<project>` |
+
+**Prerequisites** (per [Claude Code's monitoring docs](https://code.claude.com/docs/en/monitoring-usage)): `CLAUDE_CODE_ENABLE_TELEMETRY=1` plus an OTLP endpoint — `OTEL_METRICS_EXPORTER=otlp` and `OTEL_EXPORTER_OTLP_ENDPOINT=<collector-url>` (add `OTEL_EXPORTER_OTLP_HEADERS` if the backend needs auth). These are ordinary env vars, not dedicated settings.json keys — there is no `metrics.endpoint`/`metrics.headers` field. For org-wide enforcement, set the same names under the `env` block in `.claude/settings.json`; managed settings there take precedence over a user's own env vars.
+
+**Scope**: labels apply to *all* Claude Code token usage for the session, not just iEvo-dispatched sub-agents — set the var immediately before activating the skill and clear it afterward for per-skill granularity. Values must be comma-separated `key=value` pairs with no spaces (percent-encode special characters, e.g. space → `%20`).
+
 ## See also
 
 - `/ievo:debug-off` — disable verbose mode

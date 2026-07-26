@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.64.0
+
+Add a "Cost monitoring" section to `debug-on/SKILL.md` documenting `OTEL_RESOURCE_ATTRIBUTES` cost attribution for Claude Code v2.1.161+ — closes #171.
+
+- **Feature** — new `## Cost monitoring (Claude Code v2.1.161+)` section in `plugins/ievo/skills/debug-on/SKILL.md`, documenting how enterprise teams with an OTel metrics backend can tag iEvo token usage in their dashboards by setting `OTEL_RESOURCE_ATTRIBUTES` (e.g. `ievo_skill=security-check,project=<project>`) before activating a skill, with a suggested-value table for `init`/`security-check`/`evo`/`vuln-scan`.
+- **Correction against the source proposal** — the filing issue's proposed wording cited `metrics.endpoint`/`metrics.headers` as settings.json keys controlling the OTel backend; verified against [Claude Code's monitoring docs](https://code.claude.com/docs/en/monitoring-usage) that no such keys exist. Corrected to the real mechanism: standard OTel env vars (`CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`), settable directly or centrally via the `env` block in `.claude/settings.json`.
+- **Scope** — documentation-only addition to one skill file; no script or behavioral changes. `OTEL_RESOURCE_ATTRIBUTES` labeling is Claude Code platform behavior (v2.1.161+), not something iEvo skills set automatically — the section is user guidance, matching the source proposal's own API/UX framing.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.63.0 → 0.64.0).
+
+---
+
 ## v0.63.0
 
 Add a platform-mismatch self-check to `/ievo:init` and `/ievo:evo-auto-enable` that offers to report a caught bug via the existing evo → feedback pipe — closes #433.

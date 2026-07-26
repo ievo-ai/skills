@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.69.0
+
+Add an `## Active plan state` section and an explicit `/ievo:overlay-status` pointer to `handoff/SKILL.md`'s context-capsule template — closes #206.
+
+- **Gap closed (#206)** — the [DenisSergeevitch context-tier model](https://github.com/DenisSergeevitch/agents-best-practices/blob/main/references/context-memory-compaction.md) names Tier 5 (active plan state) and Tier 6 (scoped instructions/overlays) as context that must survive a session handoff. `handoff/SKILL.md`'s Step 4 output template had no `## Active plan state` section at all, so a receiving session had to re-derive which phase/step the work was in from conversation context. The `## Active overlays` section already existed (added since filing — confirmed by the operator's 2026-07-26 scope-down comment) but its closing line only said "review these overlays," giving the receiving agent no concrete next action.
+- **Fix** — inserted a new `## Active plan state` section into the Step 4 template, between `## Context` and `## Key files` (matching the issue's proposed placement): a 1-paragraph summary of phase/step/decided/next, derived from the session's in-progress plan or task list, falling back to a 2-3 sentence work-stage description when no explicit plan exists. Changed `## Active overlays`'s closing sentence from "Review these overlays at the start of the next session to inherit project conventions." to "Run `/ievo:overlay-status` at the start of the next session to load these." — an explicit, runnable action instead of a vague instruction.
+- **Scope** — per the issue author's 2026-07-26 scope-down comment, this build is deliberately narrow: just the two additions above to `plugins/ievo/skills/handoff/SKILL.md`. The `## Active overlays` section itself was NOT re-added (already present) and no new Step 2 "gather active plan state" sub-step was introduced — the template's own bracketed instruction text is self-contained, matching the style of the file's other sections (e.g. `## Context`, `## References`) that have no dedicated Step 2 gathering sub-step. Companion issue #204 (still `approved`, not yet built) proposes an unrelated `## Plugin state` section in the same file; left untouched here since it's a separate, larger, not-yet-claimed change.
+- **Version** — `feat:` → minor per AGENTS.md's bump table; this ships new template surface, not a fix. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.68.3 → 0.69.0).
+
+---
+
 ## v0.68.3
 
 Document Claude Code v2.1.178's nested `.claude/skills` directory loading and `<dir>:<name>` qualified naming for monorepo iEvo installations — closes #209.

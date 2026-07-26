@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.64.0
+
+Document Codex named permission profiles as the Codex-side parity mechanism for `disallowed-tools` in `security-check/SKILL.md` — closes #170.
+
+- **Feature** — new "Codex setup — named permission profiles (parity for `disallowed-tools`)" section in `security-check/SKILL.md`, placed after the existing `## Rules` section. Documents the gap (`disallowed-tools` has no Codex-side enforcement), cites Codex CLI rust-v0.135.0 (2026-05-28) as the version that shipped named permission profiles via `/permissions`, and gives two verified activation paths: the built-in `:read-only` profile via the interactive `/permissions` picker (no config file needed — covers the write-blocking half of `disallowed-tools`), and a custom named profile (e.g. `ievo-security-scan`) defined under `[permissions.<name>]` in `~/.codex/config.toml` and activated with `codex --profile <name>` for readers who also want the network-domain scoping this skill's existing "Network exfiltration" guidance recommends on Claude Code.
+- **Correction to the proposal** — the issue's proposed `/permissions use <profile-name>` activation syntax was unverified against Codex's own docs; the actual mechanism is an interactive picker (type `/permissions`, select a preset) plus the `--profile` CLI launch flag, not a typed subcommand argument. Also, Codex's permission model is filesystem read/write/deny + network domain rules, not a per-tool-name allowlist like Claude Code's — so the section frames the recommendation in Codex's own terms rather than literally mapping "Read, Grep, Glob, WebFetch" onto it.
+- **Cross-reference cleanup** — both `security-check/SKILL.md` and `vuln-scan/SKILL.md` carried a forward-reference to this issue in their "Sandbox hardening" section (`Codex has no documented equivalent as of this writing — use its own sandbox/permission-profile controls (ievo-ai/skills#170) instead`), added in v0.62.x anticipating this exact gap. Both now point at the new section instead of the closed issue, and are corrected to scope the claim accurately: Codex's permission profiles give write-blocking parity, not a `sandbox.credentials`-style per-file/env-var credential mask. `vuln-scan/SKILL.md` doesn't get its own copy of the section — it needs no network access at all, so the built-in `:read-only` profile alone is sufficient there, and its cross-reference says so. `AGENTS.md`'s own security-model bullet (§ Sub-agent tool isolation) carried the same stale `ievo-ai/skills#170` pointer and is updated the same way.
+- **Scope** — three doc files (`security-check/SKILL.md`, `vuln-scan/SKILL.md`, `AGENTS.md`), no script or CI change. Docs-only, no coverage obligation.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.63.0 → 0.64.0).
+
+---
+
 ## v0.63.0
 
 Add a platform-mismatch self-check to `/ievo:init` and `/ievo:evo-auto-enable` that offers to report a caught bug via the existing evo → feedback pipe — closes #433.

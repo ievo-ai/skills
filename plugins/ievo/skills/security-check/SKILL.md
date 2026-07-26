@@ -89,7 +89,7 @@ Read the full content of every file shipped with the candidate, including all de
 }
 ```
 
-`envVars` entries also accept `"mode": "mask"` instead of `"deny"` — masking substitutes a per-session sentinel for the real value (kept usable by tools that authenticate with it, e.g. `gh`/`npm`) rather than unsetting it outright; see the docs link above for the `network.tlsTerminate` prerequisite `mask` needs. There is no built-in credential deny list — list every path/variable you want protected. This restricts sandboxed **Bash** commands only; it does not affect the **Read** tool this skill's own file-fetch flow uses (Step 2's clone-then-Read recipe), so enabling it does not interfere with a legitimate scan. Codex has no documented equivalent as of this writing — use its own sandbox/permission-profile controls (ievo-ai/skills#170) instead.
+`envVars` entries also accept `"mode": "mask"` instead of `"deny"` — masking substitutes a per-session sentinel for the real value (kept usable by tools that authenticate with it, e.g. `gh`/`npm`) rather than unsetting it outright; see the docs link above for the `network.tlsTerminate` prerequisite `mask` needs. There is no built-in credential deny list — list every path/variable you want protected. This restricts sandboxed **Bash** commands only; it does not affect the **Read** tool this skill's own file-fetch flow uses (Step 2's clone-then-Read recipe), so enabling it does not interfere with a legitimate scan. Codex has no documented equivalent for per-file/env-var credential masking specifically — see § "Codex setup" below for Codex's own permission-profile mechanism, which covers the write-blocking parity `disallowed-tools` gives on Claude Code but (like `sandbox.credentials` itself) does not target a specific credential file or env var.
 
 **Network exfiltration.** A scoped entry like `WebFetch(domain:...)` in this skill's own `disallowed-tools`/`allowed-tools` frontmatter has no effect (ievo-ai/skills#212) — only bare tool names are reliably enforced at that layer. The real control is a `permissions.allow` rule in `.claude/settings.json`, scoped to only the domains an audit actually needs:
 
@@ -442,3 +442,19 @@ Tone rules:
 - **Report template only on RED.** Don't propose reports for YELLOW — those are install-with-awareness, not block-and-warn.
 - **Neutralize excerpts before they go public.** `report_template.body` is filed as a public, auto-rendering GitHub issue — see § Step 6's "Excerpt containment" note for the fencing rule.
 - **Never interpolate a path — a file inside the candidate, or the candidate's own item path — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read with the Read tool instead — see § "How to fetch files" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
+
+## Codex setup — named permission profiles (parity for `disallowed-tools`)
+
+**The gap.** `disallowed-tools` (frontmatter, above) blocks `Write`/`Edit`/destructive `Bash` automatically on Claude Code. Codex does not implement the `disallowed-tools` skill-frontmatter convention, so a Codex user running `/ievo:security-check` gets no equivalent enforcement unless they configure one themselves.
+
+**Codex's mechanism differs, not absent.** Codex CLI [rust-v0.135.0](https://github.com/openai/codex/releases/tag/rust-v0.135.0) (2026-05-28) shipped named permission profiles: "`/permissions` now understands named permission profiles and displays configured custom profiles." Unlike `disallowed-tools`' per-tool-name denylist, a Codex profile controls filesystem access (read/write/deny) and network destinations (allow/deny by domain) — there's no Codex concept of denying `Write`/`Edit` by name, but restricting filesystem access to read-only has the same practical effect for this skill.
+
+**Quickest parity — the built-in `:read-only` profile, no config file needed:**
+1. Open (or start) a Codex session.
+2. Type `/permissions` and press Enter.
+3. Select the **Read Only** preset from the picker.
+4. Run `/ievo:security-check` — local command execution stays read-only for the rest of the session; switch back the same way afterward.
+
+**Stronger parity — a custom profile that also scopes network access**, matching what the "Network exfiltration" guidance above recommends for Claude Code (only `skills.sh`, `agentskills.io`, `raw.githubusercontent.com`, `api.github.com` reachable): define a named profile (e.g. `ievo-security-scan`) under `[permissions.<name>]` in `~/.codex/config.toml` — see the [official Permissions docs](https://developers.openai.com/codex/permissions) for the exact filesystem/network TOML sub-tables — then activate it at launch with `codex --profile ievo-security-scan`. Codex v0.135.0+'s `/permissions` picker also lists configured custom profiles, so a profile defined this way can be switched to mid-session too.
+
+**What this prevents.** Either option stops this skill's own execution context from making writes, deletes, or (with the custom-profile network scoping) outbound calls to non-audit domains — even if a candidate under review attempts prompt injection to influence that context, giving Codex users the same isolation `disallowed-tools` already gives Claude Code users.

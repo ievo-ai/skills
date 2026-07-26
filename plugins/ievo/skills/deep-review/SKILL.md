@@ -61,6 +61,8 @@ Check if the user specified a scope mode. Three user-selectable modes are suppor
 | **range** | `--range <ref>..<ref>` | `git diff <ref>..<ref>` |
 | **committed** (fallback) | not user-selectable — offered when staged and unstaged are both empty | `git diff "$(git merge-base HEAD origin/<default-branch>)"..HEAD` |
 
+**Working-tree scope also covers untracked files.** `git diff` alone never shows untracked paths — standard git behaviour, since it diffs the index against the working tree and an untracked file is in neither. Left uncovered, a brand-new file the user just created would get zero review coverage while the report still comes back clean. Step 2's working-tree row supplements the diff with `git ls-files --others --exclude-standard` so working mode reviews the whole tree, not just tracked edits. Staged, range, and committed modes are unaffected — each already covers everything in its scope.
+
 If the user didn't specify a mode, default to **staged**. If there are no staged changes in staged mode, check for unstaged changes and ask:
 
 ```
@@ -123,6 +125,20 @@ git diff
 git diff <range>
 ```
 
+**Working-tree mode only — supplement with untracked files.** List non-ignored untracked paths and synthesize a diff for each, without touching the index:
+
+```bash
+git ls-files --others --exclude-standard
+```
+
+For each path returned:
+
+```bash
+git diff --no-index -- /dev/null <path>
+```
+
+This prints a standard "new file" unified diff (`--- /dev/null` / `+++ b/<path>`) and exits 1 — expected, the same nonzero exit `git diff --no-index` always returns when a difference exists, not an error. `--exclude-standard` respects `.gitignore`, so ignored files stay excluded, matching every other mode's git-tracked-or-intentionally-untracked scope; a binary untracked file reports `Binary files /dev/null and b/<path> differ`, same as git already does for binary changes elsewhere. Append each generated diff to the `git diff` output captured above — the combined text is the working-tree diff for Step 4. Nothing is staged: `git status` still reports these paths as untracked afterward.
+
 Also capture the list of changed files:
 
 ```bash
@@ -136,7 +152,9 @@ git diff --name-only
 git diff --name-only <range>
 ```
 
-If the diff is empty (possible with `--range` if the refs are identical), report and exit:
+**Working-tree mode only:** append the `git ls-files --others --exclude-standard` output captured above to the `git diff --name-only` result — the combined list is the working-tree `changed_files` for Step 4.
+
+If the resulting diff is empty (combined diff for working-tree mode; possible with `--range` if the refs are identical), report and exit:
 
 ```
 Empty diff — the specified range contains no changes.

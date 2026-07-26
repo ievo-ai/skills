@@ -303,6 +303,13 @@ install (vendor or plugin, project-scope)      ← Write tool (copy) + source SH
 
 Everything runs on the user's machine. No central trust gates. No community caches. No prereq installs (v0.6.0 dropped find-skills).
 
+**Sub-agent nesting (Claude Code, min-version 2.1.172) — supersedes the older "no agent nesting" documented constraint.** Sub-agents can now spawn sub-agents of their own — useful when a dispatched sub-agent's work itself splits into parallel subtasks (e.g. a scanner sub-agent dispatching a validator per finding), so the intermediate output never surfaces in the main conversation. The diagram above is intentionally flat: `/ievo:init` dispatches `index-repos` and `security-auditor` sub-agents directly from the main session, one layer deep, no further nesting. Nesting is available to any future pipeline stage that needs a second or third layer — but the depth default has moved twice since v2.1.172 shipped it, so verify current behavior at `code.claude.com/docs/en/sub-agents` rather than trusting a cached number:
+- v2.1.172–v2.1.216: nesting on by default, fixed at 5 layers below the main conversation, not configurable.
+- v2.1.217–v2.1.218: default dropped to 1 layer (nesting off unless raised).
+- v2.1.219+ (current): default is 3 layers below the main conversation; adjustable via the `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` env var (`1` disables nesting).
+
+`/ievo:vuln-scan` (skills#110, closed) is the closest shipped example: the orchestrator (main session) dispatches parallel `vuln-scanner` sub-agents per module — one layer of nesting. Cross-module exploit correlation (its Phase 3) runs back in the orchestrator itself rather than a further nested dispatch, so what shipped is shallower than the `module-scanner → exploit-validator` second layer #110 once considered — that second layer would still fit inside the current 3-layer default if a future redesign wants it.
+
 ## What NOT to do
 
 - **Don't add owner-based trust shortcuts.** OpenAI, Anthropic, Microsoft accounts have all been compromised. Verdict must come from content scan alone.

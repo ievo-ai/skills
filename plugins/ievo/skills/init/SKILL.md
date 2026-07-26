@@ -846,25 +846,35 @@ Project settings updated: .claude/settings.json (commit to git for team sync)
 Step 2.2 already folded iEvo's own entry into the "Project settings updated"
 line — no separate confirmation line needed on Claude Code.
 
-**Post-install verification (Claude Code v2.1.163+ only — skip entirely on Codex,
-which has no `/plugin` command).** The summary above is a text confirmation; it
-cannot detect a silent activation failure (e.g. `defaultEnabled: false` in
-`settings.json`, or a path conflict under `.claude/skills/`). Run `claude
---version` via Bash first (same check as `hooks-setup/SKILL.md` Step 5.6.1): on
-versions before v2.1.163, `/plugin list` does not exist — skip the rest of this
-check and fall back to the manual smoke test instead: run `/ievo:overlay-status`
-to confirm the overlay layer initialized. Otherwise, immediately after printing
-the summary, run the `/plugin list --enabled` subcommand (same `/plugin`
-command already introduced above for auto-update — this is its `list
---enabled`/`list --disabled`/`enable <name>` subcommand form) to mechanically
-confirm `ievo` is actually active:
+**Post-install verification (Claude Code only — skip entirely on Codex, which
+installs through its own `codex plugin` catalog, not this one).** The summary
+above is a text confirmation; it cannot detect a silent activation failure (e.g.
+iEvo's `enabledPlugins` entry left `false` in `settings.json`, or a path conflict
+under `.claude/skills/`). Immediately after printing the summary, run the `claude`
+CLI shell form via Bash — never the interactive `/plugin` slash form, whose menu
+this skill can neither drive nor read back (the same reason `version/SKILL.md`
+§ Rules renders `claude plugin ...` shell commands instead of slash forms):
 
-- `ievo` appears → confirmed. Nothing further needed.
-- `ievo` does NOT appear → run `/plugin list --disabled`. If it shows up there,
-  run `/plugin enable ievo` to activate it, then re-check with `/plugin list
-  --enabled`.
-- `ievo` appears in neither list → the install step did not actually complete —
-  re-run Step 9, or check `.claude/skills/` for a path conflict.
+```sh
+claude plugin list --json
+```
+
+It prints a JSON array of installed plugins — `{"id", "version", "scope",
+"enabled", "installPath", ...}` per entry. Parse it directly (no `jq` needed) and
+find the entry whose `id` matches `^ievo(@.*)?$`:
+
+- Entry found with `"enabled": true` → confirmed. Nothing further needed.
+- Entry found with `"enabled": false` → run `claude plugin enable
+  ievo@ievo-skills -s <scope>`, passing that same entry's own `scope` value
+  rather than relying on `-s`'s auto-detect default, then re-run the check above.
+  Always the fully-qualified `ievo@ievo-skills` id — the bare `ievo` name fails
+  (`version/SKILL.md` § Rules).
+- Command succeeded but no matching entry → the install step did not actually
+  complete — re-run Step 9, or check `.claude/skills/` for a path conflict.
+- Command unavailable or unparseable (no `claude` on `PATH`, non-zero exit, or
+  output that isn't JSON — e.g. a build predating `plugin list --json`) → do not
+  guess: skip the mechanical check and fall back to the manual smoke test
+  instead — run `/ievo:overlay-status` to confirm the overlay layer initialized.
 
 **On Codex** (`$CODEX_CLI` set), print this variant instead — never `/reload-plugins`
 (not a Codex command), never a `/plugin` menu path, never a `.claude/settings.json`

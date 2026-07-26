@@ -108,6 +108,42 @@ Read the full content of every file shipped with the candidate, including all de
 
 Do not add a broad `WebFetch` allow rule for an audit session. An off-list fetch then has no matching allow rule and is blocked — surfacing as an explicit permission prompt interactively, or an automatic denial in a headless/`-p` run — closing the exfiltration vector at the layer that actually enforces it, rather than the frontmatter layer that doesn't.
 
+## Codex setup — named permission profiles (Codex's analog of `disallowed-tools`)
+
+**The gap.** `disallowed-tools` (frontmatter, above) blocks the agent's own `Write`/`Edit` tools automatically on Claude Code — with the same caveat § "Sandbox hardening" above carries: only **bare tool names** are reliably enforced at that layer, not scoped specifiers, so the `Bash(rm*)`-style destructive-prefix entries are not something to rely on. Whether a skill-level scoped `Bash(...)` entry acts as a scoped rule or is silently ignored remains **unverified** — do not assume either behavior until a dedicated, isolated probe settles it (`AGENTS.md` § Security model → "Sub-agent tool isolation"). Codex does not implement the `disallowed-tools` skill-frontmatter convention at all, so a Codex user running `/ievo:security-check` gets no equivalent enforcement — not even the bare-name `Write`/`Edit` denials — unless they configure one themselves.
+
+**Codex's mechanism differs in kind.** Codex CLI [rust-v0.135.0](https://github.com/openai/codex/releases/tag/rust-v0.135.0) (2026-05-28, verified 2026-07-26) shipped named permission profiles: "`/permissions` now understands named permission profiles and displays configured custom profiles." Per the [Permissions docs](https://developers.openai.com/codex/permissions) (verified 2026-07-26), a profile governs **filesystem** access (`read`/`write`/`deny`, per path or special token) and **network** access (per-domain `allow`/`deny`, `enabled = false` by default) for sandboxed tool calls. There is no Codex concept of denying `Write`/`Edit` by tool name.
+
+**Don't reach for the built-in `:read-only` profile here — it breaks the scan.** It is not the equivalent of `disallowed-tools`, it is strictly broader: `disallowed-tools` denies the agent's *own* write tools while leaving Bash `git` fully usable, whereas `:read-only` blocks filesystem writes outright and leaves network disabled. That kills Step 2's mandatory `mktemp -d` + `git clone --depth 1` + `git fetch`/`checkout` fetch flow — the scan can't obtain the candidate at all — and the RED-only `.ievo/hooks/security-red` write the `security-auditor` agent performs. (`:read-only` *is* the right profile for `/ievo:vuln-scan`, which reviews local source and needs neither a clone nor network — with one caveat: that skill's `--pr <N>` scope resolves its file list via `gh pr diff`, so that mode alone also needs `api.github.com` allowed, or the PR branch checked out locally and scanned with `--diff`. See `vuln-scan/SKILL.md` § "Sandbox hardening".)
+
+**Use a custom profile instead** — writes confined to the workspace plus the temp dir the clone lands in, network narrowed to exactly the hosts an audit needs. The built-in `:workspace` already permits writes inside active workspace roots and system temp directories, so extend it and add the network allowlist in `~/.codex/config.toml`:
+
+```toml
+# Applies to every session; to scope it to the scan only, leave this out and
+# switch to the profile from the `/permissions` picker instead (see below).
+default_permissions = "ievo-security-scan"
+
+[permissions.ievo-security-scan]
+description = "iEvo security-check — workspace + tmp writes, audit domains only"
+extends = ":workspace"
+
+[permissions.ievo-security-scan.network]
+enabled = true
+
+[permissions.ievo-security-scan.network.domains]
+"github.com" = "allow"                # Step 2's git clone/fetch of the candidate
+"api.github.com" = "allow"            # gh api metadata, default-branch + SHA resolution
+"raw.githubusercontent.com" = "allow"
+"skills.sh" = "allow"
+"agentskills.io" = "allow"
+```
+
+`github.com` is on that list even though it is absent from the Claude Code `WebFetch(domain:...)` block above, and the difference is load-bearing: that block scopes only the `WebFetch` tool, which never clones, while a Codex network policy governs every sandboxed process — `git` and `gh` included. Copy the four WebFetch domains across without adding `github.com` and Step 2's clone fails.
+
+**Activating it.** Either set the top-level `default_permissions` key shown above, or switch mid-session from the `/permissions` picker, which lists configured custom profiles once profile mode is active. `codex --profile <name>` is a **different** mechanism and will not do it: since Codex 0.134.0 that flag overlays `~/.codex/<name>.config.toml` as a config layer and no longer reads any `[profiles.<name>]` table ([Advanced configuration](https://developers.openai.com/codex/config-advanced), verified 2026-07-26), so it selects a permission profile only indirectly, if that overlay file itself sets `default_permissions`. Note also that the picker shows friendly labels — **Read Only**, **Full Access** — for the built-ins whose config identifiers are `:read-only` and `:danger-full-access` ([openai/codex#21559](https://github.com/openai/codex/pull/21559)); same profiles, two spellings.
+
+**What this prevents.** The profile stops this skill's own execution context from writing outside the workspace and the clone's temp dir, or reaching any host off the audit allowlist — even if a candidate under review attempts prompt injection to influence that context. That is the Codex-side equivalent of `disallowed-tools` plus the `WebFetch(domain:...)` allowlist, expressed in Codex's own filesystem/network terms rather than by tool name, and without disabling the fetch flow the scan depends on.
+
 ## Input
 
 A candidate identifier:
@@ -442,39 +478,3 @@ Tone rules:
 - **Report template only on RED.** Don't propose reports for YELLOW — those are install-with-awareness, not block-and-warn.
 - **Neutralize excerpts before they go public.** `report_template.body` is filed as a public, auto-rendering GitHub issue — see § Step 6's "Excerpt containment" note for the fencing rule.
 - **Never interpolate a path — a file inside the candidate, or the candidate's own item path — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read with the Read tool instead — see § "How to fetch files" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
-
-## Codex setup — named permission profiles (Codex's analog of `disallowed-tools`)
-
-**The gap.** `disallowed-tools` (frontmatter, above) blocks the agent's own `Write`/`Edit` tools and destructive `Bash` prefixes automatically on Claude Code. Codex does not implement the `disallowed-tools` skill-frontmatter convention, so a Codex user running `/ievo:security-check` gets no equivalent enforcement unless they configure one themselves.
-
-**Codex's mechanism differs in kind.** Codex CLI [rust-v0.135.0](https://github.com/openai/codex/releases/tag/rust-v0.135.0) (2026-05-28, verified 2026-07-26) shipped named permission profiles: "`/permissions` now understands named permission profiles and displays configured custom profiles." Per the [Permissions docs](https://developers.openai.com/codex/permissions) (verified 2026-07-26), a profile governs **filesystem** access (`read`/`write`/`deny`, per path or special token) and **network** access (per-domain `allow`/`deny`, `enabled = false` by default) for sandboxed tool calls. There is no Codex concept of denying `Write`/`Edit` by tool name.
-
-**Don't reach for the built-in `:read-only` profile here — it breaks the scan.** It is not the equivalent of `disallowed-tools`, it is strictly broader: `disallowed-tools` denies the agent's *own* write tools while leaving Bash `git` fully usable, whereas `:read-only` blocks filesystem writes outright and leaves network disabled. That kills Step 2's mandatory `mktemp -d` + `git clone --depth 1` + `git fetch`/`checkout` fetch flow — the scan can't obtain the candidate at all — and the RED-only `.ievo/hooks/security-red` write the `security-auditor` agent performs. (`:read-only` *is* the right profile for `/ievo:vuln-scan`, which reviews local source and needs neither a clone nor network — with one caveat: that skill's `--pr <N>` scope resolves its file list via `gh pr diff`, so that mode alone also needs `api.github.com` allowed, or the PR branch checked out locally and scanned with `--diff`. See `vuln-scan/SKILL.md` § "Sandbox hardening".)
-
-**Use a custom profile instead** — writes confined to the workspace plus the temp dir the clone lands in, network narrowed to exactly the hosts an audit needs. The built-in `:workspace` already permits writes inside active workspace roots and system temp directories, so extend it and add the network allowlist in `~/.codex/config.toml`:
-
-```toml
-# Applies to every session; to scope it to the scan only, leave this out and
-# switch to the profile from the `/permissions` picker instead (see below).
-default_permissions = "ievo-security-scan"
-
-[permissions.ievo-security-scan]
-description = "iEvo security-check — workspace + tmp writes, audit domains only"
-extends = ":workspace"
-
-[permissions.ievo-security-scan.network]
-enabled = true
-
-[permissions.ievo-security-scan.network.domains]
-"github.com" = "allow"                # Step 2's git clone/fetch of the candidate
-"api.github.com" = "allow"            # gh api metadata, default-branch + SHA resolution
-"raw.githubusercontent.com" = "allow"
-"skills.sh" = "allow"
-"agentskills.io" = "allow"
-```
-
-`github.com` is on that list even though it is absent from the Claude Code `WebFetch(domain:...)` block above, and the difference is load-bearing: that block scopes only the `WebFetch` tool, which never clones, while a Codex network policy governs every sandboxed process — `git` and `gh` included. Copy the four WebFetch domains across without adding `github.com` and Step 2's clone fails.
-
-**Activating it.** Either set the top-level `default_permissions` key shown above, or switch mid-session from the `/permissions` picker, which lists configured custom profiles once profile mode is active. `codex --profile <name>` is a **different** mechanism and will not do it: since Codex 0.134.0 that flag overlays `~/.codex/<name>.config.toml` as a config layer and no longer reads any `[profiles.<name>]` table ([Advanced configuration](https://developers.openai.com/codex/config-advanced), verified 2026-07-26), so it selects a permission profile only indirectly, if that overlay file itself sets `default_permissions`. Note also that the picker shows friendly labels — **Read Only**, **Full Access** — for the built-ins whose config identifiers are `:read-only` and `:danger-full-access` ([openai/codex#21559](https://github.com/openai/codex/pull/21559)); same profiles, two spellings.
-
-**What this prevents.** The profile stops this skill's own execution context from writing outside the workspace and the clone's temp dir, or reaching any host off the audit allowlist — even if a candidate under review attempts prompt injection to influence that context. That is the Codex-side equivalent of `disallowed-tools` plus the `WebFetch(domain:...)` allowlist, expressed in Codex's own filesystem/network terms rather than by tool name, and without disabling the fetch flow the scan depends on.

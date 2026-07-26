@@ -849,9 +849,15 @@ line — no separate confirmation line needed on Claude Code.
 **Post-install verification (Claude Code v2.1.163+ only — skip entirely on Codex,
 which has no `/plugin` command).** The summary above is a text confirmation; it
 cannot detect a silent activation failure (e.g. `defaultEnabled: false` in
-`settings.json`, or a path conflict under `.claude/skills/`). Immediately after
-printing the summary, run `/plugin list --enabled` to mechanically confirm `ievo`
-is actually active:
+`settings.json`, or a path conflict under `.claude/skills/`). Run `claude
+--version` via Bash first (same check as `hooks-setup/SKILL.md` Step 5.6.1): on
+versions before v2.1.163, `/plugin list` does not exist — skip the rest of this
+check and fall back to the manual smoke test instead: run `/ievo:overlay-status`
+to confirm the overlay layer initialized. Otherwise, immediately after printing
+the summary, run the `/plugin list --enabled` subcommand (same `/plugin`
+command already introduced above for auto-update — this is its `list
+--enabled`/`list --disabled`/`enable <name>` subcommand form) to mechanically
+confirm `ievo` is actually active:
 
 - `ievo` appears → confirmed. Nothing further needed.
 - `ievo` does NOT appear → run `/plugin list --disabled`. If it shows up there,
@@ -859,10 +865,6 @@ is actually active:
   --enabled`.
 - `ievo` appears in neither list → the install step did not actually complete —
   re-run Step 9, or check `.claude/skills/` for a path conflict.
-
-On Claude Code versions before v2.1.163, `/plugin list` does not exist — skip
-this check and fall back to the manual smoke test instead: run
-`/ievo:overlay-status` to confirm the overlay layer initialized.
 
 **On Codex** (`$CODEX_CLI` set), print this variant instead — never `/reload-plugins`
 (not a Codex command), never a `/plugin` menu path, never a `.claude/settings.json`

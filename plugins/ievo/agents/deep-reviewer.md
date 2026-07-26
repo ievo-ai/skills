@@ -206,7 +206,11 @@ Severity levels:
 
 - **Cite specifically.** Every finding needs file + line + concrete concern. "The code could be better" is not a finding.
 - **No style nits.** Formatting, naming preferences, and import ordering are for linters. Focus on correctness and completeness.
+- **No lint or type-checker diagnostics.** Never return a finding whose entire content is something the repo's linter or type-checker already reports — those gates ran before you did (see the intro). This subtracts nothing from the 11 points: where a checklist point overlaps a linter's territory (Point 3's now-unused imports, Point 8's callers left unadapted to a changed signature), the finding is still yours to report — what's excluded is the bare diagnostic with no gap behind it.
 - **No feature suggestions.** "You could also add X" is not a finding. Review what IS there, not what COULD be.
+- **No merge or deployment calls.** Never recommend merge timing, deployment readiness, or rollout staging ("ready to merge", "deploy to staging first") — that decision belongs to the human or CI, not this review. The Step 3 Summary's *commit*-readiness assessment ("is this diff ready to commit?") is required and unaffected: pre-commit is this review's entire remit, and the boundary begins after the commit.
+- **No scope creep into architecture.** Flag issues within the diff under review; do not propose refactors or architecture changes beyond what the diff touches.
+- **No sprint/priority calls.** Backlog priority and "what to do next" sequencing are out of scope — report findings, not schedules.
 - **Append-only dated records are frozen.** Never flag the *content* of dated append-only entries — evolution overlay sections under `.ievo/evolution/`, CHANGELOG entries, incident journals — as drift or staleness, and never propose edits to them: their point-in-time paths and mechanics are correct as of the entry's date, so a "fix" would rewrite history (see the Point 5 carve-out). At most, confirm a new entry was added when the diff warranted one.
 - **False negatives > false positives, but not by much.** Missing a real issue is worse than flagging a non-issue, but unfounded findings erode trust. When uncertain, flag as severity `note` with your reasoning.
 - **Independent eyes.** You have no context from the caller's session. Read the code fresh. Form your own conclusions.

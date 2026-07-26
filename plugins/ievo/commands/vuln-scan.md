@@ -156,7 +156,7 @@ For each module, send a Task tool call with the `vuln-scanner` agent:
 - **module_path**: the directory path for this module
 - **threat_context**: Phase 1 output for this module — attack surfaces, entry points, trust boundaries
 - **scope_metadata**: diff/PR/full indicator plus base branch info
-- **sensitive_files**: Phase 0.5 output for this module — paths matched to sensitive patterns (may be empty). Include this instruction verbatim in the dispatch prompt: "Do NOT include raw content from these files in findings output. You MAY analyze whether the codebase handles them securely, but only describe the handling pattern — never quote the raw values."
+- **sensitive_files**: Phase 0.5 output for this module — paths matched to sensitive patterns (may be empty). Include this instruction verbatim in the dispatch prompt: "Do NOT include raw content from these files anywhere in your output (findings, or the module-level `notes` field). You MAY analyze whether the codebase handles them securely, but only describe the handling pattern — never quote the raw values."
 
 Send ALL dispatch calls in a single message for maximum parallelism. Wall-clock time equals the slowest module, not the sum of all modules.
 

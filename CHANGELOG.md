@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.67.0
+
+Add a `/plugin list --enabled` post-install verification step to `init/SKILL.md` — closes #241.
+
+- **Feature** — new "Post-install verification (Claude Code v2.1.163+ only...)" paragraph in `init/SKILL.md` Step 12, placed right after the Claude Code summary block and before the Codex variant (Claude Code-only — Codex has no `/plugin` command). The text-only summary block above it cannot detect a silent activation failure (e.g. `defaultEnabled: false` in `settings.json`, or a path conflict under `.claude/skills/`); this adds a mechanical check by running `/plugin list --enabled` right after the summary prints. Covers all three outcomes: `ievo` in the enabled list (confirmed), in the disabled list only (run `/plugin enable ievo`), or in neither (the install step didn't complete — re-run Step 9 or check for a path conflict).
+- **Graceful fallback for CC < v2.1.163** — `/plugin list` doesn't exist on older Claude Code versions; the paragraph tells the model to skip the check and fall back to the existing manual smoke test (`/ievo:overlay-status`) instead of failing or guessing.
+- **Codex untouched** — `/plugin list` is a Claude Code CLI command; Codex's own plugin discovery (`codex plugin list --json`, already used earlier in this same skill at Step 5b) is a different mechanism, so the new paragraph is scoped to the `**On Claude Code**` branch only, ahead of the existing `**On Codex**` block.
+- **Scope** — one doc file (`init/SKILL.md`), no script or CI change. Docs-only, no coverage obligation. Body grows from 1007 to ~1026 lines — already over the 500-line recommendation pre-existing this change (tracked separately as DEFER-01); not addressed here.
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.66.0 → 0.67.0).
+
+---
+
 ## v0.66.0
 
 Add an explicit MVP boundary (out-of-scope list) to `deep-review/SKILL.md` and `agents/deep-reviewer.md` — closes #243.

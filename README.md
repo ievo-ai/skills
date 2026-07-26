@@ -78,6 +78,8 @@ cd <your-project>
 
 Codex support added in v0.3.3 — same plugin content, separate marketplace manifests (`.claude-plugin/marketplace.json` vs `.codex-plugin/marketplace.json`).
 
+**Cursor (v3.9+):** find and install iEvo via Cursor's unified Customize page — search "ievo" or add this repo by URL. No `.cursor-plugin/` manifest exists yet, so iEvo isn't yet listed in Cursor's own marketplace search ([Cursor changelog, 2026-06-22](https://cursor.com/changelog/customize)).
+
 ### Keep iEvo up to date
 
 iEvo ships as a Claude Code / Codex **plugin**, so let the host keep it current instead of manually re-installing.

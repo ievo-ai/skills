@@ -13,6 +13,8 @@ metadata:
 
 Activates trace-level logging for all subsequent iEvo skill invocations in this session and future sessions, until `/ievo:debug-off` is invoked. Flag is project-local (lives in `.ievo/debug.flag`), so teammates working in the same repo see it via git too.
 
+> **Claude Code v2.1.181+ alternative.** For a quick one-off check, `/config verbose=true` ([release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.181)) toggles Claude Code's own verbose output inline — zero-install, no `.ievo/` write. It is not a substitute for this skill: the setting doesn't persist as a git-shareable project flag, doesn't write to `.ievo/log/debug/`, and covers Claude Code only — this skill also captures full sub-agent prompts/returns and works across Codex/Cursor/other agentskills.io platforms. See `/ievo:debug-off` for the matching `/config verbose=false` note.
+
 ## When to use
 
 - User says "turn on debug", "verbose mode", "log everything", "trace level"

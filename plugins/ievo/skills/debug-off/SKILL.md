@@ -13,6 +13,8 @@ metadata:
 
 Reverts iEvo skills to their default concise logging mode. Removes `.ievo/debug.flag`. Existing debug session logs in `.ievo/log/debug/<session-id>/` are NOT deleted — they're preserved as audit artifacts.
 
+> **Claude Code v2.1.181+ alternative.** If you only turned on Claude Code's own verbose output via `/config verbose=true` (see `/ievo:debug-on`'s note) rather than this skill, turn it back off the same way: `/config verbose=false`. This skill's flag removal only clears `.ievo/debug.flag` — it never touches Claude Code's `verbose` setting either way.
+
 ## When to use
 
 - User says "turn off debug", "stop verbose", "disable trace", "debug off"

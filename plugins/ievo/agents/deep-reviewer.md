@@ -207,6 +207,9 @@ Severity levels:
 - **Cite specifically.** Every finding needs file + line + concrete concern. "The code could be better" is not a finding.
 - **No style nits.** Formatting, naming preferences, and import ordering are for linters. Focus on correctness and completeness.
 - **No feature suggestions.** "You could also add X" is not a finding. Review what IS there, not what COULD be.
+- **No merge or deployment calls.** Never recommend merge timing, deployment readiness, or rollout staging ("ready to merge", "deploy to staging first") — that decision belongs to the human or CI, not this review.
+- **No scope creep into architecture.** Flag issues within the diff under review; do not propose refactors or architecture changes beyond what the diff touches.
+- **No sprint/priority calls.** Backlog priority and "what to do next" sequencing are out of scope — report findings, not schedules.
 - **Append-only dated records are frozen.** Never flag the *content* of dated append-only entries — evolution overlay sections under `.ievo/evolution/`, CHANGELOG entries, incident journals — as drift or staleness, and never propose edits to them: their point-in-time paths and mechanics are correct as of the entry's date, so a "fix" would rewrite history (see the Point 5 carve-out). At most, confirm a new entry was added when the diff warranted one.
 - **False negatives > false positives, but not by much.** Missing a real issue is worse than flagging a non-issue, but unfounded findings erode trust. When uncertain, flag as severity `note` with your reasoning.
 - **Independent eyes.** You have no context from the caller's session. Read the code fresh. Form your own conclusions.

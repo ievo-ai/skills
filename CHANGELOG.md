@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.66.0
+
+Add an explicit MVP boundary (out-of-scope list) to `deep-review/SKILL.md` and `agents/deep-reviewer.md` — closes #243.
+
+- **Feature** — new "Scope boundary (MVP boundary)" section in `deep-review/SKILL.md`, placed between the results-presentation step and the existing `## Rules` section: draft findings, cite evidence, explain impact — but never recommend merge/deployment timing, propose architecture refactors beyond the diff, suggest sprint/backlog priority, flag lint/type errors pre-commit tooling already caught, or return an unqualified approval with no findings. `agents/deep-reviewer.md`'s `## Rules` section gets three matching bullets so the dispatched sub-agent — the one that actually executes the checklist — carries the same boundary, not just the orchestrating skill.
+- **Why** — inspired by the "MVP boundary" pattern (draft + verify + explain, not merge + deploy + own production) in `DenisSergeevitch/agents-best-practices/references/coding-agents.md` (2026-06-07). The 11-point checklist had no explicit "never return" list, so a helpful-but-overzealous review could plausibly drift into merge/deploy/priority calls that are a human or CI decision, not this review's.
+- **"Structured verdict" already enforced** — the issue's open question about whether "no unqualified LGTM" needed new phrasing is resolved by reading the existing skill: `deep-review/SKILL.md` Step 5 already always emits a structured "clean" report (not a bare LGTM) on zero findings, and `deep-reviewer.md`'s output format always includes the full 11-point checklist coverage summary regardless of finding count. The new bullet states that guarantee explicitly as a boundary rather than changing the mechanism.
+- **`deep-reviewer.md` scope, not the intro paragraph** — the issue's files-affected table suggested extending the agent's "Your job is NOT..." intro sentence into a bullet list; the new bullets instead extend the existing `## Rules` bullet list (which already carries "No style nits" / "No feature suggestions" in the same voice), keeping the intro paragraph's prose flow intact and avoiding an unscoped rewrite.
+- **Scope** — two doc files (`deep-review/SKILL.md`, `agents/deep-reviewer.md`), no script or CI change. Docs-only, no coverage obligation. `deep-review/SKILL.md` stays well under the 500-line acceptance ceiling (230 lines after the addition).
+- **Version** — bump per AGENTS.md rules (`feat:` → minor); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.65.0 → 0.66.0).
+
+---
+
 ## v0.65.0
 
 Add a Cost monitoring section to `debug-on/SKILL.md` documenting Claude Code's `OTEL_RESOURCE_ATTRIBUTES` metric labeling — closes #171.

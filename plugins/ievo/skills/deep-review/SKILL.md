@@ -209,6 +209,17 @@ After presenting results, suggest next steps based on severity:
 - **Warnings only:** `Consider addressing the warnings above. None are blockers — commit at your discretion.`
 - **Notes only:** `Minor notes only — safe to commit as-is. Address at your convenience.`
 
+## Scope boundary (MVP boundary)
+
+Draft findings, cite evidence, explain impact — one concrete suggestion per finding. This skill drafts and verifies; it does not merge, deploy, or own the outcome.
+
+**Out of scope — never return:**
+- Merge or deployment timing recommendations ("this is ready to merge", "deploy to staging first")
+- Architecture refactors beyond the diff under review
+- Sprint/backlog priority suggestions
+- Lint or type errors (pre-commit tooling already caught those)
+- Unqualified approval with no findings — even a clean diff gets the full Step 5 "clean" report and checklist, never a bare "LGTM"
+
 ## Rules
 
 - **Never skip the subagent dispatch.** The independent context is the core value proposition. Only fall back to inline execution when Task tool is genuinely unavailable on the platform.

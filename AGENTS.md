@@ -241,7 +241,7 @@ pre-commit install          # wires .git/hooks/pre-commit
 ```
 Alternatives if `uv` is unavailable: `pipx install pre-commit`, `pip install pre-commit`, or `brew install pre-commit`. The `pre-commit/action@v3.0.1` in `pre-commit-gate.yml` handles the CI side automatically.
 
-Without the install, the GHA workflow still gates server-side; local hooks just give faster feedback. Adding a new validator: drop a `.mjs` in `.github/scripts/validators/` + a hook entry in `.pre-commit-config.yaml`. Each validator must exit non-zero on violation, print `<path>:<line>: <message>` to stderr, support `<file>...` argv, and live outside `plugins/ievo/scripts/` (so the 100% coverage rule does not apply to lint-infra code).
+Without the install, the GHA workflow still gates server-side; local hooks just give faster feedback. Adding a new validator: drop a `.mjs` in `.github/scripts/validators/` + a hook entry in `.pre-commit-config.yaml`. Each validator must exit non-zero on violation, print `<path>:<line>: <message>` to stderr, support `<file>...` argv, and live outside `plugins/ievo/scripts/` (so the 100% coverage rule does not apply to lint-infra code). Note: Claude Code v2.1.160+ requires an `acceptEdits` approval prompt before writing to `.pre-commit-config.yaml` (now classified as a build-tool config file) — this is expected; approve it to complete the validator addition.
 
 ### Security model (v0.5.2+)
 - **No owner-based trust** (no TRUSTED_OWNERS shortcuts). Reputation isn't security.

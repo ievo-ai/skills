@@ -77,6 +77,7 @@ Collect the following from the current session and project state. Each item is i
 
 ### 2b — In-progress work state
 
+- Current plan state — which phase/step the work is in, what's decided, what's next (from the session's in-progress plan or task list; if no explicit plan exists, the work stage in 2-3 sentences)
 - Files modified in this session (from conversation context, not `git status` — the handoff captures what THIS session touched)
 - Open questions or decisions pending
 - Blockers encountered
@@ -159,6 +160,12 @@ derived from the user's argument or conversation context>
 approaches tried, key findings. Written as a brief for a colleague
 who just walked into the room. NOT a transcript dump.>
 
+## Active plan state
+
+<1-paragraph summary of where the work is: which phase, which step, what's decided, what's next.
+Derived from the current session's in-progress plan or task list.
+If no explicit plan exists, describe the work stage in 2-3 sentences.>
+
 ## Key files
 
 - `<path>` — <one-line description of relevance>
@@ -186,8 +193,9 @@ who just walked into the room. NOT a transcript dump.>
 - `.ievo/evolution/agents/<name>.md` — <name> agent rules
 - ...
 
-Review these overlays at the start of the next session to inherit
-project conventions.
+Run `/ievo:overlay-status` at the start of the next session to see
+what's active, then read the listed overlays to inherit project
+conventions.
 
 ## References
 

@@ -13,7 +13,7 @@ effort: high
 # it is a per-turn override (the session model resumes on the next prompt), so it
 # guards the scan turn, not the whole session.
 model: sonnet
-compatibility: "Requires `gh` CLI for API metadata and `git` for cloning candidates before file reads. WebFetch for skills.sh audit signals. Designed to run under the current Sonnet family reasoning tier — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter, and this skill's own `model: sonnet` pins the audit turn on direct invocation."
+compatibility: "Requires `gh` CLI for API metadata and `git` for cloning candidates before file reads. WebFetch for skills.sh audit signals. Designed for Sonnet-tier reasoning — Haiku is insufficient (misses indirection attacks). The host agent platform should route via the `model: sonnet` alias (vendor-neutral) declared in the security-auditor agent frontmatter, and this skill's own `model: sonnet` pins the audit turn on direct invocation. Codex rust-v0.141.0+ recommended — see AGENTS.md § Security model."
 # No `paths:` gate here, deliberately — even though reviewing skill/agent/
 # plugin files IS the install-review context this skill exists for. Every
 # programmatic consumer reaches this skill BEFORE any candidate file is in

@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.68.1
+
+Document Codex's MCP tool-call timeout as an operator gotcha affecting `security-auditor` reliability, and note a Codex `rust-v0.141.0+` recommendation on `security-check/SKILL.md` — closes #227.
+
+- **Gap closed (#227)** — `AGENTS.md` § Security model documented `CLAUDE_CODE_SUBAGENT_MODEL` and other model-downgrade vectors as ways `security-auditor`'s guarantee can silently degrade, but had no equivalent note for Codex's MCP tool-call timeout: `security-auditor` reads the full content of every file in a candidate repo, and a large repo's deep scan can exceed a short timeout window, causing a silent sub-agent cutoff with no verdict returned. `security-check/SKILL.md`'s `compatibility` field had no Codex minimum-version note either.
+- **Fix** — new "Codex MCP tool timeout — operator gotcha" bullet in `AGENTS.md` § Security model (placed after the existing `CLAUDE_CODE_SUBAGENT_MODEL` bullet, pairing the Claude Code and Codex reliability gotchas for `security-auditor`), plus a one-clause addition to `security-check/SKILL.md`'s `compatibility` field recommending Codex `rust-v0.141.0+` and pointing back at the AGENTS.md note.
+- **Correction to the proposal** — the issue's premise cited Codex `rust-v0.141.0` (2026-06-18) as raising the MCP tool-call timeout from 60 to 300 seconds. Independently re-verified against the merging PR ([openai/codex#28234](https://github.com/openai/codex/pull/28234)): the actual change was **120 → 300 seconds**. The 60-second default was real, but it was already bumped to 120 seconds by an earlier PR ([openai/codex#12405](https://github.com/openai/codex/pull/12405), Feb 2026) — two separate increases, not one. The shipped note documents the verified two-step history (60→120→300) instead of the proposal's collapsed (and incorrect) single 60→300 jump; the core capability gap (pre-v0.141.0 Codex has a shorter timeout window that can truncate a large-repo deep scan) still holds at the corrected numbers.
+- **`security-check/SKILL.md` compatibility field** — the field is capped at 500 chars by `validate_skills.mjs`'s agentskills.io spec check and was already at 456/500. To fit the new Codex clause, the existing "Designed to run under the current Sonnet family reasoning tier" phrase was tightened to "Designed for Sonnet-tier reasoning" (28 chars saved) — matching the terser phrasing `vuln-scan/SKILL.md`'s own `compatibility` field already uses for the identical claim. No wording meaning lost.
+- **Scope** — two files (`AGENTS.md`, `plugins/ievo/skills/security-check/SKILL.md`) plus the mechanical version bump; no script or CI change. The issue's own open questions (extending the note to `init/SKILL.md`, and an integration test for Codex multi-agent dispatch timing) are left to the operator — the issue's acceptance criteria and "Files affected" table scope this build to the two files above only.
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.68.0 → 0.68.1).
+
+---
+
 ## v0.68.0
 
 Document four Cursor v3.6-v3.9 platform-native surfaces across the README, AGENTS.md, and `security-check/SKILL.md` — a Cursor compat sweep folding in three companion proposals — closes #235, #213, #223, #229.

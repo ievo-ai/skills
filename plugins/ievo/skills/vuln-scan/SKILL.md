@@ -74,6 +74,16 @@ Provided by the vuln-scanner agent dispatch:
 - `threat_context` — output from Phase 1 threat model (attack surfaces, entry points, trust boundaries identified for this module)
 - `scope_metadata` — diff context (base branch, PR number) or full-scan indicator
 
+## Step 0.5: Classify file sensitivity (optional, recommended)
+
+Before reading files in Step 1, run a Glob pass over `module_path` to pre-flag paths that commonly hold real credentials — a cheap head start for the redaction obligation in Rules § "Never echo raw secret values", not the sole trigger for it: that rule covers any real secret value, wherever it turns up, not only files matched here.
+
+Sensitive path patterns: `**/.env`, `**/.env.*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/secrets.*`, `**/.aws/credentials`, `**/service-account*.json`, `**/*.token`, `**/id_rsa`, `**/id_ed25519`, `**/.netrc`. Match case-insensitively if the Glob implementation supports it; otherwise match as-is — an unmatched case variant just means that file relies on the general redaction rule instead of this pre-flag. Build a `sensitive_files` list from the matches.
+
+This step never blocks or narrows the scan: if Glob fails, or the module has zero matches, `sensitive_files` is empty and Step 1 proceeds unchanged.
+
+A file in `sensitive_files` is still read in full in Step 1 — skipping it would violate "read every file" and could hide a real vulnerability in how it's handled. Flagging it here just puts the scanner on notice before that file's content is even read; see Rules for the output-side redaction rule this feeds.
+
 ## Step 1: Read all source files in scope
 
 Read the **full content** of every source file in the module. Do not sample. Do not skip files based on extension heuristics alone.
@@ -199,7 +209,7 @@ Module-level output:
   "total_lines_scanned": <number>,
   "findings": [<finding objects>],
   "scan_complete": <true|false>,
-  "notes": "<any caveats — e.g. binary files skipped, files too large for context>"
+  "notes": "<any caveats — e.g. binary files skipped, files too large for context, N sensitive file path(s) classified in Step 0.5>"
 }
 ```
 
@@ -242,3 +252,4 @@ readability without adding safety.
 - **Scope discipline.** Only scan files in the assigned module. Cross-module data flows can be noted as preconditions but don't scan into other modules — the orchestrator handles cross-module correlation.
 - **No false authority.** If you're unsure whether a pattern is exploitable, say so in the confidence field and notes. Don't present assumptions as facts.
 - **Neutralize excerpts before they render.** `title`/`exploit_chain.*`/`recommendation` are rendered as Markdown by `vuln-scan.md`'s Phase 4 — see § Step 5's "Excerpt containment" note for the fencing rule.
+- **Never echo raw secret values.** This applies to any real credential/token/key value you encounter — not only files Step 0.5 happened to pre-flag (Glob-pattern matching is a head start, not the trigger). Describe the handling pattern and redact the value itself (`AKIA****`) instead of quoting it verbatim, in every Step 5 field that can carry a source excerpt (`title`, `exploit_chain.*`, `recommendation`, `notes`). This takes precedence over § Step 5's "Excerpt containment" note for the secret substring specifically — the two combine, they don't conflict: redact the credential value first, then apply containment's code-span fencing to whatever excerpt text remains, exactly as containment already directs for any other verbatim quote.

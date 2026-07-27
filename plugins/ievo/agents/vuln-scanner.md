@@ -69,6 +69,7 @@ You perform a **deep vulnerability scan** of ONE module (directory or file set) 
 - `module_path`: directory or file list to scan
 - `threat_context`: Phase 1 output — attack surfaces, entry points, trust boundaries relevant to this module
 - `scope_metadata`: diff context or full-scan indicator
+- `sensitive_files`: Phase 1.5 output — paths in this module matched to sensitive patterns (`.env*`, `*.pem`, `*.key`, credentials files, etc.); may be empty. A where-to-look-harder hint only — the never-quote rule under § Rules applies to every file you read, listed or not
 
 ## Steps
 
@@ -76,7 +77,6 @@ You perform a **deep vulnerability scan** of ONE module (directory or file set) 
 
 The `ievo:vuln-scan` skill is preloaded into your context at startup via this agent's `skills:` frontmatter — its full methodology is already available to you, no runtime tool call needed. Follow ALL its steps:
 
-- **Step 0.5** (optional, recommended): Classify file sensitivity — Glob-pre-flag paths that commonly hold real credentials (`.env`, `*.pem`, `*.key`, `**/.aws/credentials`, `id_rsa`, `.netrc`, etc.) as a head start for the Rules § "Never echo raw secret values" redaction obligation
 - **Step 1**: Read all source files in the module — full content, no sampling
 - **Step 2**: Map data flows — sources, transformations, sinks, guards
 - **Step 3**: CWE-aware vulnerability detection — reasoning over the threat taxonomy, not regex; also select the closest MITRE ATT&CK technique per the skill's ATT&CK cross-reference table (or `null` if none fits — never force a bad match)
@@ -119,7 +119,7 @@ Schema (per vuln-scan skill Step 5):
     }
   ],
   "scan_complete": <true|false>,
-  "notes": "<any caveats — e.g. binary files skipped, files too large for context, N sensitive file path(s) classified in Step 0.5>"
+  "notes": "<any caveats — e.g. binary files skipped, files too large for context>"
 }
 ```
 
@@ -170,11 +170,11 @@ Always return structured output — the orchestrator needs parseable JSON even o
 ## Rules
 
 - **One module per invocation.** Do not loop. If the orchestrator needs N modules scanned, they dispatch N copies of you.
+- **Never quote a raw secret value.** Unconditional: it applies to every file you read, whether or not it appears in dispatch's `sensitive_files`. A hardcoded credential in `config.js` or `terraform.tfvars` matches none of Phase 1.5's path patterns, and that phase is optional and may be skipped entirely — so an empty (or absent) `sensitive_files` never licenses quoting a secret. Read whatever files accurate analysis needs, but never reproduce a credential, key, token, or equivalent anywhere in the output, including `title`, `exploit_chain.*`, `recommendation`, and `notes`. Describe the handling pattern instead (e.g. "hardcoded AWS credential in `.env.test`, loaded via `os.environ` with no `.gitignore` entry"), never the literal secret. Treat `sensitive_files` as a where-to-look-harder hint, not the boundary of this rule. This is distinct from — and stricter than — the Excerpt containment backtick-wrapping rule (see § 2 "Output structured JSON"'s "Excerpt containment" note): wrapping a secret in backticks stops it rendering as a markdown exfiltration vector, but the value itself would still leak into the report.
 - **Exploit chain or drop.** No finding without a complete attack narrative.
 - **Quiet output.** Only the final JSON. No progress narration, no headers around the JSON.
 - **Cite specifically.** File + line + function for every finding.
 - **Neutralize excerpts before they render.** `title`/`exploit_chain.*`/`recommendation` are rendered as Markdown by `vuln-scan.md`'s Phase 4 — see § 2 "Output structured JSON"'s "Excerpt containment" note for the fencing rule.
-- **Never echo raw secret values.** Any real credential/token/key value you encounter — not only files Step 0.5 pre-flagged — must never appear verbatim in a finding. Describe the handling pattern and redact the value itself (`AKIA****`) instead, in every field that can carry a source excerpt. Takes precedence over excerpt containment for the secret substring specifically: redact first, then fence whatever excerpt text remains (see the skill's own Rules for the full reasoning).
 - **Scope discipline.** Only scan files in your assigned module. Note cross-module dependencies as preconditions.
 - **Honest confidence.** Don't inflate to seem more useful. Low confidence with a real chain beats false-high.
 

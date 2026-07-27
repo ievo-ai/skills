@@ -8,7 +8,7 @@ effort: max
 # on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
-compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, network access. Orchestrator uses Task tool + AskUserQuestion, runs on **Claude Code and Codex**. Skills inside the pipeline are cross-platform via agentskills.io. On Codex (`$CODEX_CLI`): vendors to `.agents/skills/`, writes no `.claude/*` config, agents/whole-plugin installs are disclosed as unavailable. v2.1.193+: Auto Mode `classifyAllShell: true` classifier note (Step 1). v2.1.195+: dual-gate plugin install consent — see AGENTS.md Security model."
+compatibility: "Requires `gh`/`git` CLI, Node 18+, network access. Uses Task tool + AskUserQuestion; runs on **Claude Code and Codex**. Pipeline skills are cross-platform via agentskills.io. On Codex (`$CODEX_CLI`): vendors to `.agents/skills/`, no `.claude/*` config, agent/plugin installs disclosed unavailable. v2.1.169+: `/cd` directory-switch note (Step 1). v2.1.193+: Auto Mode `classifyAllShell: true` classifier note (Step 1). v2.1.195+: dual-gate plugin install consent — see AGENTS.md Security model."
 hooks:
   Stop:
     - hooks:
@@ -103,6 +103,8 @@ The plugin path + commit SHA recorded there help diagnose which install dir
 Claude Code loaded the plugin from.
 
 ## Step 1: Verify prerequisites
+
+**Working directory.** Every step below — `.ievo/` setup, `.claude/settings.json`, project-scoped installs — operates on the CURRENT working directory; there is no separate directory switch mid-pipeline. If this session started outside the project to init (e.g. `~` or `~/Desktop`), get there first. **Claude Code:** `/cd <project-path>` (v2.1.169+) moves the session without breaking the prompt cache; on older Claude Code, `Bash(cd ...)` works but invalidates the cache for every subsequent tool call in this pipeline — prefer restarting `/ievo:init` from within the project directory instead. **Codex:** no equivalent cache-preserving command is documented as of this writing — restart `/ievo:init` from within the project directory.
 
 Hard prereqs (v0.6.0+ — no more find-skills install):
 - `git` CLI — `which git`. Used for checkout-based indexing.

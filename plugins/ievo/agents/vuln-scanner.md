@@ -69,6 +69,7 @@ You perform a **deep vulnerability scan** of ONE module (directory or file set) 
 - `module_path`: directory or file list to scan
 - `threat_context`: Phase 1 output — attack surfaces, entry points, trust boundaries relevant to this module
 - `scope_metadata`: diff context or full-scan indicator
+- `sensitive_files`: Phase 1.5 output — paths in this module matched to sensitive patterns (`.env*`, `*.pem`, `*.key`, credentials files, etc.); may be empty. A where-to-look-harder hint only — the never-quote rule under § Rules applies to every file you read, listed or not
 
 ## Steps
 
@@ -168,6 +169,7 @@ Always return structured output — the orchestrator needs parseable JSON even o
 ## Rules
 
 - **One module per invocation.** Do not loop. If the orchestrator needs N modules scanned, they dispatch N copies of you.
+- **Never quote a raw secret value.** Unconditional: it applies to every file you read, whether or not it appears in dispatch's `sensitive_files`. A hardcoded credential in `config.js` or `terraform.tfvars` matches none of Phase 1.5's path patterns, and that phase is optional and may be skipped entirely — so an empty (or absent) `sensitive_files` never licenses quoting a secret. Read whatever files accurate analysis needs, but never reproduce a credential, key, token, or equivalent anywhere in the output, including `title`, `exploit_chain.*`, `recommendation`, and `notes`. Describe the handling pattern instead (e.g. "hardcoded AWS credential in `.env.test`, loaded via `os.environ` with no `.gitignore` entry"), never the literal secret. Treat `sensitive_files` as a where-to-look-harder hint, not the boundary of this rule. This is distinct from — and stricter than — the Excerpt containment backtick-wrapping rule (see § 2 "Output structured JSON"'s "Excerpt containment" note): wrapping a secret in backticks stops it rendering as a markdown exfiltration vector, but the value itself would still leak into the report.
 - **Exploit chain or drop.** No finding without a complete attack narrative.
 - **Quiet output.** Only the final JSON. No progress narration, no headers around the JSON.
 - **Cite specifically.** File + line + function for every finding.

@@ -127,6 +127,22 @@ Group files in scope into logical modules (by directory, package, or framework c
 
 Output: ordered list of modules with threat context for each.
 
+## Phase 1.5: File Sensitivity Classification
+
+Before dispatching scanner subagents (Phase 2), classify which files in each module are most likely to hold real credentials or secrets, so the dispatch prompt can tell the scanner where to look hardest. The scanner's "never quote a raw secret value" rule is unconditional and covers every file it reads (`vuln-scanner.md` § Rules) — this step sharpens that rule, it never scopes it.
+
+For each module from Phase 1d, Glob the module's file list against sensitive path patterns — a path-pattern match only, it does not open or read the matched files:
+
+`.env*`, `*.pem`, `*.key`, `*.p12`, `**/secrets.*`, `**/.aws/credentials`, `**/service-account*.json`, `**/*.token`, `**/id_rsa`, `**/id_ed25519`, `.netrc`
+
+Build a `sensitive_files` list per module (may be empty). This step is optional-but-recommended: if Glob fails, or a module matches nothing, proceed to Phase 2 with an empty list for that module — no behavior change, and no loss of protection. An empty list is not evidence a module is secret-free: a hardcoded credential in `config.js` or `terraform.tfvars` matches none of the patterns above and is still covered by the scanner's unconditional rule.
+
+Log a summary line only when a module's list is non-empty (a "0 sensitive files" line on every clean module is noise, not signal):
+
+```
+Phase 1.5: classified <N> sensitive file path(s) in module <path> — scan these hardest for mishandled secrets.
+```
+
 ## Phase 2: Targeted Scan (parallel subagents)
 
 Dispatch one `vuln-scanner` agent per module. Use the Task tool for parallel dispatch — all modules scan concurrently.
@@ -140,6 +156,7 @@ For each module, send a Task tool call with the `vuln-scanner` agent:
 - **module_path**: the directory path for this module
 - **threat_context**: Phase 1 output for this module — attack surfaces, entry points, trust boundaries
 - **scope_metadata**: diff/PR/full indicator plus base branch info
+- **sensitive_files**: Phase 1.5 output for this module — paths matched to sensitive patterns (may be empty); a where-to-look-harder hint, not the boundary of the redaction rule. Include this instruction verbatim in the dispatch prompt: "Never reproduce a raw secret value — a credential, key, token, or equivalent — anywhere in your output (findings, or the module-level `notes` field). This holds for EVERY file you scan, whether or not it is listed in `sensitive_files`, which is only where secrets are most likely to sit. You MAY analyze whether the codebase handles a secret securely, but only describe the handling pattern — never quote the raw value."
 
 Send ALL dispatch calls in a single message for maximum parallelism. Wall-clock time equals the slowest module, not the sum of all modules.
 

@@ -929,7 +929,7 @@ spurious overlay entry and offering to file an upstream issue about a
 non-existent bug.
 
 **No mismatch (the expected outcome on every healthy run):** do nothing — no
-message, no write, no question. Continue straight to Step 13.
+message, no write, no question. Continue straight to Step 12.6.
 
 **Mismatch found:** this run's own platform branching just told the user
 something that doesn't hold for the platform it detected — hand off to
@@ -977,7 +977,51 @@ into a dedicated skill), but only if that overlay already holds a cluster —
 never on a first capture. Both are conditional on a mismatch having been found
 at all, which is why the "ONLY user-facing pauses" directive at the top of this
 file lists this step as at-most-two, not one. Once `/ievo:evo` returns
-(whatever the user chose at either gate), continue to Step 13 regardless.
+(whatever the user chose at either gate), continue to Step 12.6 regardless.
+
+## Step 12.6: Post-install mechanical verification (Claude Code only, issue #241)
+
+Step 12's printed block is a text confirmation — it reads the same whether the
+install actually took effect or silently failed (`defaultEnabled: false` from a
+settings conflict, a `.claude/skills/ievo/` path collision, a marketplace-vs.
+-vendored divergence). This step gives that confirmation a mechanical backstop.
+
+**Claude Code only** — skip this step entirely on Codex (`$CODEX_CLI` set).
+`claude plugin list` is a Claude-Code CLI command with no Codex equivalent;
+Codex's own plugin listing (`codex plugin list --json`) is a different
+mechanism already used for discovery (Step 5b), not for verifying this skill's
+own install.
+
+Run:
+```bash
+claude plugin list --json
+```
+
+**Not** `claude plugin list --enabled` — verified against the installed CLI
+(`claude plugin list --help`) that `--enabled`/`--disabled` filters are
+documented only for the *interactive* `/plugin list` command a user types
+in-session (Claude Code v2.1.163+); the CLI form takes only `--json` /
+`--available` and errors with `unknown option '--enabled'` otherwise. The
+`--json` output already includes an `enabled` boolean per entry, so filter on
+that field instead of relying on a flag the CLI doesn't have.
+
+Parse the returned array for the entry whose `id` matches `ievo` or
+`ievo@<marketplace>` (e.g. `ievo@ievo-skills`):
+
+- **Found, `enabled: true`** — verified; the Step 12 summary reflects a
+  genuinely active install. No further action.
+- **Found, `enabled: false`** — append to the summary: "iEvo is installed but
+  disabled — run `claude plugin enable <id>` to activate it" (substitute the
+  exact `id` from the JSON). Don't run the enable command yourself:
+  `defaultEnabled: false` can be a deliberate org/user policy opt-in gate, so
+  surface it rather than silently overriding it.
+- **Not found at all** — append: "iEvo not found in `claude plugin list` —
+  check for a path conflict under `.claude/skills/ievo/`, or re-run install."
+- **Command errors, or `claude` isn't on PATH** — this install can't run the
+  check (older CLI predating the `plugin` subcommand, restricted PATH, etc.).
+  Degrade silently, same spirit as Step 12.5: skip the mechanical check and
+  fall back to the existing manual smoke test — suggest `/ievo:overlay-status`
+  to confirm skill activation. Never block init on this.
 
 ## Step 13: Invite feedback (especially on skips)
 

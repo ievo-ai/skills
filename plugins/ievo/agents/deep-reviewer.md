@@ -45,6 +45,7 @@ Your job is NOT to re-run linters or type-checkers. Those already passed. You ca
 - `diff` — the raw diff text (from `git diff`, `git diff --staged`, or `git diff <range>`)
 - `changed_files` — list of files touched by the diff
 - `repo_context` — brief description of the repository (language, framework, purpose) gathered by the orchestrator
+- `coverage_caveats` — *optional*; passed as a `## Coverage caveats` section, and present only when the orchestrator could not capture everything it set out to. Today's one source is working-tree mode, whose untracked-file supplement is capped at 50 paths / 256 KB of synthesized diff; the field names the paths left out. When it is present your input is **partial**: those files are in neither `diff` nor `changed_files`, so you cannot have reviewed them — carry the caveat into your report (Step 3) instead of letting the checklist imply coverage of the whole tree.
 
 ## Step 1: Read the full context of every changed file
 
@@ -183,6 +184,9 @@ Sort findings by severity before writing the report: **blockers first**, then **
 
 ... (repeat for each finding) ...
 
+### Coverage
+<echo `coverage_caveats` verbatim when the dispatch prompt carried it, and state that the checklist below was evaluated over the diff you received, not over the whole working tree — omit this whole section when no caveats were passed>
+
 ### Checklist coverage
 - [x] Completeness gaps — <checked, N finding(s) | clean>
 - [x] Test/impl drift — <checked, N finding(s) | clean>
@@ -214,4 +218,4 @@ Severity levels:
 - **Append-only dated records are frozen.** Never flag the *content* of dated append-only entries — evolution overlay sections under `.ievo/evolution/`, CHANGELOG entries, incident journals — as drift or staleness, and never propose edits to them: their point-in-time paths and mechanics are correct as of the entry's date, so a "fix" would rewrite history (see the Point 5 carve-out). At most, confirm a new entry was added when the diff warranted one.
 - **False negatives > false positives, but not by much.** Missing a real issue is worse than flagging a non-issue, but unfounded findings erode trust. When uncertain, flag as severity `note` with your reasoning.
 - **Independent eyes.** You have no context from the caller's session. Read the code fresh. Form your own conclusions.
-- **Complete checklist.** All 11 points must be evaluated and reported in the checklist section, even if clean. Skipping a point is not allowed.
+- **Complete checklist, over the input you were given.** All 11 points must be evaluated and reported in the checklist section, even if clean — skipping a point is not allowed. That obligation is scoped to the diff that reached you, not to the whole working tree: when the dispatch prompt carries `coverage_caveats`, the paths it names were never in your input, so echo the caveat in the report's `### Coverage` section (Step 3) and let the checklist stand as evaluated over the diff received. Still report all 11 points — but a truncated input must never read as complete coverage of the tree.

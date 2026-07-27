@@ -929,7 +929,7 @@ spurious overlay entry and offering to file an upstream issue about a
 non-existent bug.
 
 **No mismatch (the expected outcome on every healthy run):** do nothing — no
-message, no write, no question. Continue straight to Step 13.
+message, no write, no question. Continue straight to Step 12.6.
 
 **Mismatch found:** this run's own platform branching just told the user
 something that doesn't hold for the platform it detected — hand off to
@@ -977,7 +977,7 @@ into a dedicated skill), but only if that overlay already holds a cluster —
 never on a first capture. Both are conditional on a mismatch having been found
 at all, which is why the "ONLY user-facing pauses" directive at the top of this
 file lists this step as at-most-two, not one. Once `/ievo:evo` returns
-(whatever the user chose at either gate), continue to Step 13 regardless.
+(whatever the user chose at either gate), continue to Step 12.6 regardless.
 
 ## Step 12.6: Post-install mechanical verification (Claude Code only, issue #241)
 

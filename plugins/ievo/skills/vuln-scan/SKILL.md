@@ -125,11 +125,11 @@ MITRE ATT&CK describes attacker *behavior*; the CWE table above describes the co
 |-------------------|------------------------|-----------------|----------------|
 | T1195 | T1195.002 — Compromise Software Supply Chain | Malicious code embedded in a dependency, plugin, hook, or skill | CWE-506, CWE-829 |
 | T1059 | e.g. T1059.004 (Unix Shell), T1059.006 (Python), T1059.007 (JavaScript) | Untrusted data reaching a command/script interpreter | CWE-77, CWE-94 |
-| T1552 | — (leaf technique) | Credentials read from files, env vars, config, or hook/log output | CWE-200, CWE-312 |
-| T1546 | — (leaf technique) | Event/hook/lifecycle abuse for persistence or privilege escalation | CWE-829 |
-| T1190 | — (leaf technique) | Input-validation gap in an internet-facing interface | CWE-20 |
+| T1552 | e.g. T1552.001 (Credentials In Files), T1552.003 (Shell History) | Credentials read from files, env vars, config, or hook/log output | CWE-200, CWE-312 |
+| T1546 | e.g. T1546.004 (Unix Shell Configuration Modification), T1546.018 (Python Startup Hooks) | Event/hook/lifecycle abuse for persistence or privilege escalation | CWE-829 |
+| T1190 | — (no sub-techniques) | Input-validation gap in an internet-facing interface | CWE-20 |
 
-Prefer a sub-technique ID over the bare parent when the finding's actual instance is determinable from the code (e.g. a Python `subprocess` injection is `T1059.006`, not the generic `T1059`) — do not default to one specific sub-technique (e.g. always `T1059.007`) for every finding in a category if the interpreter/mechanism varies by finding. Verified against [attack.mitre.org](https://attack.mitre.org/resources/versions/) (ATT&CK Enterprise v19.1, released 2026-04-28) on 2026-07-27 — re-verify technique IDs/names if this table is next touched, since Enterprise major versions ship roughly twice yearly and occasionally restructure tactics (e.g. v19 split Defense Evasion into Stealth and Defense Impairment).
+Prefer a sub-technique ID over the bare parent when the finding's actual instance is determinable from the code (e.g. a Python `subprocess` injection is `T1059.006`, not the generic `T1059`) — do not default to one specific sub-technique (e.g. always `T1059.007`) for every finding in a category if the interpreter/mechanism varies by finding. The middle column lists illustrative examples, not the full set: four of these five parents have more sub-techniques than shown (T1546 alone has 18), so check the technique's own page on attack.mitre.org for the closest match before settling for the bare parent. Only T1190 is a genuine leaf with no sub-technique to prefer. Verified against [attack.mitre.org](https://attack.mitre.org/resources/versions/) (ATT&CK Enterprise v19.1, released 2026-04-28) on 2026-07-27 — re-verify technique IDs/names if this table is next touched, since Enterprise major versions ship roughly twice yearly and occasionally restructure tactics (e.g. v19 split Defense Evasion into Stealth and Defense Impairment).
 
 ### What SAST misses (your differentiator)
 

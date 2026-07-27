@@ -76,7 +76,7 @@ You perform a **deep vulnerability scan** of ONE module (directory or file set) 
 
 The `ievo:vuln-scan` skill is preloaded into your context at startup via this agent's `skills:` frontmatter — its full methodology is already available to you, no runtime tool call needed. Follow ALL its steps:
 
-- **Step 0.5** (optional, recommended): Classify file sensitivity — Glob-pre-flag paths that commonly hold real credentials (`.env`, `*.pem`, `*.key`, `**/.aws/credentials`, `id_rsa`, `.netrc`, etc.) as a head start for the Rules § "Never echo raw secret values" redaction obligation below
+- **Step 0.5** (optional, recommended): Classify file sensitivity — Glob-pre-flag paths that commonly hold real credentials (`.env`, `*.pem`, `*.key`, `**/.aws/credentials`, `id_rsa`, `.netrc`, etc.) as a head start for the Rules § "Never echo raw secret values" redaction obligation
 - **Step 1**: Read all source files in the module — full content, no sampling
 - **Step 2**: Map data flows — sources, transformations, sinks, guards
 - **Step 3**: CWE-aware vulnerability detection — reasoning over the threat taxonomy, not regex; also select the closest MITRE ATT&CK technique per the skill's ATT&CK cross-reference table (or `null` if none fits — never force a bad match)

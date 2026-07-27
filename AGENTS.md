@@ -335,25 +335,29 @@ iEvo's `SKILL.md`/agent files and plugin manifest use several Claude Code featur
 | `/reload-skills` command | [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) | `commands/update.md` § 6 Report tells the user to run it after a refresh |
 | `defaultEnabled` in `plugin.json` | [v2.1.154](https://github.com/anthropics/claude-code/releases/tag/v2.1.154) | `plugins/ievo/.claude-plugin/plugin.json` sets `defaultEnabled: true` |
 | `.claude/skills/` auto-load (no marketplace) | [v2.1.157](https://github.com/anthropics/claude-code/releases/tag/v2.1.157) | README § Developer install |
-| `requiredMinimumVersion` / `requiredMaximumVersion` managed setting | [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) | the enterprise pinning mechanism this section documents |
 | `hookSpecificOutput.additionalContext` (`Stop`/`SubagentStop` hooks) | [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) | `hooks-setup/SKILL.md` Step 5.5.5 emits it from the Step 5.5.3 script |
 | dual-gate plugin install consent (CC's own dialog on the `enabledPlugins` load path) | [v2.1.195](https://github.com/anthropics/claude-code/releases/tag/v2.1.195) | `init/SKILL.md` Step 9 merges `extraKnownMarketplaces`/`enabledPlugins` — § Security model's operator minimum |
 | `Notification` hook matchers `agent_needs_input` / `agent_completed` | [v2.1.198](https://github.com/anthropics/claude-code/releases/tag/v2.1.198) | `hooks-setup/SKILL.md` Step 5.6 writes one `hooks.Notification[]` entry per matcher |
 
-Every row above is the release that first shipped the behavior, verified verbatim against `gh api repos/anthropics/claude-code/releases/tags/<tag>` (verified 2026-07-27) — a docs page states current behavior only and can't source when a past feature first shipped, so the release note (linked per row) is the citation, not `code.claude.com`. The "Where" column is held to the same bar as the version column: a row earns its place only if some iEvo file *uses* the feature. A file that merely cites a release note, or documents deliberately **not** using the feature, is not a use — four proposed rows failed that test and were dropped rather than shipped inaccurate:
+Every row above is the release that first shipped the behavior, verified verbatim against `gh api repos/anthropics/claude-code/releases/tags/<tag>` (verified 2026-07-27) — a docs page states current behavior only and can't source when a past feature first shipped, so the release note (linked per row) is the citation, not `code.claude.com`. The "Where" column is held to the same bar as the version column: a row earns its place only if some iEvo file *uses* the feature. A file that merely cites a release note, documents deliberately **not** using the feature, or only *recommends* an operator-side setting, is not a use — five candidate rows failed that test and are recorded here rather than shipped as inaccurate matrix entries:
 
 - **"Dynamic Workflows"** — no iEvo file references that Claude Code feature; `schedule/SKILL.md` uses Routines instead, already gated at v2.1.81+ in its own `compatibility:` field.
 - **`/plugin list --enabled`/`--disabled`** — `init/SKILL.md` Step 12.6 explicitly documents *not* using those flags, since they're interactive-only; it filters the `enabled` field from `--json` output instead.
 - **`SessionStart` `reloadSkills` / `hookSpecificOutput.sessionTitle`** — `hooks-setup/SKILL.md` Step 5.7 names both only to say they are "unused here" (neither applies to a version-check nudge). No iEvo file emits either field.
 - **`MessageDisplay` hook event** — cited once in `hooks-setup/SKILL.md`'s References list, and there explicitly as "not configured by this skill". No iEvo file registers a `MessageDisplay` hook.
+- **`requiredMinimumVersion` / `requiredMaximumVersion` managed setting** ([v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163)) — the pinning mechanism § Enterprise pinning recommends, but it is *operator-side* configuration: no iEvo file sets it, so this section mentions it rather than uses it. Its version is cited inline below instead of as a matrix row, which also keeps the recommended minimum a strict maximum over features iEvo actually uses.
 
 ### Enterprise pinning
 
+`requiredMinimumVersion` is a **managed setting only** — Claude Code does not read it from a project's `.claude/settings.json` or a user's `~/.claude/settings.json`. An administrator deploys it in the system-level managed settings file (`/etc/claude-code/managed-settings.json` on Linux/WSL, `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, `C:\Program Files\ClaudeCode\managed-settings.json` on Windows) through MDM — the same file and delivery path `debug-on/SKILL.md` names for org-wide env-var enforcement, sitting at the top of Claude Code's settings precedence chain where a user can't override it.
+
 ```json
-{ "requiredMinimumVersion": { "min": "2.1.198" } }
+{ "requiredMinimumVersion": "2.1.198" }
 ```
 
-Claude Code refuses to start below the pinned floor and directs the user to an approved version — the setting itself ships in [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163), and `2.1.198` is the value that covers every feature in the matrix above.
+The value is a **plain version string**, not an object — `requiredMinimumVersion` and `requiredMaximumVersion` are two independent scalar settings, not a single range object. Sourced from Claude Code's [settings reference](https://code.claude.com/docs/en/settings), which lists `requiredMinimumVersion` in its § Available settings table as "Managed settings only. Minimum Claude Code version required to start" with the example value `"2.1.150"` (verified 2026-07-27). A docs page is the right citation *here*, unlike in the matrix above: the value shape is current behavior, which is exactly what a docs page can source, whereas only a release note can source when the setting first shipped.
+
+Below the floor, Claude Code exits at startup and directs the user to update through the organization's approved method; `claude update`, `claude install`, and `claude doctor` keep working so a pinned-out user can recover. A Claude Code older than [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) predates the setting and ignores it entirely, so pinning constrains an already-recent install rather than rescuing a very old one. `2.1.198` is the value that covers every feature in the matrix above.
 
 ### Degraded, not blocked
 

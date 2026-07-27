@@ -8,7 +8,7 @@ effort: max
 # on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
-compatibility: "Requires `gh` CLI, `git` CLI, Node 18+, network access. Orchestrator uses Task tool + AskUserQuestion, runs on **Claude Code and Codex**. Skills inside the pipeline are cross-platform via agentskills.io. On Codex (`$CODEX_CLI`): vendors to `.agents/skills/`, writes no `.claude/*` config, agents/whole-plugin installs are disclosed as unavailable. v2.1.193+: Auto Mode `classifyAllShell: true` classifier note (Step 1). v2.1.195+: dual-gate plugin install consent — see AGENTS.md Security model."
+compatibility: "Requires `gh`/`git` CLI, Node 18+, network access. Uses Task tool + AskUserQuestion; runs on **Claude Code and Codex**. Pipeline skills are cross-platform via agentskills.io. On Codex (`$CODEX_CLI`): vendors to `.agents/skills/`, no `.claude/*` config, agent/plugin installs disclosed unavailable. v2.1.169+: `/cd` directory-switch note (Step 1). v2.1.193+: Auto Mode `classifyAllShell: true` classifier note (Step 1). v2.1.195+: dual-gate plugin install consent — see AGENTS.md Security model."
 hooks:
   Stop:
     - hooks:
@@ -25,7 +25,7 @@ metadata:
 
 **Execute the entire pipeline continuously, without pausing.** Do NOT wait for user input between steps. The ONLY user-facing pauses are:
 
-1. **Step 1** (permission check) — `AskUserQuestion`
+1. **Step 1** — `AskUserQuestion`, twice at most: the working-directory confirmation, only if `pwd` shows neither `.git/` nor a Step 4 manifest; and the permission check
 2. **Step 7a** (resolve ambiguous categories) — `AskUserQuestion`, only if any categories were marked `/ambiguous`
 3. **Step 7b** (per-candidate interview) — `AskUserQuestion`, including the single batched tail question for `overlap_tail[]` items, if any
 4. **Step 8** (RED security verdict) — `AskUserQuestion`, only for RED candidates
@@ -103,6 +103,43 @@ The plugin path + commit SHA recorded there help diagnose which install dir
 Claude Code loaded the plugin from.
 
 ## Step 1: Verify prerequisites
+
+**Working directory — check before anything else.** Every step below — `.ievo/`
+setup, `.claude/settings.json`, Step 9's project-scoped installs — writes into the
+session's CURRENT working directory, and nothing in this pipeline switches directory
+later. A session started outside the project to init (e.g. `~` or `~/Desktop`)
+therefore misdirects the whole run silently.
+
+Run `pwd`, then look in that same directory for a project signal: a `.git/` entry or
+any Step 4 manifest. If **both** are absent, ask before doing anything else via
+`AskUserQuestion` (an empty, brand-new project directory is legitimate — the user
+answers for it; never decide this yourself):
+
+- **Question:** `No project detected in <pwd output>. Initialize iEvo here?`
+- **Header:** `Directory`
+- **Options:**
+  - `Yes — this is the project` — description: `Continue. .ievo/ and all installs go here.`
+  - `No — stop` — description: `Halt so the session can be moved to the right directory.`
+
+On `Yes`, continue with the prereq checks below. On `No`, **halt** — you cannot move
+the session yourself, so print the message below and stop:
+
+- `/cd` is a built-in Claude Code command, recognized only when the **user** types it
+  at the start of a message ([commands reference](https://code.claude.com/docs/en/commands):
+  `/cd <path>` — "Move this session to a new working directory", requires v2.1.169+;
+  earlier versions report `Unknown command: /cd`). It is not callable from a skill.
+- `Bash(cd ...)` is **not** a substitute. It changes only that call's shell directory;
+  `Read`/`Write`, `.claude/` settings resolution and Step 9's installs all keep
+  resolving against the session's working directory, so `.ievo/` and every install
+  still land outside the project — the exact silent misdirection this check exists to
+  catch. Never use it to "fix" the directory.
+
+```
+Move this session to the project, then re-run /ievo:init:
+  • Claude Code v2.1.169+ — type `/cd <project-path>` (preserves the prompt cache).
+  • Older Claude Code, or Codex — no in-session directory switch is documented;
+    quit and relaunch from inside the project directory.
+```
 
 Hard prereqs (v0.6.0+ — no more find-skills install):
 - `git` CLI — `which git`. Used for checkout-based indexing.

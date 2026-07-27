@@ -400,6 +400,7 @@ ievo-ai/skills/
 - Skills inside: [agentskills.io spec](https://agentskills.io/specification) — portable to Cursor, Copilot, Gemini CLI, Goose, Junie, 30+ other agent platforms
 - Distribution: triple-mode — Claude Code plugin install OR Codex plugin install OR `npx skills add ievo-ai/skills --skill <name>` via [skills.sh](https://www.skills.sh) (planned v1.0)
 - Universal positioning: works wherever Node.js 18+ + git + an agent platform that supports skills are available
+- Version requirements: see [AGENTS.md § Version compatibility](AGENTS.md#version-compatibility) for the minimum Claude Code version per feature iEvo uses, and `requiredMinimumVersion` enterprise-pinning guidance
 
 ## Roadmap
 

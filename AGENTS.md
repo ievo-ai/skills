@@ -319,6 +319,41 @@ Everything runs on the user's machine. No central trust gates. No community cach
 - **Don't trust skills.sh's Snyk/Socket audits as the verdict.** Use as context — they audit dep CVEs, not behavioral patterns. Antivirus deep scan is the trust signal.
 - **Don't auto-install RED items.** Always explicit user choice via `AskUserQuestion`.
 
+## Version compatibility
+
+iEvo's `SKILL.md`/agent files and plugin manifest use several Claude Code features that shipped incrementally across recent releases. An enterprise operator using `requiredMinimumVersion` (below) to pin Claude Code should pin at or above the version each relied-on feature needs — pinning below doesn't error at startup, it silently degrades the corresponding guarantee (see § Degraded, not blocked).
+
+**Recommended minimum: Claude Code v2.1.163** — the highest floor among the features iEvo's own files use, below. This is a floor for *this table's* feature set specifically, not every Claude Code version cited elsewhere in this file — § Security model's sandbox-hardening and model-bypass-vector notes cite several later versions (up to v2.1.219) as operator-configuration guidance for closing residual gaps, not as things iEvo's own files set.
+
+### Feature-version matrix
+
+| iEvo uses | Minimum CC version | Where |
+|---|---|---|
+| `effort:` frontmatter (agents) | [v2.1.78](https://github.com/anthropics/claude-code/releases/tag/v2.1.78) | `security-auditor.md`, `vuln-scanner.md`, `evolution.md`, `repo-indexer.md`, `deep-reviewer.md` pin `effort:` |
+| `effort:` frontmatter (skills/commands) | [v2.1.80](https://github.com/anthropics/claude-code/releases/tag/v2.1.80) | required on every `SKILL.md` (§ Skills format) |
+| `disallowed-tools` frontmatter (skills, kebab-case) | [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) | `security-check`/`vuln-scan`/`deep-review` tool restriction |
+| `/reload-skills` command | [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) | `update.md`, `hooks-setup/SKILL.md` |
+| `SessionStart` hooks: `reloadSkills` / `sessionTitle` | [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) | `hooks-setup/SKILL.md` |
+| `MessageDisplay` hook event | [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) | `hooks-setup/SKILL.md` |
+| `defaultEnabled` in `plugin.json` | [v2.1.154](https://github.com/anthropics/claude-code/releases/tag/v2.1.154) | `plugins/ievo/.claude-plugin/plugin.json` sets `defaultEnabled: true` |
+| `.claude/skills/` auto-load (no marketplace) | [v2.1.157](https://github.com/anthropics/claude-code/releases/tag/v2.1.157) | README § Developer install |
+| `requiredMinimumVersion` / `requiredMaximumVersion` managed setting | [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) | the enterprise pinning mechanism this section documents |
+| `hookSpecificOutput.additionalContext` (`Stop`/`SubagentStop` hooks) | [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) | `hooks-setup/SKILL.md` Step 5.5 |
+
+Every row above is the release that first shipped the behavior, verified verbatim against `gh api repos/anthropics/claude-code/releases/tags/<tag>` (verified 2026-07-27) — a docs page states current behavior only and can't source when a past feature first shipped, so the release note (linked per row) is the citation, not `code.claude.com`. Two features an earlier draft of this table proposed didn't survive that verification against the repo's actual content and were dropped rather than shipped inaccurate: "Dynamic Workflows" (no iEvo file references that Claude Code feature — `schedule/SKILL.md` uses Routines instead, already gated at v2.1.81+ in its own `compatibility:` field) and `/plugin list --enabled`/`--disabled` (`init/SKILL.md` Step 12.6 explicitly documents *not* using those flags, since they're interactive-only — it filters the `enabled` field from `--json` output instead).
+
+### Enterprise pinning
+
+```json
+{ "requiredMinimumVersion": { "min": "2.1.163" } }
+```
+
+Claude Code refuses to start below the pinned floor and directs the user to an approved version — see the [v2.1.163 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.163).
+
+### Degraded, not blocked
+
+Claude Code does not error on a skill/agent file declaring a frontmatter field an older Claude Code doesn't yet recognize — it silently ignores `effort:`/`disallowed-tools:` rather than refusing to load the skill, so under-pinning shows up as a missing guarantee (e.g. `security-check`'s tool restriction not actually applying) rather than a startup error. Commands and hook fields introduced later (`/reload-skills`, `SessionStart`'s `reloadSkills`/`sessionTitle`, `hookSpecificOutput.additionalContext`) are unavailable outright rather than degraded — the command doesn't exist yet, or the hook field is dropped.
+
 ## Development
 
 Documentation repo + small Node scripts. No build step. Tests live in `plugins/ievo/scripts/tests/` (built-in `node:test`, stdlib only) and the 100% coverage rule on `REQUIRED` scripts is enforced by `.github/workflows/coverage-gate.yml` — see the ledger above for the current `REQUIRED` set (all three `.mjs` scripts as of v0.6.7; no carve-outs).

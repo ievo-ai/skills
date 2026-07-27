@@ -133,7 +133,7 @@ Before dispatching scanner subagents (Phase 2), classify which files in each mod
 
 For each module from Phase 1d, Glob the module's file list against sensitive path patterns — a path-pattern match only, it does not open or read the matched files:
 
-`.env*`, `*.pem`, `*.key`, `*.p12`, `**/secrets.*`, `**/.aws/credentials`, `**/service-account*.json`, `**/*.token`, `**/id_rsa`, `**/id_ed25519`, `.netrc`
+`**/.env*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/secrets.*`, `**/.aws/credentials`, `**/service-account*.json`, `**/*.token`, `**/id_rsa`, `**/id_ed25519`, `**/.netrc`
 
 Build a `sensitive_files` list per module (may be empty). This step is optional-but-recommended: if Glob fails, or a module matches nothing, proceed to Phase 2 with an empty list for that module — no behavior change, and no loss of protection. An empty list is not evidence a module is secret-free: a hardcoded credential in `config.js` or `terraform.tfvars` matches none of the patterns above and is still covered by the scanner's unconditional rule.
 

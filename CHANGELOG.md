@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.73.0
+
+Add post-update plugin-list verification guidance to `commands/update.md`'s reload reminder — closes #182.
+
+- **Gap closed (#182)** — `update.md`'s Step 6 "Remind user" block told the user how to reload refreshed skill/plugin content (`/reload-skills`, `/reload-plugins` on Claude Code; a restart on Codex) but gave no way to *confirm* the refresh actually took effect — the user had to trust the reload worked or go check plugin state manually.
+- **Fix** — added one guidance line to each platform block, inserted after the existing reload line(s) and before the closing `git diff` review line: Claude Code gets `/plugin list --enabled` (CC v2.1.163+) to confirm iEvo shows the refreshed version; Codex gets `codex plugin list --json | grep -i ievo` (rust-v0.137.0+), the same command already used for a plugin-state check elsewhere in this plugin (`handoff/SKILL.md`).
+- **Checked against the #241 precedent, doesn't apply here** — a companion issue (#241, shipped in v0.71.0) found that the CLI-invoked form of `claude plugin list` errors on an `--enabled` flag (that filter exists only on the *interactive* `/plugin list` slash command). That correction doesn't carry over to this change: `update.md`'s "Remind user" block is advisory text the user types themselves in their own session — never Bash-executed by the skill — so the interactive `/plugin list --enabled` form the issue proposed is exactly right in this context.
+- **Scope** — single file (`commands/update.md`) plus the mechanical version bump. The issue's two open questions for the operator are resolved by scope: a "not found" recovery guide isn't in the acceptance criteria, and bundling with #166 wasn't needed since #166 already shipped independently (v0.60.4).
+- **Version** — `feat:` → minor per AGENTS.md's bump table; a new guidance capability, not a fix. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.72.0 → 0.73.0).
+
+---
+
 ## v0.72.0
 
 Add MITRE ATT&CK technique cross-references to `vuln-scan`'s finding output, alongside existing CWE IDs — closes #184.

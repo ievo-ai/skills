@@ -194,14 +194,14 @@ Remind user — **on Claude Code** (`$CODEX_CLI` unset):
 ```
 Run /reload-skills to pick up refreshed skill definitions in this session (requires Claude Code v2.1.152+).
 Run /reload-plugins to reload plugin manifests if any `.claude-plugin/plugin.json` files changed.
-Run /plugin list --enabled to confirm iEvo shows the refreshed version (requires Claude Code v2.1.163+).
+Confirm the refresh landed: every target reported `refreshed → <new_sha>` above now carries that same `source.commit_sha` in `.ievo/evolution/<scope>/<name>.md`. This run refreshes your vendored copies under `.claude/`, not the iEvo plugin itself — a plugin-version listing is unchanged by it.
 Run git diff .claude/ .ievo/evolution/ to review changes before commit.
 ```
 
 **On Codex** (`$CODEX_CLI` set) — `/reload-skills`/`/reload-plugins` are not Codex commands:
 ```
 Codex picks up skill changes automatically — restart Codex if a refreshed skill doesn't appear.
-Run codex plugin list --json | grep -i ievo to confirm the refreshed version (requires Codex rust-v0.137.0+).
+Confirm the refresh landed: every target reported `refreshed → <new_sha>` above now carries that same `source.commit_sha` in `.ievo/evolution/<scope>/<name>.md`. This run refreshes your vendored copies under `.agents/skills/`, not the iEvo plugin itself — `codex plugin list` does not enumerate them.
 Run git diff .agents/skills/ .ievo/evolution/ to review changes before commit.
 ```
 

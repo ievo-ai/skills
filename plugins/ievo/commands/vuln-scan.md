@@ -149,7 +149,7 @@ For repos with more than 10 modules, batch into rounds of 10 concurrent agents (
 
 Each vuln-scanner agent returns a JSON object with:
 - `module`, `files_scanned`, `total_lines_scanned`
-- `findings` array (each with exploit chain, CWE, confidence)
+- `findings` array (each with exploit chain, CWE, ATT&CK technique, confidence)
 - `scan_complete` flag
 - `notes` for any caveats
 
@@ -207,7 +207,7 @@ For each validated finding, present:
 
 **Title line**: `[confidence] title`
 
-**Details**: category, CWE ID, file path with line number
+**Details**: category, CWE ID, ATT&CK technique (when present), file path with line number
 
 **Exploit chain**: entry point, data flow (step-by-step citing functions and lines), impact
 

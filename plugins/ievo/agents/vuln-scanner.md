@@ -78,7 +78,7 @@ The `ievo:vuln-scan` skill is preloaded into your context at startup via this ag
 
 - **Step 1**: Read all source files in the module — full content, no sampling
 - **Step 2**: Map data flows — sources, transformations, sinks, guards
-- **Step 3**: CWE-aware vulnerability detection — reasoning over the threat taxonomy, not regex
+- **Step 3**: CWE-aware vulnerability detection — reasoning over the threat taxonomy, not regex; also select the closest MITRE ATT&CK technique per the skill's ATT&CK cross-reference table (or `null` if none fits — never force a bad match)
 - **Step 4**: Build exploit chains — entry, flow, impact, preconditions for each candidate finding. DROP findings without complete chains
 - **Step 5**: Build structured output with per-finding schema
 
@@ -100,6 +100,7 @@ Schema (per vuln-scan skill Step 5):
       "function": "<function or method name>",
       "category": "<taxonomy category>",
       "cwe": "<CWE-NNN>",
+      "attack_technique": "<TNNNN or TNNNN.NNN> (<Technique Name>), or null",
       "title": "<short summary>",
       "exploit_chain": {
         "entry": "<how attacker reaches this code>",

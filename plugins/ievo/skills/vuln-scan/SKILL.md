@@ -117,6 +117,20 @@ For each suspicious data flow from Step 2, evaluate against the threat taxonomy.
 | `business_logic` | 840 | Flawed state machines, missing rate limits on sensitive operations, order-of-operations bugs |
 | `supply_chain` | 1357 | Suspicious dependencies, post-install scripts, version pinning gaps |
 
+### ATT&CK technique cross-reference (supply-chain-focused, optional per finding)
+
+MITRE ATT&CK describes attacker *behavior*; the CWE table above describes the code *weakness* a finding exploits. Cross-referencing both makes findings directly consumable by ATT&CK Navigator and SIEM correlation rules (motivated by Anthropic's June 2026 collaboration with MITRE mapping AI-enabled cyber threats to ATT&CK — [anthropic.com/news/AI-enabled-cyber-threats-mitre-attack](https://www.anthropic.com/news/AI-enabled-cyber-threats-mitre-attack)). This is a top-5 starter reference for iEvo's supply-chain scanning context, not an exhaustive CWE→ATT&CK mapping — for a finding outside these five rows, name the closest ATT&CK Enterprise technique from your own knowledge, or leave `attack_technique` `null` rather than forcing a bad fit (same "no false authority" principle as confidence scoring).
+
+| ATT&CK Technique | Sub-technique example | What it covers | Common CWE(s) |
+|-------------------|------------------------|-----------------|----------------|
+| T1195 | T1195.002 — Compromise Software Supply Chain | Malicious code embedded in a dependency, plugin, hook, or skill | CWE-506, CWE-829 |
+| T1059 | e.g. T1059.004 (Unix Shell), T1059.006 (Python), T1059.007 (JavaScript) | Untrusted data reaching a command/script interpreter | CWE-77, CWE-94 |
+| T1552 | — (leaf technique) | Credentials read from files, env vars, config, or hook/log output | CWE-200, CWE-312 |
+| T1546 | — (leaf technique) | Event/hook/lifecycle abuse for persistence or privilege escalation | CWE-829 |
+| T1190 | — (leaf technique) | Input-validation gap in an internet-facing interface | CWE-20 |
+
+Prefer a sub-technique ID over the bare parent when the finding's actual instance is determinable from the code (e.g. a Python `subprocess` injection is `T1059.006`, not the generic `T1059`) — do not default to one specific sub-technique (e.g. always `T1059.007`) for every finding in a category if the interpreter/mechanism varies by finding. Verified against [attack.mitre.org](https://attack.mitre.org/resources/versions/) (ATT&CK Enterprise v19.1, released 2026-04-28) on 2026-07-27 — re-verify technique IDs/names if this table is next touched, since Enterprise major versions ship roughly twice yearly and occasionally restructure tactics (e.g. v19 split Defense Evasion into Stealth and Defense Impairment).
+
 ### What SAST misses (your differentiator)
 
 Traditional SAST tools fire on syntactic patterns. Your advantage is **semantic understanding**:
@@ -158,6 +172,7 @@ Schema per finding:
   "function": "<function or method name>",
   "category": "<taxonomy category from Step 3 table>",
   "cwe": "<CWE-NNN>",
+  "attack_technique": "<TNNNN or TNNNN.NNN> (<Technique Name>), or null",
   "title": "<short summary, under 80 chars>",
   "exploit_chain": {
     "entry": "<how attacker reaches this code>",

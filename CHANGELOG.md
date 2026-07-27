@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.72.0
+
+Add MITRE ATT&CK technique cross-references to `vuln-scan`'s finding output, alongside existing CWE IDs — closes #184.
+
+- **Gap closed (#184)** — `vuln-scan/SKILL.md`'s finding schema emitted `cwe` only; security teams using ATT&CK Navigator/SIEM correlation rules had no attacker-behavior technique ID to import without manual translation. Motivated by Anthropic's June 2026 collaboration with MITRE mapping AI-enabled cyber threats to the ATT&CK taxonomy.
+- **Fix** — added an `attack_technique` field (`<T-ID> (<Technique Name>)`, or `null` when no defensible mapping exists) to the per-finding JSON schema in `vuln-scan/SKILL.md` Step 5 AND its delegated sub-agent twin `agents/vuln-scanner.md` (both duplicate the schema verbatim — a fix that only touches one silently misses the twin, which is what actually runs whenever the sub-agent is available). Added a top-5 supply-chain CWE→ATT&CK cross-reference table to `SKILL.md` Step 3 (T1195, T1059, T1552, T1546, T1190) with guidance to prefer a determinable sub-technique over the bare parent, and to use `null` rather than force a bad fit. Updated `commands/vuln-scan.md`'s Phase 2 "Collect results" and Phase 4 "Details" line to mention the new field.
+- **Corrected from the issue's proposal** — the issue's table cited `T1059.007` as the generic entry for "Command and Scripting Interpreter" injection findings; verified against `attack.mitre.org` that T1059.007 is specifically the **JavaScript** sub-technique, not a stand-in for any interpreter, so the shipped table uses the bare `T1059` parent with sub-technique examples (`.004` Unix Shell, `.006` Python, `.007` JavaScript) and instructs picking the one matching the finding's actual language. Also corrected the issue's "currently ATT&CK Enterprise v15" citation — the actual current version, verified 2026-07-27 against `attack.mitre.org/resources/versions/`, is **v19.1** (released 2026-04-28); the shipped table cites the verified version and date instead.
+- **Scope** — the issue's "Files affected" table and acceptance criteria scope this to `vuln-scan/SKILL.md` (plus its twin agent/orchestrator, which the file already duplicates schema into); `security-check/SKILL.md` (the issue's 4th open question) is deliberately left untouched — a separate skill with a separate scanning model, out of this issue's stated scope. Inlined the mapping table directly in `SKILL.md`'s body rather than a new `references/attack-mapping.md` — the file is 244/500 lines after this change, well under the ≤500-line split threshold (AGENTS.md § Skills format), so a reference-file split isn't warranted yet.
+- **Version** — `feat:` → minor per AGENTS.md's bump table; a new capability (output field + reference table), not a bug fix. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.71.1 → 0.72.0).
+
+---
+
 ## v0.71.1
 
 Document Claude Code v2.1.169's `/cd` command for prompt-cache-safe directory switching in `init/SKILL.md` — closes #193.

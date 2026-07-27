@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.71.0
+
+Add a mechanical post-install verification step (Step 12.6) to `init/SKILL.md` — closes #241.
+
+- **Gap closed (#241)** — `init/SKILL.md`'s Step 12 final summary was a text-only confirmation ("✓ iEvo init complete"); it printed the same success text whether the install actually took effect or silently failed (`defaultEnabled: false` from a settings conflict, a `.claude/skills/ievo/` path collision, a marketplace-vs.-vendored divergence). There was no mechanical way for the model or the user to confirm activation actually succeeded.
+- **Fix** — new Step 12.6 (`Post-install mechanical verification`), between the existing Step 12.5 (platform-mismatch self-check) and Step 13 (feedback invite), Claude Code only (`$CODEX_CLI` unset — skipped entirely on Codex, which has no `claude plugin` CLI equivalent). Runs `claude plugin list --json` and checks the `enabled` boolean on the entry whose `id` matches `ievo`/`ievo@<marketplace>`: confirms silently when `true`, surfaces an actionable `claude plugin enable <id>` hint when `false`, flags a possible path conflict when the entry is absent, and degrades silently to the existing `/ievo:overlay-status` manual smoke-test if the command itself errors (e.g. `claude` not on PATH).
+- **Verified against source, and the issue's own citation corrected** — the issue proposed running `/plugin list --enabled`, citing the Claude Code v2.1.163 release note "Added `/plugin list` command with `--enabled`/`--disabled` filters." Checking the installed CLI directly (`claude plugin list --help` and a live `claude plugin list --enabled` invocation) shows those filter flags are documented and implemented only for the *interactive* `/plugin list` slash command a user types in-session — the CLI form (`claude plugin list --json`, the form a skill can actually invoke via Bash) has no `--enabled`/`--disabled` option and errors with `unknown option '--enabled'`. Confirmed via `code.claude.com/docs/en/plugins-reference` (CLI reference: `--json`/`--available`/`-h` only) and a live `claude plugin list --json` run, which already returns an `enabled` boolean per entry — so the step filters on that field instead of a flag the CLI doesn't have. No CC-version gate was needed as a result: the base `claude plugin list --json` command predates v2.1.163 (only the interactive filter flags were new in that release), so the step instead degrades on a command *error*, not a version check.
+- **Scope** — one file (`plugins/ievo/skills/init/SKILL.md`) plus the mechanical version bump. The issue's two open questions for the operator (defer for DEFER-01 body-length, or gate behind `AskUserQuestion`) are resolved by the issue's own proposed shape: additive-only (DEFER-01 tracks body-length separately and isn't blocking, per the `backlog-verified` re-check comment), and inline/no-question (a read-only verification with no destructive side effect doesn't warrant a pause, consistent with `disable-model-invocation` skills elsewhere in this pipeline that read state without asking first).
+- **Version** — `feat:` → minor per AGENTS.md's bump table; this ships a new pipeline step, not a fix. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.70.1 → 0.71.0).
+
+---
+
 ## v0.70.1
 
 Add the CC v2.1.176 `if:` condition version-boundary note to `hooks-setup/SKILL.md`'s `compatibility` frontmatter field — closes #201.

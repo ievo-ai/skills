@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.73.0
+
+Add post-update refresh verification guidance to `commands/update.md`'s reload reminder — closes #182.
+
+- **Gap closed (#182)** — `update.md`'s Step 6 "Remind user" block told the user how to reload refreshed skill/plugin content (`/reload-skills`, `/reload-plugins` on Claude Code; a restart on Codex) but gave no way to *confirm* the refresh actually took effect — the user had to trust the reload worked or go check state manually.
+- **Fix** — added one guidance line to each platform block, inserted after the existing reload line(s) and before the closing `git diff` review line: confirm that every target Step 6 reported as `refreshed → <new_sha>` now carries that same `source.commit_sha` in its overlay (`.ievo/evolution/<scope>/<name>.md`). Each line also states what the run did *not* change, so a user can't misread an unchanged plugin version as a failed refresh.
+- **Verifies the refreshed target, not the plugin version** — the issue proposed `/plugin list --enabled` (CC v2.1.163+) and `codex plugin list --json | grep -i ievo` (rust-v0.137.0+). Neither works as a check here: `/ievo:update` refreshes *vendored* agents/skills (`.claude/agents/`, `.claude/skills/`, Codex `.agents/skills/`) and never updates the iEvo plugin itself — that's `/ievo:version`'s job — so iEvo's listed version is unchanged by an update run, and `codex plugin list` doesn't enumerate `.agents/skills/` at all. The overlay `source.commit_sha` is the only thing an update run actually moves, so the check points there instead. (This also makes the #241 precedent — `--enabled` being interactive-only, shipped in v0.71.0 — moot for this change.)
+- **Scope** — single file (`commands/update.md`) plus the mechanical version bump. The issue's two open questions for the operator are resolved by scope: a "not found" recovery guide isn't in the acceptance criteria, and bundling with #166 wasn't needed since #166 already shipped independently (v0.60.4).
+- **Version** — `feat:` → minor per AGENTS.md's bump table; a new guidance capability, not a fix. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.72.0 → 0.73.0).
+
+---
+
 ## v0.72.0
 
 Add MITRE ATT&CK technique cross-references to `vuln-scan`'s finding output, alongside existing CWE IDs — closes #184.

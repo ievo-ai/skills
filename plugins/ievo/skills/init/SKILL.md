@@ -25,7 +25,7 @@ metadata:
 
 **Execute the entire pipeline continuously, without pausing.** Do NOT wait for user input between steps. The ONLY user-facing pauses are:
 
-1. **Step 1** (permission check) — `AskUserQuestion`
+1. **Step 1** — `AskUserQuestion`, twice at most: the working-directory confirmation, only if `pwd` shows neither `.git/` nor a Step 4 manifest; and the permission check
 2. **Step 7a** (resolve ambiguous categories) — `AskUserQuestion`, only if any categories were marked `/ambiguous`
 3. **Step 7b** (per-candidate interview) — `AskUserQuestion`, including the single batched tail question for `overlap_tail[]` items, if any
 4. **Step 8** (RED security verdict) — `AskUserQuestion`, only for RED candidates
@@ -104,7 +104,42 @@ Claude Code loaded the plugin from.
 
 ## Step 1: Verify prerequisites
 
-**Working directory.** Every step below — `.ievo/` setup, `.claude/settings.json`, project-scoped installs — operates on the CURRENT working directory; there is no separate directory switch mid-pipeline. If this session started outside the project to init (e.g. `~` or `~/Desktop`), get there first. **Claude Code:** `/cd <project-path>` (v2.1.169+) moves the session without breaking the prompt cache; on older Claude Code, `Bash(cd ...)` works but invalidates the cache for every subsequent tool call in this pipeline — prefer restarting `/ievo:init` from within the project directory instead. **Codex:** no equivalent cache-preserving command is documented as of this writing — restart `/ievo:init` from within the project directory.
+**Working directory — check before anything else.** Every step below — `.ievo/`
+setup, `.claude/settings.json`, Step 9's project-scoped installs — writes into the
+session's CURRENT working directory, and nothing in this pipeline switches directory
+later. A session started outside the project to init (e.g. `~` or `~/Desktop`)
+therefore misdirects the whole run silently.
+
+Run `pwd`, then look in that same directory for a project signal: a `.git/` entry or
+any Step 4 manifest. If **both** are absent, ask before doing anything else via
+`AskUserQuestion` (an empty, brand-new project directory is legitimate — the user
+answers for it; never decide this yourself):
+
+- **Question:** `No project detected in <pwd output>. Initialize iEvo here?`
+- **Header:** `Directory`
+- **Options:**
+  - `Yes — this is the project` — description: `Continue. .ievo/ and all installs go here.`
+  - `No — stop` — description: `Halt so the session can be moved to the right directory.`
+
+On `Yes`, continue with the prereq checks below. On `No`, **halt** — you cannot move
+the session yourself, so print the message below and stop:
+
+- `/cd` is a built-in Claude Code command, recognized only when the **user** types it
+  at the start of a message ([commands reference](https://code.claude.com/docs/en/commands):
+  `/cd <path>` — "Move this session to a new working directory", requires v2.1.169+;
+  earlier versions report `Unknown command: /cd`). It is not callable from a skill.
+- `Bash(cd ...)` is **not** a substitute. It changes only that call's shell directory;
+  `Read`/`Write`, `.claude/` settings resolution and Step 9's installs all keep
+  resolving against the session's working directory, so `.ievo/` and every install
+  still land outside the project — the exact silent misdirection this check exists to
+  catch. Never use it to "fix" the directory.
+
+```
+Move this session to the project, then re-run /ievo:init:
+  • Claude Code v2.1.169+ — type `/cd <project-path>` (preserves the prompt cache).
+  • Older Claude Code, or Codex — no in-session directory switch is documented;
+    quit and relaunch from inside the project directory.
+```
 
 Hard prereqs (v0.6.0+ — no more find-skills install):
 - `git` CLI — `which git`. Used for checkout-based indexing.

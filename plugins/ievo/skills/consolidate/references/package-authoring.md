@@ -98,3 +98,5 @@ Apply (or, in `ievo-ai/skills` itself, literally run) the same checks `validate_
 - `model:` (agent) is one of `sonnet | opus | haiku | fable | inherit` — never a pinned ID
 
 A package that fails any of these is an Anti-Pattern per the calling skill's own Anti-Pattern Detection section (`consolidate/SKILL.md` or `extract-best-practices/SKILL.md`) — fix before presenting the CHECKPOINT 2 diff, never ship an invalid package.
+
+This section covers frontmatter *shape* only. Both callers separately run a **content security re-audit** — a `security-auditor` sub-agent dispatch (or, where unavailable, `security-check/SKILL.md`'s methodology applied inline) against the drafted body itself, before CHECKPOINT 2 — mirroring `evo/SKILL.md` Step 2.5's gate for vendored content, applied here to freshly-synthesized content instead. See `consolidate/SKILL.md` Step 8 (entry-cluster mode, item 4) or `extract-best-practices/SKILL.md` Phase 4 Step 5 for the dispatch mechanics and the YELLOW/RED override gate — frontmatter validation passing does not substitute for it.

@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.74.3
+
+Add the same `security-auditor` re-audit gate `evo/SKILL.md` Step 2.5 enforces for vendored content to the two paths that author a brand-new `SKILL.md`/agent body from scratch — closes #499.
+
+- **Gap closed (#499)** — `consolidate/SKILL.md`'s entry-cluster mode (Step 8) and `extract-best-practices/SKILL.md` (Phase 4 Step 5) both write a freshly-synthesized skill/agent body into the project's trusted, auto-dispatched directory (`.claude/skills/`/`.claude/agents/` or Codex's `.agents/skills/`) before presenting it at their own CHECKPOINT 2 — but neither ever re-audited that body for injected/malicious instructions, unlike `evo/SKILL.md` Step 2.5's equivalent gate for a vendored plugin package. The source material for both (evolution-overlay entries captured verbatim per `evo/SKILL.md`'s "no paraphrasing, no sanitization" rule, or session-mined patterns) can originate from an untrusted third party — a malicious skill's `SKILL.md` surfaced via `/ievo:inspect`/`/ievo:index-repos`, or a crafted PR reviewed via `/ievo:deep-review` — engineered to be captured as a "correction" or "repeated pattern".
+- **Fix** — both skills now dispatch a `security-auditor` sub-agent (or apply `security-check/SKILL.md`'s methodology inline where sub-agent dispatch is unavailable) against each just-written file, before CHECKPOINT 2: GREEN proceeds, YELLOW/RED requires an explicit `AskUserQuestion` "keep anyway" override (auto-discarded in a headless/no-interactive-session run), mirroring `evo/SKILL.md` Step 2.5's dispatch/override shape. A discarded package is deleted and its cluster's overlay entries (or session candidate) are left untouched, the same end state as declining extraction at CHECKPOINT 1. `references/package-authoring.md`'s "Validation before CHECKPOINT 2" section now cross-references the new gate, making clear frontmatter validation does not substitute for it.
+- **Scope** — confined to `plugins/ievo/skills/consolidate/SKILL.md`, `plugins/ievo/skills/extract-best-practices/SKILL.md`, and `plugins/ievo/skills/consolidate/references/package-authoring.md` prose; no script or schema changes, no new tests needed (reference `.md` files aren't under the 100% Node-coverage gate).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.74.2 → 0.74.3).
+
+---
+
 ## v0.74.2
 
 Validate a vendor candidate's own `name` field as a safe filesystem path component in `install-protocol.md` before it is ever used as a local install destination — closes #500.

@@ -153,7 +153,12 @@ When no interactive session is available (a non-interactive/headless invocation)
 
 Any `durable-lesson` cluster that came out of Step 3 as "not sure / decide later", with an unresolved `unknown` target, or unconfirmed because no interactive session was available, is parked — never silently dropped and never guessed into an overlay.
 
-Per the operator's decision on skills#468, this does **not** reuse `plugins/ievo/scripts/evolution_candidates.mjs`'s `pending.md` — that store is a per-session accumulator of free-text lesson candidates (`{ts, scope, text}` JSONL, one file per session, consumed by `/ievo:evo`'s own Step 0 list/consume flow), a genuinely different shape from a per-PR cluster carrying full multi-finding provenance. Bending one schema to fit the other is exactly the premature-abstraction cost not worth paying for a single consumer. Park into a dedicated file instead:
+Per the operator's decision on skills#468, this does **not** reuse auto-evolution's existing candidate stores. There are **two** of them under `.ievo/evolution-candidates/`, they are different files with different owners, and neither fits:
+
+- `<session-id>.jsonl` — the per-session accumulator `plugins/ievo/scripts/evolution_candidates.mjs` owns: `{ts, scope, text}` JSONL, one file per session, listed and consumed through `/ievo:evo`'s own Step 0 list/consume flow. Free text, no provenance fields at all.
+- `pending.md` — the **human-review queue**, scaffolded by `/ievo:evo-auto-enable` and appended to by `/ievo:evo` Step 0 when a candidate's scope is ambiguous or resolves to an agent/skill/user-level target. It is a Markdown queue, not JSONL, and `evolution_candidates.mjs` never touches it (that script's listing filter is `.jsonl`-only, by design — see its header comment). Entries are `## <ISO-8601 UTC> — session <session-id>` with a `Scope:` and a verbatim `Correction:` line.
+
+Both are keyed to a **session** and hold one free-text correction per entry. A parked retrospective candidate is keyed to a **PR** and holds a whole cluster — a root-cause statement plus every contributing finding with its own URL, head commit SHA, and current/stale status. Bending either schema to fit that is exactly the premature-abstraction cost not worth paying for a single consumer. Park into a dedicated file instead:
 
 `.ievo/evolution-candidates/retrospective-pending.md` — append one entry per parked cluster (create the file, with a one-line header comment, if it doesn't exist yet):
 
@@ -167,9 +172,11 @@ Per the operator's decision on skills#468, this does **not** reuse `plugins/ievo
   - <finding 2: ...>
 ```
 
-Read the file first if it exists (Read tool) so the append is additive, never overwriting prior parked entries; write the concatenated result (Write tool — this skill does not use Edit, see frontmatter). Report the file path and entry count to the user once written.
+Read the file first if it exists (Read tool) so the append is additive, never overwriting prior parked entries; write the concatenated result (Write tool — this skill does not use Edit, see frontmatter). Report the file path and entry count to the user once written, together with the fact that this queue is reviewed **by hand** — see the second limitation below; never imply some later automatic pass will pick these entries up.
 
 **Known limitation, stated honestly:** this read-then-write is not atomic. Two `/ievo:review-retrospective` invocations racing on the same park file (e.g. against two different merged PRs in quick succession) can both Read the same prior content and then both Write, silently dropping whichever entry wrote second. Unlike `evolution_candidates.mjs`'s session-accumulator (`appendFileSync`, atomic), this skill has no append primitive available through its tool surface — accepted for a file whose invocations are expected to be infrequent and user-driven, not concurrent.
+
+**Second known limitation — nothing else reads this queue yet.** `retrospective-pending.md` is a new file with no consumer besides a human: `/ievo:evo` Step 0 lists the `.jsonl` session accumulators, `/ievo:evo-auto-disable` counts `pending.md`, and auto-evolution's SessionStart nudge counts session candidates — none of them surface a cluster parked here. That follows directly from the dedicated-file decision above, and closing it means teaching `evo/SKILL.md` to read this file, which the Scope boundary below assigns to Part 2's wiring. Until that lands, acting on a parked entry means opening the file and running `/ievo:evo` for it yourself.
 
 If Step 3 produced zero clusters needing confirmation (nothing classified `durable-lesson`, or every one was rejected) and nothing needs parking, skip this step entirely and say so — don't create an empty or placeholder park file.
 
@@ -181,7 +188,7 @@ This is Part 1 of a two-part proposal (skills#468) — the operator explicitly a
 
 **Out of scope — never do in this skill:**
 - Invoking `/ievo:evo`, for any cluster, under any confirmation outcome — that is Part 2's Step 7, not built here
-- Editing `evo/SKILL.md`, `deep-review/SKILL.md`, `consolidate/SKILL.md`, or `extract-best-practices/SKILL.md` to cross-reference this skill — Part 2's wiring
+- Editing `evo/SKILL.md`, `deep-review/SKILL.md`, `consolidate/SKILL.md`, or `extract-best-practices/SKILL.md` to cross-reference this skill — Part 2's wiring. This is also what would put `retrospective-pending.md` on `/ievo:evo`'s own review path (Step 4's second known limitation); until then the park file is a hand-reviewed queue.
 - Any version bump, `AGENTS.md`, or `CHANGELOG.md` change beyond what a repo-wide convention (see the PR that introduced this skill) already required independently of this feature
 - Merge, release, or deployment recommendations about the PR under retrospect
 - Reading or summarizing debug logs (`.ievo/log/debug/**` or equivalent) as an evidence source, even if a comment references one — they may contain prompts or sensitive data (issue's own explicit constraint)

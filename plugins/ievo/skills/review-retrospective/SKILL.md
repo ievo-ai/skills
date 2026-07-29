@@ -131,7 +131,7 @@ For every cluster classified `durable-lesson`, ask for confirmation — one ques
 - **Question:** `Cluster "<title>" (target: <target>) — durable evolution lesson?`
 - **Header:** `Disposition`
 - **Options:**
-  - `Confirm — durable lesson` — description: `Ready for /ievo:evo once that wiring lands (this build does not invoke it — see Scope boundary)`
+  - `Confirm — durable lesson` — description: `Parked as confirmed in Step 4's file; ready for /ievo:evo once that wiring lands (this build does not invoke it — see Scope boundary)`
   - `Reject — not durable` — description: `Was a one-off or already covered; drop from consideration`
   - `Not sure / decide later` — description: `Park for manual review instead of deciding now`
 
@@ -149,9 +149,16 @@ Clusters classified `stale`, `one-off-defect`, `already-covered`, or `ordinary-f
 
 When no interactive session is available (headless/scheduled run — same detection as `evo/SKILL.md` Step 2.5, the shared definition `consolidate/SKILL.md` Step 8 item 4 and `extract-best-practices/SKILL.md` Phase 4 Step 5 also cite), or on a platform with no `AskUserQuestion` at all, never guess a disposition or a target: every `durable-lesson` cluster is treated as unresolved and routed to Step 4's park file, regardless of whether its target was confident — the confirmation checkpoint the issue requires cannot be skipped just because no one is present to answer it.
 
-## Step 4: Park unresolved candidates
+## Step 4: Park confirmed and unresolved candidates
 
-Any `durable-lesson` cluster that came out of Step 3 as "not sure / decide later", with an unresolved `unknown` target, or unconfirmed because no interactive session was available, is parked — never silently dropped and never guessed into an overlay.
+Every `durable-lesson` cluster Step 3 did **not** reject is parked — never silently dropped and never guessed into an overlay:
+
+- **Confirmed** — the user answered `Confirm — durable lesson`. Parked with disposition `confirmed`. This build never invokes `/ievo:evo` (see Scope boundary), so the park file is the *only* thing that carries a confirmation past the end of the session. Leaving confirmations in the transcript alone would invert the skill's whole value: a "not sure" answer would persist as a durable artifact while the strongest possible answer — a user explicitly affirming a durable lesson — evaporated when the session ended.
+- **Deferred** — the user answered `Not sure / decide later`. Parked with disposition `deferred`.
+- **Unresolved target** — a confirmed-or-deferred cluster whose `unknown` target Step 3's target question did not resolve (the user answered `I don't know — park it`, or was never asked). Parked with `Target: unknown`; the disposition line still records what the user said about durability, which is a separate question from where the lesson belongs.
+- **Unconfirmed** — no interactive session was available, so Step 3 could ask nothing. Parked with disposition `unresolved — no interactive session`.
+
+Only `Reject — not durable` writes nothing at all: the user has judged the cluster a one-off or already covered, so there is nothing to carry forward.
 
 Per the operator's decision on skills#468, this does **not** reuse auto-evolution's existing candidate stores. There are **two** of them under `.ievo/evolution-candidates/`, they are different files with different owners, and neither fits:
 
@@ -160,11 +167,12 @@ Per the operator's decision on skills#468, this does **not** reuse auto-evolutio
 
 Both are keyed to a **session** and hold one free-text correction per entry. A parked retrospective candidate is keyed to a **PR** and holds a whole cluster — a root-cause statement plus every contributing finding with its own URL, head commit SHA, and current/stale status. Bending either schema to fit that is exactly the premature-abstraction cost not worth paying for a single consumer. Park into a dedicated file instead:
 
-`.ievo/evolution-candidates/retrospective-pending.md` — append one entry per parked cluster (create the file, with a one-line header comment, if it doesn't exist yet):
+`.ievo/evolution-candidates/retrospective-pending.md` — one entry per parked cluster, added or updated per the re-run rule below (create the file, with a one-line header comment, if it doesn't exist yet):
 
 ```markdown
 ## <PR url> — <cluster title>
-- **Parked:** <ISO 8601 timestamp from the confirmation step, or "unresolved — no interactive session" for a headless run>
+- **Disposition:** <confirmed | deferred | unresolved — no interactive session>
+- **Parked:** <ISO 8601 UTC timestamp of this park write>
 - **Target:** <project | agent/<name> | skill/<name> | unknown> — <reason, or "user deferred" / "no interactive session available">
 - **Root cause:** <cluster's root cause summary>
 - **Findings:**
@@ -172,11 +180,22 @@ Both are keyed to a **session** and hold one free-text correction per entry. A p
   - <finding 2: ...>
 ```
 
-Read the file first if it exists (Read tool) so the append is additive, never overwriting prior parked entries; write the concatenated result (Write tool — this skill does not use Edit, see frontmatter). Report the file path and entry count to the user once written, together with the fact that this queue is reviewed **by hand** — see the second limitation below; never imply some later automatic pass will pick these entries up.
+`Disposition` is what a later manual pass reads first: a `confirmed` entry has a user's explicit go-ahead behind it and needs only the `/ievo:evo` capture, while `deferred` and `unresolved` entries still need someone to make the durability call. Never omit the field or collapse the three values into a single "pending" — that would throw away the one judgment Step 3 exists to collect.
+
+Read the file first if it exists (Read tool) so the write is additive, never clobbering prior parked entries; write the merged result (Write tool — this skill does not use Edit, see frontmatter). Report the file path, and how many entries were added versus updated, to the user once written, together with the fact that this queue is reviewed **by hand** — see the second limitation below; never imply some later automatic pass will pick these entries up.
+
+**Re-running against the same PR updates in place — it never appends a duplicate.** Re-running is the expected case, not an edge case: this skill is explicitly meant to be run periodically against older merged PRs, and a PR that gained review activity since the last run will re-cluster much of the same material. The entry key is the full `## <PR url> — <cluster title>` heading line. For each entry about to be parked, compare it against the headings already in the file:
+
+- **Key already present** — replace that entry's entire block (its heading through the line before the next `## ` heading, or end of file) with the newly built one, leaving it in its original position in the file. A re-run is the newer truth: the disposition may have moved (`deferred` → `confirmed`, or either → the other), an `unknown` target may since have been resolved, and later review rounds may have added findings to the cluster. Refresh the `Parked` timestamp on an updated entry.
+- **Key not present** — append it as a new entry at the end of the file.
+
+Never remove an entry whose key this run did not produce: a cluster absent from this run (because the classification changed, or a page cap truncated the collection) is not evidence the user withdrew it, and the file is the only record of that decision. Rejection is a decision the user makes in Step 3 about a cluster in front of them — never something a later run infers from silence.
+
+Matching is exact and full-line, deliberately: if a re-run's clustering words the same underlying cluster differently, the new title is a different key, so it is appended alongside the old entry instead of replacing it. That residual duplicate is stated rather than papered over with fuzzy title matching — a hand-reviewed queue costs a human seconds to reconcile two near-identical entries, whereas a fuzzy match that hits the wrong entry silently destroys another cluster's provenance, which is the one thing this file exists to preserve.
 
 **Known limitation, stated honestly:** this read-then-write is not atomic. Two `/ievo:review-retrospective` invocations racing on the same park file (e.g. against two different merged PRs in quick succession) can both Read the same prior content and then both Write, silently dropping whichever entry wrote second. Unlike `evolution_candidates.mjs`'s session-accumulator (`appendFileSync`, atomic), this skill has no append primitive available through its tool surface — accepted for a file whose invocations are expected to be infrequent and user-driven, not concurrent.
 
-**Second known limitation — nothing else reads this queue yet.** `retrospective-pending.md` is a new file with no consumer besides a human: `/ievo:evo` Step 0 lists the `.jsonl` session accumulators, `/ievo:evo-auto-disable` counts `pending.md`, and auto-evolution's SessionStart nudge counts session candidates — none of them surface a cluster parked here. That follows directly from the dedicated-file decision above, and closing it means teaching `evo/SKILL.md` to read this file, which the Scope boundary below assigns to Part 2's wiring. Until that lands, acting on a parked entry means opening the file and running `/ievo:evo` for it yourself.
+**Second known limitation — nothing else reads this queue yet.** `retrospective-pending.md` is a new file with no consumer besides a human: `/ievo:evo` Step 0 lists the `.jsonl` session accumulators, `/ievo:evo-auto-disable` counts `pending.md`, and auto-evolution's SessionStart nudge counts session candidates — none of them surface a cluster parked here, including one parked `confirmed`. That follows directly from the dedicated-file decision above, and closing it means teaching `evo/SKILL.md` to read this file, which the Scope boundary below assigns to Part 2's wiring. Until that lands, acting on a parked entry means opening the file and running `/ievo:evo` for it yourself.
 
 If Step 3 produced zero clusters needing confirmation (nothing classified `durable-lesson`, or every one was rejected) and nothing needs parking, skip this step entirely and say so — don't create an empty or placeholder park file.
 
@@ -203,3 +222,5 @@ This is Part 1 of a two-part proposal (skills#468) — the operator explicitly a
 - **Present clusters verbatim.** Do not filter, merge, or reorder what the sub-agent returned; the user decides what to act on, same as `deep-review/SKILL.md`'s Step 5 rule.
 - **Debug logs are out of scope, unconditionally** — never read one as evidence, per the Scope boundary above.
 - **A parked entry always carries full provenance.** Never park a bare title with no findings/evidence — the whole point of `retrospective-pending.md` is that a later manual pass can act on it without re-running the retrospective.
+- **A confirmation is never transcript-only.** Every cluster the user confirms is written to the park file marked `confirmed` before the run ends. Since this build cannot capture it via `/ievo:evo`, a confirmation left only in the conversation is a decision destroyed at session end — and the run would have preserved a "not sure" while losing a "yes".
+- **Never park a duplicate of an entry already in the file.** Same `## <PR url> — <cluster title>` key means update that entry in place, per Step 4's re-run rule — and never delete an entry this run simply didn't reproduce.

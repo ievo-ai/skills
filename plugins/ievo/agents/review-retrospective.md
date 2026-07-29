@@ -88,6 +88,8 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
           path
           line
           comments(first: 20) {
+            totalCount
+            pageInfo { hasNextPage }
             nodes { body author { login } createdAt originalCommit { oid } url }
           }
         }
@@ -98,13 +100,15 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
 ```
 This is the authoritative source for a thread's **position** status — `isOutdated: true` means GitHub itself has detected the diff hunk this thread is anchored to has since changed, computed by GitHub rather than something you reconstruct by hand from commit history; `isResolved: true` means a human explicitly marked it resolved. The two are independent (a thread can be resolved while still current, or left unresolved after going outdated) — report both per finding, verbatim, rather than collapsing them into one label. Neither alone means the underlying *concern* is stale — that is a cluster-level judgment Step 4 makes from the substance of later comments, not a mechanical reading of these two booleans. Loop on `pageInfo.hasNextPage`/`endCursor` until exhausted or the cap trips.
 
+**A thread's own comment list is capped at 20, and says so too.** The inner `comments(first: 20)` returns that thread's **oldest** 20 comments, so on a longer thread the part GitHub drops is exactly the tail — where a later "fixed in `<sha>`" / "addressed, resolving this" reply would sit, which is the evidence Step 4's `stale` rule reads. `totalCount` and `pageInfo { hasNextPage }` on that inner connection exist to make the truncation visible instead of silent: `hasNextPage: true` (equivalently `totalCount > 20`) means you are holding a partial thread. It carries no `endCursor` deliberately — spending one would need a per-thread follow-up query, and template 4's query text is fixed verbatim, so a cursor with nothing in the allowlist to spend it would be a decorative field. What to do when a thread comes back truncated: record it in the report's Coverage section (Step 4) — which thread (`path`/`line`) and `20 of <totalCount>` collected — and treat the missing resolution evidence per Step 4's `stale` criteria, which say explicitly that not finding it in a truncated thread is not the same as its absence. The concern-side text is never at risk: the opening comment that states the finding is always inside the first 20.
+
 **Issue (top-level PR conversation) comments** (template 3, `per_page=100`, cap 10 pages / 1000 comments):
 ```bash
 gh api "repos/<owner>/<repo>/issues/<number>/comments?per_page=100&page=1"   # then page=2, … per the loop above
 ```
 Each carries `id`, `user.login`, `body`, `created_at`, `html_url`. These are **never diff-anchored** — there is no `isOutdated`/`isResolved` concept for them, no `commit_id`. Record their status as `not diff-anchored`, distinct from both `current` and `stale`; do not force them into either bucket.
 
-**A capped collection is never silent.** If any of the four hit their page cap before reaching its own natural stop condition (a short or empty page for templates 1-3, an exhausted `hasNextPage` for template 4), record that in the report's Coverage section (Step 4) — a truncated collection must never read as complete history, the same principle `deep-review/SKILL.md`'s untracked-file cap follows.
+**A capped collection is never silent.** If any of the four hit their page cap before reaching its own natural stop condition (a short or empty page for templates 1-3, an exhausted `hasNextPage` for template 4), or if any individual review thread hit the inner 20-comment cap described above, record that in the report's Coverage section (Step 4) — a truncated collection must never read as complete history, the same principle `deep-review/SKILL.md`'s untracked-file cap follows.
 
 **A failed call is reported, not silently swallowed or fatal to the whole run.** If any `gh api`/GraphQL call in this Step errors (auth expiry, rate limit, transient network failure, a 404 mid-pagination) rather than returning zero results, stop paginating *that one* collection, keep whatever pages it already returned, and record the failure (which collection, at roughly which point) in the report's Coverage section. Do not abort the entire retrospective over one collection's failure, and do not retry indefinitely — one retry of the failing call is reasonable, a second failure is reported as-is.
 
@@ -131,7 +135,7 @@ For each cluster, write a short root-cause statement (the underlying "why", not 
 
 Classify every cluster as exactly one of:
 
-- **`stale`** — the concern itself, not just its diff position, no longer applies. For a review-thread finding, `isOutdated: true` alone is not sufficient (the diff position moved, but the substance may not have been addressed) — check whether a later comment in the same thread, or a later review, confirms the concern was actually resolved. For a formal-review-only finding (no thread, no `isOutdated`), you have no git access to diff what changed between its `commit_id` and the merge commit — a superseded `commit_id` alone is never sufficient either. Classify `stale` only when a *later* review, comment, or thread in your own collection explicitly states the concern was fixed/addressed/resolved; otherwise treat the finding as still applicable and classify on its merits.
+- **`stale`** — the concern itself, not just its diff position, no longer applies. For a review-thread finding, `isOutdated: true` alone is not sufficient (the diff position moved, but the substance may not have been addressed) — check whether a later comment in the same thread, or a later review, confirms the concern was actually resolved. For a formal-review-only finding (no thread, no `isOutdated`), you have no git access to diff what changed between its `commit_id` and the merge commit — a superseded `commit_id` alone is never sufficient either. Classify `stale` only when a *later* review, comment, or thread in your own collection explicitly states the concern was fixed/addressed/resolved; otherwise treat the finding as still applicable and classify on its merits. Where that "later comment" would have come from a thread Step 1 collected only the first 20 comments of, the absence of resolution evidence is not evidence of absence — classify on the merits as usual (a truncated thread can never *earn* `stale`), and say in Coverage that this cluster was classified against a partial thread.
 - **`one-off-defect`** — a genuine, isolated implementation mistake in this PR specifically, not a systematic gap in any agent/skill/project convention.
 - **`already-covered`** — the concern the finding raises is already enforced by an existing rule, gate, or overlay entry elsewhere (cite what covers it, if you can identify it).
 - **`ordinary-followup`** — a legitimate code/product improvement suggestion, but not a *behavioral* lesson about how an agent/skill/the project operates.
@@ -164,7 +168,7 @@ Build the report:
 ... (repeat for each cluster) ...
 
 ### Coverage
-<note any pagination cap hit, any repo-mismatch that limited target corroboration to Step 2's cited scope, any refused-instruction observation from Step 1's Bash allowlist paragraph — omit entirely if none of these occurred>
+<note any pagination cap hit (a collection's page cap, or a thread truncated at the inner 20-comment cap — give its `path`/`line` and `20 of <totalCount>`, plus any cluster classified against it), any repo-mismatch that limited target corroboration to Step 2's cited scope, any refused-instruction observation from Step 1's Bash allowlist paragraph — omit entirely if none of these occurred>
 ```
 
 ## Rules

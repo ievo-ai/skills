@@ -147,7 +147,7 @@ If the cluster's `target` came back `unknown`, ask a second, target-only questio
 
 Clusters classified `stale`, `one-off-defect`, `already-covered`, or `ordinary-followup` need no confirmation question — report them for visibility (the user may disagree with a classification and can say so, but there is nothing to write anywhere for them) and move on.
 
-When no interactive session is available (a non-interactive/headless invocation), never guess a disposition or a target: every `durable-lesson` cluster is treated as unresolved and routed to Step 4's park file, regardless of whether its target was confident — the confirmation checkpoint the issue requires cannot be skipped just because no one is present to answer it.
+When no interactive session is available (headless/scheduled run — same detection as `evo/SKILL.md` Step 2.5, the shared definition `consolidate/SKILL.md` Step 8 item 4 and `extract-best-practices/SKILL.md` Phase 4 Step 5 also cite), or on a platform with no `AskUserQuestion` at all, never guess a disposition or a target: every `durable-lesson` cluster is treated as unresolved and routed to Step 4's park file, regardless of whether its target was confident — the confirmation checkpoint the issue requires cannot be skipped just because no one is present to answer it.
 
 ## Step 4: Park unresolved candidates
 

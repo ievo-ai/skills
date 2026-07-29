@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.74.2
+
+Validate a vendor candidate's own `name` field as a safe filesystem path component in `install-protocol.md` before it is ever used as a local install destination — closes #500.
+
+- **Gap closed (#500)** — `install-protocol.md` §9a validates `<owner>`, `<repo>`, and the resolved commit SHA against explicit safe-charset patterns before they reach a `gh api`/`git clone` command line (closing the CWE-78 shell-injection risk fixed in #380), but the candidate's own `<name>` — which becomes the *local* Write destination (`<project>/.claude/skills/<name>/`, `<project>/.claude/agents/<name>.md`, and the `.ievo/evolution/skills|agents/<name>.md` overlay file) — was never checked against any path-safety pattern. `<name>` is `scan_repo.mjs`'s output, which prefers a candidate's own declared frontmatter `name:` field over its real directory basename, so it is free text the candidate's author controls directly — not a path derived from walking the cloned tree. A candidate named e.g. `../../../../home/<user>/.ssh`, combined with a tree file named `authorized_keys`, could have directed a Write outside the project.
+- **Fix** — `install-protocol.md` §9a now validates `<name>` against the same safe-slug pattern `package-authoring.md` enforces for authored packages (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, ≤64 chars), placed before the vendor-root Write, the overlay-marker injection, and the overlay-file Write alike — refusing and reporting the candidate on failure, same shape as the existing `<owner>`/`<repo>`/`<ref>` checks. "How to fetch the tree" step 4 additionally verifies each Glob-enumerated relative path stays inside the source directory (rejecting any `..` segment or absolute path) before the corresponding Write, defense-in-depth against a symlinked or otherwise crafted tree entry.
+- **Scope** — confined to `plugins/ievo/skills/init/references/install-protocol.md` prose; no script or schema changes, no new tests needed (reference `.md` files aren't under the 100% Node-coverage gate).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.74.1 → 0.74.2).
+
+---
+
 ## v0.74.1
 
 Supplement `/ievo:deep-review --working` mode with untracked, non-ignored files so a clean verdict can't silently skip a brand-new file — closes #483.

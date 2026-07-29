@@ -15,6 +15,22 @@ SKILL.md Step 1.5): Claude Code → `<project>/.claude/skills/<name>/`; Codex �
 `.claude/skills/` copy is invisible to Codex, issue #432). Everything else in
 this protocol (marker, overlay file, fetch mechanics) is identical on both.
 
+**Validate `<name>` before any Write call.** `<name>` is `index-repos`'
+`scan_repo.mjs` output, which prefers the candidate's own declared
+frontmatter `name:` field over its real directory basename — so, unlike
+`<owner>`/`<repo>`/`<ref>` below (resolved from GitHub's API and validated
+against its slug charset), `<name>` is free text the candidate's author
+controls directly, not a path derived from walking the cloned tree. It
+becomes the local Write destination for every call site in this section: the
+vendor-root skill/agent file(s) (step 2 below), the overlay marker injection
+(step 3), and the `.ievo/evolution/skills|agents/<name>.md` overlay file
+(step 4). Validate it against the same safe-slug pattern
+`package-authoring.md` enforces for authored packages —
+`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, ≤64 chars — before step 2, 3, or 4 ever
+runs. Refuse and report the candidate (write nothing) if it fails: a name
+like `../../../../home/<user>/.ssh` would otherwise redirect a vendor-root or
+overlay Write outside the project.
+
 **Skill:**
 1. Determine `<owner>`, `<repo>`, and `<source-path-in-repo>` from the
    index-repos output (the skill's directory containing SKILL.md +
@@ -106,9 +122,16 @@ stop this. Fetch this way instead — no untrusted byte ever crosses a shell:
 4. **For a skill** (`<source-path-in-repo>` is the skill's directory):
    enumerate `$CHECKOUT_DIR/<source-path-in-repo>` with the **Glob tool**
    (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source-path-in-repo>"` — never a
-   Bash `find`/`ls`), then **Read** each listed file and **Write** it to the
-   matching relative location under the platform's vendor root (§9a above —
-   `.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/` on Codex).
+   Bash `find`/`ls`). For each match, compute its path relative to
+   `$CHECKOUT_DIR/<source-path-in-repo>` and verify that relative path
+   contains no `..` segment and is not itself absolute — refuse and report
+   (skip that file) if it does. A normal git tree entry can't produce this
+   (git itself refuses a bare `..` tree component), but a symlinked or
+   otherwise crafted entry inside the candidate's own repo should not be
+   trusted over the check. Then **Read** each verified file and **Write** it
+   to the matching relative location under the platform's vendor root (§9a
+   above — `.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/`
+   on Codex).
 5. **For an agent** (`<source-path-in-repo>` is the single agent `.md` file,
    not a directory — Glob-enumerating a file path returns nothing): **Read**
    `$CHECKOUT_DIR/<source-path-in-repo>` directly with the **Read tool**, then
@@ -116,7 +139,9 @@ stop this. Fetch this way instead — no untrusted byte ever crosses a shell:
 
 Glob and Read/Write all take paths as direct parameters, never shell text, so
 neither a malicious `<source-path-in-repo>` nor a malicious file name inside
-it can reach a shell.
+it can reach a shell — and the sub-step 4 relative-path check keeps a
+crafted tree entry from resolving outside the vendor root, while the
+`<name>` validation above keeps a crafted `<name>` from doing the same.
 
 If cloning or resolution fails (private repo, no network), report the
 failure — do NOT fall back to per-file `gh api` fetching, which reintroduces

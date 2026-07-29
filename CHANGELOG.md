@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.74.3
+
+Add the same content re-audit gate `evo/SKILL.md` Step 2.5 enforces for vendored content to the two paths that author a brand-new `SKILL.md`/agent body from scratch — closes #499.
+
+- **Gap closed (#499)** — `consolidate/SKILL.md`'s entry-cluster mode (Step 8) and `extract-best-practices/SKILL.md` (Phase 4 Step 5) both write a freshly-synthesized skill/agent body into the project's trusted, auto-dispatched directory (`.claude/skills/`/`.claude/agents/` or Codex's `.agents/skills/`) before presenting it at their own CHECKPOINT 2 — but neither ever re-audited that body for injected/malicious instructions, unlike `evo/SKILL.md` Step 2.5's equivalent gate for a vendored plugin package. The source material for both (evolution-overlay entries captured verbatim per `evo/SKILL.md`'s "no paraphrasing, no sanitization" rule, or session-mined patterns) can originate from an untrusted third party — a malicious skill's `SKILL.md` surfaced via `/ievo:inspect`/`/ievo:index-repos`, or a crafted PR reviewed via `/ievo:deep-review` — engineered to be captured as a "correction" or "repeated pattern".
+- **Fix** — both skills now draft the package body in context, apply `security-check/SKILL.md`'s antivirus deep-scan methodology (its Step 3 threat-pattern reasoning + Step 4 verdict construction) **inline against that draft**, and write it only on approval — the same audit-before-disk ordering `evo/SKILL.md` Step 2.5 uses. GREEN proceeds; YELLOW/RED requires an explicit `AskUserQuestion` "author anyway" override, and auto-discards in a headless/no-interactive-session run (or on a platform without `AskUserQuestion` at all). Because the audit precedes the write, a discard is simply "don't write" — no delete, and no capability beyond either skill's declared `compatibility:` surface.
+- **Deliberately no `security-auditor` sub-agent dispatch on these two paths.** That agent's § Input accepts only remote candidate identifiers (`<owner>/<repo>@<skill>`, `<owner>/<repo>:<path>`, `<owner>/<repo>/<plugin>`) and its Step 1 runs `security-check`'s fetch-shaped Steps 1-2 (skills.sh lookup, `gh api` metadata resolution, shallow clone) — an unpublished, in-session draft satisfies none of them, so a dispatch there would be an undefined contract. The context isolation a sub-agent buys is also moot for content the calling session synthesized itself, and dispatching would contradict `consolidate`'s declared "no sub-agent/Task-tool dispatch required" compatibility. Inline application is exactly the fallback `evo/SKILL.md` Step 2.5 already documents for the identical constraint.
+- **Docs** — `references/package-authoring.md` gains an explicit § Registration ordering rule (draft → audit → write) and its "Validation before CHECKPOINT 2" section now cross-references the new gate, making clear frontmatter validation does not substitute for it. AGENTS.md § Security model, which previously listed only the three sub-agent-backed gates (`/ievo:init` Step 8, `/ievo:update` Step 2.5, `/ievo:evo` Step 2.5), now documents these two inline gates alongside them — five total.
+- **Scope** — confined to `plugins/ievo/skills/consolidate/SKILL.md`, `plugins/ievo/skills/extract-best-practices/SKILL.md`, `plugins/ievo/skills/consolidate/references/package-authoring.md`, and AGENTS.md prose; no script, schema, or agent-definition changes, no new tests needed (reference `.md` files aren't under the 100% Node-coverage gate).
+- **Version** — bump per AGENTS.md rules (`fix:` → patch); `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.74.2 → 0.74.3).
+
+---
+
 ## v0.74.2
 
 Validate a vendor candidate's own `name` field as a safe filesystem path component in `install-protocol.md` before it is ever used as a local install destination — closes #500.

@@ -147,9 +147,9 @@ If the cluster's `target` came back `unknown`, ask a second, target-only questio
 - **Question:** `Cluster "<title>" has no confident target. Where does this belong?`
 - **Header:** `Target`
 - **Options:**
-  - `Project-wide` — description: `.ievo/evolution/project.md`
-  - `A named agent` — description: `Prompts for the agent name, then .ievo/evolution/agents/<name>.md`
-  - `A named skill` — description: `Prompts for the skill name, then .ievo/evolution/skills/<name>.md`
+  - `Project-wide` — description: `Recorded as target project in Step 4's park file (this build never writes .ievo/evolution/project.md directly — see Scope boundary)`
+  - `A named agent` — description: `Prompts for the agent name, recorded as target agent/<name> in Step 4's park file (never written to .ievo/evolution/agents/<name>.md directly)`
+  - `A named skill` — description: `Prompts for the skill name, recorded as target skill/<name> in Step 4's park file (never written to .ievo/evolution/skills/<name>.md directly)`
   - `I don't know — park it` — description: `Keep target unknown; park in .ievo/evolution-candidates/retrospective-pending.md for later manual review`
 
 Clusters classified `stale`, `one-off-defect`, `already-covered`, or `ordinary-followup` need no confirmation question — report them for visibility (the user may disagree with a classification and can say so, but there is nothing to write anywhere for them) and move on.
@@ -195,7 +195,7 @@ Read the file first if it exists (Read tool) so the write is additive, never clo
 
 **Re-running against the same PR updates in place — it never appends a duplicate.** Re-running is the expected case, not an edge case: this skill is explicitly meant to be run periodically against older merged PRs, and a PR that gained review activity since the last run will re-cluster much of the same material. The entry key is the full `## <PR url> — <cluster title>` heading line. For each entry about to be parked, compare it against the headings already in the file:
 
-- **Key already present** — replace that entry's entire block (its heading through the line before the next `## ` heading, or end of file) with the newly built one, leaving it in its original position in the file. A re-run is the newer truth: the disposition may have moved (`deferred` → `confirmed`, or either → the other), an `unknown` target may since have been resolved, and later review rounds may have added findings to the cluster. Refresh the `Parked` timestamp on an updated entry.
+- **Key already present** — replace that entry's entire block (its heading through the line before the next entry-heading line, or end of file) with the newly built one, leaving it in its original position in the file. **Match entry-heading lines by the full key pattern (`## https://` at line-start), never a bare `## ` prefix**: a finding's verbatim evidence excerpt can itself contain a line starting with `## ` (a quoted markdown heading, a shell/C comment, code-fenced content) — treating any `## `-prefixed line as a boundary would split that finding's own block. Since every real entry heading is `## <PR url> — <cluster title>` and every PR url is a `https://github.com/...` link, anchoring the boundary match to `## https://` distinguishes a real heading from an embedded one without needing to parse or escape the embedded text. A re-run is the newer truth: the disposition may have moved (`deferred` → `confirmed`, or either → the other), an `unknown` target may since have been resolved, and later review rounds may have added findings to the cluster. Refresh the `Parked` timestamp on an updated entry.
 - **Key not present** — append it as a new entry at the end of the file.
 
 Never remove an entry whose key this run did not produce: a cluster absent from this run (because the classification changed, or a page cap truncated the collection) is not evidence the user withdrew it, and the file is the only record of that decision. Rejection is a decision the user makes in Step 3 about a cluster in front of them — never something a later run infers from silence.

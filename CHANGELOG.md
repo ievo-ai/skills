@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.1
+
+Widen `scrub.mjs`'s `NAME_ALT` suffix regex to allow a digit-leading secret name, closing a redaction bypass — closes #507.
+
+- **Gap closed (#507)** — the suffix alternative of `NAME_ALT` (`plugins/ievo/scripts/scrub.mjs:91`) required a secret-shaped name to start with `[A-Za-z]`, and `ASSIGNMENT_RE`'s `\b` anchor cannot recover a match starting mid-identifier: every digit→letter/letter→letter transition inside a name like `2FA_TOKEN` is word→word, so no boundary ever fires there. An assignment whose name starts with a digit (`2FA_TOKEN=...`, `1PASSWORD_SERVICE_ACCOUNT_TOKEN=...`, mirroring the real 1Password CLI convention) matched zero alternatives and `redactNamedSecrets` returned it completely unmodified — a live secret surviving verbatim into `.ievo/evolution-candidates/<session-id>.jsonl`, which can propagate into `pending.md`, published evolution entries, and `eva publish --title ... --live` (a public GitHub issue + the public Telegram community chat).
+- **Fix** — widened the suffix alternative's leading character class from `[A-Za-z]` to `[A-Za-z0-9]` (`[A-Za-z0-9][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWORD|ID)`), a strict superset of the previous match set — it cannot un-match any name the original regex already matched, only adds digit-leading names to the match set. Added regression cases to `scrub.test.mjs` covering `2FA_TOKEN=`, `1PASSWORD_SERVICE_ACCOUNT_TOKEN=`, and a bare leading digit (`9CLIENT_SECRET=`), reproducing the issue's own PoC.
+- **Scope** — single-line regex character-class widen in `scrub.mjs` plus new test cases; no schema, CLI, or other script logic changes. Companion `#493` (whitespace-truncation of an already-matched value, different root cause, same file) is untouched here.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.0 → 0.75.1).
+
+---
+
 ## v0.75.0
 
 Add `/ievo:review-retrospective` — mines an already-merged PR's full review history for provenance-tagged findings, clusters them by root cause and responsible target, and previews each cluster for confirmation — closes #468 (Part 1).

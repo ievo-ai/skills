@@ -337,6 +337,16 @@ Your install is fine, and iEvo cannot fix this from its side: the stale path is 
 
 **Mitigation**: after an iEvo plugin update on Codex, start a new task — or restart Codex Desktop / the CLI session — before invoking an `ievo:*` skill again. Reported against an iEvo 0.62.3 → 0.63.0 upgrade on Codex Desktop ([ievo-ai/skills#459](https://github.com/ievo-ai/skills/issues/459)).
 
+### Known configuration gotcha — `claude plugin update` resolving against a stale local marketplace cache
+
+Claude Code resolves a plugin's "latest" version as a cache-key comparison, not a live lookup. Per the [official docs](https://code.claude.com/docs/en/plugins-reference#version-management), the version is read from, in order: `plugin.json`'s `version` field, then the plugin's entry in the marketplace's own locally-cached `marketplace.json`, then the git commit SHA of the plugin's source — `claude plugin update` "skips the update if it matches what's already installed." None of those sources are re-fetched by `plugin update` itself; only a separate `claude plugin marketplace update <name>` call refreshes the local marketplace clone ("Refresh marketplaces from their sources to retrieve new plugins and version changes," per the same docs). So on a project whose local marketplace clone has genuinely fallen behind upstream, `claude plugin update <plugin> -s <scope>` silently reinstalls whatever old commit that stale clone is still pinned to — no error, no "marketplace is stale, refresh first" hint.
+
+That can also read as a confusing downgrade. `~/.claude/plugins/installed_plugins.json` tracks one entry per `(plugin, scope, projectPath)`, and the CLI's own `updated from X to Y` confirmation has been observed printing `X` from a *different* scope's cached entry (e.g. a separate `user`-scope install of the same plugin) than the scope actually being updated — so a stale-but-untouched `project`-scope entry can look like it just downgraded from a much newer version, when it was really just old the whole time.
+
+Even `claude plugin marketplace update <name>` — which runs a `git pull` against the cached clone under the hood — isn't guaranteed to leave the clone at the latest commit: the [docs](https://code.claude.com/docs/en/plugin-marketplaces#marketplace-updates-fail-in-offline-environments) state that "by default, when a `git pull` fails, Claude Code attempts a re-clone from scratch," and running the command **manually** has been observed reporting success while an untracked local edit to the cached clone's own `marketplace.json` blocked a clean fast-forward (one machine, one occurrence — not a documented general guarantee either way).
+
+**Mitigation**: if `plugin update` / `marketplace update` output looks stale or reads like an unexplained downgrade, verify — and if needed refresh — the cached clone directly: `git log -1` and `git pull` inside `~/.claude/plugins/marketplaces/<marketplace>`, discarding any untracked local modification to that clone's `marketplace.json` first if it blocks the fast-forward, then re-run `claude plugin update`. Reported on iEvo 0.74.3 with Claude Code 2.1.220 ([ievo-ai/skills#512](https://github.com/ievo-ai/skills/issues/512)).
+
 ## Install paths
 
 iEvo supports two install paths per candidate:

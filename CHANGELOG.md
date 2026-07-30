@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.2
+
+Add excerpt-containment fencing to `deep-reviewer.md`'s report template, closing a live-rendering exfiltration/phishing gap — closes #505.
+
+- **Gap closed (#505)** — `plugins/ievo/agents/deep-reviewer.md`'s Step 3 report template rendered each finding's `Issue:`/`Suggestion:` fields with no instruction to wrap a quoted source excerpt in a code span, and `deep-review/SKILL.md` Step 5 presents the report "as-is" with no downstream sanitization. A crafted line reaching the diff under review (a malicious PR, a vendored dependency, or an untracked working-tree file) could smuggle a Markdown image/link into a quoted excerpt, firing a live exfiltration beacon or spoofed link the moment the report renders in the Claude Code chat UI. Two sibling agents (`security-auditor.md`, `vuln-scanner.md`) already carry the equivalent fix for this exact rendering-surface class.
+- **Fix** — ported the excerpt-containment rule to `deep-reviewer.md`: a new note in Step 3 requires any verbatim source excerpt quoted in `Issue:`/`Suggestion:` to be wrapped in an inline code span, widening the backtick run one character beyond the longest run already inside the excerpt (CommonMark's nested-code-span rule), plus a corresponding `## Rules` bullet. Added a matching display-side note to `deep-review/SKILL.md` Step 5 instructing the caller not to strip or unwrap the code-span markers before presenting the report, mirroring `commands/vuln-scan.md`'s Phase 4 equivalent.
+- **Scope** — the security-relevant change is an additive instruction/doc change to two agent-skill Markdown files only (no schema, CI, or behavior change to non-malicious diffs); the rest of the diff is the mandatory version-bump ceremony below. Companion `#498` (leaked-secrets redaction gap, same file) is untouched here.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.1 → 0.75.2).
+
 ## v0.75.1
 
 Widen `scrub.mjs`'s `NAME_ALT` suffix regex to allow a digit-leading secret name, closing a redaction bypass — closes #507.

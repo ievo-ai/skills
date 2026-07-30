@@ -36,7 +36,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.75.0";
+export const SCRIPT_VERSION = "0.75.1";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -88,7 +88,14 @@ export function redactProviderSecrets(text) {
 // unsuffixed names that are secret-shaped on their own (APIKEY has no
 // underscore before KEY, so it isn't covered by the suffix form; API_KEY is
 // covered by both but listed for clarity).
-const NAME_ALT = String.raw`[A-Za-z][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWORD|ID)|PASSWORD|SECRET|TOKEN|APIKEY|API_KEY`;
+//
+// The suffix alternative's leading character class is [A-Za-z0-9], not just
+// [A-Za-z] — a digit-leading name (2FA_TOKEN, 1PASSWORD_SERVICE_ACCOUNT_TOKEN)
+// is a realistic secret-shaped identifier, and ASSIGNMENT_RE's \b can't
+// recover a match starting mid-identifier: every digit→letter/letter→letter
+// transition inside a name like 2FA_TOKEN is word→word, so \b never fires
+// there (skills#507).
+const NAME_ALT = String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWORD|ID)|PASSWORD|SECRET|TOKEN|APIKEY|API_KEY`;
 
 // Captures: (1) name, (2) an optional closing quote right after the name
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with

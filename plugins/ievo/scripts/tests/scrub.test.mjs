@@ -161,6 +161,15 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets(text), text);
   });
 
+  it("redacts a digit-leading suffix-shaped NAME (skills#507)", () => {
+    assert.equal(redactNamedSecrets("2FA_TOKEN=abcd1234efgh5678"), "2FA_TOKEN=[REDACTED]");
+    assert.equal(
+      redactNamedSecrets("1PASSWORD_SERVICE_ACCOUNT_TOKEN=my-real-secret-value"),
+      "1PASSWORD_SERVICE_ACCOUNT_TOKEN=[REDACTED]",
+    );
+    assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
+  });
+
   it("leaves ordinary prose untouched", () => {
     const text = "the request took 5 seconds and returned ok";
     assert.equal(redactNamedSecrets(text), text);

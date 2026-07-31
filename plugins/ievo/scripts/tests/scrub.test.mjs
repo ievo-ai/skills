@@ -370,6 +370,53 @@ describe("redactNamedSecrets", () => {
     assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
   });
 
+  it("stays linear on repeated quote-opened values with no acceptable closer (no quadratic blowup)", () => {
+    // The sibling test above pins the MALFORMED branch; this pins the STRICT
+    // quoted one, which had its own quadratic left open. Its lazy inner was
+    // unbounded, so on a line where no same-type quote is followed by a
+    // QUOTED_VALUE_CLOSE delimiter it scanned to end of line before failing
+    // — and it did that once per assignment on the line, because the
+    // malformed fallback that catches the failure advances the scan position
+    // by only a couple of characters. n restarts of an O(n) scan is O(n²),
+    // again on untrusted, not-yet-truncated input (scrub() caps length LAST).
+    // Bounding the inner repetition caps each futile scan instead.
+    //
+    // Measured on the unbounded form, quadrupling per doubling of input:
+    // 159ms at 24 KB, 620ms at 48 KB, 2500ms at 96 KB. Bounded: 5ms / 9ms /
+    // 19ms. Same deliberately loose 1000ms budget as the sibling test above.
+    const units = 8_000;
+    const input = `PASSWORD="a `.repeat(units);
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    // Every assignment redacts independently; the final one additionally
+    // swallows the trailing space, since no assignment follows it to stop at.
+    assert.equal(out, Array(units).fill("PASSWORD=[REDACTED]").join(" "));
+    assert.doesNotMatch(out, /"a/);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("over-redacts, never under-redacts, a quoted value past the inner length bound", () => {
+    // The bound that makes the strict alternative linear (above) is safe
+    // precisely because overflowing it makes that alternative FAIL rather
+    // than match short: the value falls through to the redact-to-end-of-line
+    // fallback, so the bound can only widen a redaction. That is the
+    // opposite of the length cap tried and rejected on the unquoted-value
+    // alternative earlier in this PR, which truncated the redacted span
+    // itself and copied the tail through in cleartext.
+    const long = "s".repeat(300);
+    const over = redactNamedSecrets(`TOKEN="${long}" tail`);
+    assert.equal(over, "TOKEN=[REDACTED]"); // ` tail` over-redacted, nothing leaked
+    assert.doesNotMatch(over, /s{5}/);
+
+    // At the bound the value still closes normally, keeping its trailing text.
+    assert.equal(redactNamedSecrets(`TOKEN="${"s".repeat(255)}" tail`), `TOKEN="[REDACTED]" tail`);
+
+    // The bound counts inner units, not characters — a backslash-escape pair
+    // is one unit, so 255 escaped pairs (510 characters) still closes.
+    assert.equal(redactNamedSecrets(`TOKEN="${"\\a".repeat(255)}" tail`), `TOKEN="[REDACTED]" tail`);
+  });
+
   it("redacts the same span whether or not the value runs through whitespace", () => {
     // Consuming whole runs instead of single characters must not move the
     // stop position: an unclosed value still swallows its internal spaces

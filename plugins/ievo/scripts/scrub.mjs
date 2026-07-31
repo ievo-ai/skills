@@ -202,7 +202,38 @@ const QUOTED_VALUE_CLOSE = String.raw`(?=[\s,;}\])]|$)`;
 // Spelled `\\[^\r\n]` rather than `\\.` to keep the excluded set exactly
 // CRLF: `.` additionally excludes U+2028/U+2029, which are ordinary content
 // here.
-const QUOTED_VALUE_INNER = String.raw`(?:[^\r\n\\]|\\[^\r\n])*?`;
+//
+// The repetition is BOUNDED rather than an unbounded `*?`, for the same
+// linear-time reason PROVIDER_SECRET_RE above is bounded at 255. When no
+// closer this alternative accepts exists ahead on the line, the lazy inner
+// scans all the way to end of line before failing — and the MALFORMED
+// fallback below then advances the scan position by only a few characters,
+// so that futile end-of-line scan restarts at EVERY assignment on the line:
+// `'PASSWORD="a '.repeat(n)` is a single line with n restarts of an O(n)
+// scan, i.e. O(n²), on input that has NOT been truncated yet because scrub()
+// caps length LAST by design (measured on the unbounded form: 0.6s at 48 KB,
+// 2.5s at 96 KB — found in review). This is the same attacker-influenced
+// cost the unquoted and malformed alternatives were already restructured to
+// avoid, left unfixed in the strict-quoted one; whole-run consumption cannot
+// fix it here, because the cost is one full scan per restart rather than
+// re-probing inside a run.
+//
+// A length bound is the right instrument HERE even though one was tried and
+// rejected for UNQUOTED_VALUE earlier in this PR, and the difference is the
+// direction of the failure. Overflowing this bound makes the strict
+// alternative FAIL, which drops the value into MALFORMED_QUOTED_VALUE below
+// and redacts from the opening quote to end of line — so the bound can only
+// ever WIDEN a redaction, never truncate one. The UNQUOTED_VALUE cap
+// truncated the redacted span itself and copied the tail through in
+// cleartext, which is a leak; this one's only cost is over-redaction of
+// whatever follows a quoted value longer than the bound on the same line
+// (`TOKEN="<256+ chars>" tail` -> `TOKEN=[REDACTED]` instead of
+// `TOKEN="[REDACTED]" tail`). Fail-closed either way, pinned by its own test.
+//
+// A "unit" is one character or one backslash-escape pair, so the bound is on
+// iterations, not on the byte length of the value.
+const QUOTED_VALUE_MAX_UNITS = 255;
+const QUOTED_VALUE_INNER = String.raw`(?:[^\r\n\\]|\\[^\r\n]){0,${QUOTED_VALUE_MAX_UNITS}}?`;
 
 // Captures: (1) name, (2) an optional closing quote right after the name
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with
@@ -213,13 +244,14 @@ const QUOTED_VALUE_INNER = String.raw`(?:[^\r\n\\]|\\[^\r\n])*?`;
 // uppercase, JS object literals are often camelCase).
 //
 // The quoted alternative's inner text is QUOTED_VALUE_INNER (lazy, only CRLF
-// excluded, backslash-escape aware) and closes on a backreference to
-// whichever quote character opened it (\4) — NOT `[^"'\r\n]*` (greedy,
-// excluding BOTH quote characters), which stopped at the first occurrence of
-// EITHER quote type and so failed to find a same-type closer sitting past an
-// embedded opposite-type quote (`"user's api key"` has no `"` immediately
-// after "user", so the old pattern never found the real closing `"` at all —
-// the MALFORMED_QUOTED_VALUE case above, also found by /ievo:vuln-scan).
+// excluded, backslash-escape aware, length-bounded) and closes on a
+// backreference to whichever quote character opened it (\4) — NOT
+// `[^"'\r\n]*` (greedy, excluding BOTH quote characters), which stopped at
+// the first occurrence of EITHER quote type and so failed to find a
+// same-type closer sitting past an embedded opposite-type quote (`"user's
+// api key"` has no `"` immediately after "user", so the old pattern never
+// found the real closing `"` at all — the MALFORMED_QUOTED_VALUE case above,
+// also found by /ievo:vuln-scan).
 // Lazy (not greedy) matching stops at the FIRST subsequent same-type quote
 // that QUOTED_VALUE_CLOSE accepts as a real terminator, so two quoted
 // assignments on one line ("A_TOKEN=\"one\" B_SECRET=\"two\"") still redact

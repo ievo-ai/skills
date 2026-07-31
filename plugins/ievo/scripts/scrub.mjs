@@ -36,7 +36,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.75.5";
+export const SCRIPT_VERSION = "0.75.6";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -97,15 +97,29 @@ export function redactProviderSecrets(text) {
 // there (skills#507).
 const NAME_ALT = String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWORD|ID)|PASSWORD|SECRET|TOKEN|APIKEY|API_KEY`;
 
+// An unquoted value stops at a comma/semicolon/quote/CRLF (unchanged), OR
+// right before the next secret-shaped `NAME<sep>` further along the same
+// line — so back-to-back assignments on one line ("A_TOKEN=one
+// B_SECRET=two") still redact independently — OR the end of input.
+// Internal whitespace no longer stops the match: the value alternative used
+// to be `[^\s,;"'\r\n]+`, which matched only the FIRST token of a
+// multi-word unquoted value, so `.replace()` only redacted that token and
+// copied every subsequent word through untouched (`PASSWORD=my secret
+// pass` -> `PASSWORD=[REDACTED] secret pass`, skills#493). Bounded at 255
+// extra chars, mirroring PROVIDER_SECRET_RE's bound above, so the
+// per-position lookahead this introduces can't turn a long, underscore-free
+// adversarial blob quadratic.
+const NEXT_ASSIGNMENT_LOOKAHEAD = String.raw`\s+\b(?:${NAME_ALT})\b["']?\s*[:=]`;
+const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})[^,;"'\r\n]){0,255}`;
+
 // Captures: (1) name, (2) an optional closing quote right after the name
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with
 // surrounding whitespace), then either a quoted value (4=quote char,
-// 5=inner text) or an unquoted value (6=run of non-whitespace/comma/
-// semicolon/quote chars). Case-insensitive — assignment names appear in
-// every casing convention (env files are uppercase, JS object literals are
-// often camelCase).
+// 5=inner text) or an unquoted value (6=see UNQUOTED_VALUE above).
+// Case-insensitive — assignment names appear in every casing convention
+// (env files are uppercase, JS object literals are often camelCase).
 const ASSIGNMENT_RE = new RegExp(
-  String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])([^"'\r\n]*)\4|([^\s,;"'\r\n]+))`,
+  String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])([^"'\r\n]*)\4|(${UNQUOTED_VALUE}))`,
   "gi",
 );
 

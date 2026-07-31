@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.6
+
+Widen `scrub.mjs`'s unquoted-value redaction to the full value instead of its first token, closing a multi-word-secret leak — closes #493.
+
+- **Gap closed (#493)** — `ASSIGNMENT_RE`'s unquoted-value alternative (`plugins/ievo/scripts/scrub.mjs`, `redactNamedSecrets`) was `[^\s,;"'\r\n]+`, which stops matching at the first whitespace character. For an unquoted secret-shaped assignment whose value itself contains a space (`PASSWORD=my secret pass`, `DB_PASSWORD=correct horse battery staple`), `String.replace()` only redacts the matched span — the first token — and copies every subsequent word through untouched (`PASSWORD=[REDACTED] secret pass`), defeating the script's sole stated contract that a persisted `.ievo/evolution-candidates/<session-id>.jsonl` record "can never carry a live secret."
+- **Fix** — widened the unquoted-value alternative so it keeps matching past internal whitespace, stopping only at a comma/semicolon/quote/CRLF (unchanged), the start of another secret-shaped `NAME<sep>` further along the same line (so back-to-back assignments — `A_TOKEN=one B_SECRET=two` — still redact independently), or the end of input. Bounded at 255 extra characters, mirroring `PROVIDER_SECRET_RE`'s existing bound, so the added per-position lookahead can't turn a long, underscore-free adversarial blob quadratic. Added regression coverage: the issue's own multi-word PoC values, two assignments sharing a line with multi-word values, a value containing a word that merely looks like (but isn't followed by a separator matching) a secret name, and confirmation the comma-stop behavior is preserved.
+- **Scope** — a single regex widen plus a new lookahead constant in `scrub.mjs`, and new test cases in `scrub.test.mjs`; no change to the quoted-value branch, provider-secret matching, home-path rewriting, or truncation. Companion `#507` (digit-leading name matching, different root cause, same file) is untouched here.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.5 → 0.75.6).
+
 ## v0.75.5
 
 Strip control characters from the file path/directory name `validate_skills.mjs`/`validate_agents.mjs` echo to CI logs, closing a log-injection gap — closes #495.

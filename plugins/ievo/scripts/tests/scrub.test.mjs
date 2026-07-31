@@ -170,6 +170,35 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
   });
 
+  it("fully redacts a multi-word unquoted value, not just its first token (skills#493)", () => {
+    assert.equal(redactNamedSecrets("PASSWORD=my secret pass"), "PASSWORD=[REDACTED]");
+    assert.equal(
+      redactNamedSecrets("DB_PASSWORD=correct horse battery staple"),
+      "DB_PASSWORD=[REDACTED]",
+    );
+    assert.doesNotMatch(redactNamedSecrets("PASSWORD=my secret pass"), /secret pass/);
+  });
+
+  it("redacts multi-word unquoted values independently when two assignments share a line", () => {
+    assert.equal(
+      redactNamedSecrets("A_TOKEN=hello world B_SECRET=another value"),
+      "A_TOKEN=[REDACTED] B_SECRET=[REDACTED]",
+    );
+  });
+
+  it("does not stop early when a non-assignment word inside the value merely looks like a secret name", () => {
+    // "token" appears mid-value but isn't followed by a `:`/`=` separator,
+    // so it must not be mistaken for the start of a new assignment.
+    assert.equal(redactNamedSecrets("PASSWORD=my token is safe"), "PASSWORD=[REDACTED]");
+  });
+
+  it("still stops an unquoted multi-word value at a comma", () => {
+    assert.equal(
+      redactNamedSecrets("PASSWORD=hello, unrelated text"),
+      "PASSWORD=[REDACTED], unrelated text",
+    );
+  });
+
   it("leaves ordinary prose untouched", () => {
     const text = "the request took 5 seconds and returned ok";
     assert.equal(redactNamedSecrets(text), text);
@@ -268,9 +297,17 @@ describe("scrub", () => {
 
   it("applies redaction, home-path rewrite, and truncation together, in order", () => {
     const token = `ghp_${"a".repeat(36)}`;
-    const input = `token=${token} at ${FAKE_HOME}/work`;
+    // Comma-delimited from the trailing path (not "at <path>" with no
+    // delimiter): now that redactNamedSecrets's unquoted-value match
+    // spans internal whitespace (skills#493), "token=" is itself
+    // NAME_ALT-shaped (bare "TOKEN"), so undelimited trailing prose after
+    // the already-redacted marker would be swallowed into the same match
+    // with no boundary to stop at — the comma is a realistic delimiter
+    // (log/KV-style output) that keeps this test's actual intent (pipeline
+    // ordering) independent of that unrelated redaction-width fix.
+    const input = `token=${token}, path ${FAKE_HOME}/work`;
     const out = scrub(input, { home: FAKE_HOME });
-    assert.equal(out, `token=${REDACTED} at ~/work`);
+    assert.equal(out, `token=${REDACTED}, path ~/work`);
   });
 
   it("redacts a secret fully even when its span crosses the truncation boundary", () => {
@@ -325,13 +362,16 @@ describe("main (injected io)", () => {
   it("reads stdin, scrubs it, writes the result, exits 0", () => {
     let written = null;
     let code = null;
+    // Comma-delimited — see the "applies redaction, home-path rewrite, and
+    // truncation together" test above for why an undelimited "NAME=value
+    // at <path>" fixture is no longer safe to use here (skills#493).
     main(["node", "x"], {
-      readStdin: () => `TOKEN=hunter2 at ${FAKE_HOME}/file`,
+      readStdin: () => `TOKEN=hunter2, path ${FAKE_HOME}/file`,
       write: (s) => { written = s; },
       exit: (c) => { code = c; },
       home: FAKE_HOME,
     });
-    assert.equal(written, "TOKEN=[REDACTED] at ~/file");
+    assert.equal(written, "TOKEN=[REDACTED], path ~/file");
     assert.equal(code, 0);
   });
 

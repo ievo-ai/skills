@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.3
+
+Add a redaction rule to `deep-reviewer.md`'s Point 11, closing a leaked-secrets re-emission gap — closes #498.
+
+- **Gap closed (#498)** — `plugins/ievo/agents/deep-reviewer.md`'s Point 11 ("Leaked secrets in the diff") instructs the agent to flag a matched credential as a blocker, and the Step 3 report template requires a concrete `Issue:` description for every finding — but neither Point 11 nor `## Rules` contained an instruction to redact the matched value before quoting it as evidence. The sibling `vuln-scanner.md` agent already carries an explicit "Never echo raw secret values" rule for exactly this scenario; `deep-reviewer.md` never received the equivalent fix, so a real credential caught by Point 11 was re-emitted verbatim into the review report — a new artifact with potentially wider reach than the original diff (chat transcript, CI logs, a posted PR review comment).
+- **Fix** — ported `vuln-scanner.md`'s redaction rule to `deep-reviewer.md` as a new `## Rules` bullet ("Never echo raw secret values"), placed immediately after the existing "Neutralize excerpts before they render" bullet it counterweights — mirroring the source's own precedence language: the redaction rule takes precedence over excerpt containment for the secret substring specifically (redact first, then fence whatever excerpt text remains), so the two combine rather than conflict. Point 11 itself gains a forward-pointing sentence instructing the agent to redact the value (`AKIA****`, `sk-****`) when citing a real match as evidence, while still citing file + line.
+- **Scope** — additive instruction-only change to one agent Markdown file (no schema, CI, or behavior change to non-malicious diffs); the rest of the diff is the mandatory version-bump ceremony below. `deep-review/SKILL.md`'s display-side Step 5 needs no change — redaction happens upstream in the agent, before the report is ever rendered.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.2 → 0.75.3).
+
 ## v0.75.2
 
 Add excerpt-containment fencing to `deep-reviewer.md`'s report template, closing a live-rendering exfiltration/phishing gap — closes #505.

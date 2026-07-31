@@ -105,12 +105,24 @@ const NAME_ALT = String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWOR
 // to be `[^\s,;"'\r\n]+`, which matched only the FIRST token of a
 // multi-word unquoted value, so `.replace()` only redacted that token and
 // copied every subsequent word through untouched (`PASSWORD=my secret
-// pass` -> `PASSWORD=[REDACTED] secret pass`, skills#493). Bounded at 255
-// extra chars, mirroring PROVIDER_SECRET_RE's bound above, so the
-// per-position lookahead this introduces can't turn a long, underscore-free
-// adversarial blob quadratic.
+// pass` -> `PASSWORD=[REDACTED] secret pass`, skills#493).
+//
+// The repeated group consumes a whole run of non-whitespace OR a whole run
+// of whitespace per iteration — not one character at a time — so
+// NEXT_ASSIGNMENT_LOOKAHEAD's NAME_ALT probe (only ever reachable once
+// `\s+` has matched, i.e. once per whitespace run) is attempted once per
+// word, not once per character of run length. Matching char-by-char here
+// was tried first and rejected: bounding a per-character NAME_ALT probe at
+// a fixed length to keep it linear also caps the value length itself,
+// silently truncating a redaction past that bound — a regression against
+// the pre-fix code, which had no length limit on a whitespace-free value.
+// Consuming whole runs keeps the total cost of every NAME_ALT probe across
+// a value O(value length) with no length cap at all. The whitespace
+// alternative is `[^\S\r\n]+` (horizontal whitespace only), not `\s+` —
+// `\s` also matches \r\n, and a bare `\s+` here would swallow a trailing
+// newline the value must stop before, same as every other stop condition.
 const NEXT_ASSIGNMENT_LOOKAHEAD = String.raw`\s+\b(?:${NAME_ALT})\b["']?\s*[:=]`;
-const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})[^,;"'\r\n]){0,255}`;
+const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})(?:[^\s,;"'\r\n]+|[^\S\r\n]+))*`;
 
 // Captures: (1) name, (2) an optional closing quote right after the name
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with

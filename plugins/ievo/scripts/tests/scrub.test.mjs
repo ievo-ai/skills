@@ -179,6 +179,17 @@ describe("redactNamedSecrets", () => {
     assert.doesNotMatch(redactNamedSecrets("PASSWORD=my secret pass"), /secret pass/);
   });
 
+  it("fully redacts a long whitespace-free unquoted value with no length cap", () => {
+    // The multi-word fix must not introduce a length limit on the
+    // previously-unbounded whitespace-free case — a >255-char single-token
+    // value (well past any earlier length-based guard considered here)
+    // still redacts in full, with no trailing plaintext fragment.
+    const longValue = "a".repeat(300);
+    const out = redactNamedSecrets(`PASSWORD=${longValue}`);
+    assert.equal(out, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(out, /a{10}/);
+  });
+
   it("redacts multi-word unquoted values independently when two assignments share a line", () => {
     assert.equal(
       redactNamedSecrets("A_TOKEN=hello world B_SECRET=another value"),
@@ -196,6 +207,14 @@ describe("redactNamedSecrets", () => {
     assert.equal(
       redactNamedSecrets("PASSWORD=hello, unrelated text"),
       "PASSWORD=[REDACTED], unrelated text",
+    );
+  });
+
+  it("does not swallow a trailing newline into the redacted value", () => {
+    assert.equal(redactNamedSecrets("TOKEN=hunter2\n"), "TOKEN=[REDACTED]\n");
+    assert.equal(
+      redactNamedSecrets("PASSWORD=my secret pass\nnext line untouched"),
+      "PASSWORD=[REDACTED]\nnext line untouched",
     );
   });
 

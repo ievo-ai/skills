@@ -376,7 +376,13 @@ export function enumerateOnePlugin(pluginPath) {
       manifestOversized = true;
     } else {
       try {
-        manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+        const parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+        // `JSON.parse` accepts a bare `null` (and `1`/`"x"`/`true`) as a
+        // well-formed document, so a `plugin.json` containing exactly `null`
+        // survives the catch and then crashes `manifest.author` below with an
+        // uncaught TypeError (CWE-20). Keep the `{}` default for any root that
+        // isn't a non-null object — same treatment as unparseable JSON.
+        if (parsed && typeof parsed === "object") manifest = parsed;
       } catch {}
     }
   }
@@ -465,6 +471,11 @@ export function enumerateHooks(hooksJsonPath) {
   } catch {
     return { present: false, events: [], entries: [] };
   }
+  // A `hooks.json` whose entire content is `null` (or `1`/`"x"`/`true`) parses
+  // fine, so it never reaches the catch — but the root is then dereferenced
+  // outside the try, crashing on the same uncaught TypeError the per-entry
+  // guards below prevent. Treat a non-object root as an absent manifest.
+  if (!data || typeof data !== "object") return { present: false, events: [], entries: [] };
 
   const hooks = data.hooks ?? {};
   const events = Object.keys(hooks);
@@ -472,12 +483,15 @@ export function enumerateHooks(hooksJsonPath) {
   for (const [event, hookList] of Object.entries(hooks)) {
     if (!Array.isArray(hookList)) continue;
     for (const h of hookList) {
+      if (!h || typeof h !== "object") continue;
       const matcher = h.matcher ?? "—";
       let cmd = "—";
       const innerHooks = h.hooks ?? [];
       if (innerHooks.length > 0) {
         const first = innerHooks[0];
-        cmd = first.command ?? first.type ?? "—";
+        if (first && typeof first === "object") {
+          cmd = first.command ?? first.type ?? "—";
+        }
       }
       entries.push({ event, matcher, command: truncate(cmd, 80) });
     }
@@ -501,8 +515,12 @@ export function enumerateMcp(mcpJsonPath) {
   } catch {
     return { present: false, servers: [] };
   }
+  // Same non-object-root hole as `enumerateHooks` above: a `.mcp.json` of
+  // exactly `null` parses cleanly, then crashes `data.mcpServers` (CWE-20).
+  if (!data || typeof data !== "object") return { present: false, servers: [] };
   const servers = [];
   for (const [name, config] of Object.entries(data.mcpServers ?? {})) {
+    if (!config || typeof config !== "object") continue;
     const url = config.url ?? "";
     const isLocal = /localhost|127\.0\.0\.1|::1/.test(url);
     servers.push({

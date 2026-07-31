@@ -247,6 +247,13 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets(`PASSWORD='tis the season`), "PASSWORD=[REDACTED]");
   });
 
+  it("stops a malformed (unclosed) quoted value before a real assignment that follows it on the same line", () => {
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed val TOKEN=abc`),
+      "PASSWORD=[REDACTED] TOKEN=[REDACTED]",
+    );
+  });
+
   it("leaves ordinary prose untouched", () => {
     const text = "the request took 5 seconds and returned ok";
     assert.equal(redactNamedSecrets(text), text);

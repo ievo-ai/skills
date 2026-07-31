@@ -170,6 +170,269 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
   });
 
+  it("fully redacts a multi-word unquoted value, not just its first token (skills#493)", () => {
+    assert.equal(redactNamedSecrets("PASSWORD=my secret pass"), "PASSWORD=[REDACTED]");
+    assert.equal(
+      redactNamedSecrets("DB_PASSWORD=correct horse battery staple"),
+      "DB_PASSWORD=[REDACTED]",
+    );
+    assert.doesNotMatch(redactNamedSecrets("PASSWORD=my secret pass"), /secret pass/);
+  });
+
+  it("fully redacts a long whitespace-free unquoted value with no length cap", () => {
+    // The multi-word fix must not introduce a length limit on the
+    // previously-unbounded whitespace-free case — a >255-char single-token
+    // value (well past any earlier length-based guard considered here)
+    // still redacts in full, with no trailing plaintext fragment.
+    const longValue = "a".repeat(300);
+    const out = redactNamedSecrets(`PASSWORD=${longValue}`);
+    assert.equal(out, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(out, /a{10}/);
+  });
+
+  it("redacts multi-word unquoted values independently when two assignments share a line", () => {
+    assert.equal(
+      redactNamedSecrets("A_TOKEN=hello world B_SECRET=another value"),
+      "A_TOKEN=[REDACTED] B_SECRET=[REDACTED]",
+    );
+  });
+
+  it("does not stop early when a non-assignment word inside the value merely looks like a secret name", () => {
+    // "token" appears mid-value but isn't followed by a `:`/`=` separator,
+    // so it must not be mistaken for the start of a new assignment.
+    assert.equal(redactNamedSecrets("PASSWORD=my token is safe"), "PASSWORD=[REDACTED]");
+  });
+
+  it("still stops an unquoted multi-word value at a comma", () => {
+    assert.equal(
+      redactNamedSecrets("PASSWORD=hello, unrelated text"),
+      "PASSWORD=[REDACTED], unrelated text",
+    );
+  });
+
+  it("does not swallow a trailing newline into the redacted value", () => {
+    assert.equal(redactNamedSecrets("TOKEN=hunter2\n"), "TOKEN=[REDACTED]\n");
+    assert.equal(
+      redactNamedSecrets("PASSWORD=my secret pass\nnext line untouched"),
+      "PASSWORD=[REDACTED]\nnext line untouched",
+    );
+  });
+
+  it("fully redacts an unquoted value containing an apostrophe/contraction (skills#493 follow-up)", () => {
+    const out = redactNamedSecrets("PASSWORD=don't share this");
+    assert.equal(out, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(out, /share this/);
+    assert.equal(
+      redactNamedSecrets("PASSWORD=it's a secret value here"),
+      "PASSWORD=[REDACTED]",
+    );
+  });
+
+  it("fully redacts a double-quoted value containing an embedded apostrophe", () => {
+    const out = redactNamedSecrets(`{"api_key": "user's real api key is abc123xyz"}`);
+    assert.equal(out, `{"api_key": "[REDACTED]"}`);
+    assert.doesNotMatch(out, /abc123xyz/);
+  });
+
+  it("redacts two quoted assignments on one line independently (lazy backreference doesn't overrun)", () => {
+    assert.equal(
+      redactNamedSecrets(`A_TOKEN="one" B_SECRET="two"`),
+      `A_TOKEN="[REDACTED]" B_SECRET="[REDACTED]"`,
+    );
+  });
+
+  it("does not end a quoted value at a quote interior to it (review follow-up)", () => {
+    // The lazy backreference closed on the FIRST subsequent same-type quote,
+    // even one sitting inside the value — redacting only up to it and
+    // copying the rest of the live secret through. Same partial-leak class
+    // as skills#493, surviving in the quoted branch.
+    const apostrophe = redactNamedSecrets(`PASSWORD='don't share this xyz`);
+    assert.equal(apostrophe, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(apostrophe, /share this xyz/);
+
+    // `'tis the season` (covered below) was one apostrophe from failing.
+    const contraction = redactNamedSecrets(`PASSWORD='tis the season's end`);
+    assert.equal(contraction, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(contraction, /season|end/);
+
+    // JSON-encoded tool output — the escaped `\"` is content, not a closer.
+    const jsonEscaped = redactNamedSecrets(`{"db_password":"p@ss\\"real"}`);
+    assert.equal(jsonEscaped, `{"db_password":"[REDACTED]"}`);
+    assert.doesNotMatch(jsonEscaped, /real/);
+
+    // ...and when a delimiter follows the escaped quote, so the closing-quote
+    // boundary check alone would have accepted it as a terminator.
+    const escapedThenSpace = redactNamedSecrets(`{"db_password":"p@ss\\" real"}`);
+    assert.equal(escapedThenSpace, `{"db_password":"[REDACTED]"}`);
+    assert.doesNotMatch(escapedThenSpace, /real/);
+  });
+
+  it("still closes at the value's real terminating quote past an interior one", () => {
+    // Not merely a fail-over to the redact-to-end-of-line fallback: when a
+    // real closing quote does exist further along, the strict alternative
+    // finds it and the text after the value survives.
+    assert.equal(redactNamedSecrets(`PASSWORD='don't share this'`), "PASSWORD='[REDACTED]'");
+    assert.equal(
+      redactNamedSecrets(`{"api_key": "it's a \\"quoted\\" secret", "n": 1}`),
+      `{"api_key": "[REDACTED]", "n": 1}`,
+    );
+  });
+
+  it("accepts a closing quote only before a real delimiter, redacting to end of line otherwise", () => {
+    // Every delimiter the boundary check treats as a real terminator...
+    assert.equal(redactNamedSecrets(`TOKEN="a" tail`), `TOKEN="[REDACTED]" tail`);
+    assert.equal(redactNamedSecrets(`TOKEN="a",tail`), `TOKEN="[REDACTED]",tail`);
+    assert.equal(redactNamedSecrets(`TOKEN="a";tail`), `TOKEN="[REDACTED]";tail`);
+    assert.equal(redactNamedSecrets(`{"token":"a"}`), `{"token":"[REDACTED]"}`);
+    assert.equal(redactNamedSecrets(`[TOKEN="a"]`), `[TOKEN="[REDACTED]"]`);
+    assert.equal(redactNamedSecrets(`fn(PASSWORD="a")`), `fn(PASSWORD="[REDACTED]")`);
+    assert.equal(redactNamedSecrets(`TOKEN="a"\ntail`), `TOKEN="[REDACTED]"\ntail`);
+    assert.equal(redactNamedSecrets(`TOKEN="a"`), `TOKEN="[REDACTED]"`);
+
+    // ...and anything else is treated as interior, so the value falls to the
+    // redact-to-end-of-line fallback. Over-redaction is the fail-closed side
+    // of that trade: a scrubber must not stop short of a live secret.
+    assert.equal(redactNamedSecrets(`TOKEN="abc"def`), "TOKEN=[REDACTED]");
+  });
+
+  it("still redacts a value that looks quoted but has no closing quote (truncated capture)", () => {
+    assert.equal(redactNamedSecrets(`PASSWORD="truncated mid val`), "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(redactNamedSecrets(`PASSWORD="truncated mid val`), /truncated/);
+    assert.equal(redactNamedSecrets(`PASSWORD='tis the season`), "PASSWORD=[REDACTED]");
+  });
+
+  it("stops a malformed (unclosed) quoted value before a real assignment that follows it on the same line", () => {
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed val TOKEN=abc`),
+      "PASSWORD=[REDACTED] TOKEN=[REDACTED]",
+    );
+    // ...even when the unclosed value itself contains a comma, which must
+    // NOT end the value (see below) but also must not defeat the lookahead.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed, val TOKEN=abc`),
+      "PASSWORD=[REDACTED] TOKEN=[REDACTED]",
+    );
+  });
+
+  it("does not stop a malformed (unclosed) quoted value at a comma or semicolon", () => {
+    // Inside a quoted value a `,`/`;` is content, not a delimiter — so the
+    // truncated-capture fallback must consume past it. Stopping there
+    // reproduced the exact partial-leak class skills#493 closes.
+    const comma = redactNamedSecrets(`PASSWORD="my secret, more secret`);
+    assert.equal(comma, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(comma, /more secret/);
+
+    const semi = redactNamedSecrets(`PASSWORD="my secret; more secret`);
+    assert.equal(semi, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(semi, /more secret/);
+
+    const single = redactNamedSecrets(`API_KEY='abc, def; ghi`);
+    assert.equal(single, "API_KEY=[REDACTED]");
+    assert.doesNotMatch(single, /def|ghi/);
+  });
+
+  it("keeps a malformed quoted value inside its own line", () => {
+    // Widening past `,`/`;` must not widen past CRLF.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed, val\nnext line untouched`),
+      "PASSWORD=[REDACTED]\nnext line untouched",
+    );
+  });
+
+  it("still closes a properly quoted value at its closing quote, commas and all", () => {
+    // The strict alternative is tried first, so a value that DOES close
+    // keeps its trailing text — the fallback's widening only applies when
+    // no closing quote exists.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="my secret, more secret" trailing`),
+      `PASSWORD="[REDACTED]" trailing`,
+    );
+  });
+
+  it("stays linear on a long whitespace run after an unclosed quote (no quadratic blowup)", () => {
+    // The malformed-quoted fallback used to consume one character at a
+    // time, so NEXT_ASSIGNMENT_LOOKAHEAD's leading `\s+` was re-attempted
+    // at every position of a whitespace run and backtracked across the
+    // whole remaining run each time — O(run²) on untrusted, not-yet-
+    // truncated input (scrub() caps length LAST). Consuming whole runs
+    // makes it linear.
+    //
+    // The budget is deliberately loose: the fixed pattern handles this in
+    // well under 10ms even on a loaded CI runner, while the quadratic form
+    // took multiple seconds at this size, so the margin absorbs any
+    // realistic scheduling noise without turning the assertion into a
+    // flake.
+    const input = `PASSWORD="${" ".repeat(50_000)}`;
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, "PASSWORD=[REDACTED]");
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("stays linear on repeated quote-opened values with no acceptable closer (no quadratic blowup)", () => {
+    // The sibling test above pins the MALFORMED branch; this pins the STRICT
+    // quoted one, which had its own quadratic left open. Its lazy inner was
+    // unbounded, so on a line where no same-type quote is followed by a
+    // QUOTED_VALUE_CLOSE delimiter it scanned to end of line before failing
+    // — and it did that once per assignment on the line, because the
+    // malformed fallback that catches the failure advances the scan position
+    // by only a couple of characters. n restarts of an O(n) scan is O(n²),
+    // again on untrusted, not-yet-truncated input (scrub() caps length LAST).
+    // Bounding the inner repetition caps each futile scan instead.
+    //
+    // Measured on the unbounded form, quadrupling per doubling of input:
+    // 159ms at 24 KB, 620ms at 48 KB, 2500ms at 96 KB. Bounded: 5ms / 9ms /
+    // 19ms. Same deliberately loose 1000ms budget as the sibling test above.
+    const units = 8_000;
+    const input = `PASSWORD="a `.repeat(units);
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    // Every assignment redacts independently; the final one additionally
+    // swallows the trailing space, since no assignment follows it to stop at.
+    assert.equal(out, Array(units).fill("PASSWORD=[REDACTED]").join(" "));
+    assert.doesNotMatch(out, /"a/);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("over-redacts, never under-redacts, a quoted value past the inner length bound", () => {
+    // The bound that makes the strict alternative linear (above) is safe
+    // precisely because overflowing it makes that alternative FAIL rather
+    // than match short: the value falls through to the redact-to-end-of-line
+    // fallback, so the bound can only widen a redaction. That is the
+    // opposite of the length cap tried and rejected on the unquoted-value
+    // alternative earlier in this PR, which truncated the redacted span
+    // itself and copied the tail through in cleartext.
+    const long = "s".repeat(300);
+    const over = redactNamedSecrets(`TOKEN="${long}" tail`);
+    assert.equal(over, "TOKEN=[REDACTED]"); // ` tail` over-redacted, nothing leaked
+    assert.doesNotMatch(over, /s{5}/);
+
+    // At the bound the value still closes normally, keeping its trailing text.
+    assert.equal(redactNamedSecrets(`TOKEN="${"s".repeat(255)}" tail`), `TOKEN="[REDACTED]" tail`);
+
+    // The bound counts inner units, not characters — a backslash-escape pair
+    // is one unit, so 255 escaped pairs (510 characters) still closes.
+    assert.equal(redactNamedSecrets(`TOKEN="${"\\a".repeat(255)}" tail`), `TOKEN="[REDACTED]" tail`);
+  });
+
+  it("redacts the same span whether or not the value runs through whitespace", () => {
+    // Consuming whole runs instead of single characters must not move the
+    // stop position: an unclosed value still swallows its internal spaces
+    // and still stops before a real assignment further along the line,
+    // including when several spaces separate the two.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="my  secret   value`),
+      "PASSWORD=[REDACTED]",
+    );
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed   val    TOKEN=abc`),
+      "PASSWORD=[REDACTED]    TOKEN=[REDACTED]",
+    );
+    assert.doesNotMatch(redactNamedSecrets(`PASSWORD="my  secret   value`), /secret/);
+  });
+
   it("leaves ordinary prose untouched", () => {
     const text = "the request took 5 seconds and returned ok";
     assert.equal(redactNamedSecrets(text), text);
@@ -268,9 +531,44 @@ describe("scrub", () => {
 
   it("applies redaction, home-path rewrite, and truncation together, in order", () => {
     const token = `ghp_${"a".repeat(36)}`;
-    const input = `token=${token} at ${FAKE_HOME}/work`;
+    // Comma-delimited from the trailing path (not "at <path>" with no
+    // delimiter): now that redactNamedSecrets's unquoted-value match
+    // spans internal whitespace (skills#493), "token=" is itself
+    // NAME_ALT-shaped (bare "TOKEN"), so undelimited trailing prose after
+    // the already-redacted marker would be swallowed into the same match
+    // with no boundary to stop at — the comma is a realistic delimiter
+    // (log/KV-style output) that keeps this test's actual intent (pipeline
+    // ordering) independent of that unrelated redaction-width fix.
+    const input = `token=${token}, path ${FAKE_HOME}/work`;
     const out = scrub(input, { home: FAKE_HOME });
-    assert.equal(out, `token=${REDACTED} at ~/work`);
+    assert.equal(out, `token=${REDACTED}, path ~/work`);
+  });
+
+  it("swallows an undelimited trailing tail — including a $HOME path — into the redacted span", () => {
+    // The flip side of the skills#493 widening, pinned explicitly rather
+    // than left implicit in the reworked fixture above. With NO delimiter
+    // between the secret and the prose that follows it, the unquoted-value
+    // match runs to end of line, so the tail is REMOVED by redaction
+    // rather than surviving to be rewritten by rewriteHomePaths. That is
+    // fail-closed and deliberate — redaction must not under-match a secret
+    // whose value happens to contain spaces — but it does mean a
+    // diagnostic tail on such a line is lost, and it means home-path
+    // rewriting IS observably affected in composite use even though
+    // rewriteHomePaths itself is untouched. Locked down so a future
+    // narrowing of the match has to confront this trade-off explicitly.
+    const token = `ghp_${"a".repeat(36)}`;
+    const out = scrub(`token=${token} at ${FAKE_HOME}/work`, { home: FAKE_HOME });
+    assert.equal(out, `token=${REDACTED}`);
+    assert.doesNotMatch(out, /work/);
+
+    // Same shape without a secret-shaped VALUE: the diagnostic tail after
+    // a secret-shaped NAME is swallowed too.
+    assert.equal(scrub("run_id: 7f3a failed status 500", { home: FAKE_HOME }), `run_id: ${REDACTED}`);
+    // A delimiter is what preserves the tail.
+    assert.equal(
+      scrub("run_id: 7f3a failed, status 500", { home: FAKE_HOME }),
+      `run_id: ${REDACTED}, status 500`,
+    );
   });
 
   it("redacts a secret fully even when its span crosses the truncation boundary", () => {
@@ -325,13 +623,16 @@ describe("main (injected io)", () => {
   it("reads stdin, scrubs it, writes the result, exits 0", () => {
     let written = null;
     let code = null;
+    // Comma-delimited — see the "applies redaction, home-path rewrite, and
+    // truncation together" test above for why an undelimited "NAME=value
+    // at <path>" fixture is no longer safe to use here (skills#493).
     main(["node", "x"], {
-      readStdin: () => `TOKEN=hunter2 at ${FAKE_HOME}/file`,
+      readStdin: () => `TOKEN=hunter2, path ${FAKE_HOME}/file`,
       write: (s) => { written = s; },
       exit: (c) => { code = c; },
       home: FAKE_HOME,
     });
-    assert.equal(written, "TOKEN=[REDACTED] at ~/file");
+    assert.equal(written, "TOKEN=[REDACTED], path ~/file");
     assert.equal(code, 0);
   });
 

@@ -736,6 +736,21 @@ describe("enumerateHooks", () => {
     const r = enumerateHooks(f);
     assert.equal(r.entries[0].command, "—");
   });
+  it("returns absent shape when the whole document is a bare null (CWE-20)", () => {
+    const f = join(tmp, "null-root.json");
+    writeFileSync(f, "null", "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.present, false);
+    assert.deepEqual(r.events, []);
+    assert.deepEqual(r.entries, []);
+  });
+  it("returns absent shape when the root is a non-object scalar", () => {
+    const f = join(tmp, "scalar-root.json");
+    writeFileSync(f, "42", "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.present, false);
+    assert.deepEqual(r.entries, []);
+  });
   it("returns absent shape with oversized:true without reading when file exceeds the size cap (CWE-400)", () => {
     const f = join(tmp, "huge.json");
     writeFileSync(f, "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
@@ -818,6 +833,20 @@ describe("enumerateMcp", () => {
     const r = enumerateMcp(f);
     assert.equal(r.servers.length, 1);
     assert.equal(r.servers[0].name, "good");
+  });
+  it("returns absent shape when the whole document is a bare null (CWE-20)", () => {
+    const f = join(tmp, "null-root.json");
+    writeFileSync(f, "null", "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.present, false);
+    assert.deepEqual(r.servers, []);
+  });
+  it("returns absent shape when the root is a non-object scalar", () => {
+    const f = join(tmp, "scalar-root.json");
+    writeFileSync(f, '"nope"', "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.present, false);
+    assert.deepEqual(r.servers, []);
   });
   it("returns absent shape with oversized:true without reading when file exceeds the size cap (CWE-400)", () => {
     const f = join(tmp, "huge.json");
@@ -1249,6 +1278,25 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     mkdirSync(join(bad, ".claude-plugin"), { recursive: true });
     writeFileSync(join(bad, ".claude-plugin", "plugin.json"), "{not valid", "utf-8");
     const r = enumerateOnePlugin(bad);
+    assert.equal(r.version, "unset");
+    assert.equal(r.author, "—");
+  });
+
+  it("enumerateOnePlugin handles a plugin.json that is a bare null (CWE-20)", () => {
+    const p = join(root, "plugins", "null-manifest");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "null", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.version, "unset");
+    assert.equal(r.author, "—");
+    assert.equal(r.license, "—");
+  });
+
+  it("enumerateOnePlugin handles a plugin.json whose root is a non-object scalar", () => {
+    const p = join(root, "plugins", "scalar-manifest");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "7", "utf-8");
+    const r = enumerateOnePlugin(p);
     assert.equal(r.version, "unset");
     assert.equal(r.author, "—");
   });

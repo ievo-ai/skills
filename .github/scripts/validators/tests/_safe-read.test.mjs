@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { safeReadFileSync, SymlinkRejectedError } from "../_safe-read.mjs";
+import { safeReadFileSync, SymlinkRejectedError, SizeExceededError, MAX_SAFE_READ_FILE_BYTES } from "../_safe-read.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, "tmp-safe-read-test");
@@ -84,6 +84,35 @@ describe("safeReadFileSync", () => {
       assert.doesNotMatch(err.message, /is a symlink/);
     }
   });
+
+  it("reads a file exactly at the size cap", () => {
+    const f = resolve(TMP, "at-cap.txt");
+    writeFileSync(f, Buffer.alloc(MAX_SAFE_READ_FILE_BYTES, "a"));
+    const content = safeReadFileSync(f, "utf-8");
+    assert.equal(content.length, MAX_SAFE_READ_FILE_BYTES);
+  });
+
+  it("rejects a file one byte over the size cap without buffering it", () => {
+    const f = resolve(TMP, "over-cap.txt");
+    writeFileSync(f, Buffer.alloc(MAX_SAFE_READ_FILE_BYTES + 1, "a"));
+    assert.throws(() => safeReadFileSync(f, "utf-8"), SizeExceededError);
+  });
+
+  it("SizeExceededError carries a descriptive message and stable code", () => {
+    const f = resolve(TMP, "over-cap-2.txt");
+    const size = MAX_SAFE_READ_FILE_BYTES + 5;
+    writeFileSync(f, Buffer.alloc(size, "a"));
+    try {
+      safeReadFileSync(f, "utf-8");
+      assert.fail("expected safeReadFileSync to throw");
+    } catch (err) {
+      assert.ok(err instanceof SizeExceededError);
+      assert.equal(err.code, "EFBIG");
+      assert.match(err.message, /over-cap-2\.txt/);
+      assert.match(err.message, new RegExp(String(size)));
+      assert.match(err.message, /10 MB/);
+    }
+  });
 });
 
 // ── CLI regression: each validator refuses a symlinked argument ──────────
@@ -125,6 +154,46 @@ describe("validators refuse symlinked CLI arguments", () => {
       assert.notEqual(r.status, 0);
       assert.match(r.stderr, /symlink/);
       assert.doesNotMatch(r.stdout + r.stderr, /TOP-SECRET-MARKER-DO-NOT-LEAK/);
+    });
+  }
+});
+
+// ── CLI regression: each validator refuses an oversized CLI argument ─────
+//
+// One end-to-end check per validator confirming the CLI rejects a file over
+// MAX_SAFE_READ_FILE_BYTES via the stat-derived size check, instead of
+// buffering the whole thing into memory (CWE-770).
+
+describe("validators refuse oversized CLI arguments", () => {
+  const VALIDATORS_DIR = resolve(__dirname, "..");
+  const VALIDATORS = [
+    "nested-fences.mjs",
+    "crlf-frontmatter.mjs",
+    "machine-local-paths.mjs",
+    "placeholder-leakage.mjs",
+    "utf8-validate.mjs",
+    "yaml-frontmatter.mjs",
+  ];
+
+  before(() => {
+    mkdirSync(TMP, { recursive: true });
+  });
+
+  after(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  for (const validator of VALIDATORS) {
+    it(`${validator} exits non-zero on a file over the size cap`, () => {
+      const oversized = resolve(TMP, `oversized-${validator}.md`);
+      writeFileSync(oversized, Buffer.alloc(MAX_SAFE_READ_FILE_BYTES + 1, "a"));
+
+      const r = spawnSync(process.execPath, [resolve(VALIDATORS_DIR, validator), oversized], {
+        encoding: "utf-8",
+      });
+
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /exceeding/);
     });
   }
 });

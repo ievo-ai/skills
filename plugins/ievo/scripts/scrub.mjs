@@ -146,16 +146,32 @@ const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD
 // the closing-quote boundary check below rejects interior quotes — a value
 // whose only same-type quotes are interior ones.
 //
-// The continuation class is `[^\r\n]`, NOT `[^,;\r\n]`: this alternative
-// only fires once an opening quote has been consumed, and INSIDE a quoted
-// value a comma/semicolon is ordinary content, not a delimiter. Stopping
-// at one reproduced the very partial-leak class this fix closes —
-// `PASSWORD="my secret, more secret` (truncated capture) redacted only up
-// to the comma and copied `, more secret` through in cleartext. The
-// separator stops that still apply are the ones that are real separators
-// here: CRLF, the NEXT_ASSIGNMENT_LOOKAHEAD probe (so a real assignment
-// later on the same line still redacts independently), and end of input.
-const MALFORMED_QUOTED_VALUE = String.raw`["'](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})[^\r\n])*`;
+// The continuation covers every non-CRLF character, NOT `[^,;\r\n]`: this
+// alternative only fires once an opening quote has been consumed, and
+// INSIDE a quoted value a comma/semicolon is ordinary content, not a
+// delimiter. Stopping at one reproduced the very partial-leak class this
+// fix closes — `PASSWORD="my secret, more secret` (truncated capture)
+// redacted only up to the comma and copied `, more secret` through in
+// cleartext. The separator stops that still apply are the ones that are
+// real separators here: CRLF, the NEXT_ASSIGNMENT_LOOKAHEAD probe (so a
+// real assignment later on the same line still redacts independently),
+// and end of input.
+//
+// That continuation is spelled as whole runs — a run of non-whitespace OR
+// a run of horizontal whitespace per iteration — for exactly the reason
+// UNQUOTED_VALUE is (see above), not merely for symmetry. Written
+// per-character as `[^\r\n]`, the lookahead is re-attempted at every
+// position inside a whitespace run, and its leading `\s+` backtracks across
+// the whole remaining run on each attempt, so `PASSWORD="` followed by a
+// long space run costs O(run²) — on untrusted input that has NOT been
+// truncated yet, since scrub() caps length LAST by design. Consuming whole
+// runs attempts the probe once per run instead of once per character,
+// restoring linear cost (found in review). The redacted span is unchanged:
+// the two classes are disjoint and their union is exactly `[^\r\n]`, and
+// the lookahead can only succeed at a position where whitespace begins —
+// which, because `\s+` backtracks, is true at a whitespace run's first
+// character whenever it is true anywhere inside that run.
+const MALFORMED_QUOTED_VALUE = String.raw`["'](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})(?:[^\s\r\n]+|[^\S\r\n]+))*`;
 
 // A same-type quote only TERMINATES a quoted value when a real delimiter
 // follows it: whitespace/CRLF, `,`/`;`, a closing bracket/brace/paren, or

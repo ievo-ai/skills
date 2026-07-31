@@ -349,6 +349,43 @@ describe("redactNamedSecrets", () => {
     );
   });
 
+  it("stays linear on a long whitespace run after an unclosed quote (no quadratic blowup)", () => {
+    // The malformed-quoted fallback used to consume one character at a
+    // time, so NEXT_ASSIGNMENT_LOOKAHEAD's leading `\s+` was re-attempted
+    // at every position of a whitespace run and backtracked across the
+    // whole remaining run each time — O(run²) on untrusted, not-yet-
+    // truncated input (scrub() caps length LAST). Consuming whole runs
+    // makes it linear.
+    //
+    // The budget is deliberately loose: the fixed pattern handles this in
+    // well under 10ms even on a loaded CI runner, while the quadratic form
+    // took multiple seconds at this size, so the margin absorbs any
+    // realistic scheduling noise without turning the assertion into a
+    // flake.
+    const input = `PASSWORD="${" ".repeat(50_000)}`;
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, "PASSWORD=[REDACTED]");
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("redacts the same span whether or not the value runs through whitespace", () => {
+    // Consuming whole runs instead of single characters must not move the
+    // stop position: an unclosed value still swallows its internal spaces
+    // and still stops before a real assignment further along the line,
+    // including when several spaces separate the two.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="my  secret   value`),
+      "PASSWORD=[REDACTED]",
+    );
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed   val    TOKEN=abc`),
+      "PASSWORD=[REDACTED]    TOKEN=[REDACTED]",
+    );
+    assert.doesNotMatch(redactNamedSecrets(`PASSWORD="my  secret   value`), /secret/);
+  });
+
   it("leaves ordinary prose untouched", () => {
     const text = "the request took 5 seconds and returned ok";
     assert.equal(redactNamedSecrets(text), text);

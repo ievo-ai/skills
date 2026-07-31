@@ -252,6 +252,47 @@ describe("redactNamedSecrets", () => {
       redactNamedSecrets(`PASSWORD="unclosed val TOKEN=abc`),
       "PASSWORD=[REDACTED] TOKEN=[REDACTED]",
     );
+    // ...even when the unclosed value itself contains a comma, which must
+    // NOT end the value (see below) but also must not defeat the lookahead.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed, val TOKEN=abc`),
+      "PASSWORD=[REDACTED] TOKEN=[REDACTED]",
+    );
+  });
+
+  it("does not stop a malformed (unclosed) quoted value at a comma or semicolon", () => {
+    // Inside a quoted value a `,`/`;` is content, not a delimiter — so the
+    // truncated-capture fallback must consume past it. Stopping there
+    // reproduced the exact partial-leak class skills#493 closes.
+    const comma = redactNamedSecrets(`PASSWORD="my secret, more secret`);
+    assert.equal(comma, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(comma, /more secret/);
+
+    const semi = redactNamedSecrets(`PASSWORD="my secret; more secret`);
+    assert.equal(semi, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(semi, /more secret/);
+
+    const single = redactNamedSecrets(`API_KEY='abc, def; ghi`);
+    assert.equal(single, "API_KEY=[REDACTED]");
+    assert.doesNotMatch(single, /def|ghi/);
+  });
+
+  it("keeps a malformed quoted value inside its own line", () => {
+    // Widening past `,`/`;` must not widen past CRLF.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="unclosed, val\nnext line untouched`),
+      "PASSWORD=[REDACTED]\nnext line untouched",
+    );
+  });
+
+  it("still closes a properly quoted value at its closing quote, commas and all", () => {
+    // The strict alternative is tried first, so a value that DOES close
+    // keeps its trailing text — the fallback's widening only applies when
+    // no closing quote exists.
+    assert.equal(
+      redactNamedSecrets(`PASSWORD="my secret, more secret" trailing`),
+      `PASSWORD="[REDACTED]" trailing`,
+    );
   });
 
   it("leaves ordinary prose untouched", () => {
@@ -363,6 +404,33 @@ describe("scrub", () => {
     const input = `token=${token}, path ${FAKE_HOME}/work`;
     const out = scrub(input, { home: FAKE_HOME });
     assert.equal(out, `token=${REDACTED}, path ~/work`);
+  });
+
+  it("swallows an undelimited trailing tail — including a $HOME path — into the redacted span", () => {
+    // The flip side of the skills#493 widening, pinned explicitly rather
+    // than left implicit in the reworked fixture above. With NO delimiter
+    // between the secret and the prose that follows it, the unquoted-value
+    // match runs to end of line, so the tail is REMOVED by redaction
+    // rather than surviving to be rewritten by rewriteHomePaths. That is
+    // fail-closed and deliberate — redaction must not under-match a secret
+    // whose value happens to contain spaces — but it does mean a
+    // diagnostic tail on such a line is lost, and it means home-path
+    // rewriting IS observably affected in composite use even though
+    // rewriteHomePaths itself is untouched. Locked down so a future
+    // narrowing of the match has to confront this trade-off explicitly.
+    const token = `ghp_${"a".repeat(36)}`;
+    const out = scrub(`token=${token} at ${FAKE_HOME}/work`, { home: FAKE_HOME });
+    assert.equal(out, `token=${REDACTED}`);
+    assert.doesNotMatch(out, /work/);
+
+    // Same shape without a secret-shaped VALUE: the diagnostic tail after
+    // a secret-shaped NAME is swallowed too.
+    assert.equal(scrub("run_id: 7f3a failed status 500", { home: FAKE_HOME }), `run_id: ${REDACTED}`);
+    // A delimiter is what preserves the tail.
+    assert.equal(
+      scrub("run_id: 7f3a failed, status 500", { home: FAKE_HOME }),
+      `run_id: ${REDACTED}, status 500`,
+    );
   });
 
   it("redacts a secret fully even when its span crosses the truncation boundary", () => {

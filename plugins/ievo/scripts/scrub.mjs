@@ -144,7 +144,17 @@ const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD
 // the strict alternative fails, which after the lazy-backreference fix
 // below means only a genuinely missing/truncated closing quote — e.g.
 // tool-failure output cut off mid-line.
-const MALFORMED_QUOTED_VALUE = String.raw`["'](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})[^,;\r\n])*`;
+//
+// The continuation class is `[^\r\n]`, NOT `[^,;\r\n]`: this alternative
+// only fires once an opening quote has been consumed, and INSIDE a quoted
+// value a comma/semicolon is ordinary content, not a delimiter. Stopping
+// at one reproduced the very partial-leak class this fix closes —
+// `PASSWORD="my secret, more secret` (truncated capture) redacted only up
+// to the comma and copied `, more secret` through in cleartext. The
+// separator stops that still apply are the ones that are real separators
+// here: CRLF, the NEXT_ASSIGNMENT_LOOKAHEAD probe (so a real assignment
+// later on the same line still redacts independently), and end of input.
+const MALFORMED_QUOTED_VALUE = String.raw`["'](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})[^\r\n])*`;
 
 // Captures: (1) name, (2) an optional closing quote right after the name
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with

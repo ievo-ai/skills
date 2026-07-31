@@ -97,15 +97,15 @@ export function redactProviderSecrets(text) {
 // there (skills#507).
 const NAME_ALT = String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWORD|ID)|PASSWORD|SECRET|TOKEN|APIKEY|API_KEY`;
 
-// An unquoted value stops at a comma/semicolon/quote/CRLF (unchanged), OR
-// right before the next secret-shaped `NAME<sep>` further along the same
-// line — so back-to-back assignments on one line ("A_TOKEN=one
-// B_SECRET=two") still redact independently — OR the end of input.
-// Internal whitespace no longer stops the match: the value alternative used
-// to be `[^\s,;"'\r\n]+`, which matched only the FIRST token of a
-// multi-word unquoted value, so `.replace()` only redacted that token and
-// copied every subsequent word through untouched (`PASSWORD=my secret
-// pass` -> `PASSWORD=[REDACTED] secret pass`, skills#493).
+// An unquoted value stops at a comma/semicolon/CRLF (unchanged), OR right
+// before the next secret-shaped `NAME<sep>` further along the same line —
+// so back-to-back assignments on one line ("A_TOKEN=one B_SECRET=two")
+// still redact independently — OR the end of input. Internal whitespace no
+// longer stops the match: the value alternative used to be
+// `[^\s,;"'\r\n]+`, which matched only the FIRST token of a multi-word
+// unquoted value, so `.replace()` only redacted that token and copied every
+// subsequent word through untouched (`PASSWORD=my secret pass` ->
+// `PASSWORD=[REDACTED] secret pass`, skills#493).
 //
 // The repeated group consumes a whole run of non-whitespace OR a whole run
 // of whitespace per iteration — not one character at a time — so
@@ -121,17 +121,53 @@ const NAME_ALT = String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWOR
 // alternative is `[^\S\r\n]+` (horizontal whitespace only), not `\s+` —
 // `\s` also matches \r\n, and a bare `\s+` here would swallow a trailing
 // newline the value must stop before, same as every other stop condition.
+//
+// Quote characters are NOT excluded from the continuation runs (only from
+// the mandatory first char, so a value that actually starts with a
+// delimiter quote still routes to the quoted alternatives below). An
+// apostrophe/quote appearing INSIDE an otherwise-unquoted value (e.g. a
+// contraction: "don't") is ordinary content — excluding it reproduced the
+// exact same partial-redaction bug as the whitespace case above, just
+// triggered by a different character (`PASSWORD=don't share this` ->
+// `PASSWORD=[REDACTED]'t share this`; found by /ievo:vuln-scan on this
+// diff, not by the original skills#493 report).
 const NEXT_ASSIGNMENT_LOOKAHEAD = String.raw`\s+\b(?:${NAME_ALT})\b["']?\s*[:=]`;
-const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})(?:[^\s,;"'\r\n]+|[^\S\r\n]+))*`;
+const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})(?:[^\s,;\r\n]+|[^\S\r\n]+))*`;
+
+// Fallback for a value that visibly STARTS with a quote character but the
+// strict quoted alternative below can't fully close: consumes from the
+// opening quote through the next stop condition anyway, so the whole thing
+// still gets redacted instead of the ENTIRE `NAME=value` segment falling
+// through completely unmatched — silently worse than a partial redaction,
+// since no `[REDACTED]` marker appears anywhere to hint the value was
+// missed (also found by /ievo:vuln-scan on this diff). Reachable only when
+// the strict alternative fails, which after the lazy-backreference fix
+// below means only a genuinely missing/truncated closing quote — e.g.
+// tool-failure output cut off mid-line.
+const MALFORMED_QUOTED_VALUE = String.raw`["'](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})[^,;\r\n])*`;
 
 // Captures: (1) name, (2) an optional closing quote right after the name
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with
-// surrounding whitespace), then either a quoted value (4=quote char,
-// 5=inner text) or an unquoted value (6=see UNQUOTED_VALUE above).
-// Case-insensitive — assignment names appear in every casing convention
-// (env files are uppercase, JS object literals are often camelCase).
+// surrounding whitespace), then a quoted value (4=quote char, 5=inner
+// text), an unquoted value (6=see UNQUOTED_VALUE above), or a malformed
+// quoted value (7=see MALFORMED_QUOTED_VALUE above). Case-insensitive —
+// assignment names appear in every casing convention (env files are
+// uppercase, JS object literals are often camelCase).
+//
+// The quoted alternative's inner text is `[^\r\n]*?` (lazy, only CRLF
+// excluded) and closes on a backreference to whichever quote character
+// opened it (\4) — NOT `[^"'\r\n]*` (greedy, excluding BOTH quote
+// characters), which stopped at the first occurrence of EITHER quote type
+// and so failed to find a same-type closer sitting past an embedded
+// opposite-type quote (`"user's api key"` has no `"` immediately after
+// "user", so the old pattern never found the real closing `"` at all — the
+// MALFORMED_QUOTED_VALUE case above, also found by /ievo:vuln-scan). Lazy
+// (not greedy) matching stops at the FIRST subsequent same-type quote, so
+// two quoted assignments on one line ("A_TOKEN=\"one\" B_SECRET=\"two\"")
+// still redact independently instead of the first value's match spanning
+// into the second.
 const ASSIGNMENT_RE = new RegExp(
-  String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])([^"'\r\n]*)\4|(${UNQUOTED_VALUE}))`,
+  String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])([^\r\n]*?)\4|(${UNQUOTED_VALUE})|(${MALFORMED_QUOTED_VALUE}))`,
   "gi",
 );
 

@@ -218,6 +218,35 @@ describe("redactNamedSecrets", () => {
     );
   });
 
+  it("fully redacts an unquoted value containing an apostrophe/contraction (skills#493 follow-up)", () => {
+    const out = redactNamedSecrets("PASSWORD=don't share this");
+    assert.equal(out, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(out, /share this/);
+    assert.equal(
+      redactNamedSecrets("PASSWORD=it's a secret value here"),
+      "PASSWORD=[REDACTED]",
+    );
+  });
+
+  it("fully redacts a double-quoted value containing an embedded apostrophe", () => {
+    const out = redactNamedSecrets(`{"api_key": "user's real api key is abc123xyz"}`);
+    assert.equal(out, `{"api_key": "[REDACTED]"}`);
+    assert.doesNotMatch(out, /abc123xyz/);
+  });
+
+  it("redacts two quoted assignments on one line independently (lazy backreference doesn't overrun)", () => {
+    assert.equal(
+      redactNamedSecrets(`A_TOKEN="one" B_SECRET="two"`),
+      `A_TOKEN="[REDACTED]" B_SECRET="[REDACTED]"`,
+    );
+  });
+
+  it("still redacts a value that looks quoted but has no closing quote (truncated capture)", () => {
+    assert.equal(redactNamedSecrets(`PASSWORD="truncated mid val`), "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(redactNamedSecrets(`PASSWORD="truncated mid val`), /truncated/);
+    assert.equal(redactNamedSecrets(`PASSWORD='tis the season`), "PASSWORD=[REDACTED]");
+  });
+
   it("leaves ordinary prose untouched", () => {
     const text = "the request took 5 seconds and returned ok";
     assert.equal(redactNamedSecrets(text), text);

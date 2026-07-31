@@ -547,6 +547,21 @@ describe("main (CLI entry)", () => {
     assert.match(run.logs.join("\n"), /✗/);
   });
 
+  it("strips control characters from the printed rel path (CWE-150, skills#495)", () => {
+    // A git tree entry name may contain arbitrary bytes other than `/` and
+    // NUL — an ESC byte here must never survive into the ✓/✗ line main()
+    // prints, which CI echoes to an ANSI-interpreting log viewer.
+    const escDir = join(tmpDir, "esc\x1bagents");
+    mkdirSync(escDir, { recursive: true });
+    writeFileSync(join(escDir, "a.md"), "---\nname: a\ndescription: ok\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", escDir], run.exit, run.log, run.errLog);
+    const output = run.logs.join("\n");
+    assert.equal(run.exitCode, 0);
+    assert.ok(!output.includes("\x1b"), "output must not contain the raw ESC byte");
+    assert.match(output, /escagents/);
+  });
+
   it("continues past unreadable file — does NOT halt on first read error (CI gate correctness)", () => {
     // POSIX-only: chmod 000 makes the file unreadable so readFileSync throws
     // EACCES while isOversized's lstatSync (which only needs dir execute

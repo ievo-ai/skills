@@ -296,7 +296,12 @@ export function validateSkill(filePath) {
     }];
   }
   const content = readFileSync(filePath, "utf-8");
-  const parentDirName = basename(dirname(filePath));
+  // Stripped here (not just at the rel/log() call sites in main()) because a
+  // git tree entry name may contain arbitrary bytes other than `/` and NUL —
+  // an ESC byte in a crafted directory name would otherwise reach the
+  // name-dir-mismatch message unstripped, the same CWE-150 this file's
+  // CONTROL_CHAR_RE already guards frontmatter values against (skills#495).
+  const parentDirName = basename(dirname(filePath)).replace(CONTROL_CHAR_RE, "");
   return validateSkillContent(content, parentDirName);
 }
 
@@ -348,7 +353,11 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
   let totalPassed = 0;
 
   for (const filePath of files) {
-    const rel = relative(process.cwd(), filePath);
+    // A crafted file path (e.g. a PR-added SKILL.md directory with an embedded
+    // ESC byte) reaches this unstripped otherwise — same CWE-150 guard as
+    // CONTROL_CHAR_RE's use on frontmatter values, extended to path echoing
+    // (skills#495).
+    const rel = relative(process.cwd(), filePath).replace(CONTROL_CHAR_RE, "");
     let violations;
     try {
       violations = validateSkill(filePath);

@@ -246,7 +246,11 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
   let totalPassed = 0;
 
   for (const filePath of agentFiles) {
-    const rel = relative(process.cwd(), filePath);
+    // A crafted file path (e.g. a PR-added agent .md file with an embedded
+    // ESC byte) reaches this unstripped otherwise — same CWE-150 guard as
+    // CONTROL_CHAR_RE's use on frontmatter values, extended to path echoing
+    // (skills#495).
+    const rel = relative(process.cwd(), filePath).replace(CONTROL_CHAR_RE, "");
     let violations;
     try {
       violations = validateAgent(filePath);

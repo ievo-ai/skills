@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.4
+
+Make the project-wide overlay marker's neither-file-exists fallback platform-aware, closing a Codex-invisible marker gap — closes #511.
+
+- **Gap closed (#511)** — `evo/SKILL.md` Step 3 and `agents/evolution.md` Step 3 pick a host file for the project-wide overlay marker by priority: thin-pointer `CLAUDE.md` → `AGENTS.md` (the #304/#309 fix), else existing `CLAUDE.md`, else existing `AGENTS.md`, else **create `CLAUDE.md`** unconditionally. That last fallback was untouched by #304/#309, which only fixed the thin-pointer-exists branch. On Codex, in a fresh project with neither file present, `/ievo:evo` still created `CLAUDE.md` — a file Codex never reads — so the captured overlay was written but never became an active project rule.
+- **Fix** — the neither-exists fallback in both files now checks `$CODEX_CLI` (the same detection Step 1 already uses to pick load paths): set (Codex) creates `AGENTS.md`, unset (Claude Code) still creates `CLAUDE.md` — no behavior change for existing Claude Code users. Both the primary `evo` skill path and the `evolution` sub-agent dispatch path were updated in lockstep, per the #304/#309 precedent that a fix landing in only one of the two files leaves the other's dispatch path on the old behavior. Each file documents the regression scenario inline as the "regression case" — this repo's skill/agent prose logic has no `node:test` harness to encode it as an executable regression test.
+- **Scope** — additive conditional in two Markdown files' Step 3 prose (no schema, CI, or behavior change to the thin-pointer/existing-file branches, which are untouched); the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.3 → 0.75.4).
+
 ## v0.75.3
 
 Add a redaction rule to `deep-reviewer.md`'s Point 11, closing a leaked-secrets re-emission gap — closes #498.

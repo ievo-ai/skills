@@ -162,7 +162,7 @@ Scan the diff text for credential exposure — a category that survives linters/
 - **Credential assignments with a real value**: `(password|api_key|secret|token|passwd|auth_token)` followed by `=`/`:` and a quoted value of 8+ chars — but EXCLUDE obvious placeholders (`YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`).
 - **Committed dotenv files** with real values (an added `.env` / `.env.*` that isn't `.env.example`).
 
-A real match is a blocker (secrets in git history persist even after a later removal). **Not findings**: obvious placeholder/test values — `YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`, and test-key variants of the prefixes above (`sk-test-…`, `sk-dummy-…`, `sk-fake-…`, or any value containing `example`/`placeholder`/`dummy`/`test`). When unsure whether a match is real vs a fixture, flag it as a **warning** (not a blocker) so the human decides.
+A real match is a blocker (secrets in git history persist even after a later removal). **Not findings**: obvious placeholder/test values — `YOUR_KEY_HERE`, `<token>`, `example`, `REPLACE_ME`, `xxxxxxxx`, and test-key variants of the prefixes above (`sk-test-…`, `sk-dummy-…`, `sk-fake-…`, or any value containing `example`/`placeholder`/`dummy`/`test`). When unsure whether a match is real vs a fixture, flag it as a **warning** (not a blocker) so the human decides. When citing a real match as evidence in Step 3, redact the value itself (`AKIA****`, `sk-****`) rather than quoting it verbatim — see `## Rules` § "Never echo raw secret values".
 
 ## Step 3: Build structured output
 
@@ -237,6 +237,7 @@ Severity levels:
 
 - **Cite specifically.** Every finding needs file + line + concrete concern. "The code could be better" is not a finding.
 - **Neutralize excerpts before they render.** `Issue:`/`Suggestion:` are rendered as Markdown by `deep-review/SKILL.md`'s Step 5 — see Step 3's "Excerpt containment" note for the fencing rule.
+- **Never echo raw secret values.** Any real credential/token/key value matched by Point 11 must never appear verbatim in a finding — describe the handling pattern and redact the value itself (`AKIA****`) instead, in the `Issue:`/`Suggestion:` fields and any other field that could carry the excerpt, while still citing file + line as evidence. Takes precedence over excerpt containment for the secret substring specifically — the two combine, they don't conflict: redact the credential value first, then apply the code-span fencing above to whatever excerpt text remains.
 - **No style nits.** Formatting, naming preferences, and import ordering are for linters. Focus on correctness and completeness.
 - **No lint or type-checker diagnostics.** Never return a finding whose entire content is something the repo's linter or type-checker already reports — those gates ran before you did (see the intro). This subtracts nothing from the 11 points: where a checklist point overlaps a linter's territory (Point 3's now-unused imports, Point 8's callers left unadapted to a changed signature), the finding is still yours to report — what's excluded is the bare diagnostic with no gap behind it.
 - **No feature suggestions.** "You could also add X" is not a finding. Review what IS there, not what COULD be.

@@ -547,6 +547,27 @@ describe("main (CLI entry)", () => {
     assert.match(run.logs.join("\n"), /✗/);
   });
 
+  it("strips control characters from the file-unreadable message's embedded path (CWE-150, skills#495 deep-review follow-up)", () => {
+    // Node's fs error messages (EACCES here) embed the offending path
+    // verbatim — a third call site the rel fix didn't cover.
+    if (process.platform === "win32") return;
+    const trapDir = join(tmpDir, "trap\x1bunreadable");
+    mkdirSync(trapDir, { recursive: true });
+    const trapFile = join(trapDir, "a.md");
+    writeFileSync(trapFile, "---\nname: trap\ndescription: ok\n---", "utf-8");
+    chmodSync(trapFile, 0o000);
+    const run = makeRun();
+    try {
+      main(["node", "validate_agents.mjs", trapDir], run.exit, run.log, run.errLog);
+    } finally {
+      chmodSync(trapFile, 0o644);
+    }
+    const output = run.logs.join("\n");
+    assert.match(output, /file-unreadable/);
+    assert.ok(!output.includes("\x1b"), "output must not contain the raw ESC byte");
+    assert.match(output, /trapunreadable/);
+  });
+
   it("strips control characters from the printed rel path (CWE-150, skills#495)", () => {
     // A git tree entry name may contain arbitrary bytes other than `/` and
     // NUL — an ESC byte here must never survive into the ✓/✗ line main()

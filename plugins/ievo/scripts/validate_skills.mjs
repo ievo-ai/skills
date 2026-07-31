@@ -362,10 +362,15 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
     try {
       violations = validateSkill(filePath);
     } catch (err) {
+      // Node's fs error messages (ENOENT, EACCES, EISDIR, ...) embed the
+      // offending path verbatim — the same attacker-influenceable path this
+      // file's CONTROL_CHAR_RE guard exists for, reachable through a third
+      // call site the rel/parentDirName fix above didn't cover (skills#495
+      // deep-review follow-up).
       violations = [{
         severity: "error",
         rule: "file-unreadable",
-        message: `Could not read SKILL.md file: ${err.message}`,
+        message: `Could not read SKILL.md file: ${err.message.replace(CONTROL_CHAR_RE, "")}`,
       }];
     }
 

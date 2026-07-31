@@ -655,6 +655,21 @@ describe("validateSkill (filesystem)", () => {
     assert.equal(v[0].rule, "file-too-large");
   });
 
+  it("strips control characters from parentDirName before it reaches the name-dir-mismatch message (CWE-150, skills#495)", () => {
+    // A git tree entry name may contain arbitrary bytes other than `/` and NUL
+    // — an ESC byte here must never survive into a violation message that CI
+    // echoes to an ANSI-interpreting log viewer.
+    const skillDir = join(tmpDir, "actual\x1bdir");
+    mkdirSync(skillDir, { recursive: true });
+    const filePath = join(skillDir, "SKILL.md");
+    writeFileSync(filePath, "---\nname: foo\ndescription: ok\neffort: low\n---", "utf-8");
+    const v = validateSkill(filePath);
+    const mismatch = v.find((x) => x.rule === "name-dir-mismatch");
+    assert.ok(mismatch, "expected a name-dir-mismatch violation");
+    assert.ok(!mismatch.message.includes("\x1b"), "message must not contain the raw ESC byte");
+    assert.match(mismatch.message, /actualdir/);
+  });
+
   after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -842,6 +857,41 @@ describe("main (CLI entry)", () => {
     assert.equal(run.exitCode, 1);
     assert.match(run.logs.join("\n"), /file-unreadable/);
     assert.match(run.logs.join("\n"), /good/);
+  });
+
+  it("strips control characters from the file-unreadable message's embedded path (CWE-150, skills#495 deep-review follow-up)", () => {
+    // Node's fs error messages (EACCES here) embed the offending path
+    // verbatim — a third call site the rel/parentDirName fix didn't cover.
+    if (process.platform === "win32") return;
+    const trapDir = join(tmpDir, "trap\x1bunreadable");
+    mkdirSync(trapDir, { recursive: true });
+    const trapFile = join(trapDir, "SKILL.md");
+    writeFileSync(trapFile, "---\nname: trap\ndescription: ok\n---", "utf-8");
+    chmodSync(trapFile, 0o000);
+    const run = makeRun();
+    try {
+      main(["node", "validate_skills.mjs", trapFile], run.exit, run.log, run.errLog);
+    } finally {
+      chmodSync(trapFile, 0o644);
+    }
+    const output = run.logs.join("\n");
+    assert.match(output, /file-unreadable/);
+    assert.ok(!output.includes("\x1b"), "output must not contain the raw ESC byte");
+    assert.match(output, /trapunreadable/);
+  });
+
+  it("strips control characters from the printed rel path (CWE-150, skills#495)", () => {
+    // Same log-injection guard as name-dir-mismatch above, but for the path
+    // echoed on every ✓/✗ line in main() — the fix must cover both call sites.
+    const skillDir = join(tmpDir, "esc\x1bskill");
+    mkdirSync(skillDir, { recursive: true });
+    const filePath = join(skillDir, "SKILL.md");
+    writeFileSync(filePath, "---\nname: esc\x1bskill\ndescription: ok\neffort: low\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_skills.mjs", filePath], run.exit, run.log, run.errLog);
+    const output = run.logs.join("\n");
+    assert.ok(!output.includes("\x1b"), "output must not contain the raw ESC byte");
+    assert.match(output, /escskill/);
   });
 
   it("handles multiple valid files", () => {

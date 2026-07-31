@@ -246,7 +246,11 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
   let totalPassed = 0;
 
   for (const filePath of agentFiles) {
-    const rel = relative(process.cwd(), filePath);
+    // A crafted file path (e.g. a PR-added agent .md file with an embedded
+    // ESC byte) reaches this unstripped otherwise — same CWE-150 guard as
+    // CONTROL_CHAR_RE's use on frontmatter values, extended to path echoing
+    // (skills#495).
+    const rel = relative(process.cwd(), filePath).replace(CONTROL_CHAR_RE, "");
     let violations;
     try {
       violations = validateAgent(filePath);
@@ -254,10 +258,15 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
       // Per-file isolation: a single unreadable file (permission, EISDIR, symlink
       // loop, etc.) must NOT halt the loop. Record as a violation so the file is
       // counted in totals and surfaces in the summary, then continue.
+      // Node's fs error messages (ENOENT, EACCES, EISDIR, ...) embed the
+      // offending path verbatim — the same attacker-influenceable path this
+      // file's CONTROL_CHAR_RE guard exists for, reachable through a third
+      // call site the rel fix above didn't cover (skills#495 deep-review
+      // follow-up).
       violations = [{
         severity: "error",
         rule: "file-unreadable",
-        message: `Could not read agent file: ${err.message}`,
+        message: `Could not read agent file: ${err.message.replace(CONTROL_CHAR_RE, "")}`,
       }];
     }
 

@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.5
+
+Strip control characters from the file path/directory name `validate_skills.mjs`/`validate_agents.mjs` echo to CI logs, closing a log-injection gap — closes #495.
+
+- **Gap closed (#495)** — both validators' `main()` computes `rel = relative(process.cwd(), filePath)` and prints it unstripped via `log(\`✓ ${rel}\`)` / `log(\`✗ ${rel}\`)`; `validate_skills.mjs`'s `validateSkill()` also computes `parentDirName = basename(dirname(filePath))`, interpolated unstripped into its `name-dir-mismatch` message. Both already define `CONTROL_CHAR_RE` and apply it to parsed frontmatter values (the #378/v0.54.10 fix) specifically because a raw ESC byte in a crafted value survives untouched otherwise and can inject ANSI/control sequences into a CI log or terminal viewer — but neither script extended that guard to the path-echoing call sites. A git tree entry name may contain arbitrary bytes other than `/` and NUL, so a PR that adds/renames a SKILL.md directory or agent file with embedded ANSI escape bytes in its path got that path echoed live into the GitHub Actions log viewer, letting a malicious PR visually spoof CI output (e.g. hiding a real violation behind a fabricated passing line).
+- **Fix** — apply `CONTROL_CHAR_RE.replace()` to `rel` in both files' `main()`, and to `parentDirName` in `validate_skills.mjs`'s `validateSkill()` (sanitized once at computation, before it reaches either the equality check against the already-stripped `fm.name` or the violation message) — same fix pattern as #378, extended to the two sibling call sites it didn't cover.
+- **Scope** — two small, targeted diffs in `plugins/ievo/scripts/validate_skills.mjs` and `plugins/ievo/scripts/validate_agents.mjs` (no schema or behavior change for any non-adversarial path/name), plus new regression coverage in both test files proving an embedded ESC byte never reaches the printed `rel`/`name-dir-mismatch` message; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.4 → 0.75.5).
+
 ## v0.75.4
 
 Make the project-wide overlay marker's neither-file-exists fallback platform-aware, closing a Codex-invisible marker gap — closes #511.

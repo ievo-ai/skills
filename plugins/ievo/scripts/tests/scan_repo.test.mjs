@@ -700,6 +700,42 @@ describe("enumerateHooks", () => {
     const r = enumerateHooks(f);
     assert.deepEqual(r.entries, []);
   });
+  it("skips a null entry in the hook list instead of throwing (CWE-20)", () => {
+    const f = join(tmp, "null-entry.json");
+    writeFileSync(f, JSON.stringify({ hooks: { PreToolUse: [null] } }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.present, true);
+    assert.deepEqual(r.entries, []);
+  });
+  it("skips a non-object (string) entry in the hook list instead of throwing", () => {
+    const f = join(tmp, "string-entry.json");
+    writeFileSync(f, JSON.stringify({ hooks: { PreToolUse: ["not-an-object"] } }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.deepEqual(r.entries, []);
+  });
+  it("processes valid entries alongside a null entry in the same list", () => {
+    const f = join(tmp, "mixed.json");
+    writeFileSync(f, JSON.stringify({
+      hooks: { PreToolUse: [null, { matcher: "Bash", hooks: [{ command: "echo hi" }] }] },
+    }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries.length, 1);
+    assert.equal(r.entries[0].matcher, "Bash");
+    assert.equal(r.entries[0].command, "echo hi");
+  });
+  it("falls back to '—' when the first inner hook is null instead of throwing", () => {
+    const f = join(tmp, "null-inner.json");
+    writeFileSync(f, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [null] }] } }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries[0].matcher, "*");
+    assert.equal(r.entries[0].command, "—");
+  });
+  it("falls back to '—' when the first inner hook is a non-object", () => {
+    const f = join(tmp, "string-inner.json");
+    writeFileSync(f, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: ["nope"] }] } }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries[0].command, "—");
+  });
   it("returns absent shape with oversized:true without reading when file exceeds the size cap (CWE-400)", () => {
     const f = join(tmp, "huge.json");
     writeFileSync(f, "x".repeat(MAX_SCAN_FILE_BYTES + 1), "utf-8");
@@ -760,6 +796,28 @@ describe("enumerateMcp", () => {
     const r = enumerateMcp(f);
     assert.equal(r.present, true);
     assert.deepEqual(r.servers, []);
+  });
+  it("skips a null server config instead of throwing (CWE-20)", () => {
+    const f = join(tmp, "null-server.json");
+    writeFileSync(f, JSON.stringify({ mcpServers: { evil: null } }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.present, true);
+    assert.deepEqual(r.servers, []);
+  });
+  it("skips a non-object (string) server config instead of throwing", () => {
+    const f = join(tmp, "string-server.json");
+    writeFileSync(f, JSON.stringify({ mcpServers: { evil: "not-an-object" } }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.deepEqual(r.servers, []);
+  });
+  it("processes a valid server alongside a null server in the same map", () => {
+    const f = join(tmp, "mixed.json");
+    writeFileSync(f, JSON.stringify({
+      mcpServers: { evil: null, good: { url: "https://api.example.com" } },
+    }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.servers.length, 1);
+    assert.equal(r.servers[0].name, "good");
   });
   it("returns absent shape with oversized:true without reading when file exceeds the size cap (CWE-400)", () => {
     const f = join(tmp, "huge.json");

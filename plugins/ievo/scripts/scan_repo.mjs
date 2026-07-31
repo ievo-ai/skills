@@ -472,12 +472,15 @@ export function enumerateHooks(hooksJsonPath) {
   for (const [event, hookList] of Object.entries(hooks)) {
     if (!Array.isArray(hookList)) continue;
     for (const h of hookList) {
+      if (!h || typeof h !== "object") continue;
       const matcher = h.matcher ?? "—";
       let cmd = "—";
       const innerHooks = h.hooks ?? [];
       if (innerHooks.length > 0) {
         const first = innerHooks[0];
-        cmd = first.command ?? first.type ?? "—";
+        if (first && typeof first === "object") {
+          cmd = first.command ?? first.type ?? "—";
+        }
       }
       entries.push({ event, matcher, command: truncate(cmd, 80) });
     }
@@ -503,6 +506,7 @@ export function enumerateMcp(mcpJsonPath) {
   }
   const servers = [];
   for (const [name, config] of Object.entries(data.mcpServers ?? {})) {
+    if (!config || typeof config !== "object") continue;
     const url = config.url ?? "";
     const isLocal = /localhost|127\.0\.0\.1|::1/.test(url);
     servers.push({

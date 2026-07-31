@@ -140,10 +140,11 @@ const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD
 // still gets redacted instead of the ENTIRE `NAME=value` segment falling
 // through completely unmatched — silently worse than a partial redaction,
 // since no `[REDACTED]` marker appears anywhere to hint the value was
-// missed (also found by /ievo:vuln-scan on this diff). Reachable only when
-// the strict alternative fails, which after the lazy-backreference fix
-// below means only a genuinely missing/truncated closing quote — e.g.
-// tool-failure output cut off mid-line.
+// missed (also found by /ievo:vuln-scan on this diff). Reachable whenever
+// the strict alternative below fails to close: a genuinely missing or
+// truncated closing quote (tool-failure output cut off mid-line), or — once
+// the closing-quote boundary check below rejects interior quotes — a value
+// whose only same-type quotes are interior ones.
 //
 // The continuation class is `[^\r\n]`, NOT `[^,;\r\n]`: this alternative
 // only fires once an opening quote has been consumed, and INSIDE a quoted
@@ -156,6 +157,37 @@ const UNQUOTED_VALUE = String.raw`[^\s,;"'\r\n](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD
 // later on the same line still redacts independently), and end of input.
 const MALFORMED_QUOTED_VALUE = String.raw`["'](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD})[^\r\n])*`;
 
+// A same-type quote only TERMINATES a quoted value when a real delimiter
+// follows it: whitespace/CRLF, `,`/`;`, a closing bracket/brace/paren, or
+// end of input. Without this check the lazy inner match closes on the first
+// same-type quote it reaches even when that quote sits INSIDE the value —
+// an apostrophe in `PASSWORD='don't share this xyz`, a JSON-escaped `\"` in
+// `{"db_password":"p@ss\"real"}` — redacting only as far as it and copying
+// the rest of the live secret through in cleartext. That is the same
+// partial-leak class skills#493 closes, surviving in the quoted branch
+// (found in review). With the check an interior quote no longer terminates:
+// the match either finds the value's real closing quote further along
+// (`PASSWORD='don't share this'` -> `PASSWORD='[REDACTED]'`) or fails over
+// to MALFORMED_QUOTED_VALUE above and redacts to end of line. Both are
+// fail-closed; the cost is over-redaction when a value genuinely closes on
+// a quote followed by something else (`TOKEN="abc"def`).
+const QUOTED_VALUE_CLOSE = String.raw`(?=[\s,;}\])]|$)`;
+
+// Inner text of a strictly-quoted value: non-CRLF characters, except that a
+// backslash always takes the next character with it — so a backslash-escaped
+// quote (`"p@ss\" real"`, ubiquitous in the JSON-encoded tool output this
+// script scrubs) is content, not a candidate terminator. The boundary check
+// above alone does not cover it: an escaped quote followed by a space
+// satisfies the boundary and closed the value early, leaking the tail.
+// Escape awareness can only push the accepted closing quote LATER than the
+// plain `[^\r\n]*?` form would, never earlier, so it can only ever widen the
+// redacted span (worst case: no closer is accepted and the MALFORMED
+// fallback redacts to end of line) — it cannot introduce a new under-match.
+// Spelled `\\[^\r\n]` rather than `\\.` to keep the excluded set exactly
+// CRLF: `.` additionally excludes U+2028/U+2029, which are ordinary content
+// here.
+const QUOTED_VALUE_INNER = String.raw`(?:[^\r\n\\]|\\[^\r\n])*?`;
+
 // Captures: (1) name, (2) an optional closing quote right after the name
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with
 // surrounding whitespace), then a quoted value (4=quote char, 5=inner
@@ -164,20 +196,21 @@ const MALFORMED_QUOTED_VALUE = String.raw`["'](?:(?!${NEXT_ASSIGNMENT_LOOKAHEAD}
 // assignment names appear in every casing convention (env files are
 // uppercase, JS object literals are often camelCase).
 //
-// The quoted alternative's inner text is `[^\r\n]*?` (lazy, only CRLF
-// excluded) and closes on a backreference to whichever quote character
-// opened it (\4) — NOT `[^"'\r\n]*` (greedy, excluding BOTH quote
-// characters), which stopped at the first occurrence of EITHER quote type
-// and so failed to find a same-type closer sitting past an embedded
-// opposite-type quote (`"user's api key"` has no `"` immediately after
-// "user", so the old pattern never found the real closing `"` at all — the
-// MALFORMED_QUOTED_VALUE case above, also found by /ievo:vuln-scan). Lazy
-// (not greedy) matching stops at the FIRST subsequent same-type quote, so
-// two quoted assignments on one line ("A_TOKEN=\"one\" B_SECRET=\"two\"")
-// still redact independently instead of the first value's match spanning
-// into the second.
+// The quoted alternative's inner text is QUOTED_VALUE_INNER (lazy, only CRLF
+// excluded, backslash-escape aware) and closes on a backreference to
+// whichever quote character opened it (\4) — NOT `[^"'\r\n]*` (greedy,
+// excluding BOTH quote characters), which stopped at the first occurrence of
+// EITHER quote type and so failed to find a same-type closer sitting past an
+// embedded opposite-type quote (`"user's api key"` has no `"` immediately
+// after "user", so the old pattern never found the real closing `"` at all —
+// the MALFORMED_QUOTED_VALUE case above, also found by /ievo:vuln-scan).
+// Lazy (not greedy) matching stops at the FIRST subsequent same-type quote
+// that QUOTED_VALUE_CLOSE accepts as a real terminator, so two quoted
+// assignments on one line ("A_TOKEN=\"one\" B_SECRET=\"two\"") still redact
+// independently instead of the first value's match spanning into the second,
+// while a quote interior to the value no longer ends it early.
 const ASSIGNMENT_RE = new RegExp(
-  String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])([^\r\n]*?)\4|(${UNQUOTED_VALUE})|(${MALFORMED_QUOTED_VALUE}))`,
+  String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])(${QUOTED_VALUE_INNER})\4${QUOTED_VALUE_CLOSE}|(${UNQUOTED_VALUE})|(${MALFORMED_QUOTED_VALUE}))`,
   "gi",
 );
 

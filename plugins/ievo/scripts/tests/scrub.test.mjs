@@ -241,6 +241,60 @@ describe("redactNamedSecrets", () => {
     );
   });
 
+  it("does not end a quoted value at a quote interior to it (review follow-up)", () => {
+    // The lazy backreference closed on the FIRST subsequent same-type quote,
+    // even one sitting inside the value — redacting only up to it and
+    // copying the rest of the live secret through. Same partial-leak class
+    // as skills#493, surviving in the quoted branch.
+    const apostrophe = redactNamedSecrets(`PASSWORD='don't share this xyz`);
+    assert.equal(apostrophe, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(apostrophe, /share this xyz/);
+
+    // `'tis the season` (covered below) was one apostrophe from failing.
+    const contraction = redactNamedSecrets(`PASSWORD='tis the season's end`);
+    assert.equal(contraction, "PASSWORD=[REDACTED]");
+    assert.doesNotMatch(contraction, /season|end/);
+
+    // JSON-encoded tool output — the escaped `\"` is content, not a closer.
+    const jsonEscaped = redactNamedSecrets(`{"db_password":"p@ss\\"real"}`);
+    assert.equal(jsonEscaped, `{"db_password":"[REDACTED]"}`);
+    assert.doesNotMatch(jsonEscaped, /real/);
+
+    // ...and when a delimiter follows the escaped quote, so the closing-quote
+    // boundary check alone would have accepted it as a terminator.
+    const escapedThenSpace = redactNamedSecrets(`{"db_password":"p@ss\\" real"}`);
+    assert.equal(escapedThenSpace, `{"db_password":"[REDACTED]"}`);
+    assert.doesNotMatch(escapedThenSpace, /real/);
+  });
+
+  it("still closes at the value's real terminating quote past an interior one", () => {
+    // Not merely a fail-over to the redact-to-end-of-line fallback: when a
+    // real closing quote does exist further along, the strict alternative
+    // finds it and the text after the value survives.
+    assert.equal(redactNamedSecrets(`PASSWORD='don't share this'`), "PASSWORD='[REDACTED]'");
+    assert.equal(
+      redactNamedSecrets(`{"api_key": "it's a \\"quoted\\" secret", "n": 1}`),
+      `{"api_key": "[REDACTED]", "n": 1}`,
+    );
+  });
+
+  it("accepts a closing quote only before a real delimiter, redacting to end of line otherwise", () => {
+    // Every delimiter the boundary check treats as a real terminator...
+    assert.equal(redactNamedSecrets(`TOKEN="a" tail`), `TOKEN="[REDACTED]" tail`);
+    assert.equal(redactNamedSecrets(`TOKEN="a",tail`), `TOKEN="[REDACTED]",tail`);
+    assert.equal(redactNamedSecrets(`TOKEN="a";tail`), `TOKEN="[REDACTED]";tail`);
+    assert.equal(redactNamedSecrets(`{"token":"a"}`), `{"token":"[REDACTED]"}`);
+    assert.equal(redactNamedSecrets(`[TOKEN="a"]`), `[TOKEN="[REDACTED]"]`);
+    assert.equal(redactNamedSecrets(`fn(PASSWORD="a")`), `fn(PASSWORD="[REDACTED]")`);
+    assert.equal(redactNamedSecrets(`TOKEN="a"\ntail`), `TOKEN="[REDACTED]"\ntail`);
+    assert.equal(redactNamedSecrets(`TOKEN="a"`), `TOKEN="[REDACTED]"`);
+
+    // ...and anything else is treated as interior, so the value falls to the
+    // redact-to-end-of-line fallback. Over-redaction is the fail-closed side
+    // of that trade: a scrubber must not stop short of a live secret.
+    assert.equal(redactNamedSecrets(`TOKEN="abc"def`), "TOKEN=[REDACTED]");
+  });
+
   it("still redacts a value that looks quoted but has no closing quote (truncated capture)", () => {
     assert.equal(redactNamedSecrets(`PASSWORD="truncated mid val`), "PASSWORD=[REDACTED]");
     assert.doesNotMatch(redactNamedSecrets(`PASSWORD="truncated mid val`), /truncated/);

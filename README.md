@@ -378,6 +378,7 @@ ievo-ai/skills/
 ├── .claude-plugin/
 │   ├── plugin.json
 │   └── marketplace.json
+├── plugin.json                     # Agent Plugins 1.0.0 manifest (agent-plugins.org) — metadata only; components live in plugins/ievo/
 └── plugins/ievo/
     ├── .claude-plugin/plugin.json
     ├── commands/

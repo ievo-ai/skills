@@ -38,14 +38,33 @@
 // into a Bash argument, which was exploitable as CWE-78 shell injection when
 // the correction contained an unescaped quote or shell metacharacter.
 // --text-file takes precedence when both --text and --text-file are given.
+//
+// --text-file is untrusted input (added v0.75.10, closes #523): the path can
+// be influenced by a compromised or prompt-injected agent turn issuing a
+// different --text-file value directly via Bash, so it is treated the same
+// as any other attacker-influenced filesystem input this plugin reads —
+// contained to the project's own .ievo/ directory, both lexically up front
+// (assertTextFileAllowed, mirrors scan_repo.mjs's assertContained()) and
+// again by realpath once the target is known to exist (assertTextFileReadable,
+// mirrors scan_repo.mjs's assertCheckoutContained() — closes the gap a
+// lexical-only check leaves open when an ancestor directory under .ievo/ is
+// itself a symlink), required to be a regular file under a size cap
+// (assertTextFileReadable, mirrors scan_repo.mjs's MAX_SCAN_FILE_BYTES/
+// isOversized()), and run through scrub.mjs's scrub() before it is trimmed
+// and persisted — giving --text-file the same redaction guarantee the
+// failure-capture hook already applies externally before writing its own
+// --text-file. The --text (argv) path is untouched: no production caller
+// uses it today, and any future one is expected to redact upstream, same as
+// already documented above.
 
-import { readFileSync, appendFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { readFileSync, appendFileSync, mkdirSync, readdirSync, unlinkSync, lstatSync, realpathSync } from "node:fs";
+import { join, dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scrub } from "./scrub.mjs";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.75.10";
+export const SCRIPT_VERSION = "0.75.11";
 export const IEVO_DIR = ".ievo";
 export const CANDIDATES_DIR = "evolution-candidates";
 export const SESSION_EXT = ".jsonl";
@@ -136,6 +155,80 @@ export function readSessionCandidates(filePath, readImpl = readFileSync) {
 }
 
 // ---------------------------------------------------------------------------
+// --text-file containment + size cap (#523)
+// ---------------------------------------------------------------------------
+
+function ievoRoot(projectRoot) {
+  return resolve(projectRoot, IEVO_DIR);
+}
+
+// Throws if `target` would resolve outside `allowedDir` — shared by the
+// lexical pre-check (assertTextFileAllowed, below) and the realpath re-check
+// (assertTextFileReadable, below). Mirrors scan_repo.mjs's assertContained().
+function assertContainedIn(target, allowedDir) {
+  if (target !== allowedDir && !target.startsWith(allowedDir + sep)) {
+    throw new Error(`must be inside ${allowedDir}`);
+  }
+}
+
+// Throws if `textFile` would resolve outside <projectRoot>/.ievo/ — the
+// project's own scratch directory both hook callers already write their
+// fixed pending-file paths under (.ievo/hooks/tmp/correction-pending.txt,
+// .ievo/hooks/tmp/failure-pending.txt). The first line of defense against a
+// compromised/prompt-injected agent turn passing an arbitrary path (e.g.
+// ~/.aws/credentials, ~/.netrc, a project .env) directly via Bash — purely
+// lexical (no filesystem access), so it rejects an out-of-bounds path even
+// before anything on disk is touched. Returns the resolved absolute path so
+// the caller reads the exact path that was just validated. NOT sufficient on
+// its own against a symlinked ancestor directory — see assertTextFileReadable's
+// realpath re-check below.
+export function assertTextFileAllowed(textFile, projectRoot) {
+  const resolvedTarget = resolve(textFile);
+  assertContainedIn(resolvedTarget, ievoRoot(projectRoot));
+  return resolvedTarget;
+}
+
+// Frontmatter/manifest files elsewhere in this plugin cap reads at 256 KB
+// (scan_repo.mjs's MAX_SCAN_FILE_BYTES) — a captured correction/failure
+// record is free-form agent-authored text and is never legitimately anywhere
+// near that.
+export const MAX_TEXT_FILE_BYTES = 256 * 1024;
+
+// lstat (not stat/readFileSync) so a symlink AT THE LEAF is judged on its own
+// type without following it — a symlink planted directly at the --text-file
+// path would otherwise be followed straight through to its real target by a
+// plain readFileSync (CWE-59). Throws (rather than returning a boolean) since
+// an unreadable/oversized/non-regular --text-file must abort the append, not
+// silently degrade like scan_repo.mjs's optional-entry skips.
+//
+// lstat's non-follow behavior applies only to the path's FINAL component —
+// every ANCESTOR directory component is still resolved normally, so a
+// symlinked ancestor (e.g. `.ievo/link -> ~/.aws`, then --text-file
+// `.ievo/link/credentials`) passes assertTextFileAllowed's lexical check
+// (the string is inside .ievo/) and then lstats/reads straight through to the
+// real target anyway — the same class of gap scan_repo.mjs's
+// assertCheckoutContained() closes for its own ancestor-symlink concern
+// (found in review). Re-verify containment against the REALPATH of both
+// sides after the type/size checks succeed (only then do we know the path —
+// and therefore every ancestor in it — actually exists to realpath).
+export function assertTextFileReadable(
+  resolvedPath,
+  projectRoot,
+  capBytes = MAX_TEXT_FILE_BYTES,
+  statImpl = lstatSync,
+  realpathImpl = realpathSync,
+) {
+  const st = statImpl(resolvedPath);
+  if (!st.isFile()) {
+    throw new Error("not a regular file");
+  }
+  if (st.size > capBytes) {
+    throw new Error(`exceeds ${capBytes} bytes`);
+  }
+  assertContainedIn(realpathImpl(resolvedPath), realpathImpl(ievoRoot(projectRoot)));
+}
+
+// ---------------------------------------------------------------------------
 // Append (dedup within session)
 // ---------------------------------------------------------------------------
 
@@ -147,16 +240,36 @@ export function appendCandidate(
     mkdir = mkdirSync,
     appendFile = appendFileSync,
     readImpl = readFileSync,
+    statImpl = lstatSync,
+    realpathImpl = realpathSync,
     now = () => new Date().toISOString(),
   } = deps;
 
   // --text-file takes precedence: read the correction from disk instead of
   // trusting a caller-supplied `text` string, so the correction-capture hook
-  // never has to interpolate free-form user text into a Bash argument.
+  // never has to interpolate free-form user text into a Bash argument. The
+  // path itself is untrusted too (see the header comment and #523) — contain
+  // it to .ievo/, require a regular file under the size cap, then scrub()
+  // before trim/persist, same redaction guarantee the failure-capture hook
+  // already gets externally.
+  // Known residual risk (found by /ievo:vuln-scan on this diff): the
+  // assertTextFileReadable check and this read are separate syscalls on the
+  // same path, so there is a narrow TOCTOU window in which a file that passed
+  // containment/type/size could be swapped for a symlink before it is read.
+  // Exploiting it needs an attacker who can already run a concurrent local
+  // process racing the filesystem against this single-threaded CLI — at that
+  // capability level, simpler direct-read exfiltration paths already exist,
+  // and this mirrors an already-accepted pattern elsewhere in this plugin
+  // (scan_repo.mjs's isOversized() followed by a separate readFileSync()).
+  // Closing it fully would mean re-reading through a single fd (open with
+  // O_NOFOLLOW, fstat, read, close) instead of three path-resolving calls — a
+  // larger architectural change deferred as out of scope for #523.
   let resolvedText = text;
   if (textFile != null) {
     try {
-      resolvedText = readImpl(textFile, "utf-8");
+      const allowedPath = assertTextFileAllowed(textFile, projectRoot);
+      assertTextFileReadable(allowedPath, projectRoot, MAX_TEXT_FILE_BYTES, statImpl, realpathImpl);
+      resolvedText = scrub(readImpl(allowedPath, "utf-8"));
     } catch (err) {
       throw new Error(`could not read --text-file '${textFile}': ${err.message}`);
     }

@@ -3,7 +3,7 @@
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -16,12 +16,15 @@ import {
   SESSION_EXT,
   DEFAULT_RETENTION,
   DEFAULT_SCOPE,
+  MAX_TEXT_FILE_BYTES,
   candidatesDir,
   sanitizeSessionId,
   sessionFilePath,
   parseCandidates,
   latestTimestamp,
   readSessionCandidates,
+  assertTextFileAllowed,
+  assertTextFileReadable,
   appendCandidate,
   listSessions,
   countPending,
@@ -62,6 +65,102 @@ describe("constants", () => {
     assert.equal(SESSION_EXT, ".jsonl");
     assert.equal(DEFAULT_RETENTION, 10);
     assert.equal(DEFAULT_SCOPE, "unclassified");
+    assert.equal(MAX_TEXT_FILE_BYTES, 256 * 1024);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertTextFileAllowed / assertTextFileReadable (#523)
+// ---------------------------------------------------------------------------
+
+describe("assertTextFileAllowed", () => {
+  it("returns the resolved path when it is inside <projectRoot>/.ievo/", () => {
+    const result = assertTextFileAllowed("/proj/.ievo/hooks/tmp/x.txt", "/proj");
+    assert.equal(result, resolve("/proj/.ievo/hooks/tmp/x.txt"));
+  });
+
+  it("allows the .ievo/ directory itself (no trailing path)", () => {
+    assert.equal(assertTextFileAllowed("/proj/.ievo", "/proj"), resolve("/proj/.ievo"));
+  });
+
+  it("throws for a sibling directory that merely shares the '.ievo' prefix", () => {
+    assert.throws(() => assertTextFileAllowed("/proj/.ievo-evil/x.txt", "/proj"), /must be inside/);
+  });
+
+  it("throws for a path escaping via traversal", () => {
+    assert.throws(() => assertTextFileAllowed("/proj/.ievo/../../etc/passwd", "/proj"), /must be inside/);
+  });
+
+  it("throws for an absolute path entirely outside the project (e.g. ~/.aws/credentials)", () => {
+    assert.throws(() => assertTextFileAllowed("/home/<name>/.aws/credentials", "/proj"), /must be inside/);
+  });
+});
+
+describe("assertTextFileReadable", () => {
+  const fakeStat = (isFile, size) => () => ({ isFile: () => isFile, size });
+  const fakeRealpath = (p) => p; // identity: realpath equals the lexical path (no symlink involved)
+
+  it("passes for a regular file under the size cap whose realpath stays inside .ievo/", () => {
+    assert.doesNotThrow(() =>
+      assertTextFileReadable("/proj/.ievo/whatever", "/proj", 100, fakeStat(true, 10), fakeRealpath));
+  });
+
+  it("throws for a non-regular file (e.g. a symlink or directory, per lstat)", () => {
+    assert.throws(
+      () => assertTextFileReadable("/proj/.ievo/whatever", "/proj", 100, fakeStat(false, 10), fakeRealpath),
+      /not a regular file/,
+    );
+  });
+
+  it("throws when the file exceeds the size cap", () => {
+    assert.throws(
+      () => assertTextFileReadable("/proj/.ievo/whatever", "/proj", 100, fakeStat(true, 101), fakeRealpath),
+      /exceeds 100 bytes/,
+    );
+  });
+
+  it("throws when the realpath resolves outside .ievo/ (symlinked ancestor directory, #523 review finding)", () => {
+    // Simulates .ievo/link -> /outside, --text-file .ievo/link/secret: the
+    // lexical path is inside .ievo/, but lstat resolves the intermediate
+    // "link" component (POSIX semantics) and reports on the REAL target, so
+    // isFile()/size alone would pass. The realpath re-check must still catch it.
+    const realpathImpl = (p) => (p === "/proj/.ievo" ? "/proj/.ievo" : "/outside/secret");
+    assert.throws(
+      () => assertTextFileReadable("/proj/.ievo/link/secret", "/proj", 100, fakeStat(true, 10), realpathImpl),
+      /must be inside/,
+    );
+  });
+
+  it("defaults capBytes to MAX_TEXT_FILE_BYTES and statImpl/realpathImpl to the real fs", () => {
+    // Real fs, real lstatSync/realpathSync defaults: a genuine regular file
+    // under a genuine <projectRoot>/.ievo/, well under the cap, no symlink.
+    const projectRoot = join(tmpdir(), `evc-readable-defaults-${process.pid}`);
+    const filePath = join(projectRoot, IEVO_DIR, "whatever.txt");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, "hello", "utf-8");
+    try {
+      assert.doesNotThrow(() => assertTextFileReadable(filePath, projectRoot));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a REAL symlinked ancestor directory under .ievo/ pointing outside the project (end-to-end)", () => {
+    const root = join(tmpdir(), `evc-symlink-${process.pid}`);
+    const projectRoot = join(root, "proj");
+    const outsideDir = join(root, "outside");
+    const ievoDir = join(projectRoot, IEVO_DIR);
+    mkdirSync(outsideDir, { recursive: true });
+    mkdirSync(ievoDir, { recursive: true });
+    writeFileSync(join(outsideDir, "secret.txt"), "AKIAABCDEFGHIJKLMNOP", "utf-8");
+    symlinkSync(outsideDir, join(ievoDir, "link"), "dir");
+    try {
+      const textFile = join(ievoDir, "link", "secret.txt");
+      const allowedPath = assertTextFileAllowed(textFile, projectRoot);
+      assert.throws(() => assertTextFileReadable(allowedPath, projectRoot), /must be inside/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -262,12 +361,25 @@ describe("appendCandidate", () => {
   });
 
   // --- --text-file (#373: never interpolate free-form correction text into a
-  // Bash argument — read it from a file the caller already wrote instead) ---
+  // Bash argument — read it from a file the caller already wrote instead;
+  // #523: the path itself is untrusted — contained to the project's own
+  // .ievo/, must be a regular file under the size cap, and is scrubbed
+  // before being trimmed/persisted) ---
+
+  // Builds a --text-file path INSIDE <projectRoot>/.ievo/ — the only
+  // directory assertTextFileAllowed permits — so a test not exercising
+  // containment itself doesn't trip it.
+  function allowedTextFile(projectRoot, name, content) {
+    const dir = join(projectRoot, IEVO_DIR);
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, name);
+    writeFileSync(p, content, "utf-8");
+    return p;
+  }
 
   it("reads the correction from --text-file instead of --text (real fs)", () => {
     const projectRoot = join(root, "tf1");
-    const textFilePath = join(root, "tf1-correction.txt");
-    writeFileSync(textFilePath, "  we always pin deps via --text-file  \n", "utf-8");
+    const textFilePath = allowedTextFile(projectRoot, "correction.txt", "  we always pin deps via --text-file  \n");
     const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
     assert.equal(res.written, true);
     assert.equal(res.record.text, "we always pin deps via --text-file");
@@ -275,8 +387,7 @@ describe("appendCandidate", () => {
 
   it("--text-file takes precedence when both --text and --text-file are given", () => {
     const projectRoot = join(root, "tf2");
-    const textFilePath = join(root, "tf2-correction.txt");
-    writeFileSync(textFilePath, "from the file", "utf-8");
+    const textFilePath = allowedTextFile(projectRoot, "correction.txt", "from the file");
     const res = appendCandidate({ projectRoot, sessionId: "s", text: "from --text", textFile: textFilePath });
     assert.equal(res.record.text, "from the file");
   });
@@ -284,15 +395,14 @@ describe("appendCandidate", () => {
   it("throws a descriptive error when --text-file cannot be read (ENOENT)", () => {
     const projectRoot = join(root, "tf3");
     assert.throws(
-      () => appendCandidate({ projectRoot, sessionId: "s", textFile: join(root, "does-not-exist.txt") }),
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: join(projectRoot, IEVO_DIR, "does-not-exist.txt") }),
       /could not read --text-file '.*does-not-exist\.txt': /,
     );
   });
 
   it("treats whitespace-only --text-file content as empty (throws)", () => {
     const projectRoot = join(root, "tf4");
-    const textFilePath = join(root, "tf4-correction.txt");
-    writeFileSync(textFilePath, "   \n\t\n", "utf-8");
+    const textFilePath = allowedTextFile(projectRoot, "correction.txt", "   \n\t\n");
     assert.throws(
       () => appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }),
       /non-empty --text or --text-file/,
@@ -301,10 +411,61 @@ describe("appendCandidate", () => {
 
   it("propagates a non-ENOENT --text-file read error (e.g. EACCES)", () => {
     const boom = () => { const e = new Error("denied"); e.code = "EACCES"; throw e; };
+    const projectRoot = join(root, "tf5");
+    const textFile = join(projectRoot, IEVO_DIR, "whatever");
     assert.throws(
-      () => appendCandidate({ sessionId: "s", textFile: "/whatever" }, { readImpl: boom }),
-      /could not read --text-file '\/whatever': denied/,
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile }, {
+        statImpl: () => ({ isFile: () => true, size: 10 }),
+        realpathImpl: (p) => p, // identity: no symlink involved in this fixture
+        readImpl: boom,
+      }),
+      /could not read --text-file '.*whatever': denied/,
     );
+  });
+
+  // --- #523: containment, size cap, non-regular-file rejection, scrub ---
+
+  it("rejects a --text-file path outside the project's .ievo/ directory (containment)", () => {
+    const projectRoot = join(root, "tf-contain");
+    const outside = join(root, "outside-secret.txt");
+    writeFileSync(outside, "not inside .ievo", "utf-8");
+    assert.throws(
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: outside }),
+      /could not read --text-file '.*outside-secret\.txt': must be inside .*\.ievo/,
+    );
+    assert.equal(existsSync(sessionFilePath(projectRoot, "s")), false);
+  });
+
+  it("rejects a --text-file that is a directory, not a regular file", () => {
+    const projectRoot = join(root, "tf-dir");
+    const dirAsTextFile = join(projectRoot, IEVO_DIR, "not-a-file");
+    mkdirSync(dirAsTextFile, { recursive: true });
+    assert.throws(
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: dirAsTextFile }),
+      /could not read --text-file '.*not-a-file': not a regular file/,
+    );
+  });
+
+  it("rejects a --text-file exceeding MAX_TEXT_FILE_BYTES", () => {
+    const projectRoot = join(root, "tf-big");
+    const textFilePath = allowedTextFile(projectRoot, "big.txt", "x".repeat(MAX_TEXT_FILE_BYTES + 1));
+    assert.throws(
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }),
+      new RegExp(`could not read --text-file '.*big\\.txt': exceeds ${MAX_TEXT_FILE_BYTES} bytes`),
+    );
+  });
+
+  it("scrubs a live-looking secret out of --text-file content before persisting", () => {
+    const projectRoot = join(root, "tf-scrub");
+    const textFilePath = allowedTextFile(
+      projectRoot,
+      "correction.txt",
+      "the fix used ghp_abcdefghijklmnopqrstuvwxyz0123456789AB by mistake",
+    );
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    assert.equal(res.written, true);
+    assert.doesNotMatch(res.record.text, /ghp_[A-Za-z0-9]{30,}/);
+    assert.match(res.record.text, /\[REDACTED\]/);
   });
 });
 
@@ -563,7 +724,8 @@ describe("main", () => {
   it("append reads the correction from --text-file", () => {
     const run = makeRun();
     const projectRoot = join(root, "m-append-textfile");
-    const textFilePath = join(root, "m-append-textfile-correction.txt");
+    const textFilePath = join(projectRoot, IEVO_DIR, "m-append-textfile-correction.txt");
+    mkdirSync(dirname(textFilePath), { recursive: true });
     writeFileSync(textFilePath, "captured via --text-file", "utf-8");
     main(["node", "x", "append", "--project", projectRoot, "--session", "s", "--text-file", textFilePath], run.io);
     assert.equal(run.exitCode, 0);
@@ -727,7 +889,8 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
 
   it("append --text-file round-trips through the real CLI (#373)", () => {
     const projectRoot = join(root, "cli-proj-textfile");
-    const textFilePath = join(root, "cli-proj-textfile-correction.txt");
+    const textFilePath = join(projectRoot, IEVO_DIR, "cli-proj-textfile-correction.txt");
+    mkdirSync(dirname(textFilePath), { recursive: true });
     writeFileSync(textFilePath, "cli correction from file", "utf-8");
     const appended = run(["append", "--project", projectRoot, "--session", "cli-s", "--text-file", textFilePath]);
     assert.equal(appended.status, 0);

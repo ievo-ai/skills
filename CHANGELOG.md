@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.76.1
+
+Close a symlink pre-planting hole (CWE-59) in `/ievo:update`'s `/tmp` staging paths — Eva vuln-scan dogfooding finding, #532.
+
+- **Gap closed (#532)** — `plugins/ievo/commands/update.md` Step 2 (fetch/stage) and Step 2.5 (re-audit diff) built their scratch paths from fixed, predictable names (`/tmp/ievo-update-staged-<name>.md`, `/tmp/ievo-update-localcopy-<name>.md`, and the skill-directory variants), unlike the file's own `CHECKOUT_DIR=$(mktemp -d)` two paragraphs earlier. A local, unprivileged co-tenant on a shared host/container could pre-plant a symlink at one of these predictable paths pointing at a victim-writable file (shell rc, git hook); `cp` without `-P` and the `sed ... > file.tmp` shell redirect both follow an existing destination symlink, silently overwriting the attacker-chosen target before the Step 2.5 security-auditor re-audit gate (which only governs the *final* apply, not these staging writes) ever runs.
+- **Fix** — introduced a per-target `STAGE_DIR=$(mktemp -d)`, created alongside `CHECKOUT_DIR` in Step 2 sub-step 2, and routed every staged-fetch write (sub-steps 4/5) and re-audit scratch copy (Step 2.5 `cp`/`sed`) through it instead of a fixed `/tmp/ievo-update-*-<name>*` name. Step 3.5's cleanup now does a single `rm -rf "$STAGE_DIR"` per target instead of a fixed-glob `rm -rf`. Removes the predictable-name precondition entirely, mirroring the pattern the file already used correctly for `CHECKOUT_DIR`.
+- **Scope** — `plugins/ievo/commands/update.md` only; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.76.0 → 0.76.1).
+
 ## v0.76.0
 
 Add `/ievo:contributor-mode-on` / `/ievo:contributor-mode-off` and widen `/ievo:feedback`'s optional payload to offer the existing scrubbed tool-failure/permission-denial capture stream — Phase 1 of #448, operator-narrowed to exclude the transcript-export and standing-consent-to-auto-post proposals also raised on that issue.

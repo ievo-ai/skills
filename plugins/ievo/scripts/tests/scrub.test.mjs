@@ -13,8 +13,10 @@ import {
   REDACTED,
   MAX_CODEPOINTS,
   TRUNCATION_MARKER,
+  redactPemBlocks,
   redactProviderSecrets,
   redactNamedSecrets,
+  redactUrlCredentials,
   rewriteHomePaths,
   truncateScrubbed,
   scrub,
@@ -45,6 +47,125 @@ describe("constants", () => {
     assert.equal(REDACTED, "[REDACTED]");
     assert.equal(MAX_CODEPOINTS, 500);
     assert.equal(TRUNCATION_MARKER, "…[truncated]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redactPemBlocks — PEM-armored private-key blocks
+// ---------------------------------------------------------------------------
+
+// A structurally realistic armor block with a synthetic (non-key) body.
+function pemBlock(label, body = "MIIEfake+base64/line0\nMIIEfake+base64/line1==") {
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----`;
+}
+
+describe("redactPemBlocks", () => {
+  it("redacts a complete PKCS#1 RSA block wholesale, markers included", () => {
+    const out = redactPemBlocks(`before\n${pemBlock("RSA PRIVATE KEY")}\nafter`);
+    assert.equal(out, `before\n${REDACTED}\nafter`);
+  });
+
+  it("redacts every private-key label variant, including PGP's BLOCK suffix", () => {
+    for (const label of [
+      "PRIVATE KEY",
+      "RSA PRIVATE KEY",
+      "EC PRIVATE KEY",
+      "DSA PRIVATE KEY",
+      "ENCRYPTED PRIVATE KEY",
+      "OPENSSH PRIVATE KEY",
+      "PGP PRIVATE KEY BLOCK",
+    ]) {
+      assert.equal(redactPemBlocks(pemBlock(label)), REDACTED, label);
+    }
+  });
+
+  it("redacts a body carrying PKCS#1 encryption headers and blank lines", () => {
+    const body =
+      "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,ABCDEF0123456789\n\nMIIEfake+base64==";
+    assert.equal(redactPemBlocks(pemBlock("RSA PRIVATE KEY", body)), REDACTED);
+  });
+
+  it("redacts a JSON-encoded block whose newlines are literal backslash-n escapes", () => {
+    const oneLine =
+      "-----BEGIN PRIVATE KEY-----\\nMIIEfake==\\n-----END PRIVATE KEY-----";
+    assert.equal(redactPemBlocks(`{"key":"${oneLine}"}`), `{"key":"${REDACTED}"}`);
+  });
+
+  it("redacts multiple blocks independently, preserving text between", () => {
+    assert.equal(
+      redactPemBlocks(`${pemBlock("EC PRIVATE KEY")} and ${pemBlock("PRIVATE KEY")}`),
+      `${REDACTED} and ${REDACTED}`,
+    );
+  });
+
+  it("closes at the block's real END marker, keeping trailing text", () => {
+    assert.equal(
+      redactPemBlocks(`${pemBlock("OPENSSH PRIVATE KEY")} tail stays`),
+      `${REDACTED} tail stays`,
+    );
+  });
+
+  it("redacts an unterminated (truncated-capture) block to end of input — fail-closed", () => {
+    const out = redactPemBlocks(`log line\n-----BEGIN RSA PRIVATE KEY-----\nMIIEfakeTruncated`);
+    assert.equal(out, `log line\n${REDACTED}`);
+    assert.doesNotMatch(out, /MIIEfake/);
+  });
+
+  it("redacts to end of input when the END label does not match the BEGIN label", () => {
+    const out = redactPemBlocks(
+      `-----BEGIN RSA PRIVATE KEY-----\nMIIEfake==\n-----END PRIVATE KEY-----\ntail material`,
+    );
+    assert.equal(out, REDACTED);
+    assert.doesNotMatch(out, /MIIEfake|tail material/);
+  });
+
+  it("an orphan BEGIN closes at the next matching END, swallowing what sits between", () => {
+    assert.equal(
+      redactPemBlocks(`-----BEGIN PRIVATE KEY-----\nMIIEfake\n${pemBlock("PRIVATE KEY")} tail`),
+      `${REDACTED} tail`,
+    );
+  });
+
+  it("swallows a later differently-labelled block into an earlier orphan BEGIN's fallback", () => {
+    const orphan = "-----BEGIN EC PRIVATE KEY-----\nMIIEfake";
+    assert.equal(
+      redactPemBlocks(`${orphan}\nbetween\n${pemBlock("PGP PRIVATE KEY BLOCK")}\nend`),
+      REDACTED,
+    );
+  });
+
+  it("leaves certificate and public-key armor untouched (no secret, keep the signal)", () => {
+    for (const label of ["CERTIFICATE", "PUBLIC KEY", "RSA PUBLIC KEY", "CERTIFICATE REQUEST"]) {
+      const block = pemBlock(label);
+      assert.equal(redactPemBlocks(block), block, label);
+    }
+  });
+
+  it("leaves an END marker with no BEGIN, and prose about private keys, untouched", () => {
+    const text =
+      "error: expected -----END PRIVATE KEY----- terminator; check your private key file";
+    assert.equal(redactPemBlocks(text), text);
+  });
+
+  it("stays linear on adversarial marker-dense input (no quadratic blowup)", () => {
+    // The strict alternative's lazy body is unbounded — safe, unlike the
+    // pre-bound QUOTED_VALUE_INNER, because a strict failure drops into a
+    // fallback that consumes to END OF INPUT: the whole input pays at most
+    // one futile scan, so there is no restart-per-position quadratic to
+    // guard against. Pinned here the same way the two redactNamedSecrets
+    // linearity tests pin theirs, with the same deliberately loose budget.
+    const orphanDense = "-----BEGIN PRIVATE KEY----- x ".repeat(3000);
+    const blockDense = `${pemBlock("PRIVATE KEY")}\n`.repeat(1400);
+    const endDense = `-----BEGIN PRIVATE KEY-----${"-----END PRIVATE KEX-----".repeat(3000)}`;
+    const started = process.hrtime.bigint();
+    const orphanOut = redactPemBlocks(orphanDense);
+    const blockOut = redactPemBlocks(blockDense);
+    const endOut = redactPemBlocks(endDense);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(orphanOut, REDACTED);
+    assert.equal(blockOut, `${REDACTED}\n`.repeat(1400));
+    assert.equal(endOut, REDACTED);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
   });
 });
 
@@ -440,6 +561,122 @@ describe("redactNamedSecrets", () => {
 });
 
 // ---------------------------------------------------------------------------
+// redactUrlCredentials — userinfo of scheme://user:pass@host
+// ---------------------------------------------------------------------------
+
+describe("redactUrlCredentials", () => {
+  it("redacts user:pass in a connection-string URL, keeping scheme and host", () => {
+    assert.equal(
+      redactUrlCredentials("postgres://user:pass@host/db"),
+      `postgres://${REDACTED}@host/db`,
+    );
+  });
+
+  it("redacts an empty-username credential (redis://:pass@host)", () => {
+    // The username run is `*`, not `+` — requiring a non-empty username
+    // (as the issue's own recommended regex did) leaks this whole shape.
+    assert.equal(
+      redactUrlCredentials("redis://:hunter2@host:6379/0"),
+      `redis://${REDACTED}@host:6379/0`,
+    );
+  });
+
+  it("redacts the username too — real credentials ride in the username slot", () => {
+    assert.equal(
+      redactUrlCredentials("https://sometoken99:x-oauth-basic@github.com/o/r.git"),
+      `https://${REDACTED}@github.com/o/r.git`,
+    );
+    assert.doesNotMatch(
+      redactUrlCredentials("https://oauth2:fake-token-value@gitlab.example/x"),
+      /oauth2|fake-token/,
+    );
+  });
+
+  it("redacts a password containing raw : and @ through to the last @", () => {
+    assert.equal(
+      redactUrlCredentials("mysql://root:p@ss:w@rd@db.internal:3306/app"),
+      `mysql://${REDACTED}@db.internal:3306/app`,
+    );
+  });
+
+  it("redacts an empty password when the colon is present", () => {
+    assert.equal(redactUrlCredentials("ftp://user:@host/x"), `ftp://${REDACTED}@host/x`);
+  });
+
+  it("redacts schemes containing + . - (svn+ssh, mongodb+srv)", () => {
+    assert.equal(
+      redactUrlCredentials("mongodb+srv://u:p@cluster0.example.net/db"),
+      `mongodb+srv://${REDACTED}@cluster0.example.net/db`,
+    );
+    assert.equal(
+      redactUrlCredentials("svn+ssh://u:p@svn.host/repo"),
+      `svn+ssh://${REDACTED}@svn.host/repo`,
+    );
+  });
+
+  it("redacts credentials in front of an IPv6 host", () => {
+    assert.equal(
+      redactUrlCredentials("http://u:p@[::1]:8080/x"),
+      `http://${REDACTED}@[::1]:8080/x`,
+    );
+  });
+
+  it("redacts every occurrence in one blob (global replace)", () => {
+    assert.equal(
+      redactUrlCredentials("postgres://a:b@h1/x and redis://:c@h2"),
+      `postgres://${REDACTED}@h1/x and redis://${REDACTED}@h2`,
+    );
+  });
+
+  it("redacts inside JSON-encoded tool output", () => {
+    assert.equal(
+      redactUrlCredentials('{"url":"postgres://u:p@h/db"}'),
+      `{"url":"postgres://${REDACTED}@h/db"}`,
+    );
+  });
+
+  it("leaves a colon-less userinfo untouched (plain username, e.g. ssh://git@...)", () => {
+    const text = "ssh://git@github.com/o/r.git";
+    assert.equal(redactUrlCredentials(text), text);
+  });
+
+  it("leaves credential-free URLs untouched, including port, query-@ and path-@ shapes", () => {
+    // `/`, `?`, `#` hard-terminate a URL's authority (RFC 3986), so
+    // excluding them from the userinfo runs is what keeps a later `@` in a
+    // path/query from reading as a credential.
+    for (const text of [
+      "https://example.com:8080/path",
+      "https://host:8080?err=a@b.c",
+      "https://medium.example:443/@user/post",
+      "http://localhost:3000",
+      "file:///C:/temp/x.txt",
+      "http://[::1]:8080/health",
+      "contact a@b.example by mail",
+      "the ratio is 12:30@60Hz",
+    ]) {
+      assert.equal(redactUrlCredentials(text), text, text);
+    }
+  });
+
+  it("stays linear on adversarial input (no quadratic blowup)", () => {
+    // Structural linearity: the first colon is the deterministic
+    // user/password split, and the password run excludes `/` — so any
+    // later `scheme://` start necessarily embeds slashes that stop the
+    // previous run, bounding total work at O(input). Same loose budget as
+    // the sibling linearity tests.
+    const noAt = `postgres://user:${"b".repeat(50_000)}`;
+    const schemeDense = "a://b:".repeat(8_000);
+    const started = process.hrtime.bigint();
+    const noAtOut = redactUrlCredentials(noAt);
+    const schemeDenseOut = redactUrlCredentials(schemeDense);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(noAtOut, noAt); // no @ terminator anywhere — nothing to redact
+    assert.equal(schemeDenseOut, schemeDense);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // rewriteHomePaths — $HOME-absolute paths → ~-relative
 // ---------------------------------------------------------------------------
 
@@ -584,6 +821,37 @@ describe("scrub", () => {
     // secret material.)
     assert.doesNotMatch(out, /ghp_/);
     assert.ok(!out.includes(secretBody));
+  });
+
+  it("redacts a PEM block via the composite pipeline, before named-assignment slicing", () => {
+    // The PEM pass runs FIRST: on this line-scoped assignment,
+    // redactNamedSecrets alone would have taken just the `-----BEGIN
+    // ...-----` marker line as TLS_KEY's value and left every body line
+    // below it leaking.
+    assert.equal(
+      scrub(`TLS_KEY: ${pemBlock("RSA PRIVATE KEY")}\ndone`, { home: FAKE_HOME }),
+      `TLS_KEY: ${REDACTED}\ndone`,
+    );
+  });
+
+  it("redacts URL credentials via the composite pipeline (NAME_ALT-less names)", () => {
+    // `DATABASE_URL` matches no NAME_ALT suffix, so the named pass skips
+    // the line entirely — the URL pass is the only thing standing between
+    // this credential and the persisted capture.
+    assert.equal(
+      scrub("DATABASE_URL=postgres://admin:hunter2@db.prod.internal:5432/app", {
+        home: FAKE_HOME,
+      }),
+      `DATABASE_URL=postgres://${REDACTED}@db.prod.internal:5432/app`,
+    );
+  });
+
+  it("redacts a PEM block fully even when it straddles the truncation boundary", () => {
+    // Redaction runs before truncation (see the pipeline-order test above),
+    // so no armor fragment — marker or body — can survive the cutoff.
+    const padding = "x".repeat(MAX_CODEPOINTS - 10);
+    const out = scrub(`${padding}\n${pemBlock("PRIVATE KEY")}`, { home: FAKE_HOME });
+    assert.doesNotMatch(out, /MIIEfake|PRIVATE KEY/);
   });
 
   it("defaults opts to {} and home to the real OS homedir when not given", () => {

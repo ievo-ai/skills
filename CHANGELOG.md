@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.76.3
+
+Close two redaction gaps in `scrub.mjs` — PEM private-key blocks and URL-embedded credentials passed through every scrub stage unredacted (CWE-200) — Eva vuln-scan dogfooding finding, #530.
+
+- **Gap closed (#530)** — `scrub()`'s existing passes are shape-specific: `redactProviderSecrets` matches six fixed provider-prefixed token shapes, and `redactNamedSecrets` needs a `NAME=value` / `NAME: value` structure. A PEM-armored private key (`-----BEGIN ... PRIVATE KEY-----` armor) and a connection-string credential (`postgres://user:pass@host/db`, `redis://:pass@host`) match neither, so both persisted verbatim to `.ievo/evolution-candidates/*.jsonl` — contradicting the file's own contract that a captured record "can never carry a live secret".
+- **New pass: `redactPemBlocks`** — runs FIRST (before `redactNamedSecrets`, whose line-scoped value match would otherwise slice the `BEGIN` marker off a `TLS_KEY: -----BEGIN ...` line and leave the multi-line body leaking). Redacts complete RFC 7468-style private-key armor wholesale (labels: bare/prefixed `PRIVATE KEY`, PGP's `PRIVATE KEY BLOCK`; certificates/public keys deliberately untouched), and fails closed on an unterminated or label-mismatched block by redacting from the orphan `BEGIN` marker to end of input — the truncated-capture analogue of the existing `MALFORMED_QUOTED_VALUE` fallback. The strict alternative's lazy body is deliberately unbounded: the end-of-input fallback consumes the rest on any strict failure, so the input pays at most one futile scan — O(input) without the length bound `QUOTED_VALUE_INNER` needed, and without that bound's cost of routing an over-long complete block away from its real `END` marker.
+- **New pass: `redactUrlCredentials`** — runs after `redactNamedSecrets`, redacts the WHOLE userinfo of `scheme://user:pass@host` (tokens ride in the username slot too, e.g. `token:x-oauth-basic@`), keeps scheme + host for diagnostics. Fires only when the password colon is present (`ssh://git@github.com` stays readable); username may be empty — the issue's own recommended regex required a non-empty username and missed its own `redis://:pass@host` example payload, so the pattern was re-derived from RFC 3986 instead of copied. `/`, `?`, `#` are excluded from the userinfo runs per RFC 3986, which both prevents false positives on credential-free `host:port/...@...` shapes and structurally bounds every scan (linearity pinned by tests, like the existing two).
+- **Tests** — new `redactPemBlocks` / `redactUrlCredentials` suites mirroring the existing per-pass suites (label variants, truncated captures, JSON-encoded shapes, false-positive URLs, adversarial linearity timings), plus composite `scrub()` cases pinning the PEM-before-named ordering, the `DATABASE_URL` shape no other pass catches, and PEM-across-truncation.
+- **Scope** — `plugins/ievo/scripts/scrub.mjs` + its test suite; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table; 0.76.2 was claimed by open PR #535, so this PR takes the next free slot (0.76.1 → 0.76.3). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.76.1
 
 Close a symlink pre-planting hole (CWE-59) in `/ievo:update`'s `/tmp` staging paths — Eva vuln-scan dogfooding finding, #532.

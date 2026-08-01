@@ -9,11 +9,19 @@ effort: max
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
 compatibility: "Requires `gh`/`git` CLI, Node 18+, network. Runs on **Claude Code and Codex (CLI/Desktop)** (Task, AskUserQuestion); skills cross-platform via agentskills.io. Codex: vendors `.agents/skills/`, no `.claude/*` config, agent/plugin installs unavailable. CC v2.1.169+/193+: `/cd` dir-switch + Auto Mode `classifyAllShell` (Step 1); v2.1.195+: dual-gate install consent (AGENTS.md). Codex rust-v0.142.0+: pre-142 reports failed Step 6/8 sub-agent as empty success (AGENTS.md Codex sub-agent delegation)."
+# Claude-Code-only surface, so the command carries NO Codex branch. `hooks:` in
+# SKILL.md frontmatter is a Claude Code layer; Codex reads hook config only from
+# `.codex/hooks.json`, `[hooks]` in `.codex/config.toml`, their `~/.codex/`
+# equivalents, and a plugin's bundled `hooks/hooks.json` (hooks-setup/references/
+# codex-hooks.md) — this block can therefore never fire on Codex. A Codex branch
+# here would be unreachable in the case it targets while still being reachable via
+# the inheritable env markers of Step 1.5's check 3, i.e. it could only ever
+# mis-fire on a genuine Claude Code session (issue #461).
 hooks:
   Stop:
     - hooks:
         - type: command
-          command: "if [ -n \"$CODEX_CLI\" ] || [ \"$CODEX_INTERNAL_ORIGINATOR_OVERRIDE\" = \"Codex Desktop\" ] || [ \"$__CFBundleIdentifier\" = \"com.openai.codex\" ]; then echo \"iEvo init complete. Codex picks up skill changes automatically - restart Codex if a new skill doesn't appear.\"; else echo \"iEvo init complete. Run /reload-plugins to activate installed skills.\"; fi"
+          command: "echo \"iEvo init complete. Run /reload-plugins to activate installed skills.\""
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -210,16 +218,17 @@ Stop only on missing gh / git / node prereqs. Permission setup is opt-in but str
 
 ## Step 1.5: Codex environment pre-flight (Codex platform only)
 
-**Client detection (canonical — every other skill's "same rule as Step 1.5" cites this exact rule; issue #461).** The host platform is **Codex** when either holds:
+**Client detection (canonical — every other skill's "same rule as Step 1.5" cites this exact rule; issue #461).** Evaluate these checks **in order** and stop at the first one that matches:
 
-- `$CODEX_CLI` is set — Codex CLI (terminal) sessions.
-- `$CODEX_CLI` is unset, but a **Codex Desktop** signal is present: `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or (macOS only) `__CFBundleIdentifier=com.openai.codex` (both verified empirically against a live Codex Desktop session, issue #461 — Codex Desktop never sets `$CODEX_CLI`, which is exactly why the pre-#461 "`$CODEX_CLI` env var ONLY" rule misdetected it as Claude Code and then read/wrote the wrong client's config throughout every gated skill). Neither marker is documented in Codex's public environment-variable reference — treat them as best-effort corroborating evidence, not a guaranteed contract, and re-verify if a future Codex release stops setting them.
+1. **`$CLAUDECODE` is set and `$CODEX_CLI` is not → Claude Code.** Claude Code exports `CLAUDECODE=1` into the environment of the commands it runs, making it the one *positive* Claude Code signal available (the same variable `debug-on/SKILL.md`'s session-start marker already reads). This check must come before the Codex Desktop markers below, because those markers are ordinary environment variables and are therefore **inherited by every descendant process** — `__CFBundleIdentifier=com.openai.codex` in particular is set for the whole Codex Desktop app subtree, so a Claude Code CLI session started from a terminal that Codex Desktop spawned carries it too. Without this positive check that session would detect as Codex and vendor into `.agents/skills/`, the wrong client's load path (the issue #432 class of bug, reached by a new trigger). The `$CODEX_CLI`-unset half of the condition keeps check 2 authoritative for the mirror case (a Codex CLI session started from inside a Claude Code shell inherits `CLAUDECODE` the same way).
+2. **`$CODEX_CLI` is set → Codex** — Codex CLI (terminal) sessions.
+3. **A Codex Desktop signal is present → Codex**: `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or (macOS only) `__CFBundleIdentifier=com.openai.codex` (both verified empirically against a live Codex Desktop session, issue #461 — Codex Desktop never sets `$CODEX_CLI`, which is exactly why the pre-#461 "`$CODEX_CLI` env var ONLY" rule misdetected it as Claude Code and then read/wrote the wrong client's config throughout every gated skill). Neither marker is documented in Codex's public environment-variable reference — treat them as best-effort corroborating evidence, not a guaranteed contract, and re-verify if a future Codex release stops setting them. Being the weakest and most inheritance-prone signals, they are deliberately ranked last.
 
-Absent **all** of the above → **Claude Code** (unchanged default — this fix only adds a positive Codex Desktop detection path; it does not change what "no Codex signal at all" means).
+Absent **all** of the above → **Claude Code** (unchanged default — this rule adds a positive Codex Desktop detection path plus the positive Claude Code check that bounds it; it does not change what "no signal at all" means).
 
 Still do **not** key off `command -v codex` — a Claude Code user may have the Codex CLI installed alongside, which would false-trigger Codex-only behavior on a genuine Claude Code run (unchanged rule).
 
-**Every other "`$CODEX_CLI` set" / "`$CODEX_CLI` unset" mention in this skill, and in any other iEvo skill/agent that cites "the same rule as Step 1.5" or "per Step 1.5", means this combined check — never the bare environment variable in isolation.**
+**Every other "`$CODEX_CLI` set" / "`$CODEX_CLI` unset" mention in this skill, and in any other iEvo skill/agent that cites "the same rule as Step 1.5" or "per Step 1.5", means this whole ordered rule — never the bare environment variable in isolation, and never the Codex signals without the `$CLAUDECODE` check that precedes them.**
 
 If the host platform is Codex per the rule above, run `codex doctor` and check the exit code. `codex doctor` shipped in Codex `rust-v0.131.0` (May 18 2026) as a first-class diagnostic across runtime, auth, terminal, network, config, and local state.
 

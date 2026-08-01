@@ -50,6 +50,8 @@ If the API call fails, report clearly based on the error:
 - **429** — `GitHub API rate limit hit. Wait a few minutes and try again.`
 - **Any other error** — report the raw error message from `gh api`, fenced per § Step 5's "Excerpt containment" rule before rendering it (collapse line breaks, measure the longest backtick run, pad if it starts/ends with a backtick, wrap) — this text originates from GitHub's own API response body for an unclassified error, not from an allowlist-validated field, so it is not assumed safe by default.
 
+Fence `<owner>/<repo>` per that same rule before interpolating it into the 404 or the 403 message. Both fire at exactly the moment the argument did NOT resolve to a real repository, so the exemption elsewhere in this file for `<owner>/<repo>` — that GitHub's own naming rules admit no Markdown metacharacter — cannot apply to them: what these two messages quote is the raw string the user supplied (typed, or pasted from an untrusted README recommending a repo), which nothing has validated against GitHub's naming rules or anything else. This is the `<owner>/<repo>` counterpart of the ref-validation-failure carve-out below. The 429 message interpolates no repo-derived value and needs no fencing.
+
 Exit cleanly on any failure. Do NOT retry or guess alternative names.
 
 Store the resolved ref (default branch name, or user-provided ref) for all subsequent API calls.
@@ -313,6 +315,12 @@ and broad-access surfaces too. The list below is exhaustive and closed:
   `default_branch`, not the user's typed argument. The error-message one
   quotes GitHub's raw API response body for an unclassified error, which is
   not an allowlist-validated field at all.
+- **Step 1's 404 and 403 messages** — both quote `<owner>/<repo>`, and both
+  fire ONLY when it did not resolve to a real repository, so the exemption
+  below for a resolved `<owner>/<repo>` cannot cover them: the string they
+  render is the raw user-supplied argument, validated by nothing. Same shape
+  of hole as the `<ref>` one above. (Step 1's 429 message interpolates no
+  repo-derived value.)
 
 The remaining placeholders need no fencing, and this is the complete list of
 exemptions: every `<N>`, `<total file count>` and `<items fetched>` is a tally
@@ -322,8 +330,11 @@ time it reaches Step 5 or any surface below, which admits no Markdown
 metacharacter — the one exception is Step 1's OWN failure message, covered
 above, which by definition renders `<ref>` before or instead of that pass;
 `<owner>/<repo>` is the user's own
-argument, resolved against a real repository in Step 1 — GitHub's own naming
-rules admit no Markdown metacharacter either; and the `<skill-name>` in the
+argument, and every surface from Step 2 onward renders it only after Step 1
+resolved it against a real repository — GitHub's own naming rules admit no
+Markdown metacharacter either; the one exception is Step 1's OWN 404 and 403
+messages, covered above, which by definition render the argument when that
+resolution failed; and the `<skill-name>` in the
 **Next steps** section's `/ievo:security-check <owner>/<repo>@<skill-name>`
 line is fixed command-syntax guidance, never substituted with a
 repo-discovered skill name — the parenthetical "(e.g. `.../skills@evo` —

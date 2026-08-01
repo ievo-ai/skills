@@ -870,7 +870,7 @@ If the user hasn't run `/ievo:hooks-setup`, the file is still written — it's a
 
 ## Step 12: Final summary and reload reminder
 
-This skill's own `hooks:` frontmatter (above) already prints a one-line "init complete" message via a `Stop` hook when the pipeline's turn ends (platform-conditional on Step 1.5's detection rule, zero setup required) — the print below is the full interactive summary, not a duplicate of the hook message.
+This skill's own `hooks:` frontmatter (above) already prints a one-line "init complete" message via a `Stop` hook when the pipeline's turn ends (Claude-Code-only — that frontmatter carries no Codex branch, zero setup required) — the print below is the full interactive summary, not a duplicate of the hook message.
 
 **On Claude Code** (Step 1.5: no Codex signal), print to user:
 

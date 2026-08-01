@@ -131,9 +131,8 @@ Each parked candidate is appended below as:
 This is what makes auto-evolution actually capture and surface corrections (and,
 opt-in, tool failures/denials). Three hooks are wired into the **invoking
 client's own hook config** — Claude Code: the project's `.claude/settings.json`;
-Codex: the project's `.codex/hooks.json` (detect Codex per `/ievo:init` Step
-1.5's rule — `$CODEX_CLI` env var, or a Codex Desktop signal when `$CODEX_CLI`
-is unset; never `command -v codex`). Writing
+Codex: the project's `.codex/hooks.json` (detect the client per `/ievo:init` Step
+1.5's rule, **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code; never the bare `$CODEX_CLI` var in isolation, and never `command -v codex`). Writing
 Claude Code hooks from a Codex session enables nothing: Codex never reads
 `.claude/settings.json`, which left auto-mode claiming "ENABLED" with only a flag
 and queue on disk (issue #432). All three hooks are **gated on

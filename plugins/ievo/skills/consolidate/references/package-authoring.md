@@ -84,7 +84,7 @@ Author both templates above. Cross-reference them: the skill's body gets a `## S
 
 ## Registration (project scope only)
 
-Write via the Write tool (not a shell redirect — same reasoning as `feedback/SKILL.md` Step 6 and `init/SKILL.md` Step 8b: synthesized body text may contain backticks or `$(...)`-shaped substrings that a shell would try to expand). Target paths — the invoking client's own load path (`/ievo:init` Step 1.5's rule — `$CODEX_CLI` set, or a Codex Desktop signal when unset; same as `evo/SKILL.md` Step 1; a package written to the other client's dir is stranded where the invoking client never scans, issue #432):
+Write via the Write tool (not a shell redirect — same reasoning as `feedback/SKILL.md` Step 6 and `init/SKILL.md` Step 8b: synthesized body text may contain backticks or `$(...)`-shaped substrings that a shell would try to expand). Target paths — the invoking client's own load path (`/ievo:init` Step 1.5's rule, **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code; same as `evo/SKILL.md` Step 1; a package written to the other client's dir is stranded where the invoking client never scans, issue #432):
 - Skill: Claude Code (Step 1.5: no Codex signal): `<project>/.claude/skills/<name>/SKILL.md`; Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal): `<project>/.agents/skills/<name>/SKILL.md`
 - Agent: `<project>/.claude/agents/<name>.md` — Claude Code only; Codex documents no project-level custom-agent path (see the calling skill for how an agent-shaped candidate is handled on Codex)
 

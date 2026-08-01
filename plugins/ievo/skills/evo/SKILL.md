@@ -89,7 +89,7 @@ Three possible scopes:
 2. **Agent-specific** — names an agent or describes sub-agent behavior. Signals: "the spec-writer should X". → goes to `.ievo/evolution/agents/<name>.md`
 3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → goes to `.ievo/evolution/skills/<name>.md`
 
-For agent/skill scope, determine the **target name** explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (same rule as `/ievo:init` Step 1.5 — `$CODEX_CLI` env var, or a Codex Desktop signal when unset) and scan that client's own load paths, never the other client's:
+For agent/skill scope, determine the **target name** explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once — `/ievo:init` Step 1.5's canonical rule, **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code. `/ievo:evo` runs standalone the same way the `evolution` sub-agent does, so the leading `$CLAUDECODE` check matters here too: an inherited `__CFBundleIdentifier` without it would vendor a genuine Claude Code session into `.agents/skills/` (issue #432) — then scan that client's own load paths, never the other client's:
 
 **On Claude Code (Step 1.5: no Codex signal) — project-level (preferred):**
 - `.claude/agents/*.md`

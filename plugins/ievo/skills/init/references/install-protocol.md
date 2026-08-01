@@ -9,8 +9,8 @@ progress live in `tail -f`.
 
 For each item in `final_vendor_list`:
 
-The **vendor root** is platform-dependent (detect per SKILL.md Step 1.5 —
-`$CODEX_CLI` set, or a Codex Desktop signal when unset): Claude Code →
+The **vendor root** is platform-dependent (detect per SKILL.md Step 1.5,
+**ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code — the leading `$CLAUDECODE` check matters since a vendored install runs standalone and an inherited `__CFBundleIdentifier` without it would misdetect a genuine Claude Code session as Codex, issue #432): Claude Code →
 `<project>/.claude/skills/<name>/`; Codex →
 `<project>/.agents/skills/<name>/` (the directory Codex actually scans — a
 `.claude/skills/` copy is invisible to Codex, issue #432). Everything else in

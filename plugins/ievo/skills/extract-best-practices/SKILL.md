@@ -66,7 +66,7 @@ Do NOT flag:
 
 ## Phase 2: Cross-check against installed skills/agents
 
-Enumerate what's already installed, same client-gated target set `evo/SKILL.md` Step 1 matches lesson targets against (detect the invoking client once per `/ievo:init` Step 1.5 — `$CODEX_CLI` set, or a Codex Desktop signal when unset; same rule):
+Enumerate what's already installed, same client-gated target set `evo/SKILL.md` Step 1 matches lesson targets against (detect the invoking client once per `/ievo:init` Step 1.5, **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code; same rule):
 
 **On Claude Code (Step 1.5: no Codex signal) — project-level (preferred):**
 - `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`

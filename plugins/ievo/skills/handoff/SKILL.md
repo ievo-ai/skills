@@ -100,7 +100,7 @@ Reference by path or URL — never duplicate file content into the handoff:
 Auto-detect installed iEvo skills and suggest relevant ones for the next session:
 
 1. Check for `.ievo/skills-installed.json` — if present, read and extract skill names.
-2. If not present, scan the invoking client's own load paths for installed skills via Glob (detect per `/ievo:init` Step 1.5 — `$CODEX_CLI` set, or a Codex Desktop signal when unset; same rule as `evo/SKILL.md` Step 1 — scanning the other client's dirs would suggest skills the next session can't actually load):
+2. If not present, scan the invoking client's own load paths for installed skills via Glob (detect per `/ievo:init` Step 1.5, **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code; same rule as `evo/SKILL.md` Step 1 — scanning the other client's dirs would suggest skills the next session can't actually load):
    - On Claude Code (Step 1.5: no Codex signal): `.claude/skills/*/SKILL.md`, `.claude/plugins/*/skills/*/SKILL.md`
    - On Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal): `.agents/skills/*/SKILL.md`
 3. From the installed skills list, select those relevant to the next session's purpose. Always include `/ievo:init` if the next session involves a new project, `/ievo:evo` if it involves capturing lessons, and `/ievo:security-check` if it involves auditing.

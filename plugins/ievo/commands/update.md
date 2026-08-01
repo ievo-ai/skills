@@ -33,7 +33,7 @@ For each overlay file:
 - Read its YAML frontmatter `source:` block to find the upstream `repo` + `path` + `commit_sha`.
 - If `source:` block is missing (overlay was created from a local-only agent/skill, never vendored) → skip in this update. Local-only targets have no upstream to refresh.
 
-**Resolve each target's local copy in the invoking client's own load path** (detect once via the `$CODEX_CLI` env var ONLY, same rule as `/ievo:init` Step 1.5) — Claude Code (`$CODEX_CLI` unset): agents at `.claude/agents/<name>.md`, skills at `.claude/skills/<name>/`; Codex (`$CODEX_CLI` set): skills at `.agents/skills/<name>/`. Every later step that reads or overwrites "the local copy" means this resolved path. Two Codex-only skips fall out of this:
+**Resolve each target's local copy in the invoking client's own load path** (detect once via `/ievo:init` Step 1.5's canonical rule — `$CODEX_CLI` set, or a Codex Desktop signal when it is unset; never the bare env var in isolation, which misdetects Codex Desktop as Claude Code, issue #461) — Claude Code (Step 1.5: no Codex signal): agents at `.claude/agents/<name>.md`, skills at `.claude/skills/<name>/`; Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal): skills at `.agents/skills/<name>/`. Every later step that reads or overwrites "the local copy" means this resolved path. Two Codex-only skips fall out of this:
 - **Agent targets** — Codex documents no project-level custom-agent path, and refreshing `.claude/agents/<name>.md` from a Codex session would write config only the *other* client reads. Skip with a Step 6 line: `SKIPPED — agent target, Claude Code-only (run /ievo:update from Claude Code)`.
 - **Stranded skills** — if a skill's local copy is absent from `.agents/skills/<name>/` but present under `.claude/skills/<name>/` (a pre-#432 Codex install), skip it here and point the user at `/ievo:init`, whose Step 3 re-vendor path owns that migration — refreshing the `.claude/skills/` copy would refresh content Codex never loads.
 
@@ -195,7 +195,7 @@ Final summary:
 - Re-audited (content changed since last audit): J targets
 - Flagged for review: K targets (upstream missing, invalid source metadata, or refresh declined — explicitly or auto-skipped for lack of an interactive session — after a YELLOW/RED re-audit)
 
-Remind user — **on Claude Code** (`$CODEX_CLI` unset):
+Remind user — **on Claude Code** (Step 1.5: no Codex signal):
 ```
 Run /reload-skills to pick up refreshed skill definitions in this session (requires Claude Code v2.1.152+).
 Run /reload-plugins to reload plugin manifests if any `.claude-plugin/plugin.json` files changed.
@@ -203,7 +203,7 @@ Confirm the refresh landed: every target reported `refreshed → <new_sha>` abov
 Run git diff .claude/ .ievo/evolution/ to review changes before commit.
 ```
 
-**On Codex** (`$CODEX_CLI` set) — `/reload-skills`/`/reload-plugins` are not Codex commands:
+**On Codex** (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — `/reload-skills`/`/reload-plugins` are not Codex commands:
 ```
 Codex picks up skill changes automatically — restart Codex if a refreshed skill doesn't appear.
 Confirm the refresh landed: every target reported `refreshed → <new_sha>` above now carries that same `source.commit_sha` in `.ievo/evolution/<scope>/<name>.md`. This run refreshes your vendored copies under `.agents/skills/`, not the iEvo plugin itself — `codex plugin list` does not enumerate them.
@@ -212,7 +212,7 @@ Run git diff .agents/skills/ .ievo/evolution/ to review changes before commit.
 
 ## Rules
 
-- **Refresh the invoking client's copies only:** detect via `$CODEX_CLI` (same rule as `/ievo:init` Step 1.5) — Claude Code reads/overwrites `.claude/agents/`+`.claude/skills/`, Codex reads/overwrites `.agents/skills/` (skills only). Never write the other client's load path (issue #432): on Codex, agent targets and skills stranded under `.claude/skills/` are skipped with explicit Step 6 lines, not silently refreshed where the invoking client never looks.
+- **Refresh the invoking client's copies only:** detect per `/ievo:init` Step 1.5 (`$CODEX_CLI` set, or a Codex Desktop signal when unset) — Claude Code reads/overwrites `.claude/agents/`+`.claude/skills/`, Codex reads/overwrites `.agents/skills/` (skills only). Never write the other client's load path (issue #432): on Codex, agent targets and skills stranded under `.claude/skills/` are skipped with explicit Step 6 lines, not silently refreshed where the invoking client never looks.
 - **Overlay files are sacred.** Never overwrite `.ievo/evolution/<scope>/<name>.md` content (except appending the "Upstream rebase" section). Frontmatter sha + fetched_at update; sections accumulate.
 - **No Opus replay.** Under overlay model, the agent/skill body never contained evolution patches in the first place. Refresh-from-upstream is just file copy + marker re-injection, gated by a security re-audit when the content actually changed (Step 2.5).
 - **Re-audit gates content changes, not every refresh.** Step 2.5 only dispatches `security-auditor` when the freshly-fetched content differs from what's on disk — an unchanged upstream (the common case) never pays the audit cost. A GREEN verdict applies silently; YELLOW/RED requires explicit `AskUserQuestion` confirmation before the local copy is touched — a simplified two-option gate compared to `/ievo:init` Step 8a, which also offers a report-to-source option; that option is out of scope here (single-file router, not the full install pipeline). Declining leaves the local copy and the overlay's `source.commit_sha` untouched so the next `/ievo:update` re-attempts.

@@ -67,7 +67,7 @@ A Codex user (CLI or Desktop) gets the equivalent notification by putting the en
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'input=$(cat); case \"$input\" in *\".ievo/hooks/evolution-captured\"*) echo \"iEvo: evolution overlay captured\" ;; esac'"
+            "command": "sh -c 'input=$(cat); case \"$input\" in *\".ievo/hooks/evolution-captured\"*) mkdir -p .ievo/log/hooks 2>/dev/null || true; echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) evolution-captured\" >> .ievo/log/hooks/events.log; printf \"\\a\" 2>/dev/null > /dev/tty || true ;; esac'"
           }
         ]
       }
@@ -77,6 +77,13 @@ A Codex user (CLI or Desktop) gets the equivalent notification by putting the en
 ```
 
 The path check lives in the command body rather than the matcher, for the two reasons in § "`apply_patch` matcher aliases and matcher scope" above: Codex's `matcher` filters on tool name only (no path-scoped `if:` equivalent), and `apply_patch`'s `tool_input` has no published field-level schema, so the handler substring-matches the raw stdin payload for the signal path instead of guessing a field name. It exits `0` and prints nothing when the patch touched anything else, so it is a no-op outside the one write it exists for.
+
+**The notification is a log line plus a terminal bell — not an `echo`.** Per § "Exit-code semantics" below, a Codex hook's exit-`0` **stdout is hook protocol, not a user-facing channel**: JSON is parsed for `hookSpecificOutput`/`decision`, and on the events that accept it (`PostToolUse` included) plain text is taken as `hookSpecificOutput.additionalContext` — extra *developer context handed to the model*, never a line surfaced to the person at the keyboard. A handler that only `echo`s a message is therefore the same "configured but never fires" failure this section exists to close (issue #461): correctly wired up, and still notifying nobody. The recipe instead uses the shared-log-plus-bell pattern of § "Worked example" below (and of hooks-setup Step 5.5's Claude Code Stop hook): append a timestamped line to `.ievo/log/hooks/events.log`, then ring the bell. Two details make it hold up against the exit-code contract:
+
+- **The bell goes to `/dev/tty`, not stdout** — writing it to stdout would hand the byte to the same protocol parser that swallows an `echo`, so it would never reach the terminal. `/dev/tty` addresses the controlling terminal directly, bypassing whatever Codex does with the handler's stdout. (§ "Worked example" below writes `printf '\a'` to stdout; that shape predates this section and is the Claude Code convention it mirrors — for a handler whose *only* job is to notify, route the bell to `/dev/tty`.)
+- **Stdout stays empty on both paths** — matched or not, the handler prints nothing and exits `0`, which is exactly the documented "`0` with no output — success; Codex continues" case. The `2>/dev/null > /dev/tty || true` tail keeps a session with **no** controlling terminal (a Codex Desktop or CI-driven run) at exit `0` instead of failing the hook. The redirection order is load-bearing: `sh` applies redirections left to right and aborts on the first failure, so `> /dev/tty 2>/dev/null` still leaks `cannot create /dev/tty` to stderr — silencing stderr *first* is what makes the no-tty path truly silent.
+
+The log line is the channel that always works; the bell is the best-effort attention-grab on top of it. `tail -f .ievo/log/hooks/events.log` is the fallback when the terminal doesn't render a bell.
 
 ## Codex Desktop vs Codex CLI (issue #461)
 

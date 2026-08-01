@@ -78,7 +78,7 @@ Write `<project>/.ievo/log/debug/<session-id>/00-session-start.md`:
 ```markdown
 # Debug session — <ISO-8601 UTC>
 
-- Platform: <Claude Code | Codex | other (from $CLAUDECODE / $CODEX_CLI / detection)>
+- Platform: <Claude Code | Codex | other (from $CLAUDECODE, or `/ievo:init` Step 1.5's Codex rule — $CODEX_CLI set, or a Codex Desktop signal when unset)>
 - Plugin version: <read from ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json>
 - Plugin path: <CLAUDE_PLUGIN_ROOT value>
 - Node version: <output of `node --version`>

@@ -9,8 +9,9 @@ progress live in `tail -f`.
 
 For each item in `final_vendor_list`:
 
-The **vendor root** is platform-dependent (detect via `$CODEX_CLI`, per
-SKILL.md Step 1.5): Claude Code → `<project>/.claude/skills/<name>/`; Codex →
+The **vendor root** is platform-dependent (detect per SKILL.md Step 1.5 —
+`$CODEX_CLI` set, or a Codex Desktop signal when unset): Claude Code →
+`<project>/.claude/skills/<name>/`; Codex →
 `<project>/.agents/skills/<name>/` (the directory Codex actually scans — a
 `.claude/skills/` copy is invisible to Codex, issue #432). Everything else in
 this protocol (marker, overlay file, fetch mechanics) is identical on both.

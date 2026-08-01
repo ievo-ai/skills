@@ -1,6 +1,6 @@
 ---
 name: feedback
-description: Use this skill when the user says "send feedback", "report a bug", "this didn't work", "I want to suggest a feature", "where do I file an issue for iEvo", or after iEvo has done something the user would want to comment on. Submits feedback about the iEvo plugin — bug reports, feature requests, suggestions, or general comments. Posts as a GitHub issue in `ievo-ai/skills` via `gh` CLI.
+description: Use this skill when the user says "send feedback", "report a bug", "this didn't work", "I want to suggest a feature", "where do I file an issue for iEvo", or after iEvo has done something the user would want to comment on. Submits feedback about the iEvo plugin — bug reports, feature requests, suggestions, or general comments. Posts as a GitHub issue in `ievo-ai/skills` via `gh` CLI. When `/ievo:contributor-mode-on` has been enabled for this project, may also offer to attach the existing scrubbed tool-failure/permission-denial capture stream — still gated by the same Submit/Cancel confirmation as every other report.
 argument-hint: "[title]"
 license: MIT
 effort: low
@@ -198,6 +198,85 @@ If user picks `Attach`:
 
 If user picks `Don't attach` or no log exists, skip.
 
+## Step 3.9: Offer to attach captured tool-failure/permission-denial records (contributor mode only)
+
+**Skip this entire step, silently, unless ALL of the following hold** — this
+is Phase 1 of `ievo-ai/skills#448` ("contributor mode"), and every condition
+below keeps it inside that scope:
+
+1. **Flow A or flow C only.** Skip in flow B (rejections) — its type is
+   always Idea/registry-quality, not a diagnosable malfunction.
+2. **`<project>/.ievo/contributor.flag` exists.** This is the explicit,
+   off-by-default opt-in from `/ievo:contributor-mode-on` — without it, never
+   offer this attachment, regardless of what data exists.
+3. **At least one captured record exists with `scope: "tool-failure"`.** Run:
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/evolution_candidates.mjs" list --project <project>
+   ```
+   This is the same accumulator `/ievo:evo-auto-enable`'s failure-capture hook
+   already writes to (`.ievo/evolution-candidates/<session-id>.jsonl`) — every
+   record's `.text` was scrubbed by `scrub.mjs` before it ever touched disk
+   (see that skill's Step 3.6). Best-effort: if the command fails or
+   `CLAUDE_PLUGIN_ROOT` is unset, treat as "no records" and skip silently —
+   never block feedback submission on this.
+
+Collect every candidate across all listed sessions where `scope ===
+"tool-failure"`, sorted by `ts` descending (most recent first). If the
+resulting list is empty, skip this step exactly like Step 3.85 skips when no
+log exists — do not mention contributor mode was even checked.
+
+If the list is non-empty, let `N = min(collected count, 20)` — the same cap
+applied below — and ask the user once via `AskUserQuestion`:
+
+- **Question:** `Attach <N> captured tool-failure/permission-denial record(s)? (Helps maintainers diagnose what happened — contributor mode is ON)`
+- **Header:** `Attach records`
+- **Options:**
+  - `Attach (Recommended for bug reports)` — description: `Includes up to 20 most-recent scrubbed records: which tool failed/was denied, and a truncated detail. Already redacted by scrub.mjs — no secrets, no raw file contents.`
+  - `Don't attach` — description: `Keep the report to environment context only.`
+
+`<N>` in the question is always the post-cap count (`min(collected count,
+20)`) — the same number the `Attach` option's own "up to 20" description
+implies, so the two can never disagree even when the collected list is
+longer than 20.
+
+If user picks `Attach`:
+- Take the `N` most-recent matching candidates (by `ts` descending).
+- Format each as one line: `<ts> <text>` (the `.text` field is already the
+  scrubbed, compact JSON record — do not re-parse or reformat its content,
+  just cap the joined total).
+- Cap the joined lines at 8KB. If larger, truncate from the end (oldest of
+  the `N` kept), appending a `... <truncated N record(s)> ...` marker — the
+  newest records matter most for diagnosing a current malfunction.
+- **Fence containment.** Each record's `.text` originates from real tool
+  call inputs/outputs (e.g. a denied `Write`/`Edit` call's content argument,
+  or a failed command's output) — untrusted content that already passed
+  through `scrub.mjs`'s secret/path/length transform but NOT through any
+  Markdown-neutralizing step, so it can still plausibly contain a literal
+  triple-backtick run. Since Step 4 embeds this block inside a fenced code
+  span, before writing it: scan the joined lines for the longest run of
+  consecutive backticks they contain, and fence the block with a backtick
+  run **one character longer** than that (minimum 3, i.e. plain ` ``` ` when
+  no backtick run is present) — so an embedded triple-backtick can never
+  close the fence early and let the remainder render as live Markdown/HTML
+  in the public issue. Same containment principle as this file's own
+  "Identifier containment" note below (Step 4), applied to a multi-line
+  fenced block instead of an inline span.
+- Hold the formatted block, and the fence length it needs, for inclusion in
+  Step 4.
+
+If user picks `Don't attach` or the list was empty, skip — do not fabricate
+an empty section in Step 4.
+
+**This is read-only against the capture queue.** Attaching here never
+consumes, prunes, or otherwise modifies `.ievo/evolution-candidates/` — that
+queue remains exactly as `/ievo:evo`'s own review flow expects it.
+
+**Out of scope, not built here (do not attempt):** a full session transcript
+or distilled `.jsonl` export ("Phase 2" of `#448`) is a separate, larger,
+security-sensitive capability with no design or approval yet — never
+synthesize one in place of this step. Likewise, contributor mode never
+removes Step 5's Submit/Cancel confirmation, on this report or any other.
+
 ## Step 4: Build the issue body
 
 ### Flow A (generic) format
@@ -225,6 +304,19 @@ If user picks `Don't attach` or no log exists, skip.
 ```markdown
 <contents of the latest .ievo/log/init-*.md, truncated to 16KB if needed>
 ```
+
+</details>
+
+<if tool-failure/permission-denial records were attached in step 3.9:>
+
+<details>
+<summary>Attached: N captured tool-failure/permission-denial record(s) (contributor mode)</summary>
+
+<fence with a `text` language tag, using a backtick run one character longer
+than the longest backtick run found in the record lines below — plain triple
+backtick when none is found (Step 3.9's "Fence containment" rule)>
+<the formatted, capped record lines from step 3.9 — already scrubbed>
+<matching closing fence>
 
 </details>
 
@@ -465,3 +557,4 @@ Then report the outcome in one line so the audit trail is complete — e.g. `Loc
 - **A missing label never loses a submission.** Labels are best-effort metadata; the feedback text is the value. Provision missing labels idempotently, and if `gh issue create` still rejects the label set, retry without labels rather than dropping the report (Step 6, B1/B2).
 - **Two-way bridge, gated and loop-safe both ways.** Step 7.5 offers a feedback → evo *local* capture only for a flow-A `Bug` about a specific agent/skill, and **never in flow (C)** — that single skip is the loop guard for both directions. It mirrors `evo/SKILL.md` Step 5.6's evo → feedback offer; both directions are `AskUserQuestion` offers, never automatic, and each receiving skill still runs its own gates.
 - **Flow (C) has two callers, one contract.** `evo/SKILL.md` Step 5.6 (a one-line lesson) and `extract-best-practices/SKILL.md` Phase 5 (a full package writeup) both pre-fill the body and skip Step 2, but neither bypasses Step 1, Step 3.5, or Step 5 — the receiving skill (this one) still runs its own gates regardless of what pre-filled it.
+- **Contributor-mode payload widening is gated, additive, and never a shortcut around Step 5.** Step 3.9 offers the scrubbed tool-failure/permission-denial capture stream ONLY when `.ievo/contributor.flag` is present (`/ievo:contributor-mode-on`) AND at least one `scope: tool-failure` candidate exists — otherwise it is a silent no-op, same as Step 3.85's log-attach when no log exists. It never attaches a session transcript (that capability doesn't exist — see Step 3.9's own note) and never skips or weakens Step 5's Submit/Cancel confirmation.

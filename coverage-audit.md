@@ -20,6 +20,8 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Submit feedback / bug report / skip-reason as a GitHub issue | `/ievo:feedback` | — | covered | Write tool → `.ievo/log/pending-reports/feedback-body-<ISO>.md` → `gh issue create --body-file <path>` (shell-safe, no inline interpolation surface) |
 | Enable verbose / trace-level logging | `/ievo:debug-on` | — | covered | Writes `.ievo/debug.flag`, creates per-session log dir, future skill invocations log expanded payloads |
 | Disable verbose logging + finalise debug session | `/ievo:debug-off` | — | covered | Removes the flag, archives the session log |
+| Opt in to widened `/ievo:feedback` payload (contributor mode) | `/ievo:contributor-mode-on` | — | covered | Writes `.ievo/contributor.flag`; shows a static consent manifest before enabling; widens what `/ievo:feedback` may offer to attach (Phase 1 of skills#448) |
+| Opt out of widened `/ievo:feedback` payload | `/ievo:contributor-mode-off` | — | covered | Removes the flag; non-destructive to the underlying `evo-auto` capture queue |
 | Remove iEvo overlay markers from a project | `/ievo:uninstall` | — | covered | Glob + Edit + Bash (`grep -l` marker discovery); preserves `.ievo/` |
 | Refresh vendored agent/skill files from upstream | `/ievo:update` | — | covered | Re-fetches by recorded source SHA; gates changed content behind a security re-audit; re-injects overlay markers; overlay files untouched |
 | Validate agent frontmatter (vendor-neutral `model:`, required fields) | (CI gate + local pre-commit) | `validate_agents.mjs` | covered | 100% test coverage; blocks `claude-*` / `gpt-*` / `gemini-*` vendor-pinned IDs |
@@ -91,6 +93,8 @@ ievo-ai/skills/
       feedback/SKILL.md
       debug-on/SKILL.md
       debug-off/SKILL.md
+      contributor-mode-on/SKILL.md
+      contributor-mode-off/SKILL.md
       hooks-setup/SKILL.md
       inspect/SKILL.md
       overlay-status/SKILL.md

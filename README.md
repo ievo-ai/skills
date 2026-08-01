@@ -188,6 +188,8 @@ install (project-scope vendor or plugin)
 | `/ievo:feedback` | Submit bug/idea/skip-reasons as GitHub issue |
 | `/ievo:debug-on` | Enable verbose / trace-level logging for the iEvo pipeline |
 | `/ievo:debug-off` | Disable verbose logging and finalize the debug session |
+| `/ievo:contributor-mode-on` | Opt in to widened `/ievo:feedback` payload (may offer to attach the scrubbed tool-failure/permission-denial capture stream) |
+| `/ievo:contributor-mode-off` | Revoke contributor mode — `/ievo:feedback` reverts to its default environment-context-only payload |
 | `/ievo:hooks-setup` | Configure Claude Code lifecycle hooks for iEvo pipeline events (init complete, security RED, evolution captured) |
 | `/ievo:overlay-status` | List active evolution overlays in this project, grouped by scope (Project / agents / skills) with last-modified dates |
 | `/ievo:index-repos` | Standalone: enumerate a repo (callable on its own) |
@@ -390,6 +392,8 @@ ievo-ai/skills/
     │   ├── feedback/SKILL.md       # /ievo:feedback — file GitHub issues
     │   ├── debug-on/SKILL.md       # /ievo:debug-on — enable verbose session logging
     │   ├── debug-off/SKILL.md      # /ievo:debug-off — disable verbose session logging
+    │   ├── contributor-mode-on/SKILL.md  # /ievo:contributor-mode-on — opt in to widened /ievo:feedback payload
+    │   ├── contributor-mode-off/SKILL.md # /ievo:contributor-mode-off — revoke it
     │   ├── hooks-setup/SKILL.md    # /ievo:hooks-setup — configure lifecycle hooks
     │   ├── overlay-status/SKILL.md # /ievo:overlay-status — list active evolution overlays
     │   ├── index-repos/SKILL.md    # /ievo:index-repos — enumerate a repo

@@ -43,7 +43,7 @@ For each overlay file:
 2. **Validate `source.repo`** against `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$` — this is `scan_repo.mjs`'s own `OWNER_REPO_RE`, applied directly since `source.repo` is already stored as a single `<owner>/<repo>` string — and additionally reject if it contains `..`. Refuse (skip this target) if it fails.
 3. **Do NOT regex-validate `source.path` against a character allowlist.** A git tree path can legally contain almost any byte (only NUL is forbidden), so a character denylist/allowlist here would either miss bytes or reject legitimate files. Step 2 below never interpolates `source.path` into a Bash command — it is passed only as a direct Glob/Read tool parameter after a clone. That alone does not bound it to the clone directory, though: unlike a real git tree path (which git itself refuses to let contain a bare `..` component), `source.path` here is raw frontmatter text a crafted overlay can set to anything, including `../../../../etc/passwd` — Step 2's final sub-step adds an explicit containment check before Glob/Read ever touch it.
 
-A target that fails check 1 or 2 is skipped for the rest of this run — report it in Step 6 as `SKIPPED — invalid source metadata` (matching the existing `UPSTREAM MISSING` handling style) and do not construct any `/tmp/ievo-update-*-<name>*` path or Bash command for it.
+A target that fails check 1 or 2 is skipped for the rest of this run — report it in Step 6 as `SKIPPED — invalid source metadata` (matching the existing `UPSTREAM MISSING` handling style) and do not create a staging directory or run any Bash command for it.
 
 ### 2. Fetch fresh upstream content (staged, not yet applied)
 
@@ -52,40 +52,43 @@ For each target that passed Step 1's validation, fetch into a staging path — d
 **Never build a `gh api repos/<source.repo>/contents/<source.path>` Bash command line from these values.** `source.path` is a git tree path and can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes) — interpolating it into a command string lets the shell resolve those before the intended command runs, even when quoted. Fetch this way instead — no untrusted byte ever crosses a shell:
 
 1. **Resolve and validate the ref, then the commit.** `gh api "repos/<source.repo>" --jq '.default_branch'` — the returned branch name can legally contain shell metacharacters, so validate it against the same ref allowlist `inspect/SKILL.md` Step 1 uses (`^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`) before any further use. Refuse and report `UPSTREAM MISSING` for this target if it fails. Only then call `gh api "repos/<source.repo>/commits/<default-branch>" --jq '.sha'` and validate the result matches `^[0-9a-f]{7,40}$` — this becomes the new `commit_sha` recorded in Step 4.
-2. **Shallow-clone into a fresh, per-target `mktemp -d` directory** — never a shared checkout path:
+2. **Shallow-clone into a fresh, per-target `mktemp -d` directory** — never a shared checkout path. Also create this target's staging directory now, alongside the checkout dir — sub-steps 4/5 below and Step 2.5's scratch copy write into it, and Step 3.5 removes it whole once the target's outcome is decided:
    ```bash
    CHECKOUT_DIR=$(mktemp -d)
+   STAGE_DIR=$(mktemp -d)
+   echo "staging dir for <name>: $STAGE_DIR"
    git clone --depth 1 "https://github.com/<source.repo>.git" "$CHECKOUT_DIR"
    git -C "$CHECKOUT_DIR" fetch --depth 1 origin <new-commit-sha>
    git -C "$CHECKOUT_DIR" checkout <new-commit-sha>
    ```
+   **Record that echoed path against this target's `<name>` before moving on, and carry it forward as `<stage-dir>`.** Every later reference below — sub-steps 4/5 here, Step 2.5, Step 3.5 — means *that recorded literal path for the target being processed*, substituted in like any other `<...>` placeholder in this file. It is not a `$STAGE_DIR` shell variable read back from an earlier command: each Bash call gets its own shell, and targets are handled as a batch (Step 2.5 dispatches every changed target's audit in one parallel message), so a second target's `mktemp -d` would shadow the first's — leaving target 1's staging dir, possibly holding RED-flagged content, on disk forever and breaking Step 3.5's cleanup guarantee.
 3. **Verify `source.path` stays inside the clone before Glob/Read ever touch it.** `source.path` is raw frontmatter text, not a path obtained by walking the cloned tree — a crafted overlay can set it to `../../../../etc/passwd` or similar. Resolve `$CHECKOUT_DIR/<source.path>` to its canonical form and confirm the result is `$CHECKOUT_DIR` itself or a descendant of it. Do this as a plain path check on the string already in hand from Step 1 — never by writing `<source.path>` into a Bash command line to test it, which would reopen the same CWE-78 this fix closes (it is still unvalidated for shell metacharacters). If containment fails, refuse the target — report `SKIPPED — invalid source metadata` in Step 6, same as a Step 1 validation failure.
-4. **Agent** (`source.path` is the single agent `.md` file, not a directory — Glob-enumerating a file path returns nothing): Read the now-verified `$CHECKOUT_DIR/<source.path>` directly with the **Read tool**, then Write its content to `/tmp/ievo-update-staged-<name>.md` with the **Write tool**.
-5. **Skill** (`source.path` is the skill's directory): enumerate the now-verified `$CHECKOUT_DIR/<source.path>` with the **Glob tool** (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source.path>"` — never a Bash `find`/`ls`), then Read each listed file and Write it to the matching relative location under `/tmp/ievo-update-staged-<name>/`.
+4. **Agent** (`source.path` is the single agent `.md` file, not a directory — Glob-enumerating a file path returns nothing): Read the now-verified `$CHECKOUT_DIR/<source.path>` directly with the **Read tool**, then Write its content to `<stage-dir>/<name>.md` with the **Write tool**.
+5. **Skill** (`source.path` is the skill's directory): enumerate the now-verified `$CHECKOUT_DIR/<source.path>` with the **Glob tool** (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source.path>"` — never a Bash `find`/`ls`), then Read each listed file and Write it to the matching relative location under `<stage-dir>/<name>/`.
 6. Remove the checkout dir once staging is complete: `rm -rf "$CHECKOUT_DIR"` (safe — this path is `mktemp`-generated, never attacker-controlled).
 
 Glob and Read/Write all take paths as direct parameters, never shell text, so neither a malicious `source.path` nor a malicious file name inside it can reach a shell — and the containment check in sub-step 3 keeps a `../`-laden `source.path` from resolving outside `$CHECKOUT_DIR` in the first place.
 
-If the ref/commit resolution fails, the containment check in sub-step 3 fails, or the Read/Glob sub-step finds nothing at `source.path` in the cloned tree (upstream renamed/removed), stop for this target. A containment failure is a crafted/invalid target, not a missing upstream — report it as `SKIPPED — invalid source metadata` (Step 6), same as a Step 1 validation failure; the other two cases report `UPSTREAM MISSING`. Either way: do not touch the local copy. Remove `$CHECKOUT_DIR` (if it was created) with `rm -rf "$CHECKOUT_DIR"` right here — Step 3.5 only covers the `/tmp/ievo-update-staged-<name>*`/`localcopy` paths, not this fetch's own checkout dir, so do not defer its cleanup. Clean up any partial staged content per Step 3.5 before moving to the next target. Do NOT fall back to per-file `gh api` fetching — that reintroduces the injection this replaces.
+If the ref/commit resolution fails, the containment check in sub-step 3 fails, or the Read/Glob sub-step finds nothing at `source.path` in the cloned tree (upstream renamed/removed), stop for this target. A containment failure is a crafted/invalid target, not a missing upstream — report it as `SKIPPED — invalid source metadata` (Step 6), same as a Step 1 validation failure; the other two cases report `UPSTREAM MISSING`. Either way: do not touch the local copy. Remove `$CHECKOUT_DIR` (if it was created) with `rm -rf "$CHECKOUT_DIR"` right here — Step 3.5 only covers this target's `<stage-dir>` (staged fetch + scratch copy), not this fetch's own checkout dir, so do not defer its cleanup. Clean up any partial staged content per Step 3.5 before moving to the next target. Do NOT fall back to per-file `gh api` fetching — that reintroduces the injection this replaces.
 
 ### 2.5. Re-audit content that changed since the last audit
 
 Diff the staged fetch against the current local copy (Step 1's client-resolved path — `.claude/agents/<name>.md`, or the whole skills tree: `.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/` on Codex) — but never compare the raw local file directly. The local copy carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker block (injected by Step 3 below, or by `/ievo:init` Step 9 at first vendor); the staged upstream fetch never does. Diffing them raw would show a "difference" on effectively every run even when the underlying upstream content is byte-identical, defeating the point of this fast path.
 
-The `cp`/`sed` commands below interpolate `<name>` into their command lines — this is safe only because Step 1 already validated `<name>` against `^[A-Za-z0-9_-]+$` for every target reaching this step; a target that failed that check never gets here.
+The `cp`/`sed` commands below interpolate `<name>` into their command lines — this is safe only because Step 1 already validated `<name>` against `^[A-Za-z0-9_-]+$` for every target reaching this step; a target that failed that check never gets here. They also interpolate `<stage-dir>`, which is `mktemp`-generated in Step 2 and never attacker-controlled.
 
 Instead:
-1. Copy the local target to a scratch path — never mutate the actual local file just to run this comparison:
+1. Copy the local target to a scratch path inside this target's `<stage-dir>` — the path Step 2 recorded for *this* target, substituted literally, never a `$STAGE_DIR` variable (a sibling target's `mktemp -d` would shadow it) — and never mutate the actual local file just to run this comparison:
    ```bash
-   cp .claude/agents/<name>.md /tmp/ievo-update-localcopy-<name>.md   # agent (Claude Code only — Step 1 skips agents on Codex)
+   cp .claude/agents/<name>.md "<stage-dir>/localcopy-<name>.md"   # agent (Claude Code only — Step 1 skips agents on Codex)
    # or, for a skill -- from the invoking client's skills dir (Step 1):
-   cp -r .claude/skills/<name>/ /tmp/ievo-update-localcopy-<name>/    # Claude Code
-   cp -r .agents/skills/<name>/ /tmp/ievo-update-localcopy-<name>/    # Codex
+   cp -r .claude/skills/<name>/ "<stage-dir>/localcopy-<name>/"    # Claude Code
+   cp -r .agents/skills/<name>/ "<stage-dir>/localcopy-<name>/"    # Codex
    ```
 2. Strip the marker block (inclusive) from the scratch copy. For a skill, only `SKILL.md` ever carries the marker — `scripts/`, `references/`, `assets/` files never do, so strip it there and leave the rest of the scratch tree untouched:
    ```bash
-   sed '/<!-- ievo:start -->/,/<!-- ievo:end -->/d' /tmp/ievo-update-localcopy-<name>.md > /tmp/ievo-update-localcopy-<name>.md.tmp && mv /tmp/ievo-update-localcopy-<name>.md.tmp /tmp/ievo-update-localcopy-<name>.md          # agent
-   sed '/<!-- ievo:start -->/,/<!-- ievo:end -->/d' /tmp/ievo-update-localcopy-<name>/SKILL.md > /tmp/ievo-update-localcopy-<name>/SKILL.md.tmp && mv /tmp/ievo-update-localcopy-<name>/SKILL.md.tmp /tmp/ievo-update-localcopy-<name>/SKILL.md    # skill
+   sed '/<!-- ievo:start -->/,/<!-- ievo:end -->/d' "<stage-dir>/localcopy-<name>.md" > "<stage-dir>/localcopy-<name>.md.tmp" && mv "<stage-dir>/localcopy-<name>.md.tmp" "<stage-dir>/localcopy-<name>.md"          # agent
+   sed '/<!-- ievo:start -->/,/<!-- ievo:end -->/d' "<stage-dir>/localcopy-<name>/SKILL.md" > "<stage-dir>/localcopy-<name>/SKILL.md.tmp" && mv "<stage-dir>/localcopy-<name>/SKILL.md.tmp" "<stage-dir>/localcopy-<name>/SKILL.md"    # skill
    ```
 3. Diff the stripped scratch copy against the staged fetch from Step 2.
 
@@ -133,13 +136,15 @@ Targets the user skipped in Step 2.5 are not touched here — their local copy a
 
 ### 3.5. Clean up staged fetch
 
-Once a target's outcome is decided — applied (identical / GREEN / user override), declined (YELLOW/RED skip, including the no-interactive-session auto-skip), or 404 — remove its staged and scratch paths:
+Once a target's outcome is decided — applied (identical / GREEN / user override), declined (YELLOW/RED skip, including the no-interactive-session auto-skip), or 404 — remove its entire staging directory:
 
 ```bash
-rm -rf /tmp/ievo-update-staged-<name>* /tmp/ievo-update-localcopy-<name>*
+rm -rf "<stage-dir>"
 ```
 
-Do this per target, right after that target's outcome is settled — not deferred to the end of the whole run. This applies to every exit path, including declined and 404 targets: content the auditor just flagged as risky (or any raw upstream fetch that was never applied) should not linger under `/tmp` after the run.
+`<stage-dir>` is the path Step 2 recorded for *this* target, substituted literally — not a `$STAGE_DIR` variable, which on a multi-target run would name whichever target ran `mktemp -d` last and would silently leave every earlier target's staging dir behind.
+
+Do this per target, right after that target's outcome is settled — not deferred to the end of the whole run. This applies to every exit path, including declined and 404 targets: content the auditor just flagged as risky (or any raw upstream fetch that was never applied) should not linger on disk after the run.
 
 ### 4. Update overlay frontmatter
 
@@ -213,7 +218,7 @@ Run git diff .agents/skills/ .ievo/evolution/ to review changes before commit.
 - **Re-audit gates content changes, not every refresh.** Step 2.5 only dispatches `security-auditor` when the freshly-fetched content differs from what's on disk — an unchanged upstream (the common case) never pays the audit cost. A GREEN verdict applies silently; YELLOW/RED requires explicit `AskUserQuestion` confirmation before the local copy is touched — a simplified two-option gate compared to `/ievo:init` Step 8a, which also offers a report-to-source option; that option is out of scope here (single-file router, not the full install pipeline). Declining leaves the local copy and the overlay's `source.commit_sha` untouched so the next `/ievo:update` re-attempts.
 - **Diff after stripping the marker, not before.** The local copy always carries the `<!-- ievo:start -->...<!-- ievo:end -->` overlay marker; the staged upstream fetch never does. Step 2.5 compares a marker-stripped scratch copy of the local file against the staged fetch — comparing raw would make the "identical" fast path never trigger.
 - **No blocking on unattended runs.** If `AskUserQuestion` has no interactive session to answer it (e.g. an `/ievo:schedule` Routine), Step 2.5 auto-skips the target instead of hanging — never blocks a scheduled run indefinitely.
-- **Clean up staged content for every outcome.** Step 3.5 removes each target's `/tmp/ievo-update-staged-<name>*` and scratch-copy paths once its outcome is decided — applied, declined, or 404. Flagged-risky content should not linger under `/tmp`.
+- **Clean up staged content for every outcome.** Step 3.5 removes each target's own staging dir (staged fetch + scratch copy, created per-target via `mktemp -d` in Step 2, same pattern as `CHECKOUT_DIR`, and recorded per target so a sibling's `mktemp -d` can't shadow it) once its outcome is decided — applied, declined, or 404. Flagged-risky content should not linger under a predictable `/tmp` path.
 - **Flag missing upstream loudly.** If repo/branch/commit resolution 404s, or `source.path` isn't found in the cloned tree (upstream renamed/removed), don't silently drop the target. Surface for user decision.
 - **No automatic commit.** Update only writes files. User reviews + commits.
 - **Order matters for symlinked content.** If a skill has `scripts/` with executable files, restore permissions after fetch (`chmod +x` on `.sh`/`.py` known patterns).

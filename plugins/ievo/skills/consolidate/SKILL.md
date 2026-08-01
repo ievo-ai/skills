@@ -1,6 +1,6 @@
 ---
 name: consolidate
-description: Use this skill when CLAUDE.md/AGENTS.md references many files and it's unclear what lives where, the same rule appears in multiple files, or — via `/ievo:evo`'s post-capture offer — an evolution overlay has grown large enough to warrant extracting a skill or agent. Consolidates fragmented documentation or an iEvo evolution overlay. Two modes, auto-detected from the root file. Doc-graph mode (default, root e.g. CLAUDE.md) maps the reference graph across linked files, finds duplicates and contradictions, proposes a target structure, executes the migration. Entry-cluster mode (root is an overlay file like `.ievo/evolution/project.md`) judges whether accumulated entries describing one recurring procedure or role generalize into a new skill/agent authored from scratch, or instead merge into one entry in the same overlay. Five phases (Discovery, Analysis, Proposal, Migration, Verification), three mandatory checkpoints in both modes — nothing created, merged, or deleted without explicit approval.
+description: Use this skill when CLAUDE.md/AGENTS.md references many files and it's unclear what lives where, the same rule appears in multiple files, or — via `/ievo:evo`'s post-capture offer — an evolution overlay has grown large enough to warrant extracting a skill or agent. Consolidates fragmented docs or an iEvo evolution overlay. Two modes, auto-detected from the root file. Doc-graph mode (default, root e.g. CLAUDE.md) maps the reference graph, finds duplicates and contradictions, proposes a target structure, executes the migration. Entry-cluster mode (root is an overlay file like `.ievo/evolution/project.md`) judges whether accumulated entries describing a recurring procedure or role generalize into a new skill/agent, merge into one entry, or — for fact/convention entries — digest into a compact rule list, all within the same overlay. Five phases (Discovery, Analysis, Proposal, Migration, Verification), three mandatory checkpoints in both modes — nothing created, merged, or deleted without explicit approval.
 argument-hint: "[--root <path>]"
 license: MIT
 effort: high
@@ -25,6 +25,8 @@ Fixes fragmented doc systems and overgrown evolution overlays: maps dependencies
 **Entry-cluster mode** (root is an iEvo overlay file):
 - Any overlay under `.ievo/evolution/` — project-wide (`project.md`), agent-scope (`agents/<name>.md`), or skill-scope (`skills/<name>.md`) — has accumulated entries that keep describing the same recurring flow or role, or keep restating/refining the same fact or convention
 - Invoked directly (`/ievo:consolidate --root .ievo/evolution/project.md`, or `--root .ievo/evolution/agents/<name>.md` / `--root .ievo/evolution/skills/<name>.md`), or handed off to from `evo/SKILL.md` Step 5.7 after any overlay capture, regardless of scope
+
+**Known gap — Option E6 is not yet auto-offered.** `evo/SKILL.md` Step 5.7's own cluster judgment (and its delegated-agent mirror, `agents/evolution.md` Step 4.7) only recognizes a procedure/judgment-role cluster ("describe a repeatable flow or role") — it does not yet detect a fact/convention cluster, so it never offers a hand-off for one. Until that trigger is extended (tracked as a follow-up, out of scope for this change — see issue #529's operator-approved scope, which is `consolidate/SKILL.md` only), Option E6 is reachable only by invoking `/ievo:consolidate --root <overlay path>` directly, not via the automatic post-capture offer.
 
 ## Step 0: Determine root and mode
 
@@ -113,7 +115,7 @@ Cluster procedure/judgment-role entries and fact/convention entries **separately
 - **Procedure / judgment-role entries:** group entries that independently describe the **same recurring flow or role** — semantic overlap, not just shared keywords. Two entries are enough to form a cluster if they clearly describe one recurring thing; ten entries about ten unrelated topics form no cluster at all.
 - **Fact/convention entries:** group entries that independently state, restate, or revise the **same underlying rule or topic** — e.g. three entries that each pin down the project's Python version, or two entries both about the same "never commit X" convention. Same judgment-call standard: two entries are enough if they clearly describe the same rule/topic; unrelated one-off facts form no cluster.
 
-This is a judgment call made the same lightweight way `evo/SKILL.md` Step 1 classifies lesson scope: no sub-agent dispatch, no fixed entry-count threshold. Output: list of clusters, each with its member entries and a provisional shape (procedure / judgment-role / mixed / fact-convention).
+This is a judgment call made the same lightweight way `evo/SKILL.md` Step 1 classifies lesson scope: no sub-agent dispatch, no fixed entry-count threshold. Output: list of clusters, each with its member entries and a provisional shape (procedure / judgment-role / mixed / fact/convention).
 
 ### Entry-cluster mode — Step 5: Contradiction detection
 

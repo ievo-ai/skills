@@ -8,7 +8,7 @@ effort: max
 # on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
-compatibility: "Requires `gh`/`git` CLI, Node 18+, network access. Uses Task tool + AskUserQuestion; runs on **Claude Code and Codex**. Pipeline skills are cross-platform via agentskills.io. On Codex (`$CODEX_CLI`): vendors to `.agents/skills/`, no `.claude/*` config, agent/plugin installs disclosed unavailable. v2.1.169+: `/cd` directory-switch note (Step 1). v2.1.193+: Auto Mode `classifyAllShell: true` classifier note (Step 1). v2.1.195+: dual-gate plugin install consent — see AGENTS.md Security model."
+compatibility: "Requires `gh`/`git` CLI, Node 18+, network. Runs on **Claude Code and Codex** (Task, AskUserQuestion); skills cross-platform via agentskills.io. Codex (`$CODEX_CLI`): vendors `.agents/skills/`, no `.claude/*` config, agent/plugin installs unavailable. CC v2.1.169+/193+: `/cd` dir-switch + Auto Mode `classifyAllShell` (Step 1); v2.1.195+: dual-gate install consent (AGENTS.md). Codex rust-v0.142.0+: pre-142 reports failed Step 6/8 sub-agent as empty success (AGENTS.md Codex sub-agent delegation)."
 hooks:
   Stop:
     - hooks:

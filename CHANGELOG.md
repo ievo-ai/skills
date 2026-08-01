@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.10
+
+Correct `evolution.md`'s stale "nested spawning off by default" wording — closes #484.
+
+- **Gap closed (#484)** — `plugins/ievo/agents/evolution.md`'s frontmatter comment and Step 2.5 body attributed its no-nested-`security-auditor`-dispatch behavior to a platform default (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, "off by default"). That was accurate when verified (2026-07-23) but went stale with [Claude Code v2.1.219](https://github.com/anthropics/claude-code/releases/tag/v2.1.219) (2026-07-24), which flipped nesting on by default (depth 3) and made the env var an opt-**out**, not an opt-in.
+- **Fix** — reworded both sites to attribute the behavior to `evolution.md`'s own `tools:` grant (it never lists `Agent`/`Task`), not the platform default, and mirrored the corrected framing already in `AGENTS.md` § Security model (from #482). Also updated that section's own now-stale cross-reference to skills#484. Wording only — no behavior change, since the agent could not dispatch a nested sub-agent either way.
+- **Scope** — `plugins/ievo/agents/evolution.md`, `AGENTS.md`; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.9 → 0.75.10).
+
 ## v0.75.9
 
 Wrap `<owner/repo@skill>` identifiers in an inline code span in `feedback/SKILL.md`'s Flow B rejection-reasons template — closes #494.

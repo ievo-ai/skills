@@ -332,6 +332,50 @@ Everything runs on the user's machine. No central trust gates. No community cach
 - **Don't trust skills.sh's Snyk/Socket audits as the verdict.** Use as context — they audit dep CVEs, not behavioral patterns. Antivirus deep scan is the trust signal.
 - **Don't auto-install RED items.** Always explicit user choice via `AskUserQuestion`.
 
+## Version compatibility
+
+iEvo's `SKILL.md`/agent files and plugin manifest use several Claude Code features that shipped incrementally across recent releases. An enterprise operator using `requiredMinimumVersion` (below) to pin Claude Code should pin at or above the version each relied-on feature needs — pinning below doesn't error at startup, it silently degrades the corresponding guarantee (see § Degraded, not blocked).
+
+**Recommended minimum: Claude Code v2.1.198** — the highest floor among the features iEvo's own files use, below. It is set by `hooks-setup/SKILL.md` Step 5.6, which *writes* `Notification` hook entries whose matchers only exist from v2.1.198; the next floor down, v2.1.195, is § Security model's operator minimum for dual-gate plugin install consent (also carried in `init/SKILL.md`'s own `compatibility:` field). Per-skill hook floors below v2.1.198 (exec-form `args:`, `terminalSequence`, `if:` path conditions, …) are not duplicated here — `hooks-setup/SKILL.md`'s `compatibility:` field is the authoritative per-feature list, and this section only carries the maximum. Versions cited elsewhere in this file *above* v2.1.198 are not floors: § Security model's sandbox-hardening and model-bypass-vector notes cite later releases (up to v2.1.219) as operator-configuration guidance for closing residual gaps, not as things iEvo's own files set.
+
+### Feature-version matrix
+
+| iEvo uses | Minimum CC version | Where |
+|---|---|---|
+| `effort:` frontmatter (agents) | [v2.1.78](https://github.com/anthropics/claude-code/releases/tag/v2.1.78) | `security-auditor.md`, `vuln-scanner.md`, `evolution.md`, `repo-indexer.md`, `deep-reviewer.md` pin `effort:` |
+| `effort:` frontmatter (skills/commands) | [v2.1.80](https://github.com/anthropics/claude-code/releases/tag/v2.1.80) | required on every `SKILL.md` (§ Skills format) |
+| `disallowed-tools` frontmatter (skills, kebab-case) | [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) | `security-check`/`vuln-scan`/`deep-review` tool restriction |
+| `/reload-skills` command | [v2.1.152](https://github.com/anthropics/claude-code/releases/tag/v2.1.152) | `commands/update.md` § 6 Report tells the user to run it after a refresh |
+| `defaultEnabled` in `plugin.json` | [v2.1.154](https://github.com/anthropics/claude-code/releases/tag/v2.1.154) | `plugins/ievo/.claude-plugin/plugin.json` sets `defaultEnabled: true` |
+| `.claude/skills/` auto-load (no marketplace) | [v2.1.157](https://github.com/anthropics/claude-code/releases/tag/v2.1.157) | README § Developer install |
+| `hookSpecificOutput.additionalContext` (`Stop`/`SubagentStop` hooks) | [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) | `hooks-setup/SKILL.md` Step 5.5.5 emits it from the Step 5.5.3 script |
+| dual-gate plugin install consent (CC's own dialog on the `enabledPlugins` load path) | [v2.1.195](https://github.com/anthropics/claude-code/releases/tag/v2.1.195) | `init/SKILL.md` Step 9 merges `extraKnownMarketplaces`/`enabledPlugins` — § Security model's operator minimum |
+| `Notification` hook matchers `agent_needs_input` / `agent_completed` | [v2.1.198](https://github.com/anthropics/claude-code/releases/tag/v2.1.198) | `hooks-setup/SKILL.md` Step 5.6 writes one `hooks.Notification[]` entry per matcher |
+
+Every row above is the release that first shipped the behavior, verified verbatim against `gh api repos/anthropics/claude-code/releases/tags/<tag>` (verified 2026-07-27) — a docs page states current behavior only and can't source when a past feature first shipped, so the release note (linked per row) is the citation, not `code.claude.com`. The "Where" column is held to the same bar as the version column: a row earns its place only if some iEvo file *uses* the feature. A file that merely cites a release note, documents deliberately **not** using the feature, or only *recommends* an operator-side setting, is not a use — five candidate rows failed that test and are recorded here rather than shipped as inaccurate matrix entries:
+
+- **"Dynamic Workflows"** — no iEvo file references that Claude Code feature; `schedule/SKILL.md` uses Routines instead, already gated at v2.1.81+ in its own `compatibility:` field.
+- **`/plugin list --enabled`/`--disabled`** — `init/SKILL.md` Step 12.6 explicitly documents *not* using those flags, since they're interactive-only; it filters the `enabled` field from `--json` output instead.
+- **`SessionStart` `reloadSkills` / `hookSpecificOutput.sessionTitle`** — `hooks-setup/SKILL.md` Step 5.7 names both only to say they are "unused here" (neither applies to a version-check nudge). No iEvo file emits either field.
+- **`MessageDisplay` hook event** — cited once in `hooks-setup/SKILL.md`'s References list, and there explicitly as "not configured by this skill". No iEvo file registers a `MessageDisplay` hook.
+- **`requiredMinimumVersion` / `requiredMaximumVersion` managed setting** ([v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163)) — the pinning mechanism § Enterprise pinning recommends, but it is *operator-side* configuration: no iEvo file sets it, so this section mentions it rather than uses it. Its version is cited inline below instead of as a matrix row, which also keeps the recommended minimum a strict maximum over features iEvo actually uses.
+
+### Enterprise pinning
+
+`requiredMinimumVersion` is a **managed setting only** — Claude Code does not read it from a project's `.claude/settings.json` or a user's `~/.claude/settings.json`. An administrator deploys it in the system-level managed settings file (`/etc/claude-code/managed-settings.json` on Linux/WSL, `/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, `C:\Program Files\ClaudeCode\managed-settings.json` on Windows) through MDM — the same file and delivery path `debug-on/SKILL.md` names for org-wide env-var enforcement, sitting at the top of Claude Code's settings precedence chain where a user can't override it.
+
+```json
+{ "requiredMinimumVersion": "2.1.198" }
+```
+
+The value is a **plain version string**, not an object — `requiredMinimumVersion` and `requiredMaximumVersion` are two independent scalar settings, not a single range object. Sourced from Claude Code's [settings reference](https://code.claude.com/docs/en/settings), which lists `requiredMinimumVersion` in its § Available settings table as "Managed settings only. Minimum Claude Code version required to start" with the example value `"2.1.150"` (verified 2026-07-27). A docs page is the right citation *here*, unlike in the matrix above: the value shape is current behavior, which is exactly what a docs page can source, whereas only a release note can source when the setting first shipped.
+
+Below the floor, Claude Code exits at startup and directs the user to update through the organization's approved method; `claude update`, `claude install`, and `claude doctor` keep working so a pinned-out user can recover. A Claude Code older than [v2.1.163](https://github.com/anthropics/claude-code/releases/tag/v2.1.163) predates the setting and ignores it entirely, so pinning constrains an already-recent install rather than rescuing a very old one. `2.1.198` is the value that covers every feature in the matrix above.
+
+### Degraded, not blocked
+
+Claude Code does not error on a skill/agent file declaring a frontmatter field an older Claude Code doesn't yet recognize — it silently ignores `effort:`/`disallowed-tools:` rather than refusing to load the skill, so under-pinning shows up as a missing guarantee (e.g. `security-check`'s tool restriction not actually applying) rather than a startup error. Commands, hook events, and hook fields introduced later (`/reload-skills`, `Stop`/`SubagentStop` `hookSpecificOutput.additionalContext`, the `Notification` matchers Step 5.6 writes) are unavailable outright rather than degraded — the command doesn't exist yet, or the hook entry is registered but never fires.
+
 ## Development
 
 Documentation repo + small Node scripts. No build step. Tests live in `plugins/ievo/scripts/tests/` (built-in `node:test`, stdlib only) and the 100% coverage rule on `REQUIRED` scripts is enforced by `.github/workflows/coverage-gate.yml` — see the ledger above for the current `REQUIRED` set (all three `.mjs` scripts as of v0.6.7; no carve-outs).

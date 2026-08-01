@@ -28,11 +28,13 @@ skills:
 # `disable-model-invocation` is not set on security-check/SKILL.md, so it is
 # preload-eligible — same pattern `vuln-scanner.md` already uses for
 # `ievo:vuln-scan`. This agent cannot instead dispatch a standalone
-# `security-auditor` sub-agent the way `update.md`'s Step 2.5 does: verified
-# against the same subagent docs (2026-07-23), Claude Code withholds
-# `Agent`/`Task` from every Task-dispatched sub-agent unless the operator has
-# opted into nested spawning (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, off by
-# default) — see Step 2.5 below for how the gate adapts to that constraint.
+# `security-auditor` sub-agent the way `update.md`'s Step 2.5 does: this
+# agent simply never grants itself `Agent`/`Task` in the `tools:` list
+# above — a self-imposed limit, not a platform one. Claude Code itself
+# allows a Task-dispatched sub-agent to spawn nested sub-agents by default
+# (depth 3 as of v2.1.219, verified 2026-07-26 — see AGENTS.md § Security
+# model for the full history) — see Step 2.5 below for how the gate adapts
+# to the self-imposed constraint.
 # Defense-in-depth denylist (camelCase per Claude Code sub-agent frontmatter —
 # distinct from the kebab-case `disallowed-tools` in evo/SKILL.md). A skill's
 # `disallowed-tools` does NOT propagate to a Task-tool-dispatched sub-agent
@@ -271,11 +273,14 @@ not proceed to Step 3 (no local file exists to
 inject a marker into) or Step 4 (no vendored target to append an overlay
 against) for this capture. You are a dispatched sub-agent: Claude Code
 unconditionally withholds `AskUserQuestion` from every Task-dispatched
-sub-agent, and withholds `Agent`/`Task` unless the operator has opted into
-nested spawning (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, off by default) —
-verified against code.claude.com/docs/en/sub-agents, 2026-07-23. So unlike
-`update.md`'s Step 2.5 (which runs in the main session and can prompt), you
-have no tool to gate this interactively — the same constraint Step 4.6 and
+sub-agent (verified against code.claude.com/docs/en/sub-agents, 2026-07-23),
+and this agent additionally cannot dispatch a nested `Agent`/`Task`
+sub-agent either, since it never grants itself those tools in the `tools:`
+list above — a self-imposed limit, not a platform one (Claude Code itself
+allows nested spawning by default; see AGENTS.md § Security model for the
+verified version history). So unlike `update.md`'s Step 2.5 (which runs in
+the main session and can prompt), you have no tool to gate this
+interactively — the same constraint Step 4.6 and
 Step 4.7 below already document for the upstream-escalation and extraction
 offers. Treat this like `update.md`'s own "no interactive session available"
 fallback: auto-skip the vendor, and surface the flagged verdict + top 1-2

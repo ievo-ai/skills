@@ -50,6 +50,8 @@ ievo-ai/skills/
         ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
         ├── evo-auto-enable/SKILL.md   # /ievo:evo-auto-enable — turn on auto-evolution mode (flag + pending queue)
         ├── evo-auto-disable/SKILL.md  # /ievo:evo-auto-disable — turn off auto-evolution mode (preserves queue)
+        ├── contributor-mode-on/SKILL.md  # /ievo:contributor-mode-on — opt in to widened /ievo:feedback payload (consent flag)
+        ├── contributor-mode-off/SKILL.md  # /ievo:contributor-mode-off — revoke it (removes the flag, keeps the queue)
         ├── handoff/SKILL.md           # /ievo:handoff — portable context handoff between sessions
         ├── hooks-setup/SKILL.md       # /ievo:hooks-setup — configure lifecycle hooks
         ├── inspect/SKILL.md           # /ievo:inspect — pre-install structured summary of a remote repo

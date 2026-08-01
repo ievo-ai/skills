@@ -231,7 +231,7 @@ applied below — and ask the user once via `AskUserQuestion`:
 - **Question:** `Attach <N> captured tool-failure/permission-denial record(s)? (Helps maintainers diagnose what happened — contributor mode is ON)`
 - **Header:** `Attach records`
 - **Options:**
-  - `Attach (Recommended for bug reports)` — description: `Includes up to 20 most-recent scrubbed records: which tool failed/was denied, and a truncated detail. Already redacted by scrub.mjs — no secrets, no raw file contents.`
+  - `Attach (Recommended for bug reports)` — description: `Includes up to 20 most-recent scrubbed records: which tool failed/was denied, its error, and that call's own input arguments — so a denied Write/Edit record carries the start of the file text it was writing. scrub.mjs redacts secret-shaped values, rewrites $HOME paths, and caps each record at 500 characters; it does NOT strip code or file contents. Read them first at .ievo/evolution-candidates/*.jsonl.`
   - `Don't attach` — description: `Keep the report to environment context only.`
 
 `<N>` in the question is always the post-cap count (`min(collected count,

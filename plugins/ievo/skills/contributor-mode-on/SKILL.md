@@ -26,8 +26,10 @@ This is **Phase 1** of a two-phase proposal (`ievo-ai/skills#448`). Only Phase
   capture stream** — the same records `/ievo:evo-auto-enable`'s
   `signal: corrections+failures` already accumulates under
   `.ievo/evolution-candidates/`, each one already redacted by `scrub.mjs`
-  before it ever touched disk. Without this flag, `/ievo:feedback` never
-  offers that stream, even if it has candidates.
+  before it ever touched disk — redaction, not removal: a record still
+  carries the failing call's own input arguments, so read Step 2's consent
+  manifest below for exactly what that includes. Without this flag,
+  `/ievo:feedback` never offers that stream, even if it has candidates.
 - The environment context `/ievo:feedback` already collects for **every**
   report (client, versions, OS, project stack) is unaffected — that was
   already always included and this flag changes nothing about it.
@@ -88,8 +90,15 @@ auto-attach) to include:
    collected for every report, on or off. Unaffected by this flag.
 2. The existing scrubbed tool-failure/permission-denial capture stream —
    only if /ievo:evo-auto-enable's "signal: corrections+failures" has
-   separately been turned on and has candidates. These records are already
-   redacted by scrub.mjs before they ever touch disk.
+   separately been turned on and has candidates. Each record names the
+   tool that failed or was denied, its error, and THAT CALL'S OWN INPUT
+   ARGUMENTS — so a denied Write/Edit record carries the start of the
+   file text that call was writing. scrub.mjs redacts secret-shaped
+   values (provider tokens, NAME=value pairs), rewrites $HOME-absolute
+   paths, and caps each record at 500 characters before it ever touches
+   disk — it does NOT strip code or file contents. Read yours first:
+   .ievo/evolution-candidates/*.jsonl. Nothing is attached without you
+   choosing to, per report.
 
 Every report still shows you the full title + body and asks Submit/Cancel
 before anything reaches a public issue (github.com/ievo-ai/skills) — this

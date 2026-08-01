@@ -5,7 +5,7 @@ model: opus
 # Steps 2-4 (overlay append) are mechanical, but Step 2.5 applies
 # `security-check`'s full threat-pattern deep-scan + GREEN/YELLOW/RED verdict
 # to freshly-vendored content before it lands in `.claude/agents/`/
-# `.claude/skills/` (`.agents/skills/` on Codex — Step 1's `$CODEX_CLI`
+# `.claude/skills/` (`.agents/skills/` on Codex — Step 1's detection
 # rule) — the same antivirus guarantee `security-auditor` and
 # `vuln-scanner` pin `high` for. `effort` is per-agent, not per-step, so the
 # security gate sets the floor: pinned high so a low-effort caller session
@@ -68,6 +68,10 @@ hooks:
         - type: command
           if: "Write(.ievo/hooks/evolution-captured)"
           command: "echo \"iEvo: evolution overlay captured\""
+    - matcher: "apply_patch"
+      hooks:
+        - type: command
+          command: "sh -c 'input=$(cat); case \"$input\" in *\".ievo/hooks/evolution-captured\"*) echo \"iEvo: evolution overlay captured\" ;; esac'"
 ---
 
 # Evolution Agent
@@ -103,9 +107,9 @@ Three possible scopes:
 2. **Agent-specific** — names an agent or describes sub-agent behavior. Signals: "the spec-writer should X". → `.ievo/evolution/agents/<name>.md`
 3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → `.ievo/evolution/skills/<name>.md`
 
-For agent/skill scope, determine the target name explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (`$CODEX_CLI` env var ONLY — same rule as `evo/SKILL.md` Step 1 and `/ievo:init` Step 1.5) and scan that client's own load paths, never the other client's:
+For agent/skill scope, determine the target name explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (same rule as `evo/SKILL.md` Step 1 and `/ievo:init` Step 1.5 — `$CODEX_CLI` env var, or a Codex Desktop signal when unset) and scan that client's own load paths, never the other client's:
 
-**On Claude Code (`$CODEX_CLI` unset) — project-level (preferred):**
+**On Claude Code (Step 1.5: no Codex signal) — project-level (preferred):**
 - `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`
 - `.claude/plugins/*/agents/*.md`, `.claude/plugins/*/skills/*/SKILL.md`
 
@@ -113,7 +117,7 @@ For agent/skill scope, determine the target name explicitly (from user) or by ma
 - `~/.claude/agents/*.md`, `~/.claude/skills/*/SKILL.md`
 - `~/.claude/plugins/*/agents/*.md`, `~/.claude/plugins/*/skills/*/SKILL.md`
 
-**On Codex (`$CODEX_CLI` set) — skills only:**
+**On Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — skills only:**
 - Project-level (preferred): `.agents/skills/*/SKILL.md`
 - User-level (fallback): `~/.agents/skills/*/SKILL.md`
 
@@ -133,7 +137,7 @@ Only for agent/skill scope. Skip for project-wide.
 
 If the target lives in a plugin (not already in the invoking client's project-level load path from Step 1):
 
-**Vendor the file — into the invoking client's own load path (`$CODEX_CLI` rule from Step 1), never the other client's:**
+**Vendor the file — into the invoking client's own load path (Step 1's detection rule), never the other client's:**
 - For agent: copy `<plugin>/agents/<name>.md` → `.claude/agents/<name>.md` (Claude Code only — Step 1's Codex filter never routes agent scope here)
 - For skill: copy `<plugin>/skills/<name>/` directory (whole tree) → Claude Code: `.claude/skills/<name>/`; Codex: `.agents/skills/<name>/` — vendoring to `.claude/skills/` from a Codex session strands the copy where Codex never scans (issue #432)
 
@@ -374,7 +378,7 @@ Use the Write tool (NOT Bash) so the matcher fires:
 
 Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
 
-Zero-setup built-in: this agent's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while this sub-agent is running — covers the delegated path from `evo/SKILL.md` "On Claude Code with the iEvo plugin". `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file.
+Zero-setup built-in: this agent's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while this sub-agent is running — covers the delegated path from `evo/SKILL.md` "On Claude Code with the iEvo plugin". `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file. Mirrors `evo/SKILL.md` Step 5.5's Codex compatibility note (issue #461): the second `matcher: "apply_patch"` entry above covers Codex's `apply_patch`-based edits the same way, with the same stdin-substring path check since Codex's matcher has no path-scoped `if:` equivalent.
 
 ## Step 4.6: Classify upstream relevance (for an escalation offer by the caller)
 

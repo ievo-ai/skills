@@ -12,6 +12,10 @@ hooks:
         - type: command
           if: "Write(.ievo/hooks/evolution-captured)"
           command: "echo \"iEvo: evolution overlay captured\""
+    - matcher: "apply_patch"
+      hooks:
+        - type: command
+          command: "sh -c 'input=$(cat); case \"$input\" in *\".ievo/hooks/evolution-captured\"*) echo \"iEvo: evolution overlay captured\" ;; esac'"
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -89,9 +93,9 @@ Three possible scopes:
 2. **Agent-specific** — names an agent or describes sub-agent behavior. Signals: "the spec-writer should X". → goes to `.ievo/evolution/agents/<name>.md`
 3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → goes to `.ievo/evolution/skills/<name>.md`
 
-For agent/skill scope, determine the **target name** explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (`$CODEX_CLI` env var ONLY — same rule as `/ievo:init` Step 1.5) and scan that client's own load paths, never the other client's:
+For agent/skill scope, determine the **target name** explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (same rule as `/ievo:init` Step 1.5 — `$CODEX_CLI` env var, or a Codex Desktop signal when unset) and scan that client's own load paths, never the other client's:
 
-**On Claude Code (`$CODEX_CLI` unset) — project-level (preferred):**
+**On Claude Code (Step 1.5: no Codex signal) — project-level (preferred):**
 - `.claude/agents/*.md`
 - `.claude/skills/*/SKILL.md`
 - `.claude/plugins/*/agents/*.md`
@@ -103,7 +107,7 @@ For agent/skill scope, determine the **target name** explicitly (from user) or b
 - `~/.claude/plugins/*/agents/*.md`
 - `~/.claude/plugins/*/skills/*/SKILL.md`
 
-**On Codex (`$CODEX_CLI` set) — skills only:**
+**On Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — skills only:**
 - Project-level (preferred): `.agents/skills/*/SKILL.md`
 - User-level (fallback — see Step 1.5): `~/.agents/skills/*/SKILL.md`
 
@@ -195,7 +199,7 @@ vendors, so this step and Step 2.5 never run for it).
 
 If the target lives in a plugin (not already in the invoking client's project-level load path from Step 1):
 
-**Vendor the file — into the invoking client's own load path (`$CODEX_CLI` rule from Step 1), never the other client's:**
+**Vendor the file — into the invoking client's own load path (Step 1's detection rule), never the other client's:**
 - For agent: copy `<plugin>/agents/<name>.md` → `<project>/.claude/agents/<name>.md` (Claude Code only — Step 1's Codex filter never routes agent scope here)
 - For skill: copy `<plugin>/skills/<name>/` directory (whole tree) → Claude Code: `<project>/.claude/skills/<name>/`; Codex: `<project>/.agents/skills/<name>/` — vendoring to `.claude/skills/` from a Codex session strands the copy where Codex never scans (issue #432)
 
@@ -473,6 +477,8 @@ Use the Write tool (NOT Bash) so the matcher fires:
 Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
 
 Zero-setup built-in: this skill's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while `evo` is running. When the capture is delegated to the `evolution` sub-agent instead (see "On Claude Code with the iEvo plugin" above), the equivalent frontmatter hook on `agents/evolution.md` covers that path — one or the other fires depending on which one performs this Step, never both. `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file.
+
+**Codex Desktop compatibility (issue #461).** The `matcher: "Write"` entry above cannot fire on Codex's `apply_patch`-based file-editing surface — Codex's own tool call is `apply_patch` (Claude Code's `Write` is a materially different mechanism), and the exact-path `if: "Write(.ievo/hooks/evolution-captured)"` filter is Claude-Code-specific syntax Codex's hook engine does not read. A second `PostToolUse` entry, `matcher: "apply_patch"`, covers Codex (CLI and Desktop) instead — deliberately the bare native tool name, not the `apply_patch|Edit|Write` alias form the [Codex hooks reference](https://developers.openai.com/codex/hooks) documents as equivalent matcher inputs, so this entry never also re-fires on Claude Code's own literal `"Write"` tool-name match (which the first entry already covers, and firing both would double-print the confirmation). Codex's `matcher` filters by tool name only, never by target path (confirmed against the same reference — the per-event `if:` field is a Claude-Code-only addition), so the path check moves into the command itself: it reads the hook's stdin JSON and only echoes when the payload contains the literal `.ievo/hooks/evolution-captured` path, a plain substring match rather than a specific `tool_input` field name — `apply_patch`'s exact JSON shape for the target path isn't in Codex's public schema (`tool_input` is documented only as "any JSON"), so matching the raw payload is the verifiable, no-guessed-field-name option that still satisfies "no-op unless the write targets the signal file". No `if:` field on this entry — Codex does not read it, and Claude Code never reaches this entry to begin with.
 
 ## Step 5.6: Offer to escalate the lesson upstream (optional)
 

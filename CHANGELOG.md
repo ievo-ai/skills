@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.76.5
+
+Detect Codex Desktop sessions and add an `apply_patch` hook-matcher fallback so lifecycle hooks and client detection work on Codex Desktop, not just Codex CLI — closes #461.
+
+- **Gap closed (#461)** — `evo/SKILL.md` Step 5.5's `evolution-captured` lifecycle hook used an exact `matcher: "Write"` entry, unreachable on Codex Desktop's `apply_patch`-based editing surface (a materially different tool call from Claude Code's `Write`). Separately, every skill/agent that branched Claude-Code-vs-Codex behavior gated exclusively on `$CODEX_CLI`, which Codex Desktop never sets — misdetecting Desktop sessions as Claude Code and then reading/writing the wrong client's config (hooks, vendor paths, printed instructions). `feedback/SKILL.md` additionally always ran `claude --version` and rendered a `Claude Code:` line regardless of the invoking client.
+- **Detection fix** — `init/SKILL.md` Step 1.5 is now the canonical Codex-detection rule across the plugin: Codex when `$CODEX_CLI` is set, OR (when unset) a Codex Desktop signal is present (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex` — both verified empirically against a live Codex Desktop session). Every branch point across `init/SKILL.md`, `evo/SKILL.md`, `evo-auto-enable/SKILL.md`, and `agents/evolution.md` that previously keyed off `$CODEX_CLI` alone now cites this combined rule, including `init/SKILL.md`'s own `hooks:` frontmatter shell condition. Absence of all signals still defaults to Claude Code, unchanged.
+- **Hook-matcher fix** — `evo/SKILL.md` and its `agents/evolution.md` twin now carry a second `PostToolUse` entry, `matcher: "apply_patch"` (the native Codex tool name, not the `Edit`/`Write` aliases, so it never re-matches Claude Code's own `Write` tool calls in the same block). Codex's matcher filters by tool name only — there is no path-scoped `if:` equivalent — so the path check moves into the command body as a stdin-payload substring match, since `apply_patch`'s exact `tool_input` field names aren't part of Codex's public schema. `hooks-setup/SKILL.md` and its `references/codex-hooks.md` document the `apply_patch`/`Edit`/`Write` alias behavior and the Desktop-vs-CLI distinction (verified against the current Codex hooks reference).
+- **`feedback/SKILL.md`** — Step 3 now detects the invoking client before collecting a version, running `claude --version` on Claude Code or `codex --version` on Codex, and Step 4's environment templates (both flows) render only the detected client's line instead of an unconditional `Claude Code:` label.
+- **Scope** — `plugins/ievo/skills/{init,evo,evo-auto-enable,hooks-setup,feedback}/SKILL.md`, `plugins/ievo/skills/hooks-setup/references/codex-hooks.md`, `plugins/ievo/agents/evolution.md`; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.76.4 → 0.76.5).
+
 ## v0.76.4
 
 Document Codex rust-v0.142.0 as the minimum version for reliable Step 6/8 (`repo-indexer`/`security-auditor`) parallel sub-agent dispatch — closes #232.

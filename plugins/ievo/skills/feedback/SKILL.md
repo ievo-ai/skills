@@ -96,7 +96,9 @@ Gather these via Bash, all best-effort (skip silently if a command fails):
 
 - **Plugin version** — read from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` field `version`
 - **Plugin commit SHA** (if installed via git) — `git -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD`
-- **Claude Code version** — `claude --version`
+- **Detect the invoking client FIRST** (same rule as `/ievo:init` Step 1.5 — `$CODEX_CLI` env var, or a Codex Desktop signal when unset), then collect ONLY that client's own version — never run both commands, and never render the other client's label (issue #461: a Codex Desktop session that also happened to have Claude Code installed on the same machine previously reported `Claude Code: <version>` unconditionally — that number was accurate for an unrelated, uninvoked tool, which reads as misleading alongside a `Client surface: Codex Desktop app` line right next to it):
+  - **Claude Code** (Step 1.5: no Codex signal) — `claude --version`
+  - **Codex** (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — `codex --version` (the binary's own version — accurate whether invoked from a terminal or the Desktop app wrapper)
 - **OS** — `uname -srm` (or `sw_vers -productVersion` on macOS)
 - **Project stack** — top-level manifest files present (e.g. `pyproject.toml, package.json`)
 
@@ -291,7 +293,7 @@ removes Step 5's Submit/Cancel confirmation, on this report or any other.
 ## Environment
 
 - iEvo plugin: <version> (<commit-sha>)
-- Claude Code: <claude --version output>
+- <Claude Code: <claude --version output> — Step 3 detected Claude Code | Codex: <codex --version output> — Step 3 detected Codex (CLI or Desktop)> (render exactly one of these two lines, matching whichever client Step 3 detected — never both, never the other client's label; the label is "Codex:", not "Codex CLI:" — `codex --version` is accurate for both surfaces, per Step 3's note, so the CLI/Desktop distinction stays only in the separate Client surface line)
 - OS: <uname output>
 - Project stack: <manifest list>
 - Client surface: <inference from Step 3, or "uncertain">
@@ -348,7 +350,7 @@ recommendation quality (both for iEvo and upstream skills.sh).
 ## Environment
 
 - iEvo plugin: <version> (<commit-sha>)
-- Claude Code: <claude --version output>
+- <Claude Code: <claude --version output> — Step 3 detected Claude Code | Codex: <codex --version output> — Step 3 detected Codex (CLI or Desktop)> (render exactly one of these two lines, matching whichever client Step 3 detected — never both, never the other client's label; the label is "Codex:", not "Codex CLI:" — `codex --version` is accurate for both surfaces, per Step 3's note, so the CLI/Desktop distinction stays only in the separate Client surface line)
 - OS: <uname output>
 - Project stack: <manifest list>
 - Client surface: <inference from Step 3, or "uncertain">
@@ -550,7 +552,7 @@ Then report the outcome in one line so the audit trail is complete — e.g. `Loc
 
 - **Public posting requires explicit confirm.** Never skip step 5. Feedback is public on the internet; no surprises.
 - **English-only in public issues; verbatim original kept local-only.** Do not paraphrase, "improve", or sanitize the user's words. If the original is non-English, translate the body to English (Step 3.75) and post **only** the English version to the public issue — never echo the source-language text into the issue body. The verbatim original is preserved for translation verification in `.ievo/log/pending-reports/feedback-original-*.md` (local audit trail only, Step 6), never on GitHub.
-- **No secrets leak.** The Bash auto-collect list is closed — version, OS, manifest names only. Do not include git remote URLs, branch names, or anything from environment variables. Client surface is the one exception to "Bash only", and it is not an exception to "no env vars": it's a model-reasoning inference from session context, never a `$VAR` read.
+- **No secrets leak.** The Bash auto-collect list is closed — version, OS, manifest names only. Do not include git remote URLs, branch names, or anything from environment variables. Client surface is the one exception to "Bash only", and it is not an exception to "no env vars": it's a model-reasoning inference from session context, never a `$VAR` read. Step 3's client-detection read (`$CODEX_CLI` / Codex Desktop signals, same rule as `/ievo:init` Step 1.5) is control-flow only — it selects which version command to run and which label to render; the env var's own value is never included in the posted body, only the resulting `claude --version`/`codex --version` output.
 - **Neutralize identifiers before they go public.** Flow B's `<owner/repo@skill>` values are filed as a public, auto-rendering GitHub issue — see § Step 4's "Identifier containment" note for the fencing rule.
 - **Best-effort context.** If any Bash command in step 3 fails, omit that line. Never block submission on metadata collection.
 - **Graceful gh-CLI fallback.** If `gh` is missing/unauthenticated, give the user a way to post manually — don't just say "failed".

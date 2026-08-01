@@ -3,7 +3,7 @@ name: evo-auto-enable
 description: "Use this skill when the user wants to capture lessons automatically without invoking /ievo:evo explicitly — trigger words \"turn on auto evolution\", \"auto-evolve\", \"capture lessons automatically\", \"evo auto on\", \"evolve without asking\". Enables auto-evolution mode for this project — iEvo accumulates \"corrections from the user\" as evolution candidates during a session and surfaces them for review via /ievo:evo. Sets the project-local flag `.ievo/evo-auto.flag` and prepares the pending-candidate queue at `.ievo/evolution-candidates/`. Asks whether to also capture tool failures/denials (opt-in, scrubbed for privacy). Auto-mode writes ONLY unambiguous project-wide overlays; ambiguous or user-level matches are parked for manual review, never written silently."
 license: MIT
 effort: low
-compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Needs write access to `.ievo/`, POSIX shell or the Write tool; hook scripts need `node` + `jq`. Paired with `/ievo:evo-auto-disable`. Hooks — Claude Code: `.claude/settings.json` (UserPromptSubmit + SessionStart + opt-in PostToolUseFailure/PermissionDenied). Codex (`$CODEX_CLI`): `.codex/hooks.json` (UserPromptSubmit + SessionStart, Step 3.5.4; opt-in PermissionRequest, Step 3.6)."
+compatibility: "Any agentskills.io platform. Flag + queue are project-local (`.ievo/evo-auto.flag`, `.ievo/evolution-candidates/`). Needs write access to `.ievo/`, POSIX shell or the Write tool; hook scripts need `node` + `jq`. Paired with `/ievo:evo-auto-disable`. Hooks — Claude Code: `.claude/settings.json` (UserPromptSubmit + SessionStart + opt-in PostToolUseFailure/PermissionDenied). Codex (CLI/Desktop): `.codex/hooks.json` (UserPromptSubmit + SessionStart, Step 3.5.4; opt-in PermissionRequest, Step 3.6)."
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -131,8 +131,9 @@ Each parked candidate is appended below as:
 This is what makes auto-evolution actually capture and surface corrections (and,
 opt-in, tool failures/denials). Three hooks are wired into the **invoking
 client's own hook config** — Claude Code: the project's `.claude/settings.json`;
-Codex: the project's `.codex/hooks.json` (detect via the `$CODEX_CLI` env var
-ONLY, the same rule as `/ievo:init` Step 1.5 — never `command -v codex`). Writing
+Codex: the project's `.codex/hooks.json` (detect Codex per `/ievo:init` Step
+1.5's rule — `$CODEX_CLI` env var, or a Codex Desktop signal when `$CODEX_CLI`
+is unset; never `command -v codex`). Writing
 Claude Code hooks from a Codex session enables nothing: Codex never reads
 `.claude/settings.json`, which left auto-mode claiming "ENABLED" with only a flag
 and queue on disk (issue #432). All three hooks are **gated on
@@ -444,7 +445,7 @@ Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/evo-analysis-nud
 
 #### 3.5.4 Wire the correction-capture + analysis hooks into the client's hook config
 
-**On Claude Code** (`$CODEX_CLI` unset) — read the project's
+**On Claude Code** (`/ievo:init` Step 1.5: no Codex signal) — read the project's
 `.claude/settings.json` first (treat absent as `{}`); if it
 exists but is **not valid JSON**, halt without writing (do not clobber manual
 edits) and tell the user to fix it. Merge with the **Read + Edit** tools (not
@@ -492,7 +493,7 @@ mid-work resume/compact never re-injects the nudge):
 }
 ```
 
-**On Codex** (`$CODEX_CLI` set) — wire the SAME two scripts into the project's
+**On Codex** (`/ievo:init` Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — wire the SAME two scripts into the project's
 `.codex/hooks.json` instead. Codex's native hook system supports both events
 with the same semantics ([Codex hooks reference](https://developers.openai.com/codex/hooks)):
 `UserPromptSubmit` and `SessionStart` are first-class Codex events, both accept
@@ -715,7 +716,7 @@ Step 3.5.4, under BOTH `hooks.PostToolUseFailure[]` and `hooks.PermissionDenied[
 }
 ```
 
-**On Codex** (`$CODEX_CLI` set), wire it into `.codex/hooks.json` with Step
+**On Codex** (`/ievo:init` Step 1.5's detection rule), wire it into `.codex/hooks.json` with Step
 3.5.4's Codex merge mechanics, under `hooks.PermissionRequest[]` (no `matcher`;
 same flag + signal self-gating). The script's `PermissionRequest` case records
 `outcome: requested` — see the platform-semantics disclosure at the top of this
@@ -809,7 +810,7 @@ user-level ones are parked in the pending queue for review via /ievo:evo —
 never written silently.
 ```
 
-**On Codex** (`$CODEX_CLI` set), print instead:
+**On Codex** (`/ievo:init` Step 1.5's detection rule), print instead:
 
 ```
 🧬 iEvo auto-evolution mode ENABLED (Codex)
@@ -862,8 +863,9 @@ Codex/`.claude/settings.json` mismatch was the second concrete example in issue
 `.claude/settings.json` entries wired from a Codex run, which Codex never
 reads.
 
-Re-check what Step 5 just printed against `$CODEX_CLI` (Step 3.5.4's detection
-rule), judging each phrase by what its sentence claims **this run wired**
+Re-check what Step 5 just printed against Step 3.5.4's detection rule (`/ievo:init`
+Step 1.5 — `$CODEX_CLI`, or a Codex Desktop signal), judging each phrase by
+what its sentence claims **this run wired**
 rather than by substring match: a Claude Code run's confirmation must not
 present `.codex/hooks.json` or a Codex-only event (`PermissionRequest`,
 "approval requests") as this run's wiring; a Codex run's confirmation must not
@@ -894,7 +896,7 @@ contract as init Step 12.5:
   caller and skips matching, so it cannot ask — including on Codex, where Step
   1 scans only `.agents/skills/*` and a plugin-shipped skill never appears.
 - **Lesson text (verbatim English)**, e.g.: "`/ievo:evo-auto-enable` Step 5
-  printed '<the offending phrase>' on Codex ($CODEX_CLI set), which names a
+  printed '<the offending phrase>' on Codex (per Step 1.5's detection rule), which names a
   Claude-Code-only config/event. Detected platform was Codex; hooks were
   actually wired into <file Step 3.5.4 wrote>." Name `/ievo:evo-auto-enable`
   explicitly (not just "Step 5") so the text literally satisfies Step 5.6's
@@ -960,8 +962,8 @@ MUST:
 
 ## Rules
 
-- **Wire the invoking client only:** detect via `$CODEX_CLI` (same rule as
-  `/ievo:init` Step 1.5) — Claude Code hooks go to `.claude/settings.json`,
+- **Wire the invoking client only:** detect via `/ievo:init` Step 1.5's rule
+  (`$CODEX_CLI`, or a Codex Desktop signal when unset) — Claude Code hooks go to `.claude/settings.json`,
   Codex hooks to `.codex/hooks.json`. Never write the other client's config,
   never claim the mode is enabled beyond what the invoking client will
   actually fire, and never describe Codex's `PermissionRequest` capture as

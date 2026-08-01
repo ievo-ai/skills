@@ -50,6 +50,8 @@ ievo-ai/skills/
         ├── debug-off/SKILL.md         # /ievo:debug-off — disable verbose session logging
         ├── evo-auto-enable/SKILL.md   # /ievo:evo-auto-enable — turn on auto-evolution mode (flag + pending queue)
         ├── evo-auto-disable/SKILL.md  # /ievo:evo-auto-disable — turn off auto-evolution mode (preserves queue)
+        ├── contributor-mode-on/SKILL.md  # /ievo:contributor-mode-on — opt in to widened /ievo:feedback payload (consent flag)
+        ├── contributor-mode-off/SKILL.md  # /ievo:contributor-mode-off — revoke it (removes the flag, keeps the queue)
         ├── handoff/SKILL.md           # /ievo:handoff — portable context handoff between sessions
         ├── hooks-setup/SKILL.md       # /ievo:hooks-setup — configure lifecycle hooks
         ├── inspect/SKILL.md           # /ievo:inspect — pre-install structured summary of a remote repo
@@ -181,7 +183,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.75.11):**
+**Current compliance ledger (v0.76.0):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.

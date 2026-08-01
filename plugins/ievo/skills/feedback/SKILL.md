@@ -293,7 +293,7 @@ removes Step 5's Submit/Cancel confirmation, on this report or any other.
 ## Environment
 
 - iEvo plugin: <version> (<commit-sha>)
-- <Claude Code: <claude --version output> — Step 3 detected Claude Code | Codex: <codex --version output> — Step 3 detected Codex (CLI or Desktop)> (render exactly one of these two lines, matching whichever client Step 3 detected — never both, never the other client's label; the label is "Codex:", not "Codex CLI:" — `codex --version` is accurate for both surfaces, per Step 3's note, so the CLI/Desktop distinction stays only in the separate Client surface line)
+- <render exactly ONE line here, for whichever client Step 3 detected — never both, never the other client's label. Claude Code detected: the literal label "Claude Code: " followed by the `claude --version` output. Codex detected (CLI or Desktop): the literal label "Codex: " — never "Codex CLI:" — followed by the `codex --version` output, which per Step 3's note is accurate for both surfaces, so the CLI/Desktop distinction stays only in the Client surface line below.>
 - OS: <uname output>
 - Project stack: <manifest list>
 - Client surface: <inference from Step 3, or "uncertain">
@@ -350,7 +350,7 @@ recommendation quality (both for iEvo and upstream skills.sh).
 ## Environment
 
 - iEvo plugin: <version> (<commit-sha>)
-- <Claude Code: <claude --version output> — Step 3 detected Claude Code | Codex: <codex --version output> — Step 3 detected Codex (CLI or Desktop)> (render exactly one of these two lines, matching whichever client Step 3 detected — never both, never the other client's label; the label is "Codex:", not "Codex CLI:" — `codex --version` is accurate for both surfaces, per Step 3's note, so the CLI/Desktop distinction stays only in the separate Client surface line)
+- <render exactly ONE line here, for whichever client Step 3 detected — never both, never the other client's label. Claude Code detected: the literal label "Claude Code: " followed by the `claude --version` output. Codex detected (CLI or Desktop): the literal label "Codex: " — never "Codex CLI:" — followed by the `codex --version` output, which per Step 3's note is accurate for both surfaces, so the CLI/Desktop distinction stays only in the Client surface line below.>
 - OS: <uname output>
 - Project stack: <manifest list>
 - Client surface: <inference from Step 3, or "uncertain">

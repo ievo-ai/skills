@@ -24,7 +24,9 @@ Codex discovers hooks next to active config layers, in either format, highest pr
 |-------|------|-------|
 | Project-local | `<repo>/.codex/hooks.json` or `<repo>/.codex/config.toml` (`[hooks]` tables) | Only loads when the `.codex/` layer is trusted — closest analog to hooks-setup's own project-scoped `.claude/settings.json` writes (Step 3) |
 | User | `~/.codex/hooks.json` or `~/.codex/config.toml` | User-specific, applies globally |
-| System/plugin | bundled with enabled Codex plugins | Lowest precedence |
+| System/plugin | bundled with enabled Codex plugins (`hooks/hooks.json` in the plugin root, or a `hooks` entry in `.codex-plugin/plugin.json`) | Lowest precedence |
+
+**This list is exhaustive (issue #461).** Codex reads hooks from these layers and nowhere else — in particular it does **not** read a `hooks:` field from a skill's `SKILL.md` frontmatter or an agent markdown file's frontmatter. Those are Claude Code's [skill/agent-scoped hooks](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents); Codex's own `SKILL.md` frontmatter is documented as `name`/`description` only. A hook that must fire on Codex has to live in one of the rows above, whatever tool name it matches — see § "Getting the `evolution-captured` notification on Codex" below for iEvo's own worked case.
 
 ## Sub-agent lifecycle hooks (rust-v0.133.0+)
 
@@ -43,12 +45,38 @@ Codex's Task-tool-equivalent sub-agent dispatch (`spawn_agent`/`send_input`/`res
 
 ## `apply_patch` matcher aliases and matcher scope (issue #461)
 
-For file edits through `apply_patch`, a `PreToolUse`/`PostToolUse` matcher may be configured as `apply_patch`, `Edit`, or `Write` — the [Codex hooks reference](https://developers.openai.com/codex/hooks) documents all three as equivalent inputs for the same underlying tool, and confirms the hook input Codex delivers to the handler always reports the canonical `tool_name: "apply_patch"` regardless of which alias the matcher used. Two consequences worth stating explicitly, both surfaced while fixing #461 (`evo/SKILL.md` Step 5.5's exact `Write`-tool matcher, written for Claude Code, was unreachable on Codex's `apply_patch`-only surface):
+For file edits through `apply_patch`, a `PreToolUse`/`PostToolUse` matcher may be configured as `apply_patch`, `Edit`, or `Write` — the [Codex hooks reference](https://developers.openai.com/codex/hooks) documents all three as equivalent inputs for the same underlying tool, and confirms the hook input Codex delivers to the handler always reports the canonical `tool_name: "apply_patch"` regardless of which alias the matcher used. Two consequences worth stating explicitly, both surfaced while fixing #461 (iEvo's `evolution-captured` notification is a Claude Code `Write` matcher; the Codex equivalent has to be authored from scratch, in a Codex hooks layer, against `apply_patch`):
 
 - **The matcher filters on tool name only — never on a target path or argument.** A pattern like `Write(<path>)` (Claude Code's own `if:`-adjacent shorthand for a path-scoped permission rule) has no Codex equivalent; Codex's config schema has no field for it. A hook that needs to act only when `apply_patch` touched a *specific* path must do that check itself, inside the handler, against the hook's stdin JSON — matcher scoping alone cannot express it.
-- **Prefer the native `apply_patch` name over the `Edit`/`Write` aliases when a hook must fire on Codex only, never on a sibling Claude Code config sharing the same file.** iEvo's own `evo/SKILL.md`/`agents/evolution.md` frontmatter carries both a Claude Code entry (`matcher: "Write"`) and a Codex entry in the *same* `hooks:` block; using an alias like `Write` for the Codex entry would also match Claude Code's own literal `"Write"` tool-name reports there, double-firing. `apply_patch` never collides, since Claude Code has no tool by that name.
+- **Prefer the native `apply_patch` name over the `Edit`/`Write` aliases.** `Write` and `Edit` are also literal *Claude Code* tool names, so an entry keyed on an alias reads ambiguously next to a Claude Code config and would match on both platforms if the two ever shared a file. `apply_patch` never collides, since Claude Code has no tool by that name — making it the unambiguous choice for a Codex-only entry.
 
 `tool_input`'s exact shape for `apply_patch` isn't published as a field-level schema (Codex's own generated hook schemas type `tool_input` as "any JSON" — verified against `codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json`); a handler that needs to know which path a patch touched should match the raw stdin payload for the target path as a substring rather than assume a specific field name (e.g. `tool_input.path`) that isn't documented.
+
+## Getting the `evolution-captured` notification on Codex (issue #461)
+
+iEvo's zero-setup capture notification ships as a `hooks:` block in `evo/SKILL.md`'s and `agents/evolution.md`'s own YAML frontmatter — a **Claude Code** mechanism ([Hooks in skills and agents](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents)). Codex never loads that block: hook config comes only from the layers in § "Config file location and scopes" above. This is a config-layer gap, not a matcher gap — adding an `apply_patch` matcher to the skill's frontmatter would not help, because the frontmatter itself is never read on Codex.
+
+A Codex user (CLI or Desktop) gets the equivalent notification by putting the entry in a real Codex hooks layer — `<repo>/.codex/hooks.json` for this project only, or `~/.codex/hooks.json` globally:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'input=$(cat); case \"$input\" in *\".ievo/hooks/evolution-captured\"*) echo \"iEvo: evolution overlay captured\" ;; esac'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The path check lives in the command body rather than the matcher, for the two reasons in § "`apply_patch` matcher aliases and matcher scope" above: Codex's `matcher` filters on tool name only (no path-scoped `if:` equivalent), and `apply_patch`'s `tool_input` has no published field-level schema, so the handler substring-matches the raw stdin payload for the signal path instead of guessing a field name. It exits `0` and prints nothing when the patch touched anything else, so it is a no-op outside the one write it exists for.
 
 ## Codex Desktop vs Codex CLI (issue #461)
 

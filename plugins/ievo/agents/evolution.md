@@ -68,10 +68,6 @@ hooks:
         - type: command
           if: "Write(.ievo/hooks/evolution-captured)"
           command: "echo \"iEvo: evolution overlay captured\""
-    - matcher: "apply_patch"
-      hooks:
-        - type: command
-          command: "sh -c 'input=$(cat); case \"$input\" in *\".ievo/hooks/evolution-captured\"*) echo \"iEvo: evolution overlay captured\" ;; esac'"
 ---
 
 # Evolution Agent
@@ -378,7 +374,7 @@ Use the Write tool (NOT Bash) so the matcher fires:
 
 Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
 
-Zero-setup built-in: this agent's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while this sub-agent is running — covers the delegated path from `evo/SKILL.md` "On Claude Code with the iEvo plugin". `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file. Mirrors `evo/SKILL.md` Step 5.5's Codex compatibility note (issue #461): the second `matcher: "apply_patch"` entry above covers Codex's `apply_patch`-based edits the same way, with the same stdin-substring path check since Codex's matcher has no path-scoped `if:` equivalent.
+Zero-setup built-in: this agent's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while this sub-agent is running — covers the delegated path from `evo/SKILL.md` "On Claude Code with the iEvo plugin". `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file. Per `evo/SKILL.md` Step 5.5's Codex compatibility note (issue #461), this frontmatter tier is Claude-Code-only: Codex loads hook config from `.codex/hooks.json`, `.codex/config.toml`'s `[hooks]` tables, or a Codex plugin's bundled `hooks/hooks.json` — never from skill or agent frontmatter — so a Codex user configures the equivalent `apply_patch` entry there instead ([recipe](../skills/hooks-setup/references/codex-hooks.md#getting-the-evolution-captured-notification-on-codex-issue-461)).
 
 ## Step 4.6: Classify upstream relevance (for an escalation offer by the caller)
 

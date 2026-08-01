@@ -10,10 +10,15 @@
 // output it's built from is untrusted (it may embed anything the failing
 // command printed).
 //
-// Order matters (LAST bullet is why): redact secrets, then redact named
-// assignment values, then rewrite $HOME paths, then truncate LAST — so a
-// secret sitting inside an oversized blob is redacted before truncation could
-// slice through its signature and leave an unredacted fragment.
+// Order matters (the LAST step is why): redact PEM private-key blocks, then
+// provider-shaped secrets, then named assignment values, then URL-embedded
+// credentials, then rewrite $HOME paths, then truncate LAST — so a secret
+// sitting inside an oversized blob is redacted before truncation could slice
+// through its signature and leave an unredacted fragment. The PEM pass runs
+// FIRST because redactNamedSecrets is line-scoped: on a `TLS_KEY: -----BEGIN
+// ...` line it would take just the marker line as the assignment's value,
+// decapitating the armor so a later PEM pass could no longer recognise the
+// block while every body line below it still leaked.
 //
 // Stdlib only (Node 18+, bundled with Claude Code / Codex) — no dependencies.
 //
@@ -36,7 +41,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.76.1";
+export const SCRIPT_VERSION = "0.76.3";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -48,15 +53,87 @@ Usage:
   node scrub.mjs --version
   node scrub.mjs --help
 
-Redacts provider-shaped secret values (GitHub/OpenAI/Slack/AWS tokens, JWTs),
-secret-shaped NAME=value / NAME: value assignments (*_TOKEN/*_KEY/*_SECRET/
-*_PASSWORD/*_ID, bare PASSWORD/SECRET/TOKEN/APIKEY/API_KEY), rewrites
-$HOME-absolute paths to ~-relative, and caps output at ${MAX_CODEPOINTS} Unicode
-code points. Never writes a file; on any internal error emits nothing and
-exits 0 (fail-closed for content).`;
+Redacts PEM-armored private-key blocks, provider-shaped secret values
+(GitHub/OpenAI/Slack/AWS tokens, JWTs), secret-shaped NAME=value / NAME: value
+assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, bare PASSWORD/SECRET/
+TOKEN/APIKEY/API_KEY), URL-embedded credentials (scheme://user:pass@host),
+rewrites $HOME-absolute paths to ~-relative, and caps output at
+${MAX_CODEPOINTS} Unicode code points. Never writes a file; on any internal
+error emits nothing and exits 0 (fail-closed for content).`;
 
 // ---------------------------------------------------------------------------
-// 1. Provider-shaped secret VALUES (redacted regardless of surrounding name)
+// 1. PEM-armored private-key blocks (redacted wholesale, markers included)
+// ---------------------------------------------------------------------------
+
+// RFC 7468-style armor whose label names a private key: bare `PRIVATE KEY`
+// (PKCS#8), prefixed variants (`RSA`/`EC`/`DSA`/`ENCRYPTED`/`OPENSSH` — any
+// bounded uppercase prefix is accepted, so a novel future label ending in
+// "PRIVATE KEY" redacts rather than leaks), and PGP's suffixed
+// `PGP PRIVATE KEY BLOCK`. Markers and labels are uppercase by spec and real
+// generators emit them case-exact — the same case-exact discipline as
+// PROVIDER_SECRET_RE below. Public-material armor (`CERTIFICATE`,
+// `PUBLIC KEY`) is deliberately NOT matched: it carries no secret, and
+// redacting it would only destroy diagnostic signal. The prefix run is
+// length-bounded so a stray `-----BEGIN ` followed by a long uppercase run
+// costs constant work per scan position, not O(run).
+const PEM_LABEL = String.raw`(?:[A-Z0-9][A-Z0-9 ]{0,64} )?PRIVATE KEY(?: BLOCK)?`;
+
+// A complete block — `-----BEGIN <label>-----` body `-----END <label>-----`,
+// the END label backreference-matched to BEGIN's — is redacted exactly,
+// markers included. The body is `[\s\S]` (any character), not a base64
+// class: real bodies also carry PKCS#1 encryption headers
+// (`Proc-Type:`/`DEK-Info:` with `,`/`-`), PGP armor headers
+// (`Version:`/`Comment:`), blank lines, and — in the JSON-encoded tool
+// output this script scrubs — literal backslash-n escape pairs instead of
+// newlines; a narrower class would fail on those shapes and leak the whole
+// block.
+//
+// The fallback alternative redacts from an orphan `-----BEGIN ...-----`
+// marker to END OF INPUT when no matching END follows: a truncated capture
+// that cut the key off mid-body (the same truncated-capture class
+// MALFORMED_QUOTED_VALUE below handles for quoted values), or a
+// corrupted/mismatched END label. Everything after the marker is presumed
+// key material — over-redaction is the fail-closed direction, the same
+// trade the redact-to-end-of-line fallback below makes, widened to end of
+// input because a PEM body is inherently multi-line, so no line-scoped stop
+// condition can bound it.
+//
+// The strict alternative's lazy body is deliberately UNBOUNDED, unlike
+// QUOTED_VALUE_INNER below (bounded at 255) — the fallback is what makes
+// that safe. QUOTED_VALUE_INNER's quadratic came from n restarts of an
+// O(n) futile end-of-line scan, because its fallback advanced the scan
+// position only a few characters past each failure. Here a strict failure
+// drops into `[\s\S]*`, which consumes THE REST OF THE INPUT — so a whole
+// input pays at most one futile scan plus one linear consume, O(input)
+// unconditionally, with no bound needed. A bound would buy no linearity
+// and would cost redaction tightness: a complete block whose body exceeded
+// the bound would route to the redact-to-end-of-input fallback instead of
+// closing at its real END marker. Pinned by a linearity test alongside the
+// two existing redactNamedSecrets ones.
+const PEM_BLOCK_RE = new RegExp(
+  String.raw`-----BEGIN (${PEM_LABEL})-----(?:[\s\S]*?-----END \1-----|[\s\S]*)`,
+  "g",
+);
+
+// The SSH.com/Tectia dialect of the same armor — FOUR dashes with a space on
+// each side of the marker words (`---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----`,
+// RFC 4716's framing applied to private keys; what PuTTYgen's
+// "Export ssh.com key" emits). Not reachable by PEM_BLOCK_RE's five-dash
+// no-space literal, so it gets a sibling regex with the identical
+// strict-then-consume-to-end structure — same label set, same backreference,
+// same fallback rationale, same linearity argument. Found by the vuln-scan
+// pass on this diff, not by the original #530 report.
+const SSH2_BLOCK_RE = new RegExp(
+  String.raw`---- BEGIN (${PEM_LABEL}) ----(?:[\s\S]*?---- END \1 ----|[\s\S]*)`,
+  "g",
+);
+
+export function redactPemBlocks(text) {
+  return text.replace(PEM_BLOCK_RE, REDACTED).replace(SSH2_BLOCK_RE, REDACTED);
+}
+
+// ---------------------------------------------------------------------------
+// 2. Provider-shaped secret VALUES (redacted regardless of surrounding name)
 // ---------------------------------------------------------------------------
 
 // Each alternative is anchored with a fixed, case-exact provider prefix (real
@@ -80,7 +157,7 @@ export function redactProviderSecrets(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Assignment VALUES for secret-shaped NAMES (name kept, value redacted)
+// 3. Assignment VALUES for secret-shaped NAMES (name kept, value redacted)
 // ---------------------------------------------------------------------------
 
 // Suffix form: any identifier ending in _TOKEN / _KEY / _SECRET / _PASSWORD /
@@ -271,7 +348,57 @@ export function redactNamedSecrets(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. $HOME-absolute paths → ~-relative (never leak the username)
+// 4. URL-embedded credentials — the userinfo of scheme://user:pass@host
+// ---------------------------------------------------------------------------
+
+// Fires only when the userinfo carries a `:` — i.e. a password component
+// exists (`postgres://user:pass@host/db`, `redis://:pass@host`). A
+// colon-less `scheme://name@host` (`ssh://git@github.com/...`) is
+// overwhelmingly a plain, non-secret username in real tool output, and
+// redacting it would destroy routing diagnostics for no secrecy gain; a
+// provider-shaped token riding there alone is already PROVIDER_SECRET_RE's
+// job, which ran just above.
+//
+// The username run is `*`, not `+` — `redis://:pass@host` has an EMPTY
+// username, and requiring one leaks that whole shape (the issue's own
+// recommended regex required a non-empty username and so missed its own
+// `redis://:pass@host` example; re-derived from RFC 3986 rather than
+// copied).
+//
+// The WHOLE userinfo is redacted, not just the password: real credentials
+// ride in the username slot too (`https://<token>:x-oauth-basic@github.com`,
+// GitLab's `oauth2:<token>@`), so preserving the username can preserve the
+// secret. The host and everything after it survive — that is the diagnostic
+// half of the URL, and never the credential. (When THIS pass is what fires:
+// redactNamedSecrets runs first, so a username that is literally a bare
+// NAME_ALT keyword — `https://TOKEN:x@host/path` — is consumed there as a
+// `TOKEN:`-assignment whose unbounded value swallows host and path too.
+// Over-redaction, still fail-closed; noted so this comment doesn't overclaim.)
+//
+// Character classes follow RFC 3986: `/`, `?`, `#` hard-terminate the
+// authority, so none can appear raw inside userinfo — excluding them stops
+// false positives on credential-free URLs whose later parts contain `@`
+// (`https://host:8080?e=a@b.c`, `https://host:443/@user`); whitespace ends
+// a URL embedded in prose. The username run also excludes `:`, making the
+// FIRST colon the user/password split — deterministic, no ambiguity to
+// backtrack over, so matching stays linear. The password run ALLOWS raw `:`
+// and `@` (sloppy-but-real connection strings embed them unencoded): the
+// greedy run plus the final literal `@` backtracks to the LAST `@` in the
+// span, so `u:p@ss@host` redacts the full `u:p@ss`, never a prefix of it.
+// The scheme is RFC 3986's `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`,
+// length-bounded like every other open-ended run in this file so a long
+// letter run costs constant work per scan position.
+const URL_CREDENTIAL_RE = new RegExp(
+  String.raw`([A-Za-z][A-Za-z0-9+.-]{0,31}://)[^\s/?#:@]*:[^\s/?#]*@`,
+  "g",
+);
+
+export function redactUrlCredentials(text) {
+  return text.replace(URL_CREDENTIAL_RE, `$1${REDACTED}@`);
+}
+
+// ---------------------------------------------------------------------------
+// 5. $HOME-absolute paths → ~-relative (never leak the username)
 // ---------------------------------------------------------------------------
 
 function escapeRegExp(literal) {
@@ -288,7 +415,7 @@ export function rewriteHomePaths(text, home) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Cap at MAX_CODEPOINTS Unicode code points — LAST (see header comment)
+// 6. Cap at MAX_CODEPOINTS Unicode code points — LAST (see header comment)
 // ---------------------------------------------------------------------------
 
 export function truncateScrubbed(text, limit = MAX_CODEPOINTS) {
@@ -310,8 +437,10 @@ export function scrub(text, opts = {}) {
   }
   const home = opts.home ?? homedir();
   let out = text;
+  out = redactPemBlocks(out);
   out = redactProviderSecrets(out);
   out = redactNamedSecrets(out);
+  out = redactUrlCredentials(out);
   out = rewriteHomePaths(out, home);
   out = truncateScrubbed(out);
   return out;

@@ -12,7 +12,7 @@ metadata:
 
 # Consolidate — Documentation & Overlay Consolidation
 
-Fixes fragmented doc systems and overgrown evolution overlays: maps dependencies (or entry clusters), eliminates duplication, resolves "source of truth" ambiguity, and — when the source is an iEvo overlay — offers to extract a generalized cluster into a real, dispatchable skill or agent. Stops at 3 user checkpoints in every mode. Nothing is deleted, merged, or authored without explicit approval.
+Fixes fragmented doc systems and overgrown evolution overlays: maps dependencies (or entry clusters), eliminates duplication, resolves "source of truth" ambiguity, and — when the source is an iEvo overlay — offers to extract a generalized cluster into a real, dispatchable skill or agent, or condense an accumulated fact/convention cluster into a compact rule digest in place. Stops at 3 user checkpoints in every mode. Nothing is deleted, merged, authored, or digested without explicit approval.
 
 ## When to use
 
@@ -23,7 +23,7 @@ Fixes fragmented doc systems and overgrown evolution overlays: maps dependencies
 - A new team member can't figure out which file to update
 
 **Entry-cluster mode** (root is an iEvo overlay file):
-- Any overlay under `.ievo/evolution/` — project-wide (`project.md`), agent-scope (`agents/<name>.md`), or skill-scope (`skills/<name>.md`) — has accumulated entries that keep describing the same recurring flow or role
+- Any overlay under `.ievo/evolution/` — project-wide (`project.md`), agent-scope (`agents/<name>.md`), or skill-scope (`skills/<name>.md`) — has accumulated entries that keep describing the same recurring flow or role, or keep restating/refining the same fact or convention
 - Invoked directly (`/ievo:consolidate --root .ievo/evolution/project.md`, or `--root .ievo/evolution/agents/<name>.md` / `--root .ievo/evolution/skills/<name>.md`), or handed off to from `evo/SKILL.md` Step 5.7 after any overlay capture, regardless of scope
 
 ## Step 0: Determine root and mode
@@ -39,8 +39,8 @@ The two modes share the same 5-phase, 3-checkpoint skeleton but differ in what a
 ```
 Phase 1 — Discovery      Map the full dependency graph (or parse entries)     
 Phase 2 — Analysis       Duplicates, contradictions, decomposition principle
-Phase 3 — Proposal       Target structure, or stay-vs-consolidate-vs-extract   [CHECKPOINT 1]
-Phase 4 — Migration      Consolidate, or author + redirect, or merge in place       [CHECKPOINT 2]
+Phase 3 — Proposal       Target structure, or stay-vs-extract-vs-consolidate/digest   [CHECKPOINT 1]
+Phase 4 — Migration      Consolidate, or author + redirect, or merge/digest in place       [CHECKPOINT 2]
 Phase 5 — Verification   No broken refs / no orphaned entries     [CHECKPOINT 3]
 ```
 
@@ -104,11 +104,16 @@ Infer the current organizing principle: by domain, by role/audience, by process,
 For each entry, classify its shape:
 - **Procedure** — describes a repeatable flow ("do A → B → C whenever X happens"). Candidate for extraction to a **skill**.
 - **Judgment/role** — describes a repeatable stance or review posture needing its own context ("always push back when X", "act as the Y reviewer"). Candidate for extraction to an **agent**.
-- **Fact/convention** — a project-wide fact or one-off rule ("we use Python 3.12", "never commit .env"). NOT a candidate — stays in the overlay regardless of cluster size.
+- **Fact/convention** — a project-wide fact or one-off rule ("we use Python 3.12", "never commit .env"). Never a candidate for skill/agent extraction (E1/E2/E3) — a fact/convention entry always stays in this overlay. It IS eligible to cluster with other fact/convention entries on the same rule/topic (Step 4) for in-place digesting (Step 6, Option E6) — digesting condenses the overlay's own content, it never moves anything out of it.
 
 ### Entry-cluster mode — Step 4: Cluster detection (LLM judgment, no mechanical threshold)
 
-Group entries that independently describe the **same recurring flow or role** — semantic overlap, not just shared keywords. This is a judgment call made the same lightweight way `evo/SKILL.md` Step 1 classifies lesson scope: no sub-agent dispatch, no fixed entry-count threshold. Two entries are enough to form a cluster if they clearly describe one recurring thing; ten entries about ten unrelated topics form no cluster at all. Output: list of clusters, each with its member entries and a provisional shape (procedure / judgment-role / mixed).
+Cluster procedure/judgment-role entries and fact/convention entries **separately** — the two groups never share a cluster, since Step 3 already classified each entry's shape and the two shapes route to different Step 6 outcomes (extraction candidate vs. digest candidate):
+
+- **Procedure / judgment-role entries:** group entries that independently describe the **same recurring flow or role** — semantic overlap, not just shared keywords. Two entries are enough to form a cluster if they clearly describe one recurring thing; ten entries about ten unrelated topics form no cluster at all.
+- **Fact/convention entries:** group entries that independently state, restate, or revise the **same underlying rule or topic** — e.g. three entries that each pin down the project's Python version, or two entries both about the same "never commit X" convention. Same judgment-call standard: two entries are enough if they clearly describe the same rule/topic; unrelated one-off facts form no cluster.
+
+This is a judgment call made the same lightweight way `evo/SKILL.md` Step 1 classifies lesson scope: no sub-agent dispatch, no fixed entry-count threshold. Output: list of clusters, each with its member entries and a provisional shape (procedure / judgment-role / mixed / fact-convention).
 
 ### Entry-cluster mode — Step 5: Contradiction detection
 
@@ -119,9 +124,10 @@ Within a cluster, check whether member entries agree. A later entry that revises
 For each cluster from Step 4, decide the shape using Step 3's classification of its members:
 - All members **procedure** → shape = **skill**
 - All members **judgment/role** → shape = **agent**
-- Mixed → shape = **skill+agent pair** (the repeatable "how" becomes the skill, the review stance/judgment becomes the agent that may invoke it)
+- Mixed procedure/judgment-role → shape = **skill+agent pair** (the repeatable "how" becomes the skill, the review stance/judgment becomes the agent that may invoke it)
+- All members **fact/convention** (Step 4 never mixes this group with procedure/judgment-role) → shape = **digest**: a dateless, numbered rule list that replaces the cluster's members in place (Option E6, Step 7). One line per rule, substance only — no per-entry date, `**Trigger:**` line, or verbatim-quote framing carried over from the source entries. Every distinct rule among the cluster's members gets a line; when two or more members are Step 5's "later revises earlier" case (same rule, restated over time, not a contradiction), the digest keeps only the current version's substance — the superseded phrasing is intentionally not restated, that's the condensation this option exists for, and it is not lossy since git history retains every original entry. A genuine unresolved contradiction (Step 5) is never silently resolved this way — flag it instead of picking a side.
 
-Clusters made only of **fact/convention** entries are not extraction candidates — drop them from further consideration and leave them in the overlay untouched.
+A cluster made only of **fact/convention** entries is never a candidate for E1/E2/E3 (skill/agent) extraction — it is a **digest** candidate instead.
 
 ---
 
@@ -145,6 +151,7 @@ For each cluster surviving Step 6, propose one of:
 - **Option E3 — Extract to a skill+agent pair** (mixed shape). Show both draft packages.
 - **Option E4 — Stay in the overlay** — no extraction; the cluster is real but not yet worth the overhead (e.g. too small, too project-specific to generalize into a reusable package, or the user prefers it inline).
 - **Option E5 — Consolidate in place** — no new package; merge the cluster's members into one deduplicated entry that stays in the *same* overlay. Fits a cluster that is real and recurring but intrinsically tied to this overlay's own scope (e.g. several entries refining the same point about the agent/skill/project this overlay already belongs to) rather than generalizable into a standalone, dispatchable package. Show the draft merged entry (title, trigger, body) that will replace the cluster's members.
+- **Option E6 — Digest in place** (fact/convention shape only — Step 6's classification decides eligibility, not the user's preference). No new package and no merged dated entry; rewrite the cluster's members into the compact, dateless numbered rule list defined at Step 6, replacing them at the same position in the overlay. Show the draft digest block (title, trigger breadcrumb, numbered rule list) that will replace the cluster's members.
 
 Entries not in any cluster (Step 4) are never proposed for extraction — they are out of scope for this run and stay untouched regardless of the checkpoint outcome.
 
@@ -181,17 +188,20 @@ For each cluster approved at Checkpoint 1 (Option E1/E2/E3), author the package(
 
 For a cluster approved as **Option E5** instead, there is no package to author: draft the single merged entry directly — heading `## <today, YYYY-MM-DD HH:MM UTC> — <synthesized title>`, a `**Trigger:**` line noting it consolidates the cluster's N members (list their original dates so the "what changed and why" breadcrumb survives the merge even though git history is the full record), then a deduplicated body covering every source entry's content. Steps 1-5 above (name/description, package drafting, frontmatter validation, re-audit, write) don't apply — skip them. The merged entry is appended to the end of the overlay at Step 9 below (never inserted where the deleted members used to sit).
 
+For a cluster approved as **Option E6** instead, there is also no package to author: draft the single digest entry directly, same heading/breadcrumb mechanics as Option E5 so it stays a valid dated entry for Step 1's own parser and `overlay-status/SKILL.md`'s title-rendering on a future run — `## <today, YYYY-MM-DD HH:MM UTC> — <synthesized title>`, a `**Trigger:**` line noting it digests the cluster's N fact/convention members (list their original dates, same breadcrumb style as Option E5) — but the body is the Step 6 digest shape instead of E5's prose: a numbered list, one line per rule, substance only, no per-rule date, no per-rule `**Trigger:**`, no verbatim quote or incident narrative carried over from any source entry. Steps 1-5 above (name/description, package drafting, frontmatter validation, re-audit, write) don't apply — skip them, same as Option E5; a digest never leaves the trusted overlay for a new file, so there is no re-audit surface to gate. The digest entry is appended to the end of the overlay at Step 9 below (never inserted where the deleted members used to sit) — same position rule as Option E5, for the same reason: it carries today's date, and the overlay is a strictly chronological record.
+
 ### Entry-cluster mode — Step 9: Redirect, consolidate, and prune (ONLY after Checkpoint 2 approval)
 
 Never remove entries from the overlay before Checkpoint 2 is explicitly approved — this is the issue's hard requirement, and it mirrors `evo/SKILL.md`'s own "NEVER modify the agent/skill body" / conflict-surfacing caution against silent overrides. Once approved, handle each cluster per the option chosen at Checkpoint 1:
 
 1. **Option E1/E2/E3 (extract to a new skill/agent):** replace each migrated entry's body with a one-line redirect: `**Moved to** \`<new-package-path>\` (extracted <YYYY-MM-DD>).` Keep the original heading and date — the overlay stays a truthful chronological record of what happened, it just no longer duplicates content that now lives in the package. The new package is not loaded by default, so the pointer carries real navigation value.
 2. **Option E5 (consolidate in place):** delete the cluster's member entries outright from their original positions, then append the single merged entry (drafted at Step 8, dated today) at the end of the overlay — same as any newly-appended entry (`evo/SKILL.md` Step 4 always appends; never insert it positionally where an old member used to be, since the overlay is a strictly chronological record and a today-dated entry sitting among earlier, untouched entries would break that ordering). Do NOT leave a redirect stub here — the merged entry lives in this exact overlay file, which is already loaded in full every time this overlay is loaded (every session for `project.md`, every dispatch of the target agent/skill for an agent- or skill-scope overlay per `evo/SKILL.md` Step 5.7) — a stub pointing elsewhere in the same loaded file adds tokens with zero information. The same reasoning applies whenever the destination is otherwise-always-loaded context (e.g. the project canon file `AGENTS.md`/`CLAUDE.md`, which loads `project.md` via its marker block).
-3. Entries in Option E4 clusters, any entry outside a cluster, and any E1/E2/E3 cluster discarded at Step 8's re-audit gate, are left completely untouched.
+3. **Option E6 (digest in place):** delete the cluster's member entries outright from their original positions, then append the single digest entry (drafted at Step 8, dated today) at the end of the overlay — same positional rule as Option E5 above, for the same reason. Do NOT leave a redirect stub here either — same reasoning as E5: the digest lives in this exact, already-fully-loaded overlay file, so a stub pointing elsewhere in it is noise, not signal.
+4. Entries in Option E4 clusters, any entry outside a cluster, and any E1/E2/E3 cluster discarded at Step 8's re-audit gate, are left completely untouched.
 
 ### CHECKPOINT 2 (both modes)
 
-Show a diff summary (files created / deleted / changed — entry-cluster mode: packages authored + overlay entries redirected or consolidated in place). Wait for approval before finalizing (before Step 9 in entry-cluster mode; the doc-graph mode's Step 8/9 file writes are also gated here, matching the upstream flow).
+Show a diff summary (files created / deleted / changed — entry-cluster mode: packages authored + overlay entries redirected, consolidated, or digested in place). Wait for approval before finalizing (before Step 9 in entry-cluster mode; the doc-graph mode's Step 8/9 file writes are also gated here, matching the upstream flow).
 
 ---
 
@@ -215,7 +225,7 @@ For each content type from Step 3, confirm it lives in exactly one file now.
 
 ### Entry-cluster mode — Step 10: Entry inventory check
 
-Analogous to doc-graph Step 10, at entry granularity: every entry parsed in Step 1 must be accounted for — either it is in a package authored at Step 8, or it carries the Step 9 redirect note, or it was merged into a Step 9 in-place consolidated entry (Option E5), or its cluster was discarded at Step 8's re-audit gate and it remains untouched (same end state as Option E4), or it was never in a cluster and is untouched. Flag any entry that vanished with no destination as **MISSING** — stop and report.
+Analogous to doc-graph Step 10, at entry granularity: every entry parsed in Step 1 must be accounted for — either it is in a package authored at Step 8, or it carries the Step 9 redirect note, or it was merged into a Step 9 in-place consolidated entry (Option E5), or it was folded into a Step 9 digest entry (Option E6), or its cluster was discarded at Step 8's re-audit gate and it remains untouched (same end state as Option E4), or it was never in a cluster and is untouched. Flag any entry that vanished with no destination as **MISSING** — stop and report.
 
 ### Entry-cluster mode — Step 11: N/A
 
@@ -223,11 +233,11 @@ No dependency graph in this mode (mirrors Step 1's Step 2). Skip.
 
 ### Entry-cluster mode — Step 12: Duplicate re-check
 
-For Option E1/E2/E3 clusters, confirm no migrated content is duplicated between the overlay (which now holds only the Step 9 redirect note) and the new package. For Option E5 clusters, confirm the merged entry doesn't duplicate content living elsewhere in the overlay.
+For Option E1/E2/E3 clusters, confirm no migrated content is duplicated between the overlay (which now holds only the Step 9 redirect note) and the new package. For Option E5 clusters, confirm the merged entry doesn't duplicate content living elsewhere in the overlay. For Option E6 clusters, confirm the digest entry doesn't duplicate content living elsewhere in the overlay, and that no rule appears twice within the digest's own numbered list.
 
 ### Entry-cluster mode — Step 13: Single source of truth audit
 
-Confirm each migrated fact lives in exactly one place: in the new package for Option E1/E2/E3 (the overlay's redirect note points to it but does not restate it), or in the single merged entry for Option E5 (with no leftover per-member stub, since there is nothing on-demand to point at).
+Confirm each migrated fact lives in exactly one place: in the new package for Option E1/E2/E3 (the overlay's redirect note points to it but does not restate it), or in the single merged entry for Option E5 (with no leftover per-member stub, since there is nothing on-demand to point at), or in the single digest entry for Option E6 (same reasoning as E5 — no leftover per-member stub).
 
 ### CHECKPOINT 3 (both modes)
 
@@ -244,6 +254,7 @@ Cycles broken (doc-graph): C
 Packages authored (entry-cluster): <list of new skill/agent paths, or none>
 Discarded on re-audit (entry-cluster): <list of drafted package names + verdict, or none — Step 8 item 4; a headless auto-discard reads `DISCARDED — flagged <verdict>, no interactive session to confirm`>
 Entries consolidated in place (entry-cluster): <list of merged clusters, or none>
+Entries digested in place (entry-cluster): <list of digested clusters, or none>
 ```
 
 ## Anti-Pattern Detection
@@ -259,7 +270,10 @@ Stop and warn if:
 - **Entry-cluster mode:** a drafted package flagged YELLOW/RED on Step 8's re-audit is written to disk or presented at CHECKPOINT 2 without an explicit override (a headless run's auto-selection is always a discard, never an override) — discard the draft instead, before it is written
 - **Entry-cluster mode:** Step 8's package write (item 5) runs before its re-audit (item 4), so a flagged package has to be *deleted* rather than simply not written — the ordering exists precisely because this skill declares no delete capability
 - **Entry-cluster mode:** an Option E5 merged entry drops content present in any of its source entries — never lossy-merge
-- **Entry-cluster mode:** a redirect stub is left for an Option E5 cluster instead of a full delete (the destination is the same already-loaded overlay — a stub there is noise, not signal)
+- **Entry-cluster mode:** an Option E6 digest drops a rule's substance present in any of its source entries (other than a version superseded by a later revision of the *same* rule, per Step 5) — never lossy-digest
+- **Entry-cluster mode:** an Option E6 digest restates per-entry dates, `**Trigger:**` lines, or verbatim quotes/incident narrative from the source entries — that framing is exactly what a digest exists to drop; only the one overall heading + breadcrumb Trigger survive, per Step 8
+- **Entry-cluster mode:** a redirect stub is left for an Option E5 or E6 cluster instead of a full delete (the destination is the same already-loaded overlay — a stub there is noise, not signal)
+- **Entry-cluster mode:** a cluster mixing fact/convention entries with procedure/judgment-role entries reaches Step 6 — Step 4 clusters the two groups separately precisely so this can't happen; if it does, treat as a parsing/classification bug and stop rather than guessing a shape
 
 ## See also
 

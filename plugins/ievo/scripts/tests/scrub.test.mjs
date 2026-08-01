@@ -134,6 +134,29 @@ describe("redactPemBlocks", () => {
     );
   });
 
+  it("redacts the four-dash SSH.com/Tectia armor dialect (PuTTYgen export shape)", () => {
+    // RFC 4716-style framing: FOUR dashes, spaces around the marker words —
+    // unreachable by the five-dash no-space literal, covered by its own
+    // sibling regex. Found by the vuln-scan pass on this diff.
+    const block =
+      "---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----\nComment: exported by puttygen\nMIIEfake+base64==\n---- END SSH2 ENCRYPTED PRIVATE KEY ----";
+    assert.equal(redactPemBlocks(`before\n${block}\nafter`), `before\n${REDACTED}\nafter`);
+  });
+
+  it("redacts a truncated four-dash SSH2 block to end of input — fail-closed", () => {
+    const out = redactPemBlocks(
+      "log line\n---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----\nMIIEfakeTruncated",
+    );
+    assert.equal(out, `log line\n${REDACTED}`);
+    assert.doesNotMatch(out, /MIIEfake/);
+  });
+
+  it("leaves four-dash SSH2 PUBLIC key armor untouched", () => {
+    const block =
+      "---- BEGIN SSH2 PUBLIC KEY ----\nComment: not a secret\nAAAAB3fake==\n---- END SSH2 PUBLIC KEY ----";
+    assert.equal(redactPemBlocks(block), block);
+  });
+
   it("leaves certificate and public-key armor untouched (no secret, keep the signal)", () => {
     for (const label of ["CERTIFICATE", "PUBLIC KEY", "RSA PUBLIC KEY", "CERTIFICATE REQUEST"]) {
       const block = pemBlock(label);

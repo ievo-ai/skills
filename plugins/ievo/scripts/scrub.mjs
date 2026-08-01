@@ -115,8 +115,21 @@ const PEM_BLOCK_RE = new RegExp(
   "g",
 );
 
+// The SSH.com/Tectia dialect of the same armor — FOUR dashes with a space on
+// each side of the marker words (`---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----`,
+// RFC 4716's framing applied to private keys; what PuTTYgen's
+// "Export ssh.com key" emits). Not reachable by PEM_BLOCK_RE's five-dash
+// no-space literal, so it gets a sibling regex with the identical
+// strict-then-consume-to-end structure — same label set, same backreference,
+// same fallback rationale, same linearity argument. Found by the vuln-scan
+// pass on this diff, not by the original #530 report.
+const SSH2_BLOCK_RE = new RegExp(
+  String.raw`---- BEGIN (${PEM_LABEL}) ----(?:[\s\S]*?---- END \1 ----|[\s\S]*)`,
+  "g",
+);
+
 export function redactPemBlocks(text) {
-  return text.replace(PEM_BLOCK_RE, REDACTED);
+  return text.replace(PEM_BLOCK_RE, REDACTED).replace(SSH2_BLOCK_RE, REDACTED);
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +369,11 @@ export function redactNamedSecrets(text) {
 // ride in the username slot too (`https://<token>:x-oauth-basic@github.com`,
 // GitLab's `oauth2:<token>@`), so preserving the username can preserve the
 // secret. The host and everything after it survive — that is the diagnostic
-// half of the URL, and never the credential.
+// half of the URL, and never the credential. (When THIS pass is what fires:
+// redactNamedSecrets runs first, so a username that is literally a bare
+// NAME_ALT keyword — `https://TOKEN:x@host/path` — is consumed there as a
+// `TOKEN:`-assignment whose unbounded value swallows host and path too.
+// Over-redaction, still fail-closed; noted so this comment doesn't overclaim.)
 //
 // Character classes follow RFC 3986: `/`, `?`, `#` hard-terminate the
 // authority, so none can appear raw inside userinfo — excluding them stops

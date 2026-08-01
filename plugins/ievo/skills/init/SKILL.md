@@ -216,7 +216,7 @@ Stop only on missing gh / git / node prereqs. Permission setup is opt-in but str
 
 **Auto Mode + `classifyAllShell` interaction (CC v2.1.193+).** The `permissions.allow` entries above bypass the classifier only under Auto Mode's *default* behavior, where narrow Bash allow rules (like `Bash(gh api*)`) resolve before the classifier runs — and only Auto Mode is affected at all; other permission modes are untouched either way. If the user has `autoMode.classifyAllShell: true` set, that default is suspended: **every** bash call in this pipeline — 20+ across discovery, indexing, and scanning — is routed through the classifier individually, regardless of `permissions.allow`. This trades latency for coverage (a classifier round-trip per call instead of an instant allow-rule match) and any call the classifier doesn't recognize as safe may still be blocked, which can interrupt this skill's "execute continuously, without pausing" directive. There's no code-level workaround for this skill: tell the user to disable `autoMode.classifyAllShell` for the init session, or proceed knowing the whole pipeline now pays the per-call classifier cost.
 
-## Step 1.5: Codex environment pre-flight (Codex platform only)
+## Step 1.5: Client detection (plugin-wide canonical rule) + Codex environment pre-flight
 
 **Client detection (canonical — every other skill's "same rule as Step 1.5" cites this exact rule; issue #461).** Evaluate these checks **in order** and stop at the first one that matches:
 
@@ -246,7 +246,7 @@ codex doctor
 
   Common fixes: re-login to Codex (`codex login`), regenerate auth (`codex auth refresh`), update Codex CLI to the latest release.
 
-On Claude Code: skip this step entirely (no equivalent built-in diagnostic command yet — May 2026). The Step 1 prereq checks above cover the same surface (git / gh / node). Update this skill when Claude Code ships an equivalent.
+On Claude Code: the client-detection rule above still applies (it's what determined "Claude Code" in the first place, and every other skill/agent citing "Step 1.5" depends on it) — only the `codex doctor` diagnostic and its halt-on-failure gate are skipped, since Claude Code has no equivalent built-in diagnostic command yet (May 2026). The Step 1 prereq checks above cover the same surface (git / gh / node). Update this skill when Claude Code ships an equivalent.
 
 ## Step 2: Prepare project directories
 

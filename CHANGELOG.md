@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.75.9
+
+Wrap `<owner/repo@skill>` identifiers in an inline code span in `feedback/SKILL.md`'s Flow B rejection-reasons template — closes #494.
+
+- **Gap closed (#494)** — Flow B's "Installed"/"Skipped with reasons" lists embedded an attacker-influenced `<owner/repo@skill>` identifier (sourced from a candidate's own frontmatter via `discover.mjs`/skills.sh) raw into a public, auto-rendering GitHub issue body. A crafted identifier containing GFM image/link syntax (`![...](...)`/`[...](...)`) would render live the moment anyone opened the filed issue — an unauthenticated beaconing/spoofed-link injection.
+- **Fix** — every `<owner/repo@skill>` value is now wrapped in an inline code span before interpolation, mirroring `security-check/SKILL.md`'s existing "Excerpt containment" rule and `vuln-scan/SKILL.md`'s identical pattern for `title`/`exploit_chain.*`.
+- **Scope** — `plugins/ievo/skills/feedback/SKILL.md` (template + a Rules-section cross-reference); the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.75.8 → 0.75.9).
+
 ## v0.75.8
 
 Guard `scan_repo.mjs`'s `enumerateHooks()`/`enumerateMcp()`/`enumerateOnePlugin()` against a null entry — and against a null *document root* — in a scanned repo's `hooks.json`/`.mcp.json`/`plugin.json`, closing an unauthenticated-attacker scanner-crash gap — closes #521.

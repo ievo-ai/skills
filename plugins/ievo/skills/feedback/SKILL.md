@@ -380,8 +380,20 @@ exfiltration beacon or a spoofed link that fires with no further agent
 action needed. Wrap each `<owner/repo@skill>` value in an inline code span
 before writing it into the template — using a backtick run one character
 longer than the longest backtick run already inside the identifier, so it
-can't break out of its own span — rather than embedding it raw. (Same
-pattern as `security-check/SKILL.md`'s "Excerpt containment" note and
+can't break out of its own span — rather than embedding it raw. The `skill`
+half is NOT charset-constrained by anything upstream: `discover.mjs`'s
+`skill.name` field only checks `typeof === "string"` (no agentskills.io
+`[a-z0-9-]+` allowlist is applied at fetch time, whether the entry came from
+skills.sh or the Codex marketplace path), and `install-protocol.md`'s own
+naming check gates the INSTALL write, not this rejection-reasons render — so
+a leading/trailing backtick in `skill` is reachable here. Pad with a single
+literal space on BOTH sides when the identifier begins or ends with a
+backtick (CommonMark strips the pad only when both ends carry one; a
+one-sided pad would leave a stray space on display), and collapse every
+CR/LF run in the identifier to a single space before measuring the backtick
+run and wrapping (a blank line ends the list item before inline parsing
+runs, same as every other multi-line excerpt in this file's sibling rules).
+(Same pattern as `security-check/SKILL.md`'s "Excerpt containment" note and
 `vuln-scan/SKILL.md`'s identical rule for `title`/`exploit_chain.*`.)
 
 ## Step 5: Preview and confirm

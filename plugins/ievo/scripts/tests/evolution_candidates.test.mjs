@@ -5,7 +5,7 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -34,6 +34,12 @@ import {
   mainSafe,
   isCliEntry,
 } from "../evolution_candidates.mjs";
+
+// appendCandidate routes --text-file content through scrub.mjs's scrub(), which
+// is not redaction-only: these two pin the OTHER stages of that transform (see
+// the "capture-behaviour change" tests below), keyed off scrub.mjs's own
+// constants so the pins move with it instead of hardcoding 500 / the marker.
+import { MAX_CODEPOINTS, TRUNCATION_MARKER } from "../scrub.mjs";
 
 const SCRIPT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "evolution_candidates.mjs");
 
@@ -467,6 +473,34 @@ describe("appendCandidate", () => {
     assert.doesNotMatch(res.record.text, /ghp_[A-Za-z0-9]{30,}/);
     assert.match(res.record.text, /\[REDACTED\]/);
   });
+
+  // scrub() is not redaction-only — it also rewrites $HOME paths and truncates.
+  // Routing --text-file through it therefore changed what a captured correction
+  // looks like on disk (they were persisted verbatim before v0.75.11). Both
+  // stages are pinned here so a later scrub.mjs change can't move --text-file's
+  // persisted shape silently (#523 review finding).
+
+  it("truncates --text-file content past scrub()'s MAX_CODEPOINTS cap (capture-behaviour change)", () => {
+    const projectRoot = join(root, "tf-truncate");
+    // Plain filler: no secret shape and no $HOME shape, so of scrub()'s four
+    // stages only the truncation one can change this input.
+    const body = "a".repeat(MAX_CODEPOINTS + 25);
+    const textFilePath = allowedTextFile(projectRoot, "correction.txt", body);
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    assert.equal(res.written, true);
+    assert.equal(res.record.text, "a".repeat(MAX_CODEPOINTS) + TRUNCATION_MARKER);
+    assert.ok(res.record.text.endsWith(TRUNCATION_MARKER));
+  });
+
+  it("rewrites a $HOME-absolute path in --text-file content to ~ (capture-behaviour change)", () => {
+    const projectRoot = join(root, "tf-home");
+    const home = homedir();
+    const textFilePath = allowedTextFile(projectRoot, "correction.txt", `see ${home}/notes/pinning.md for the rule`);
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    assert.equal(res.written, true);
+    assert.equal(res.record.text, "see ~/notes/pinning.md for the rule");
+    assert.ok(!res.record.text.includes(home));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -686,6 +720,9 @@ describe("main", () => {
     assert.match(run.logs[0], /append --session/);
     assert.match(run.logs[0], /prune/);
     assert.match(run.logs[0], /--version/);
+    // #523: --help must state the --text-file restriction, not just its shape.
+    assert.match(run.logs[0], /--text-file <path> is untrusted input/);
+    assert.match(run.logs[0], /inside <project root>\/\.ievo\//);
   });
 
   it("exits 2 with an error on unparseable args", () => {

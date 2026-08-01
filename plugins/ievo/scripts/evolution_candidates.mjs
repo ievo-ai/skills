@@ -39,7 +39,7 @@
 // the correction contained an unescaped quote or shell metacharacter.
 // --text-file takes precedence when both --text and --text-file are given.
 //
-// --text-file is untrusted input (added v0.75.10, closes #523): the path can
+// --text-file is untrusted input (added v0.75.11, closes #523): the path can
 // be influenced by a compromised or prompt-injected agent turn issuing a
 // different --text-file value directly via Bash, so it is treated the same
 // as any other attacker-influenced filesystem input this plugin reads —
@@ -53,7 +53,19 @@
 // isOversized()), and run through scrub.mjs's scrub() before it is trimmed
 // and persisted — giving --text-file the same redaction guarantee the
 // failure-capture hook already applies externally before writing its own
-// --text-file. The --text (argv) path is untouched: no production caller
+// --text-file.
+//
+// scrub() is NOT redaction-only, so this changes what a captured correction
+// looks like on disk (corrections were persisted verbatim before v0.75.11):
+// after redacting, scrub() also rewrites $HOME-absolute paths to ~-relative
+// ones and caps the result at scrub.mjs's MAX_CODEPOINTS (500 Unicode code
+// points) with a "…[truncated]" marker. Accepted deliberately rather than
+// cherry-picking only the redaction stages: capture parity with the
+// failure-capture path (which has always applied the whole transform) is the
+// point, a correction worth reviewing is a sentence or two rather than 500+
+// code points, and a ~-relative path is the more useful form in a review
+// queue anyway. Pinned by tests so a later scrub.mjs change can't move this
+// silently. The --text (argv) path is untouched: no production caller
 // uses it today, and any future one is expected to redact upstream, same as
 // already documented above.
 
@@ -80,7 +92,14 @@ Usage:
   list   [--project <root>]
   prune  [--keep N] [--project <root>]
   --version
-  --help`;
+  --help
+
+Notes:
+  --text-file <path> is untrusted input: it must be an existing regular file
+  inside <project root>/.ievo/ and under a fixed size cap — any other path is
+  rejected rather than read. Its content is scrubbed before it is persisted:
+  secrets redacted, $HOME-absolute paths rewritten to ~-relative ones, and
+  over-long text truncated.`;
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -251,7 +270,10 @@ export function appendCandidate(
   // path itself is untrusted too (see the header comment and #523) — contain
   // it to .ievo/, require a regular file under the size cap, then scrub()
   // before trim/persist, same redaction guarantee the failure-capture hook
-  // already gets externally.
+  // already gets externally — and, since scrub() is not redaction-only, the
+  // same $HOME-path rewriting and 500-code-point truncation too (see the
+  // header note: this is why a --text-file correction is no longer persisted
+  // verbatim).
   // Known residual risk (found by /ievo:vuln-scan on this diff): the
   // assertTextFileReadable check and this read are separate syscalls on the
   // same path, so there is a narrow TOCTOU window in which a file that passed

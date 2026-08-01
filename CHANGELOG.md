@@ -6,6 +6,19 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.76.4
+
+Document Codex rust-v0.142.0 as the minimum version for reliable Step 6/8 (`repo-indexer`/`security-auditor`) parallel sub-agent dispatch — closes #232.
+
+- **Gap closed (#232)** — `init/SKILL.md`'s `compatibility` frontmatter named no Codex version floor for Step 6/8 parallel dispatch, and `AGENTS.md` § *Codex sub-agent delegation* documented the approval-prompt silent-stall condition but not this one. On pre-142 Codex, a Step 6/8 sub-agent that terminally failed was reported to the parent as an empty *successful* completion — indistinguishable from one that legitimately found nothing — so `/ievo:init` could rank and install off a short verdict set with no error shown.
+- **Fix** — sourced to the [rust-v0.142.0 release notes](https://github.com/openai/codex/releases/tag/rust-v0.142.0) (2026-06-22): "Parent agents now receive terminal subagent errors instead of seeing failed work as an empty successful completion" ([openai/codex#28375](https://github.com/openai/codex/pull/28375), merged 2026-06-16). `AGENTS.md` § *Codex sub-agent delegation* now carries the version floor, the citation, and distinguishes it from the neighboring approval-prompt-stall condition (harness/routing, not a version bump). `init/SKILL.md`'s `compatibility` field names the same floor.
+- **Not the exec-server/MCP framing the issue originally proposed** — the same rust-v0.142.0 release also makes exec-server processes and stdio MCP sessions survive transient disconnects (signed-URL refresh), which is the bullet #232 quoted. Traced to the merging PRs ([openai/codex#28512](https://github.com/openai/codex/pull/28512), [#28374](https://github.com/openai/codex/pull/28374), [#28546](https://github.com/openai/codex/pull/28546), [#28895](https://github.com/openai/codex/pull/28895)): it's a **remote/cloud exec-server (Codex Cloud remote-environment)** reliability fix — "remote exec-server connection," "signed WebSocket URL," "remote stdio MCP servers" running inside a remote sandbox — not the request's assumed local `spawn_agent` dispatch of `repo-indexer`/`security-auditor`. Per the neighboring AGENTS.md bullet § *Codex MCP tool-call timeout*, neither sub-agent holds an MCP session at all (they only read a candidate's `.mcp.json` as scan input), so a dropped-MCP-session note would have been uncorroborated for this pipeline. The terminal-subagent-error fix in the same release is the corroborated mechanism for the issue's actual user-visible symptom (partial results, no error) — a prior build of this same issue (PR #469, closed only for going stale/conflicting after main moved, never rejected) independently reached and shipped this same correction; this PR reproduces it against current `main`.
+- **Compatibility field was at 494/500 chars, 6 of headroom** — trimmed filler across the existing clauses (merged the three Claude-Code version notes into one clause, dropped restated words already covered by the skill body) to make room while keeping every existing fact; final field is 499/500 chars.
+- **Scope** — the frontmatter change in `init/SKILL.md` plus the reconciling note in `AGENTS.md` § *Codex sub-agent delegation*. No script or CI change. Docs-only, no coverage obligation.
+- **Version** — `fix:` → patch per AGENTS.md's bump table; `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.76.3 → 0.76.4).
+
+---
+
 ## v0.76.3
 
 Close two redaction gaps in `scrub.mjs` — PEM private-key blocks and URL-embedded credentials passed through every scrub stage unredacted (CWE-200) — Eva vuln-scan dogfooding finding, #530.

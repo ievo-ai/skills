@@ -23,7 +23,7 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 - iEvo plugin version: <version-from-read (Step 0)>
 - Plugin path: ${CLAUDE_PLUGIN_ROOT}
 - Plugin commit SHA: <`git -C ${CLAUDE_PLUGIN_ROOT} rev-parse --short HEAD` or "marketplace-installed">
-- Client: <"Codex ($CODEX_CLI set)" when the Step 1.5 detection fired, else "Claude Code" + output of `claude --version` — never run `claude --version` on Codex, it's a client-specific command (issue #432)>
+- Client: <"Codex ($CODEX_CLI set, or Codex Desktop signal — Step 1.5)" when the Step 1.5 detection fired, else "Claude Code" + output of `claude --version` — never run `claude --version` on Codex, it's a client-specific command (issue #432)>
 - OS: <output of `uname -srm`>
 - Run started: <ISO-8601 timestamp>
 ```
@@ -36,7 +36,7 @@ Created with the log file in Step 2.5 (`cat > "$LOG_PATH"` heredoc):
 
 Platform-conditional (SKILL.md Step 3): use the invoking client's template.
 
-**On Claude Code** (`$CODEX_CLI` unset):
+**On Claude Code** (Step 1.5: no Codex signal):
 
 ```markdown
 ## 3. Installed inventory
@@ -57,7 +57,7 @@ Platform-conditional (SKILL.md Step 3): use the invoking client's template.
 <comma-separated list of enabledPlugins keys, or "(none)">
 ```
 
-**On Codex** (`$CODEX_CLI` set) — no plugins-enabled line (`.claude/settings.json`
+**On Codex** (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — no plugins-enabled line (`.claude/settings.json`
 is never parsed on Codex) and no agents scan (Codex has no project-level
 custom-agent path); the migration note is included only when `.claude/skills/`
 holds vendored items invisible to Codex (SKILL.md Step 3):

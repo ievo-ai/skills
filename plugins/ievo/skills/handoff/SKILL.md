@@ -100,9 +100,9 @@ Reference by path or URL — never duplicate file content into the handoff:
 Auto-detect installed iEvo skills and suggest relevant ones for the next session:
 
 1. Check for `.ievo/skills-installed.json` — if present, read and extract skill names.
-2. If not present, scan the invoking client's own load paths for installed skills via Glob (`$CODEX_CLI` env var rule, same as `evo/SKILL.md` Step 1 — scanning the other client's dirs would suggest skills the next session can't actually load):
-   - On Claude Code (`$CODEX_CLI` unset): `.claude/skills/*/SKILL.md`, `.claude/plugins/*/skills/*/SKILL.md`
-   - On Codex (`$CODEX_CLI` set): `.agents/skills/*/SKILL.md`
+2. If not present, scan the invoking client's own load paths for installed skills via Glob (detect per `/ievo:init` Step 1.5, **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code; same rule as `evo/SKILL.md` Step 1 — scanning the other client's dirs would suggest skills the next session can't actually load):
+   - On Claude Code (Step 1.5: no Codex signal): `.claude/skills/*/SKILL.md`, `.claude/plugins/*/skills/*/SKILL.md`
+   - On Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal): `.agents/skills/*/SKILL.md`
 3. From the installed skills list, select those relevant to the next session's purpose. Always include `/ievo:init` if the next session involves a new project, `/ievo:evo` if it involves capturing lessons, and `/ievo:security-check` if it involves auditing.
 4. If no iEvo skills are detected, omit the suggested-skills section entirely rather than suggesting skills that may not be installed.
 
@@ -119,10 +119,10 @@ Reference the overlay paths; do not copy overlay content into the handoff.
 
 Capture which plugins are installed in the source session, so the receiving session can verify its own environment before acting on any skill or command this handoff references — a receiving session on a different machine, or a different platform (Codex vs Claude Code), may not have the same plugins installed.
 
-Detect the active platform via `$CODEX_CLI` ONLY — the same rule as Step 2d, not `codex --version`/`claude --version` (those only prove a CLI is installed alongside the current one, not which platform is actually driving this session):
+Detect the active platform via env-var signals ONLY — `/ievo:init` Step 1.5's canonical rule, the same one Step 2d uses, never `codex --version`/`claude --version` (those only prove a CLI is installed alongside the current one, not which platform is actually driving this session). Step 1.5 is an **ordered** rule — `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code. Keying off the bare `$CODEX_CLI` var alone would run `claude plugin list` in a Codex Desktop session, and dropping the leading `$CLAUDECODE` check would run `codex plugin list --json` in a Claude Code session that merely inherited a Desktop marker from a parent process (both issue #461):
 
-1. **Codex (`$CODEX_CLI` set):** run `codex plugin list --json` (Codex rust-v0.137.0+; rust-v0.138.0+ additionally reports each plugin's marketplace source in the JSON).
-2. **Claude Code (`$CODEX_CLI` unset):** run `claude plugin list`.
+1. **Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal):** run `codex plugin list --json` (Codex rust-v0.137.0+; rust-v0.138.0+ additionally reports each plugin's marketplace source in the JSON).
+2. **Claude Code (Step 1.5: no Codex signal):** run `claude plugin list`.
 3. **Command fails, returns empty output, or (Codex only) returns output that isn't valid JSON:** treat plugin state as unavailable — do not retry, do not block the handoff.
 4. **Neither Codex nor Claude Code (another agentskills.io platform):** skip capture entirely — there is no known plugin-list command to run.
 

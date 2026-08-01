@@ -8,12 +8,20 @@ effort: max
 # on description match, and (Claude Code v2.1.196+) blocks scheduled tasks from
 # firing it. Explicit `/ievo:init` still works.
 disable-model-invocation: true
-compatibility: "Requires `gh`/`git` CLI, Node 18+, network. Runs on **Claude Code and Codex** (Task, AskUserQuestion); skills cross-platform via agentskills.io. Codex (`$CODEX_CLI`): vendors `.agents/skills/`, no `.claude/*` config, agent/plugin installs unavailable. CC v2.1.169+/193+: `/cd` dir-switch + Auto Mode `classifyAllShell` (Step 1); v2.1.195+: dual-gate install consent (AGENTS.md). Codex rust-v0.142.0+: pre-142 reports failed Step 6/8 sub-agent as empty success (AGENTS.md Codex sub-agent delegation)."
+compatibility: "Requires `gh`/`git` CLI, Node 18+, network. Runs on **Claude Code and Codex (CLI/Desktop)** (Task, AskUserQuestion); skills cross-platform via agentskills.io. Codex: vendors `.agents/skills/`, no `.claude/*` config, agent/plugin installs unavailable. CC v2.1.169+/193+: `/cd` dir-switch + Auto Mode `classifyAllShell` (Step 1); v2.1.195+: dual-gate install consent (AGENTS.md). Codex rust-v0.142.0+: pre-142 reports failed Step 6/8 sub-agent as empty success (AGENTS.md Codex sub-agent delegation)."
+# Claude-Code-only surface, so the command carries NO Codex branch. `hooks:` in
+# SKILL.md frontmatter is a Claude Code layer; Codex reads hook config only from
+# `.codex/hooks.json`, `[hooks]` in `.codex/config.toml`, their `~/.codex/`
+# equivalents, and a plugin's bundled `hooks/hooks.json` (hooks-setup/references/
+# codex-hooks.md) — this block can therefore never fire on Codex. A Codex branch
+# here would be unreachable in the case it targets while still being reachable via
+# the inheritable env markers of Step 1.5's check 3, i.e. it could only ever
+# mis-fire on a genuine Claude Code session (issue #461).
 hooks:
   Stop:
     - hooks:
         - type: command
-          command: "if [ -n \"$CODEX_CLI\" ]; then echo \"iEvo init complete. Codex picks up skill changes automatically - restart Codex if a new skill doesn't appear.\"; else echo \"iEvo init complete. Run /reload-plugins to activate installed skills.\"; fi"
+          command: "echo \"iEvo init complete. Run /reload-plugins to activate installed skills.\""
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -56,7 +64,7 @@ install (vendor or plugin, project-scope, copy + source SHA metadata)
 
 **v0.6.0 — zero-prereq architecture**: dropped `find-skills` manual install. Discovery happens via own `discover.mjs` script (skills.sh API direct). All scanning, ranking, audit, and install decisions happen on user's machine. Independent and verifiable per-user, no central trust gates.
 
-**Install model** (Step 9): project-scope, into the invoking client's own load paths — Claude Code: `.claude/agents/`, `.claude/skills/`; Codex (`$CODEX_CLI` set): `.agents/skills/` (skills only — see Step 7a's platform filter) — **copy** files via Write tool (NOT symlink — robust against source moves). Source repo + commit SHA recorded in `.ievo/evolution/<scope>/<name>.md` frontmatter for upstream-update tracking via `/ievo:update`.
+**Install model** (Step 9): project-scope, into the invoking client's own load paths — Claude Code: `.claude/agents/`, `.claude/skills/`; Codex (Step 1.5's detection rule): `.agents/skills/` (skills only — see Step 7a's platform filter) — **copy** files via Write tool (NOT symlink — robust against source moves). Source repo + commit SHA recorded in `.ievo/evolution/<scope>/<name>.md` frontmatter for upstream-update tracking via `/ievo:update`.
 
 ## Step 0: Print version banner (read from disk — never infer)
 
@@ -172,7 +180,7 @@ Stop init on missing node. No graceful fallback — scan_repo.mjs is core to Ste
 
 ### Permission check (auto-mode classifier)
 
-**Platform — skip this entire subsection on Codex.** `.claude/settings.local.json` / `.claude/settings.json` `permissions.allow` entries are Claude Code's permission mechanism; Codex never reads them, so writing them from a Codex session configures the wrong client (this exact miss shipped `permissions` into `.claude/settings.json` from a Codex run — issue #432). If the host platform is Codex (`$CODEX_CLI` env var ONLY, per Step 1.5's detection rationale), skip the settings read, the `AskUserQuestion`, and any write — Codex's own approval flow prompts per command as needed. The hard prereq checks above (git / gh / node) still apply on every platform.
+**Platform — skip this entire subsection on Codex.** `.claude/settings.local.json` / `.claude/settings.json` `permissions.allow` entries are Claude Code's permission mechanism; Codex never reads them, so writing them from a Codex session configures the wrong client (this exact miss shipped `permissions` into `.claude/settings.json` from a Codex run — issue #432). If the host platform is Codex (per Step 1.5's detection rule — `$CODEX_CLI`, or a Codex Desktop signal), skip the settings read, the `AskUserQuestion`, and any write — Codex's own approval flow prompts per command as needed. The hard prereq checks above (git / gh / node) still apply on every platform.
 
 Init will run network/CLI commands the auto-mode classifier may block: `gh api`, `gh search`. Without pre-approval, each call hits a confirmation prompt — friction during the discovery phase.
 
@@ -208,9 +216,21 @@ Stop only on missing gh / git / node prereqs. Permission setup is opt-in but str
 
 **Auto Mode + `classifyAllShell` interaction (CC v2.1.193+).** The `permissions.allow` entries above bypass the classifier only under Auto Mode's *default* behavior, where narrow Bash allow rules (like `Bash(gh api*)`) resolve before the classifier runs — and only Auto Mode is affected at all; other permission modes are untouched either way. If the user has `autoMode.classifyAllShell: true` set, that default is suspended: **every** bash call in this pipeline — 20+ across discovery, indexing, and scanning — is routed through the classifier individually, regardless of `permissions.allow`. This trades latency for coverage (a classifier round-trip per call instead of an instant allow-rule match) and any call the classifier doesn't recognize as safe may still be blocked, which can interrupt this skill's "execute continuously, without pausing" directive. There's no code-level workaround for this skill: tell the user to disable `autoMode.classifyAllShell` for the init session, or proceed knowing the whole pipeline now pays the per-call classifier cost.
 
-## Step 1.5: Codex environment pre-flight (Codex platform only)
+## Step 1.5: Client detection (plugin-wide canonical rule) + Codex environment pre-flight
 
-If the host platform is Codex (detect via `$CODEX_CLI` env var ONLY — do NOT key off `command -v codex` because a Claude Code user may have the Codex CLI installed alongside, which would false-trigger this step on a non-Codex run), run `codex doctor` and check the exit code. `codex doctor` shipped in Codex `rust-v0.131.0` (May 18 2026) as a first-class diagnostic across runtime, auth, terminal, network, config, and local state.
+**Client detection (canonical — every other skill's "same rule as Step 1.5" cites this exact rule; issue #461).** Evaluate these checks **in order** and stop at the first one that matches:
+
+1. **`$CLAUDECODE` is set and `$CODEX_CLI` is not → Claude Code.** Claude Code exports `CLAUDECODE=1` into the environment of the commands it runs, making it the one *positive* Claude Code signal available (the same variable `debug-on/SKILL.md`'s session-start marker already reads). This check must come before the Codex Desktop markers below, because those markers are ordinary environment variables and are therefore **inherited by every descendant process** — `__CFBundleIdentifier=com.openai.codex` in particular is set for the whole Codex Desktop app subtree, so a Claude Code CLI session started from a terminal that Codex Desktop spawned carries it too. Without this positive check that session would detect as Codex and vendor into `.agents/skills/`, the wrong client's load path (the issue #432 class of bug, reached by a new trigger). The `$CODEX_CLI`-unset half of the condition keeps check 2 authoritative for the mirror case (a Codex CLI session started from inside a Claude Code shell inherits `CLAUDECODE` the same way).
+2. **`$CODEX_CLI` is set → Codex** — Codex CLI (terminal) sessions.
+3. **A Codex Desktop signal is present → Codex**: `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or (macOS only) `__CFBundleIdentifier=com.openai.codex` (both verified empirically against a live Codex Desktop session, issue #461 — Codex Desktop never sets `$CODEX_CLI`, which is exactly why the pre-#461 "`$CODEX_CLI` env var ONLY" rule misdetected it as Claude Code and then read/wrote the wrong client's config throughout every gated skill). Neither marker is documented in Codex's public environment-variable reference — treat them as best-effort corroborating evidence, not a guaranteed contract, and re-verify if a future Codex release stops setting them. Being the weakest and most inheritance-prone signals, they are deliberately ranked last.
+
+Absent **all** of the above → **Claude Code** (unchanged default — this rule adds a positive Codex Desktop detection path plus the positive Claude Code check that bounds it; it does not change what "no signal at all" means).
+
+Still do **not** key off `command -v codex` — a Claude Code user may have the Codex CLI installed alongside, which would false-trigger Codex-only behavior on a genuine Claude Code run (unchanged rule).
+
+**Every other "`$CODEX_CLI` set" / "`$CODEX_CLI` unset" mention in this skill, and in any other iEvo skill/agent that cites "the same rule as Step 1.5" or "per Step 1.5", means this whole ordered rule — never the bare environment variable in isolation, and never the Codex signals without the `$CLAUDECODE` check that precedes them.**
+
+If the host platform is Codex per the rule above, run `codex doctor` and check the exit code. `codex doctor` shipped in Codex `rust-v0.131.0` (May 18 2026) as a first-class diagnostic across runtime, auth, terminal, network, config, and local state.
 
 ```bash
 codex doctor
@@ -226,7 +246,7 @@ codex doctor
 
   Common fixes: re-login to Codex (`codex login`), regenerate auth (`codex auth refresh`), update Codex CLI to the latest release.
 
-On Claude Code: skip this step entirely (no equivalent built-in diagnostic command yet — May 2026). The Step 1 prereq checks above cover the same surface (git / gh / node). Update this skill when Claude Code ships an equivalent.
+On Claude Code: the client-detection rule above still applies (it's what determined "Claude Code" in the first place, and every other skill/agent citing "Step 1.5" depends on it) — only the `codex doctor` diagnostic and its halt-on-failure gate are skipped, since Claude Code has no equivalent built-in diagnostic command yet (May 2026). The Step 1 prereq checks above cover the same surface (git / gh / node). Update this skill when Claude Code ships an equivalent.
 
 ## Step 2: Prepare project directories
 
@@ -240,13 +260,13 @@ Create if missing:
 - `.ievo/log/pending-reports/` — for security-issue reports that couldn't be filed live (gh auth missing, rate limit, repo issues disabled). User can file manually later from these saved bodies.
 
 Plus the platform's vendor root — create only the invoking client's directories
-(`$CODEX_CLI` env var per Step 1.5), never both:
+(Step 1.5's detection rule), never both:
 
-- **Claude Code** (`$CODEX_CLI` unset):
+- **Claude Code** (Step 1.5: no Codex signal):
   - `.claude/` — root for vendored items
   - `.claude/agents/` — for vendored agents
   - `.claude/skills/` — for vendored skills (init uses direct file writes via Write tool, NOT `npx skills add`)
-- **Codex** (`$CODEX_CLI` set):
+- **Codex** (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal):
   - `.agents/skills/` — for vendored skills. Codex scans `.agents/skills` from the
     working directory up to the repo root, plus `$HOME/.agents/skills`
     ([Codex skills docs](https://developers.openai.com/codex/skills)); `.claude/*`
@@ -283,9 +303,9 @@ Step 0a above already hard-stops the entire pipeline if
 reaching this step already proves plugin-mode. No additional check is needed.
 
 **Platform — skip entirely on Codex.** `.claude/settings.json` is a Claude
-Code-specific file. Detect Codex the same way Step 1.5 does (`$CODEX_CLI` env var
-ONLY — never `command -v codex`, for the same false-trigger reason given there) and
-skip this step there; see Step 2.3 for the Codex-side note.
+Code-specific file. Detect Codex the same way Step 1.5 does (`$CODEX_CLI` set, or
+a Codex Desktop signal — never `command -v codex`, for the same false-trigger
+reason given there) and skip this step there; see Step 2.3 for the Codex-side note.
 
 **Action:**
 1. Read or create `.claude/settings.json`.
@@ -336,7 +356,7 @@ documentation no-op, not a file write:
   (`AVAILABLE`) as part of this — that governs onboarding/default-install UX for
   iEvo's own public marketplace across every future Codex user, a separate,
   deliberately-deferred call, out of scope here.
-- If the host platform is Codex (`$CODEX_CLI` set), tell the user once in the
+- If the host platform is Codex (Step 1.5's rule), tell the user once in the
   final summary (Step 12): "iEvo's own project-level auto-bootstrap isn't
   available on Codex yet — Codex doesn't persist project-scoped plugin config
   (openai/codex#18115). Install/update iEvo manually on each machine for now."
@@ -356,7 +376,7 @@ cat > "$LOG_PATH" <<EOF
 ## 0. Plugin metadata
 - iEvo plugin: <version from Step 0 banner>
 - Plugin commit SHA: <or "marketplace-installed">
-- Client: <Codex (\$CODEX_CLI set) | Claude Code (\`claude --version\`)>
+- Client: <Codex (\$CODEX_CLI set, or Codex Desktop signal — Step 1.5) | Claude Code (\`claude --version\`)>
 - OS: <uname -srm>
 - Run started: <ISO-8601 timestamp>
 EOF
@@ -371,7 +391,7 @@ If a step takes a long time (e.g. `discover.mjs` or `index-repos` for big repos)
 The inventory answers "what is already available to THIS client" — so scan the
 invoking client's load paths, not the other platform's.
 
-**On Claude Code** (`$CODEX_CLI` unset), collect names from:
+**On Claude Code** (Step 1.5: no Codex signal), collect names from:
 
 **Skills installed:**
 - `.claude/skills/<name>/SKILL.md`
@@ -388,8 +408,8 @@ invoking client's load paths, not the other platform's.
 **Plugins enabled:**
 - Parse `.claude/settings.json` field `enabledPlugins` keys
 
-**On Codex** (`$CODEX_CLI` set), collect names from the Codex-visible skill
-directories instead:
+**On Codex** (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal), collect
+names from the Codex-visible skill directories instead:
 
 - `.agents/skills/<name>/SKILL.md` (working directory up to repo root)
 - `~/.agents/skills/<name>/SKILL.md`
@@ -564,7 +584,7 @@ Filter and rank **per category** (not overall):
 
 ### Step 7a — Filter
 
-- **Platform filter (Codex only, `$CODEX_CLI` set)** — drop every `type: agent`
+- **Platform filter (Codex only, Step 1.5's detection rule)** — drop every `type: agent`
   candidate, reason `"not installable on Codex: Codex loads only skills
   (.agents/skills); no documented project-level custom-agent path"` (per the
   [Codex skills docs](https://developers.openai.com/codex/skills) — re-check on
@@ -672,7 +692,7 @@ Options:
   - "Skip"
 ```
 
-On **Codex** (`$CODEX_CLI` set), never offer "Install whole plugin" — that path
+On **Codex** (Step 1.5's detection rule), never offer "Install whole plugin" — that path
 is `extraKnownMarketplaces`/`enabledPlugins` in `.claude/settings.json`, a
 Claude Code mechanism Codex never reads (and Codex has no project-level plugin
 enable either — Step 2.3 / openai/codex#18115). Ask instead:
@@ -772,7 +792,8 @@ plugins). Vendor = clone once + enumerate with Glob + fetch via Read/Write
 (never a Bash/`gh api` command built from the item's path — see
 install-protocol.md § "How to fetch the tree"), write to the **platform's
 vendor root** — Claude Code: `.claude/skills/<name>/` or
-`.claude/agents/<name>.md`; Codex (`$CODEX_CLI` set): `.agents/skills/<name>/`
+`.claude/agents/<name>.md`; Codex (Step 1.5's detection rule — `$CODEX_CLI`
+set, or a Codex Desktop signal): `.agents/skills/<name>/`
 (skills only — agents never reach this step on Codex, per Step 7a's platform
 filter) — inject the `<!-- ievo:start -->` overlay marker,
 and create the `.ievo/evolution/<scope>/<name>.md` overlay (with the full
@@ -849,9 +870,9 @@ If the user hasn't run `/ievo:hooks-setup`, the file is still written — it's a
 
 ## Step 12: Final summary and reload reminder
 
-This skill's own `hooks:` frontmatter (above) already prints a one-line "init complete" message via a `Stop` hook when the pipeline's turn ends (platform-conditional on `$CODEX_CLI`, zero setup required) — the print below is the full interactive summary, not a duplicate of the hook message.
+This skill's own `hooks:` frontmatter (above) already prints a one-line "init complete" message via a `Stop` hook when the pipeline's turn ends (Claude-Code-only — that frontmatter carries no Codex branch, zero setup required) — the print below is the full interactive summary, not a duplicate of the hook message.
 
-**On Claude Code** (`$CODEX_CLI` unset), print to user:
+**On Claude Code** (Step 1.5: no Codex signal), print to user:
 
 ```
 ✓ iEvo init complete.
@@ -883,7 +904,7 @@ Project settings updated: .claude/settings.json (commit to git for team sync)
 Step 2.2 already folded iEvo's own entry into the "Project settings updated"
 line — no separate confirmation line needed on Claude Code.
 
-**On Codex** (`$CODEX_CLI` set), print this variant instead — never `/reload-plugins`
+**On Codex** (Step 1.5's detection rule), print this variant instead — never `/reload-plugins`
 (not a Codex command), never a `/plugin` menu path, never a `.claude/settings.json`
 claim (nothing was written there on this platform):
 
@@ -927,7 +948,7 @@ candidates this run)."
 Step 12 just printed one of two hand-authored, platform-conditional blocks —
 exactly the kind of text that shipped a wrong recommendation before (`/ievo:init`
 telling a Codex user to run `/reload-plugins`, issue #432): a real mismatch
-between the branch this run actually took (`$CODEX_CLI`, Step 1.5's rule) and
+between the branch this run actually took (Step 1.5's detection rule) and
 the platform-specific commands/paths/menus named in the block it printed. This
 step is a cheap, mechanical self-check against exactly that failure class — not
 a re-review of the branching logic itself, and not a general "did I do a good
@@ -939,12 +960,12 @@ by substring match: a phrase is a mismatch only when the block routes the user
 **to** the other platform's surface — presenting it as a step to follow, or as
 a claim about what this run did or wrote.
 
-- **`$CODEX_CLI` unset (Claude Code run):** the printed block must not send the
+- **No Codex signal (Claude Code run):** the printed block must not send the
   user to a Codex-only path or behavior — `.agents/skills/`, "Codex picks up
   skill changes automatically", or similar.
-- **`$CODEX_CLI` set (Codex run):** the printed block must not send the user to
-  a Claude-Code-only command, path, or menu — `/reload-plugins`,
-  `.claude/settings.json`, `/plugin →`, or similar.
+- **Codex signal present, `$CODEX_CLI` or Desktop (Codex run):** the printed
+  block must not send the user to a Claude-Code-only command, path, or menu —
+  `/reload-plugins`, `.claude/settings.json`, `/plugin →`, or similar.
 
 **Carve-out — a deliberate contrastive mention is NOT a mismatch.** Step 12's
 Codex block names Claude-Code-only mechanisms on purpose, precisely to say they
@@ -982,7 +1003,7 @@ costs nothing and mirrors how evo-auto's own hooks capture without asking —
   where a plugin-shipped skill like `init` never appears, so it would find no
   match and fall through to its "ask the user, do not guess" rule.
 - **Lesson text (verbatim English)**, e.g.: "`/ievo:init` Step 12 printed '<the
-  offending phrase>' on Codex ($CODEX_CLI set), which is a Claude-Code-only
+  offending phrase>' on Codex (Step 1.5's detection rule), which is a Claude-Code-only
   <command|path|menu>. Detected platform was Codex." Name `/ievo:init`
   explicitly in the text (not just "Step 12") so it literally satisfies Step
   5.6's own "names an iEvo capability" signal below, not just the surrounding
@@ -1023,7 +1044,7 @@ install actually took effect or silently failed (`defaultEnabled: false` from a
 settings conflict, a `.claude/skills/ievo/` path collision, a marketplace-vs.
 -vendored divergence). This step gives that confirmation a mechanical backstop.
 
-**Claude Code only** — skip this step entirely on Codex (`$CODEX_CLI` set).
+**Claude Code only** — skip this step entirely on Codex (Step 1.5's detection rule).
 `claude plugin list` is a Claude-Code CLI command with no Codex equivalent;
 Codex's own plugin listing (`codex plugin list --json`) is a different
 mechanism already used for discovery (Step 5b), not for verifying this skill's

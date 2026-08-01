@@ -66,9 +66,9 @@ Do NOT flag:
 
 ## Phase 2: Cross-check against installed skills/agents
 
-Enumerate what's already installed, same client-gated target set `evo/SKILL.md` Step 1 matches lesson targets against (detect the invoking client once via the `$CODEX_CLI` env var — same rule):
+Enumerate what's already installed, same client-gated target set `evo/SKILL.md` Step 1 matches lesson targets against (detect the invoking client once per `/ievo:init` Step 1.5, **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code, else `$CODEX_CLI` set → Codex, else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex, else Claude Code; same rule):
 
-**On Claude Code (`$CODEX_CLI` unset) — project-level (preferred):**
+**On Claude Code (Step 1.5: no Codex signal) — project-level (preferred):**
 - `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`
 - `.claude/plugins/*/skills/*/SKILL.md`, `.claude/plugins/*/agents/*.md`
 
@@ -76,7 +76,7 @@ Enumerate what's already installed, same client-gated target set `evo/SKILL.md` 
 - `~/.claude/skills/*/SKILL.md`, `~/.claude/agents/*.md`
 - `~/.claude/plugins/*/skills/*/SKILL.md`, `~/.claude/plugins/*/agents/*.md`
 
-**On Codex (`$CODEX_CLI` set) — skills only:**
+**On Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — skills only:**
 - `.agents/skills/*/SKILL.md` (project-level, preferred), `~/.agents/skills/*/SKILL.md` (user-level fallback) — Codex documents no project-level custom-agent path, so there is no agent set to cross-check on Codex
 
 For each pattern from Phase 1, check whether an existing skill/agent's `description` (and, if ambiguous, its body) already covers it. This feeds Phase 3's disposition call — it does not itself write or propose anything.

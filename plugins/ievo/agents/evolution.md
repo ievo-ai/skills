@@ -5,7 +5,7 @@ model: opus
 # Steps 2-4 (overlay append) are mechanical, but Step 2.5 applies
 # `security-check`'s full threat-pattern deep-scan + GREEN/YELLOW/RED verdict
 # to freshly-vendored content before it lands in `.claude/agents/`/
-# `.claude/skills/` (`.agents/skills/` on Codex — Step 1's `$CODEX_CLI`
+# `.claude/skills/` (`.agents/skills/` on Codex — Step 1's detection
 # rule) — the same antivirus guarantee `security-auditor` and
 # `vuln-scanner` pin `high` for. `effort` is per-agent, not per-step, so the
 # security gate sets the floor: pinned high so a low-effort caller session
@@ -103,9 +103,9 @@ Three possible scopes:
 2. **Agent-specific** — names an agent or describes sub-agent behavior. Signals: "the spec-writer should X". → `.ievo/evolution/agents/<name>.md`
 3. **Skill-specific** — names a skill or describes procedural knowledge. Signals: "when working with PDFs, prefer X". → `.ievo/evolution/skills/<name>.md`
 
-For agent/skill scope, determine the target name explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (`$CODEX_CLI` env var ONLY — same rule as `evo/SKILL.md` Step 1 and `/ievo:init` Step 1.5) and scan that client's own load paths, never the other client's:
+For agent/skill scope, determine the target name explicitly (from user) or by matching the lesson against available targets. Detect the invoking client once (same rule as `evo/SKILL.md` Step 1 and `/ievo:init` Step 1.5), spelled out in full here since this agent runs standalone with no init-session context to fall back on — **ordered**, first match wins: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code; else `$CODEX_CLI` set → Codex; else a Codex Desktop signal present (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS `__CFBundleIdentifier=com.openai.codex`) → Codex; else Claude Code. The leading `$CLAUDECODE` check matters especially here: `__CFBundleIdentifier` is inherited by every process under Codex Desktop's app bundle, and this agent is dispatched fresh with no session history proving which client actually invoked it — skipping straight to the Desktop-signal check would misdetect a Claude Code-run instance that merely inherited the marker (the issue #432 wrong-load-path class). Then scan the detected client's own load paths, never the other client's:
 
-**On Claude Code (`$CODEX_CLI` unset) — project-level (preferred):**
+**On Claude Code (Step 1.5: no Codex signal) — project-level (preferred):**
 - `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`
 - `.claude/plugins/*/agents/*.md`, `.claude/plugins/*/skills/*/SKILL.md`
 
@@ -113,7 +113,7 @@ For agent/skill scope, determine the target name explicitly (from user) or by ma
 - `~/.claude/agents/*.md`, `~/.claude/skills/*/SKILL.md`
 - `~/.claude/plugins/*/agents/*.md`, `~/.claude/plugins/*/skills/*/SKILL.md`
 
-**On Codex (`$CODEX_CLI` set) — skills only:**
+**On Codex (Step 1.5: `$CODEX_CLI` set, or a Codex Desktop signal) — skills only:**
 - Project-level (preferred): `.agents/skills/*/SKILL.md`
 - User-level (fallback): `~/.agents/skills/*/SKILL.md`
 
@@ -133,7 +133,7 @@ Only for agent/skill scope. Skip for project-wide.
 
 If the target lives in a plugin (not already in the invoking client's project-level load path from Step 1):
 
-**Vendor the file — into the invoking client's own load path (`$CODEX_CLI` rule from Step 1), never the other client's:**
+**Vendor the file — into the invoking client's own load path (Step 1's detection rule), never the other client's:**
 - For agent: copy `<plugin>/agents/<name>.md` → `.claude/agents/<name>.md` (Claude Code only — Step 1's Codex filter never routes agent scope here)
 - For skill: copy `<plugin>/skills/<name>/` directory (whole tree) → Claude Code: `.claude/skills/<name>/`; Codex: `.agents/skills/<name>/` — vendoring to `.claude/skills/` from a Codex session strands the copy where Codex never scans (issue #432)
 
@@ -306,7 +306,7 @@ Where `<scope>` is `agents` or `skills` and `<name>` is the target name. The mar
 For project-wide lessons, host the marker in the project root instruction file. Pick the host by priority:
 
 1. **Thin-pointer first.** If `CLAUDE.md` exists but is a short redirect stub that delegates to `AGENTS.md` as the single source of truth — content ≤ ~20 lines **and** references `AGENTS.md` (case-insensitive), not a substantive rules file that merely mentions it — host the marker in `AGENTS.md`. Codex reads `AGENTS.md`, not `CLAUDE.md`, so a marker in a redirect-stub `CLAUDE.md` is invisible on Codex; `AGENTS.md` is the one file both platforms effectively read (Codex directly; Claude Code via the pointer). No dual-inject.
-2. Else `CLAUDE.md` if it exists, else `AGENTS.md` if it exists, else create the invoking platform's own root file — detect via `$CODEX_CLI` (same rule as Step 1): if set (Codex), create `AGENTS.md`; if unset (Claude Code), create `CLAUDE.md` (unchanged default). **Regression case this fixes (#511):** on a fresh project with neither file, this fallback previously created `CLAUDE.md` unconditionally — invisible to Codex, which never reads it — so a Codex capture landed the overlay but never activated it as a project rule. Distinct from item 1's thin-pointer case (#304/#309): this is the neither-file-exists branch.
+2. Else `CLAUDE.md` if it exists, else `AGENTS.md` if it exists, else create the invoking platform's own root file — detect per `/ievo:init` Step 1.5 (same rule as Step 1): on Codex (`$CODEX_CLI` set, or a Codex Desktop signal), create `AGENTS.md`; on Claude Code (no Codex signal), create `CLAUDE.md` (unchanged default). **Regression case this fixes (#511):** on a fresh project with neither file, this fallback previously created `CLAUDE.md` unconditionally — invisible to Codex, which never reads it — so a Codex capture landed the overlay but never activated it as a project rule. Distinct from item 1's thin-pointer case (#304/#309): this is the neither-file-exists branch.
 
 Before injecting, check **both** `CLAUDE.md` and `AGENTS.md` for an existing `<!-- ievo:start -->` marker — if *either* already has one, skip (preserves the single-host guarantee even if `CLAUDE.md` changed shape between captures). Otherwise append the block to the chosen host, creating that host if it does not yet exist.
 
@@ -374,7 +374,7 @@ Use the Write tool (NOT Bash) so the matcher fires:
 
 Always write — costs nothing, unblocks hook configuration added later. Skip if Step 4 failed.
 
-Zero-setup built-in: this agent's own `hooks:` frontmatter (above) already prints a one-line confirmation on this exact write, active only while this sub-agent is running — covers the delegated path from `evo/SKILL.md` "On Claude Code with the iEvo plugin". `/ievo:hooks-setup` remains available for a richer, persistent, cross-session notification (desktop popup, custom script) on the same signal file.
+No built-in notification on this delegated path: this file's own frontmatter comment above already establishes that plugin-shipped agents ignore `hooks:` entirely — so the `hooks:` block above never fires for this agent as actually installed, on Claude Code or Codex, regardless of platform. `evo/SKILL.md`'s own direct-execution path (not delegated to this sub-agent) does get a working built-in confirmation from ITS `hooks:` frontmatter, since that limitation is agent-specific, not skill-specific — but when the capture is delegated here instead, `/ievo:hooks-setup`'s Step 5 `PostToolUse` config for this signal file is the only NOTIFICATION MECHANISM that reaches this path, not merely a richer alternative to a working built-in. That step's own template currently writes the path pattern into `matcher` (`"Write(.ievo/hooks/evolution-captured)"`), which `hooks-setup/SKILL.md`'s own "Known gap" note documents as invalid — the pattern belongs in `if`, a fix tracked there as a separate, out-of-scope follow-up.
 
 ## Step 4.6: Classify upstream relevance (for an escalation offer by the caller)
 

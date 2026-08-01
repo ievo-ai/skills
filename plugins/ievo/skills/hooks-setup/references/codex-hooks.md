@@ -24,7 +24,9 @@ Codex discovers hooks next to active config layers, in either format, highest pr
 |-------|------|-------|
 | Project-local | `<repo>/.codex/hooks.json` or `<repo>/.codex/config.toml` (`[hooks]` tables) | Only loads when the `.codex/` layer is trusted — closest analog to hooks-setup's own project-scoped `.claude/settings.json` writes (Step 3) |
 | User | `~/.codex/hooks.json` or `~/.codex/config.toml` | User-specific, applies globally |
-| System/plugin | bundled with enabled Codex plugins | Lowest precedence |
+| System/plugin | bundled with enabled Codex plugins (`hooks/hooks.json` in the plugin root, or a `hooks` entry in `.codex-plugin/plugin.json`) | Lowest precedence |
+
+**This list is exhaustive (issue #461).** Codex reads hooks from these layers and nowhere else — in particular it does **not** read a `hooks:` field from a skill's `SKILL.md` frontmatter or an agent markdown file's frontmatter. Those are Claude Code's [skill/agent-scoped hooks](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents); Codex's own `SKILL.md` frontmatter is documented as `name`/`description` only. A hook that must fire on Codex has to live in one of the rows above, whatever tool name it matches — see § "Getting the `evolution-captured` notification on Codex" below for iEvo's own worked case.
 
 ## Sub-agent lifecycle hooks (rust-v0.133.0+)
 
@@ -40,6 +42,52 @@ Codex's Task-tool-equivalent sub-agent dispatch (`spawn_agent`/`send_input`/`res
 ## PostToolUse and the code-mode blocking fix (rust-v0.141.0)
 
 `PostToolUse` fires after a tool call completes (Bash, `apply_patch`, MCP calls) with `turn_id`, `tool_name`, `tool_use_id`, `tool_input`, `tool_response`; its matcher filters by tool name. A blocking `PostToolUse` (exit code `2` with the reason on `stderr`, or `{"decision": "block", ...}` on stdout) does not undo the already-completed call — Codex records the feedback for the next turn instead. [rust-v0.141.0](https://github.com/openai/codex/releases/tag/rust-v0.141.0) fixed a gap where a blocking `PostToolUse` hook did not reject **code-mode** tool calls (tool calls issued from Codex's code-execution sandbox rather than directly) — before that release the block silently passed through. Verify your Codex CLI is v0.141.0+ if a `PostToolUse` hook is meant to gate code-mode tool use.
+
+## `apply_patch` matcher aliases and matcher scope (issue #461)
+
+For file edits through `apply_patch`, a `PreToolUse`/`PostToolUse` matcher may be configured as `apply_patch`, `Edit`, or `Write` — the [Codex hooks reference](https://developers.openai.com/codex/hooks) documents all three as equivalent inputs for the same underlying tool, and confirms the hook input Codex delivers to the handler always reports the canonical `tool_name: "apply_patch"` regardless of which alias the matcher used. Two consequences worth stating explicitly, both surfaced while fixing #461 (iEvo's `evolution-captured` notification is a Claude Code `Write` matcher; the Codex equivalent has to be authored from scratch, in a Codex hooks layer, against `apply_patch`):
+
+- **The matcher filters on tool name only — never on a target path or argument.** A pattern like `Write(<path>)` (Claude Code's own `if:`-adjacent shorthand for a path-scoped permission rule) has no Codex equivalent; Codex's config schema has no field for it. A hook that needs to act only when `apply_patch` touched a *specific* path must do that check itself, inside the handler, against the hook's stdin JSON — matcher scoping alone cannot express it.
+- **Prefer the native `apply_patch` name over the `Edit`/`Write` aliases.** `Write` and `Edit` are also literal *Claude Code* tool names, so an entry keyed on an alias reads ambiguously next to a Claude Code config and would match on both platforms if the two ever shared a file. `apply_patch` never collides, since Claude Code has no tool by that name — making it the unambiguous choice for a Codex-only entry.
+
+`tool_input`'s exact shape for `apply_patch` isn't published as a field-level schema (Codex's own generated hook schemas type `tool_input` as "any JSON" — verified against `codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json`); a handler that needs to know which path a patch touched should match the raw stdin payload for the target path as a substring rather than assume a specific field name (e.g. `tool_input.path`) that isn't documented.
+
+## Getting the `evolution-captured` notification on Codex (issue #461)
+
+iEvo's zero-setup capture notification ships as a `hooks:` block in `evo/SKILL.md`'s and `agents/evolution.md`'s own YAML frontmatter — a **Claude Code** mechanism ([Hooks in skills and agents](https://code.claude.com/docs/en/hooks#hooks-in-skills-and-agents)). Codex never loads that block: hook config comes only from the layers in § "Config file location and scopes" above. This is a config-layer gap, not a matcher gap — adding an `apply_patch` matcher to the skill's frontmatter would not help, because the frontmatter itself is never read on Codex.
+
+A Codex user (CLI or Desktop) gets the equivalent notification by putting the entry in a real Codex hooks layer — `<repo>/.codex/hooks.json` for this project only, or `~/.codex/hooks.json` globally:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'input=$(cat); case \"$input\" in *\".ievo/hooks/evolution-captured\"*) mkdir -p .ievo/log/hooks 2>/dev/null || true; echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) evolution-captured\" >> .ievo/log/hooks/events.log; printf \"\\a\" 2>/dev/null > /dev/tty || true ;; esac'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The path check lives in the command body rather than the matcher, for the two reasons in § "`apply_patch` matcher aliases and matcher scope" above: Codex's `matcher` filters on tool name only (no path-scoped `if:` equivalent), and `apply_patch`'s `tool_input` has no published field-level schema, so the handler substring-matches the raw stdin payload for the signal path instead of guessing a field name. It exits `0` and prints nothing when the patch touched anything else, so it is a no-op outside the one write it exists for — with one caveat: it substring-matches the whole payload, not a specific field, so an `apply_patch` call editing ANY file whose diff happens to contain the literal text `.ievo/hooks/evolution-captured` (this very reference doc, or `evo/SKILL.md`/`agents/evolution.md`'s own Step 5.5 prose, included) fires a false notification. Harmless (a log line plus a bell, not a security boundary), but worth knowing if the bell rings on an unrelated edit.
+
+**The notification is a log line plus a terminal bell — not an `echo`.** Per § "Exit-code semantics" below, a Codex hook's exit-`0` stdout is hook protocol, not a user-facing channel: `0` with JSON output is parsed for `hookSpecificOutput`/`decision`, and `0` with no output means success and Codex just continues — arbitrary plain text (an `echo`'d message) is neither of those, so its handling is undocumented and not something to rely on for a human-visible notification. A handler that only `echo`s a message is therefore the same "configured but never fires" failure this section exists to close (issue #461): correctly wired up, and still not guaranteed to notify anybody at the keyboard. The recipe instead uses the shared-log-plus-bell pattern of § "Worked example" below (and of hooks-setup Step 5.5's Claude Code Stop hook): append a timestamped line to `.ievo/log/hooks/events.log`, then ring the bell. Two details make it hold up against the exit-code contract:
+
+- **The bell goes to `/dev/tty`, not stdout** — writing it to stdout would hand the byte to the same protocol parser that swallows an `echo`, so it would never reach the terminal. `/dev/tty` addresses the controlling terminal directly, bypassing whatever Codex does with the handler's stdout. (§ "Worked example" below writes `printf '\a'` to stdout; that shape predates this section and is the Claude Code convention it mirrors — for a handler whose *only* job is to notify, route the bell to `/dev/tty`.)
+- **Stdout stays empty on both paths** — matched or not, the handler prints nothing and exits `0`, which is exactly the documented "`0` with no output — success; Codex continues" case. The `2>/dev/null > /dev/tty || true` tail keeps a session with **no** controlling terminal (a Codex Desktop or CI-driven run) at exit `0` instead of failing the hook. The redirection order is load-bearing: `sh` applies redirections left to right and aborts on the first failure, so `> /dev/tty 2>/dev/null` still leaks `cannot create /dev/tty` to stderr — silencing stderr *first* is what makes the no-tty path truly silent.
+
+The log line is the channel that always works; the bell is the best-effort attention-grab on top of it. `tail -f .ievo/log/hooks/events.log` is the fallback when the terminal doesn't render a bell.
+
+## Codex Desktop vs Codex CLI (issue #461)
+
+Both are the same underlying Codex hook system — a Desktop session uses the identical `apply_patch`/`Edit`/`Write` matcher aliases and the identical event catalog above, so nothing in this reference is CLI-only. The one thing that differs is **client detection** upstream of hooks entirely: `$CODEX_CLI` is set in Codex CLI (terminal) sessions but is **not** set in Codex Desktop sessions (confirmed empirically, issue #461) — a skill that gates Claude-Code-vs-Codex behavior on `$CODEX_CLI` alone misdetects Codex Desktop as Claude Code. `init/SKILL.md` Step 1.5 is the canonical detection rule across this plugin, and it is **ordered**: `$CLAUDECODE` set with `$CODEX_CLI` unset → Claude Code; else `$CODEX_CLI` set → Codex; else a Codex Desktop signal (`CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`, or macOS-only `__CFBundleIdentifier=com.openai.codex`) → Codex; else Claude Code. Neither Desktop marker is part of Codex's public environment-variable reference, and both are inherited by child processes — treat them as best-effort, not a guaranteed contract, and never test them ahead of the positive `$CLAUDECODE` check, which is what stops a Claude Code session launched from a Codex Desktop-spawned terminal from misdetecting as Codex.
 
 ## Exit-code semantics
 

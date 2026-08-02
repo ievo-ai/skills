@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.77.2
+
+Add an "Excerpt containment" rule to `agents/evolution.md` Step 5's `SKIPPED` report line — Eva vuln-scan dogfooding finding, #545.
+
+- **Gap closed (#545)** — `plugins/ievo/agents/evolution.md` Step 5's `SKIPPED` line interpolates `<top 1-2 flags — category + one-line explanation>`, LLM-synthesized text derived from Step 2.5's re-audit of freshly-vendored, attacker-influenced plugin content that the re-audit just flagged YELLOW/RED — directly into the agent's final response, rendered as Markdown by whatever session/skill dispatched it, including the Claude Code chat UI. Four sibling report-emitting agents in the same plugin (`vuln-scanner.md`, `security-auditor.md`, `deep-reviewer.md`, `review-retrospective.md`) already carry an "Excerpt containment" rule before emitting a comparable field; `evolution.md` had no such guard on this one line.
+- **The rule (`agents/evolution.md` Step 5)** — ported the identical backtick-fencing procedure the four siblings already document (code-span wrap sized one backtick longer than the longest run already in the excerpt, both-sided space padding when the excerpt starts/ends with a backtick, CR/LF collapsed to spaces before measuring), tailored to the `SKIPPED` line's flag-summary text, plus a one-line "Neutralize the SKIPPED flag summary before it renders" cross-reference bullet in the `## Rules` section, mirroring where the sibling agents place theirs.
+- **Scope** — `plugins/ievo/agents/evolution.md` only; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.77.0 → 0.77.2, next free slot after #542's claimed 0.77.1).
+
 ## v0.77.0
 
 Give `consolidate/SKILL.md`'s entry-cluster mode a way to condense accumulated fact/convention overlay entries into a compact, dateless rule digest in place — closes #529.

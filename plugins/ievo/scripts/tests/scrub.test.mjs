@@ -16,6 +16,7 @@ import {
   redactPemBlocks,
   redactProviderSecrets,
   redactNamedSecrets,
+  redactHttpCredentialHeaders,
   redactUrlCredentials,
   rewriteHomePaths,
   truncateScrubbed,
@@ -584,6 +585,191 @@ describe("redactNamedSecrets", () => {
 });
 
 // ---------------------------------------------------------------------------
+// redactHttpCredentialHeaders — Authorization / Cookie / Set-Cookie VALUES
+// ---------------------------------------------------------------------------
+
+describe("redactHttpCredentialHeaders", () => {
+  it("redacts an Authorization header, keeping the header name", () => {
+    for (const scheme of ["Bearer", "Basic", "Digest", "Token", "Negotiate", "AWS4-HMAC-SHA256"]) {
+      assert.equal(
+        redactHttpCredentialHeaders(`Authorization: ${scheme} abc123xyz`),
+        `Authorization: ${REDACTED}`,
+        scheme,
+      );
+    }
+  });
+
+  it("is case-insensitive on the header name", () => {
+    assert.equal(
+      redactHttpCredentialHeaders("authorization: bearer abc123"),
+      "authorization: [REDACTED]",
+    );
+    assert.equal(
+      redactHttpCredentialHeaders("AUTHORIZATION: Bearer abc123"),
+      "AUTHORIZATION: [REDACTED]",
+    );
+    assert.equal(redactHttpCredentialHeaders("cookie: session=abc"), "cookie: [REDACTED]");
+    assert.equal(
+      redactHttpCredentialHeaders("Set-COOKIE: session=abc"),
+      "Set-COOKIE: [REDACTED]",
+    );
+  });
+
+  it("redacts a Cookie header's ENTIRE value, not just the first name=value pair", () => {
+    // A Cookie header packs multiple pairs separated by `;` — every pair is
+    // part of the same credential, unlike a comma in redactNamedSecrets'
+    // UNQUOTED_VALUE (which legitimately terminates a value there). Stopping
+    // at the first `;` would leak every pair after it.
+    assert.equal(
+      redactHttpCredentialHeaders("Cookie: session=abc123; csrftoken=xyz789"),
+      "Cookie: [REDACTED]",
+    );
+    assert.doesNotMatch(
+      redactHttpCredentialHeaders("Cookie: session=abc123; csrftoken=xyz789"),
+      /xyz789/,
+    );
+  });
+
+  it("redacts a Set-Cookie header's full value, attributes included", () => {
+    assert.equal(
+      redactHttpCredentialHeaders("Set-Cookie: sid=abc123; Path=/; HttpOnly; Secure"),
+      "Set-Cookie: [REDACTED]",
+    );
+  });
+
+  it("redacts a Digest Authorization value's every param, including the trailing response hash", () => {
+    // A Digest value packs comma-separated key="value" params — the
+    // response hash (the actual credential) sits LAST. Stopping early on
+    // any internal comma/quote would leak exactly that.
+    const out = redactHttpCredentialHeaders(
+      `Authorization: Digest username="foo", realm="bar", nonce="baz", response="secrethash123"`,
+    );
+    assert.equal(out, "Authorization: [REDACTED]");
+    assert.doesNotMatch(out, /secrethash123/);
+  });
+
+  it("redacts a JSON-quoted key + JSON-quoted value, preserving quotes and sibling fields", () => {
+    assert.equal(
+      redactHttpCredentialHeaders('{"Authorization": "Bearer abc123", "other": "value"}'),
+      '{"Authorization": "[REDACTED]", "other": "value"}',
+    );
+    assert.equal(
+      redactHttpCredentialHeaders(`{"Cookie":"session=abc123","ok":true}`),
+      `{"Cookie":"[REDACTED]","ok":true}`,
+    );
+  });
+
+  it("redacts a single-quoted value", () => {
+    assert.equal(
+      redactHttpCredentialHeaders("Cookie: 'session=abc123'"),
+      "Cookie: '[REDACTED]'",
+    );
+  });
+
+  it("still redacts a value that looks quoted but never closes (truncated capture)", () => {
+    const out = redactHttpCredentialHeaders('Authorization: "Bearer truncated mid val');
+    assert.equal(out, "Authorization: [REDACTED]");
+    assert.doesNotMatch(out, /truncated/);
+  });
+
+  it("redacts every occurrence independently when real CRLF separates them", () => {
+    assert.equal(
+      redactHttpCredentialHeaders(
+        "Authorization: Bearer abc123\nCookie: session=xyz789\nContent-Type: json",
+      ),
+      "Authorization: [REDACTED]\nCookie: [REDACTED]\nContent-Type: json",
+    );
+  });
+
+  it("swallows an undelimited trailing tail into the redacted span (same trade-off as redactNamedSecrets)", () => {
+    // No real CRLF between the credential and what follows on the same
+    // line — the unquoted branch runs to end of input rather than guess
+    // where the credential "should" stop. Fail-closed and deliberate, same
+    // as the sibling scrub.test.mjs case for redactNamedSecrets.
+    const out = redactHttpCredentialHeaders("Authorization: Bearer abc123 more prose after");
+    assert.equal(out, "Authorization: [REDACTED]");
+    assert.doesNotMatch(out, /more prose/);
+  });
+
+  it("leaves ordinary prose untouched (no colon after the word)", () => {
+    const text = "Authorization required before you can proceed";
+    assert.equal(redactHttpCredentialHeaders(text), text);
+  });
+
+  it("leaves a header with no value untouched (nothing to redact)", () => {
+    assert.equal(redactHttpCredentialHeaders("Cookie:"), "Cookie:");
+  });
+
+  it("leaves a non-credential header name untouched", () => {
+    const text = "Content-Type: application/json";
+    assert.equal(redactHttpCredentialHeaders(text), text);
+  });
+
+  it("does not match when the name is a substring of a longer identifier (word boundary)", () => {
+    assert.equal(
+      redactHttpCredentialHeaders("MyAuthorization: Bearer abc123"),
+      "MyAuthorization: Bearer abc123",
+    );
+    // Suffix-shaped names are redactNamedSecrets' job (NAME_ALT's `_TOKEN`
+    // suffix), not this pass' — "authorization_token" has no `\b` right
+    // after "Authorization" (the underscore is a word character).
+    assert.equal(
+      redactHttpCredentialHeaders("authorization_token=abc123"),
+      "authorization_token=abc123",
+    );
+  });
+
+  it("redacts hyphen-prefixed variants like Proxy-Authorization (the boundary fires after `-`)", () => {
+    // `-` is a non-word character, so `\bAuthorization\b` DOES match inside
+    // `Proxy-Authorization` — RFC 7235 §4.4's header shares `Authorization`'s
+    // grammar and is already covered by this pass without naming it in
+    // HTTP_CRED_HEADER_NAME. The complement of the `MyAuthorization` case
+    // above (`y` is a word character, so no boundary, so no match); pinned so
+    // a future tightening of the name pattern can't silently drop it.
+    assert.equal(
+      redactHttpCredentialHeaders("Proxy-Authorization: Basic dXNlcjpwYXNz"),
+      "Proxy-Authorization: [REDACTED]",
+    );
+    assert.equal(
+      redactHttpCredentialHeaders("proxy-authorization: Bearer abc123"),
+      "proxy-authorization: [REDACTED]",
+    );
+  });
+
+  it("stays linear on a long whitespace-free unquoted value (no quadratic blowup)", () => {
+    const input = `Authorization: ${"a".repeat(50_000)}`;
+    const started = process.hrtime.bigint();
+    const out = redactHttpCredentialHeaders(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, "Authorization: [REDACTED]");
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("stays linear on repeated quote-opened values with no acceptable closer (no quadratic blowup)", () => {
+    // Same shape as ASSIGNMENT_RE's sibling linearity test: the strict
+    // quoted alternative's 255-unit bound caps each failed attempt, so the
+    // unquoted fallback runs once per occurrence rather than re-scanning.
+    const units = 3000;
+    const input = `Authorization: "a `.repeat(units);
+    const started = process.hrtime.bigint();
+    const out = redactHttpCredentialHeaders(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, "Authorization: [REDACTED]");
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("stays linear on many repeated headers across real newlines (no quadratic blowup)", () => {
+    const units = 500;
+    const input = `Authorization: ${"x".repeat(2000)}\n`.repeat(units);
+    const started = process.hrtime.bigint();
+    const out = redactHttpCredentialHeaders(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, `Authorization: ${REDACTED}\n`.repeat(units));
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // redactUrlCredentials — userinfo of scheme://user:pass@host
 // ---------------------------------------------------------------------------
 
@@ -866,6 +1052,20 @@ describe("scrub", () => {
         home: FAKE_HOME,
       }),
       `DATABASE_URL=postgres://${REDACTED}@db.prod.internal:5432/app`,
+    );
+  });
+
+  it("redacts an Authorization/Cookie header via the composite pipeline (NAME_ALT-less names)", () => {
+    // Neither `Authorization` nor `Cookie` is NAME_ALT-shaped, so
+    // redactNamedSecrets alone skips them — the new HTTP-credential-header
+    // pass is what closes this gap (CWE-200, skills#544).
+    assert.equal(
+      scrub("Authorization: Bearer ghp_abc123\ndone", { home: FAKE_HOME }),
+      `Authorization: ${REDACTED}\ndone`,
+    );
+    assert.equal(
+      scrub("Cookie: session=abc123; csrftoken=xyz789\ndone", { home: FAKE_HOME }),
+      `Cookie: ${REDACTED}\ndone`,
     );
   });
 

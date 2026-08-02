@@ -719,6 +719,23 @@ describe("redactHttpCredentialHeaders", () => {
     );
   });
 
+  it("redacts hyphen-prefixed variants like Proxy-Authorization (the boundary fires after `-`)", () => {
+    // `-` is a non-word character, so `\bAuthorization\b` DOES match inside
+    // `Proxy-Authorization` — RFC 7235 §4.4's header shares `Authorization`'s
+    // grammar and is already covered by this pass without naming it in
+    // HTTP_CRED_HEADER_NAME. The complement of the `MyAuthorization` case
+    // above (`y` is a word character, so no boundary, so no match); pinned so
+    // a future tightening of the name pattern can't silently drop it.
+    assert.equal(
+      redactHttpCredentialHeaders("Proxy-Authorization: Basic dXNlcjpwYXNz"),
+      "Proxy-Authorization: [REDACTED]",
+    );
+    assert.equal(
+      redactHttpCredentialHeaders("proxy-authorization: Bearer abc123"),
+      "proxy-authorization: [REDACTED]",
+    );
+  });
+
   it("stays linear on a long whitespace-free unquoted value (no quadratic blowup)", () => {
     const input = `Authorization: ${"a".repeat(50_000)}`;
     const started = process.hrtime.bigint();

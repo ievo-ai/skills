@@ -11,14 +11,15 @@
 // command printed).
 //
 // Order matters (the LAST step is why): redact PEM private-key blocks, then
-// provider-shaped secrets, then named assignment values, then URL-embedded
-// credentials, then rewrite $HOME paths, then truncate LAST — so a secret
-// sitting inside an oversized blob is redacted before truncation could slice
-// through its signature and leave an unredacted fragment. The PEM pass runs
-// FIRST because redactNamedSecrets is line-scoped: on a `TLS_KEY: -----BEGIN
-// ...` line it would take just the marker line as the assignment's value,
-// decapitating the armor so a later PEM pass could no longer recognise the
-// block while every body line below it still leaked.
+// provider-shaped secrets, then named assignment values, then HTTP
+// credential-header values, then URL-embedded credentials, then rewrite
+// $HOME paths, then truncate LAST — so a secret sitting inside an oversized
+// blob is redacted before truncation could slice through its signature and
+// leave an unredacted fragment. The PEM pass runs FIRST because
+// redactNamedSecrets is line-scoped: on a `TLS_KEY: -----BEGIN ...` line it
+// would take just the marker line as the assignment's value, decapitating
+// the armor so a later PEM pass could no longer recognise the block while
+// every body line below it still leaked.
 //
 // Stdlib only (Node 18+, bundled with Claude Code / Codex) — no dependencies.
 //
@@ -41,7 +42,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.77.2";
+export const SCRIPT_VERSION = "0.77.3";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -56,10 +57,11 @@ Usage:
 Redacts PEM-armored private-key blocks, provider-shaped secret values
 (GitHub/OpenAI/Slack/AWS tokens, JWTs), secret-shaped NAME=value / NAME: value
 assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, bare PASSWORD/SECRET/
-TOKEN/APIKEY/API_KEY), URL-embedded credentials (scheme://user:pass@host),
-rewrites $HOME-absolute paths to ~-relative, and caps output at
-${MAX_CODEPOINTS} Unicode code points. Never writes a file; on any internal
-error emits nothing and exits 0 (fail-closed for content).`;
+TOKEN/APIKEY/API_KEY), HTTP credential-header values (Authorization/Cookie/
+Set-Cookie), URL-embedded credentials (scheme://user:pass@host), rewrites
+$HOME-absolute paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
+Unicode code points. Never writes a file; on any internal error emits nothing
+and exits 0 (fail-closed for content).`;
 
 // ---------------------------------------------------------------------------
 // 1. PEM-armored private-key blocks (redacted wholesale, markers included)
@@ -348,7 +350,68 @@ export function redactNamedSecrets(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. URL-embedded credentials — the userinfo of scheme://user:pass@host
+// 4. HTTP credential-header VALUES — Authorization / Cookie / Set-Cookie
+// ---------------------------------------------------------------------------
+
+// NAME_ALT above never fires on these: the literal identifiers
+// `Authorization` and `Cookie`/`Set-Cookie` don't end in `_TOKEN`/`_KEY`/
+// `_SECRET`/`_PASSWORD`/`_ID` and aren't among the bare keywords, so a
+// `curl -H "Authorization: Bearer <token>"` or a fetch/HTTP tool call's
+// `Cookie:`/`Set-Cookie:` header rides through redactNamedSecrets untouched.
+const HTTP_CRED_HEADER_NAME = String.raw`Authorization|Set-Cookie|Cookie`;
+
+// Deliberately NOT reusing ASSIGNMENT_RE's UNQUOTED_VALUE (comma/semicolon
+// terminated) for the unquoted branch here — that shape is wrong for a
+// header value. A `Cookie` header packs multiple `name=value` pairs
+// separated by `;` (`session=abc123; csrftoken=xyz789`), and a `Digest`
+// `Authorization` value packs multiple `key="value"` params separated by
+// `,` (`Digest username="foo", realm="bar", response="<hash>"`) — in both
+// shapes every segment is part of the SAME credential, not a delimiter
+// between it and unrelated trailing content the way a comma is for a
+// `PASSWORD=x, unrelated text` line. Stopping at the first `,`/`;` (as
+// UNQUOTED_VALUE does) would redact only the first segment and leak every
+// later one — the Digest response hash in particular, which is exactly the
+// credential this pass exists to catch. So the unquoted branch here is a
+// flat, unbounded `[^\r\n]+`: it runs to the next real CRLF or end of input,
+// consuming commas/semicolons/quotes alike as ordinary content. This is the
+// same "swallow the undelimited tail" trade-off `scrub.test.mjs` already
+// pins for redactNamedSecrets (an unquoted value with no delimiter runs to
+// end of line) — deliberately over-redacting whatever a captured record's
+// JSON-compact single line puts after the header, rather than risk under-
+// redacting a multi-segment credential by guessing where it "should" stop.
+// Fail-closed is the only property this file trades against diagnostic
+// completeness.
+//
+// This also means no third "malformed quoted value" branch is needed
+// (unlike ASSIGNMENT_RE's MALFORMED_QUOTED_VALUE): if the strict quoted
+// alternative below fails to find a valid closing quote (a truncated
+// capture, `Authorization: "Bearer trunc` with no closer), the regex engine
+// backtracks to the SAME start position and retries the unquoted
+// alternative — `[^\r\n]+` doesn't exclude quote characters, so it happily
+// re-consumes from that same opening quote through to end of line. The
+// value is still fully redacted; nothing extra to write.
+//
+// Linearity: the strict quoted alternative reuses QUOTED_VALUE_INNER, whose
+// own 255-unit bound (see above) already caps a failed attempt at O(255)
+// before falling through — so the unquoted `[^\r\n]+` fallback runs at most
+// once per header occurrence, for O(line length) each, with no per-position
+// re-scan the way the pre-fix MALFORMED_QUOTED_VALUE had. Pinned by its own
+// linearity test alongside the existing ones.
+const HTTP_CRED_HEADER_RE = new RegExp(
+  String.raw`\b(${HTTP_CRED_HEADER_NAME})\b(["']?)(\s*:\s*)(?:(["'])(${QUOTED_VALUE_INNER})\4${QUOTED_VALUE_CLOSE}|([^\r\n]+))`,
+  "gi",
+);
+
+export function redactHttpCredentialHeaders(text) {
+  return text.replace(HTTP_CRED_HEADER_RE, (_match, name, closeQuote, sep, quote) =>
+    quote
+      ? `${name}${closeQuote}${sep}${quote}${REDACTED}${quote}`
+      : `${name}${closeQuote}${sep}${REDACTED}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 5. URL-embedded credentials — the userinfo of scheme://user:pass@host
 // ---------------------------------------------------------------------------
 
 // Fires only when the userinfo carries a `:` — i.e. a password component
@@ -398,7 +461,7 @@ export function redactUrlCredentials(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. $HOME-absolute paths → ~-relative (never leak the username)
+// 6. $HOME-absolute paths → ~-relative (never leak the username)
 // ---------------------------------------------------------------------------
 
 function escapeRegExp(literal) {
@@ -415,7 +478,7 @@ export function rewriteHomePaths(text, home) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Cap at MAX_CODEPOINTS Unicode code points — LAST (see header comment)
+// 7. Cap at MAX_CODEPOINTS Unicode code points — LAST (see header comment)
 // ---------------------------------------------------------------------------
 
 export function truncateScrubbed(text, limit = MAX_CODEPOINTS) {
@@ -440,6 +503,7 @@ export function scrub(text, opts = {}) {
   out = redactPemBlocks(out);
   out = redactProviderSecrets(out);
   out = redactNamedSecrets(out);
+  out = redactHttpCredentialHeaders(out);
   out = redactUrlCredentials(out);
   out = rewriteHomePaths(out, home);
   out = truncateScrubbed(out);

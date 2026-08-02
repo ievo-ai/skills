@@ -24,10 +24,15 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Opt out of widened `/ievo:feedback` payload | `/ievo:contributor-mode-off` | — | covered | Removes the flag; non-destructive to the underlying `evo-auto` capture queue |
 | Remove iEvo overlay markers from a project | `/ievo:uninstall` | — | covered | Glob + Edit + Bash (`grep -l` marker discovery); preserves `.ievo/` |
 | Refresh vendored agent/skill files from upstream | `/ievo:update` | — | covered | Re-fetches by recorded source SHA; gates changed content behind a security re-audit; re-injects overlay markers; overlay files untouched |
+| Consolidate fragmented docs or condense an evolution overlay | `/ievo:consolidate` | — | covered | Doc-graph mode (root e.g. `CLAUDE.md`): maps reference graph, finds duplicates/contradictions, proposes + executes a migration. Entry-cluster mode (root is an overlay file): extracts a new skill/agent, merges a procedure/judgment-role cluster, or digests a fact/convention cluster into a compact rule list — all behind explicit checkpoints |
+| Mine the current session for reusable patterns not yet captured via `/ievo:evo` | `/ievo:extract-best-practices` | — | covered | Cross-checks candidates against installed skills/agents; generalizable patterns become new skills/agents (reuses `consolidate`'s package-authoring machinery), narrower ones route to `/ievo:evo`; optional explicit-consent upstream submission to `ievo-ai/skills` |
+| Hand off the current session's context to a fresh session | `/ievo:handoff` | — | covered | Compacts conversation into a portable Markdown handoff doc (purpose, context excerpts, suggested iEvo skills, artifact pointers, redacted secrets); saved to OS temp dir |
+| Turn on automatic evolution-lesson capture for a project | `/ievo:evo-auto-enable` | `evolution_candidates.mjs`, `scrub.mjs` | covered | Sets `.ievo/evo-auto.flag`, prepares the pending-candidate queue at `.ievo/evolution-candidates/`; auto-mode writes only unambiguous project-wide overlays, ambiguous/user-level matches are parked for manual review; `scrub.mjs` redacts secrets/paths from opt-in tool-failure capture before it's queued |
+| Turn off automatic evolution-lesson capture | `/ievo:evo-auto-disable` | — | covered | Removes `.ievo/evo-auto.flag`; non-destructive — already-parked candidates in `.ievo/evolution-candidates/` are preserved |
 | Validate agent frontmatter (vendor-neutral `model:`, required fields) | (CI gate + local pre-commit) | `validate_agents.mjs` | covered | 100% test coverage; blocks `claude-*` / `gpt-*` / `gemini-*` vendor-pinned IDs |
-| Validate SKILL.md frontmatter (agentskills.io spec constraints) | (CI gate + local pre-commit) | `validate_skills.mjs` | covered | 100% test coverage; enforces name format/length, description ≤1024, compatibility ≤500, no vendor model IDs |
-| Enforce 100% test coverage on all Node scripts | `coverage-gate.yml` workflow | `check-coverage.mjs` | covered | All three scripts (`discover.mjs`, `validate_agents.mjs`, `scan_repo.mjs`) at literal 100/100/100 as of v0.6.7; `CARVE_OUTS` map empty |
-| Detect 5 markdown/text hygiene anti-patterns at commit time | `pre-commit-gate.yml` workflow + `.pre-commit-config.yaml` | `.github/scripts/validators/*.mjs` | covered | nested-fences, machine-local-paths, crlf-frontmatter, placeholder-leakage, validate-agents |
+| Validate SKILL.md frontmatter (agentskills.io spec constraints) | (CI gate + local pre-commit) | `validate_skills.mjs` | covered | 100% test coverage; enforces name format/length, description ≤1024, compatibility ≤500, no vendor model IDs, `effort:` presence/validity |
+| Enforce 100% test coverage on all Node scripts | `coverage-gate.yml` workflow | `check-coverage.mjs` | covered | All six required scripts (`discover.mjs`, `scan_repo.mjs`, `validate_agents.mjs`, `validate_skills.mjs`, `evolution_candidates.mjs`, `scrub.mjs`) at literal 100/100/100 as of v0.77.0; `CARVE_OUTS` map empty |
+| Detect markdown/text hygiene + version-bump anti-patterns at commit time | `pre-commit-gate.yml` workflow + `.pre-commit-config.yaml` | `.github/scripts/validators/*.mjs` + `check-version-bump.mjs` | covered | 6 local validators (`nested-fences`, `crlf-frontmatter`, `machine-local-paths`, `placeholder-leakage`, `utf8-validate`, `yaml-frontmatter`) + 2 re-used from `plugins/ievo/scripts/` (`validate_agents`, `validate_skills`) + upstream `check-merge-conflict`; `check-version-bump.mjs` separately gates the AGENTS.md version-bump rule (server-side only, needs base-branch history) |
 | Surface a code-review verdict on every PR | `notify-eva.yml` workflow (Eva-side review) | — | covered | Dispatches a review request to the private Eva repo once both product gates are green; Eva posts the review and auto-merges Eva-authored PRs (D-004 Phase 2, skills#274/#277) |
 | Generate a domain-specific MVP harness blueprint for a new agent project | — | — | **gap** | iEvo discovers + audits + installs existing skills; doesn't generate new skill bodies from a domain prompt. Out of scope for v0.6.x; could be a future `/ievo:scaffold` skill. |
 | Pin a versioned release with a matching tag + changelog | `cut-release.yml` + `notify-release.yml` workflows | — | covered | Version is bumped in the PR alongside a matching `## vX.Y.Z` `CHANGELOG.md` section. On merge to `main`, if the plugin version changed, `cut-release.yml` cuts the matching `vX.Y.Z` git tag + GitHub Release using that CHANGELOG section as the body, and `notify-release.yml` announces the release to the iEvo community. The changelog is authored in-PR, not generated from commits — there is no release-please bot or persistent Release PR. |
@@ -37,6 +42,9 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 | Standalone "list installed iEvo overlays" command | `/ievo:overlay-status` | — | covered | Reads `.ievo/evolution/`, groups by scope (Project / agents / skills) matching the actual layout written by `evo/SKILL.md` (`project.md` flat file, plus `agents/<name>.md` and `skills/<name>.md` subdirs); extracts one-line summary per file with last-modified date; flags overlays untouched 180+ days as candidates for cleanup; pure Read + Glob + `stat` (Bash limited to `stat` for mtime; Windows-without-POSIX hosts gracefully omit dates) |
 | Scan project source code for vulnerabilities (CWE-aware, exploit-chain validated) | `/ievo:vuln-scan` | — (`vuln-scan/SKILL.md` per-module worker + `vuln-scanner` agent dispatched in parallel) | covered | Glasswing-inspired: Step 1 reads all source files, Step 2 maps data flows, Step 3 detects via CWE taxonomy, Step 4 validates with exploit chains (no chain = no finding). Sonnet-tier reasoning required; parallel module dispatch via Task tool. |
 | Inspect a specific skill/repo before running init | `/ievo:inspect` | — (pure SKILL.md, `gh api` for remote data) | covered | Fetches repo tree + key file frontmatter via GitHub API; renders structured capability summary (skills, agents, commands, scripts, hooks, permissions); read-only, no install, no security scan |
+| Structured gap-detection review of a diff before commit | `/ievo:deep-review` | — (`deep-review/SKILL.md` orchestrator + `deep-reviewer` agent) | covered | 11-point checklist (completeness, test/impl drift, dead code, naming/behaviour mismatch, doc drift, cross-file consistency, error-path coverage, API contract fidelity, security surface, concurrency/state, leaked secrets); dispatches an independent `deep-reviewer` sub-agent for fresh-context eyes; scope modes staged/working/range; `disable-model-invocation: true` (user-invoke only) |
+| Mine an already-merged PR's review history for durable evolution lessons | `/ievo:review-retrospective` | — (`review-retrospective/SKILL.md` orchestrator + `review-retrospective` agent) | covered | Given a merged PR URL/number, dispatches a sub-agent to collect every formal review, inline comment, thread, and issue comment with full provenance, then dedupes/clusters by root cause and responsible target, classifies each cluster, and previews for confirmation before any `/ievo:evo` capture |
+| Show installed iEvo version + changelog since latest | `/ievo:version` | — (pure SKILL.md, reads local `plugin.json` + marketplace manifest + `CHANGELOG.md`) | covered | Read-only — never writes, installs, or updates; resolves commit SHA when possible |
 | Standalone "show next-step suggestions based on installed skills" | — | — | gap | Adjacent to evolution capture but discovery-oriented |
 
 ## Required language and scope checks
@@ -54,21 +62,29 @@ Pattern adopted from [`DenisSergeevitch/agents-best-practices/references/coverag
 ievo-ai/skills/
   AGENTS.md
   README.md
+  CHANGELOG.md
   coverage-audit.md            ← this file
+  plugin.json                  ← Agent Plugins 1.0.0 manifest (no version field, see AGENTS.md)
   .github/
     workflows/
       notify-eva.yml
+      forward-to-eva.yml
       coverage-gate.yml
       pre-commit-gate.yml
       cut-release.yml
       notify-release.yml
     scripts/
       check-coverage.mjs
+      check-version-bump.mjs
       validators/
         nested-fences.mjs
         machine-local-paths.mjs
         crlf-frontmatter.mjs
         placeholder-leakage.mjs
+        utf8-validate.mjs
+        yaml-frontmatter.mjs
+        _safe-read.mjs
+        tests/                 ← validator + check-version-bump test suites
   .pre-commit-config.yaml
   plugins/ievo/
     .claude-plugin/plugin.json
@@ -77,6 +93,8 @@ ievo-ai/skills/
       repo-indexer.md
       security-auditor.md
       vuln-scanner.md
+      deep-reviewer.md
+      review-retrospective.md
     commands/
       uninstall.md
       update.md
@@ -86,15 +104,22 @@ ievo-ai/skills/
       scan_repo.mjs
       validate_agents.mjs
       validate_skills.mjs
+      evolution_candidates.mjs
+      scrub.mjs
       tests/                   ← 100/100/100 enforced by CI
     skills/
       init/SKILL.md
       evo/SKILL.md
+      consolidate/SKILL.md
+      extract-best-practices/SKILL.md
       feedback/SKILL.md
       debug-on/SKILL.md
       debug-off/SKILL.md
+      evo-auto-enable/SKILL.md
+      evo-auto-disable/SKILL.md
       contributor-mode-on/SKILL.md
       contributor-mode-off/SKILL.md
+      handoff/SKILL.md
       hooks-setup/SKILL.md
       inspect/SKILL.md
       overlay-status/SKILL.md
@@ -102,6 +127,9 @@ ievo-ai/skills/
       schedule/SKILL.md
       security-check/SKILL.md
       vuln-scan/SKILL.md
+      deep-review/SKILL.md
+      review-retrospective/SKILL.md
+      version/SKILL.md
 ```
 
 ## How to update this file

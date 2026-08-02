@@ -47,6 +47,7 @@ jobs:
     # workflow_dispatch always runs; pull_request only on a merged PR (mirrors notify-release.yml).
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout (HEAD + previous main, to detect a version change)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1

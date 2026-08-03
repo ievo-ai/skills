@@ -19,18 +19,26 @@
 //
 // Usage:
 //   echo '{"languages":["python"],"deps":["pytest","fastapi"]}' | node discover.mjs
-//   node discover.mjs --stack-file ./stack.json
+//   node discover.mjs --stack-file ./stack.json [--project <root>]
 //   node discover.mjs --limit 30 --concurrency 8
+//
+// --stack-file <path> is untrusted input (skills#543, mirrors
+// evolution_candidates.mjs's --text-file fix in #523): the path can be
+// influenced by a compromised or prompt-injected agent turn issuing a
+// different --stack-file value directly via Bash, so it is contained to the
+// project's own .ievo/ directory (--project, default "."), both lexically up
+// front and again by realpath, and required to be a regular file under a
+// size cap.
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, lstatSync, realpathSync } from "node:fs";
+import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.77.4";
+export const SCRIPT_VERSION = "0.77.5";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
@@ -93,6 +101,87 @@ export const CATEGORY_QUERIES = {
 export const STACK_INDEPENDENT_QUERIES = [
   "codebase audit", "improve codebase", "implementation plan", "tech debt audit", "senior advisor",
 ];
+
+// ---------------------------------------------------------------------------
+// --stack-file containment + size cap (skills#543)
+//
+// --stack-file is untrusted input — the same class of gap already closed for
+// evolution_candidates.mjs's --text-file in #523. init/SKILL.md Step 5b's
+// documented invocation is always `echo '<stack-json>' | node discover.mjs`
+// (stdin); a --stack-file value reaching this script at all means something
+// (e.g. a prompt injection altering the Bash command line) chose the
+// alternate path. Contain it to the project's own .ievo/ directory — both
+// lexically up front (assertStackFileAllowed, mirrors scan_repo.mjs's
+// assertContained()) and again by realpath once the target is known to exist
+// (assertStackFileReadable, mirrors scan_repo.mjs's assertCheckoutContained()
+// — closes the gap a lexical-only check leaves open when an ancestor
+// directory under .ievo/ is itself a symlink) — and require a regular file
+// under a size cap (mirrors evolution_candidates.mjs's MAX_TEXT_FILE_BYTES /
+// scan_repo.mjs's MAX_SCAN_FILE_BYTES).
+// ---------------------------------------------------------------------------
+
+export const IEVO_DIR = ".ievo";
+export const MAX_STACK_FILE_BYTES = 256 * 1024;
+
+function ievoRoot(projectRoot) {
+  return resolve(projectRoot, IEVO_DIR);
+}
+
+// Throws if `target` would resolve outside `allowedDir` — shared by the
+// lexical pre-check (assertStackFileAllowed, below) and the realpath
+// re-check (assertStackFileReadable, below). Mirrors scan_repo.mjs's
+// assertContained() / evolution_candidates.mjs's assertContainedIn().
+function assertContainedIn(target, allowedDir) {
+  if (target !== allowedDir && !target.startsWith(allowedDir + sep)) {
+    throw new Error(`must be inside ${allowedDir}`);
+  }
+}
+
+// Lexical pre-check restricting --stack-file to <projectRoot>/.ievo/ — the
+// first line of defense against a compromised/prompt-injected agent turn
+// passing an arbitrary path (e.g. ~/.aws/credentials, a project .env)
+// directly via Bash. Purely lexical (no filesystem access), so it rejects an
+// out-of-bounds path before anything on disk is touched. Returns the
+// resolved absolute path so the caller reads the exact path just validated.
+// NOT sufficient on its own against a symlinked ancestor directory — see
+// assertStackFileReadable's realpath re-check below.
+export function assertStackFileAllowed(stackFile, projectRoot) {
+  const resolvedTarget = resolve(stackFile);
+  assertContainedIn(resolvedTarget, ievoRoot(projectRoot));
+  return resolvedTarget;
+}
+
+// lstat (not readFileSync) so a symlink AT THE LEAF is judged on its own type
+// without following it — a symlink planted directly at the --stack-file path
+// would otherwise be followed straight through to its real target by a plain
+// readFileSync (CWE-59). Throws (rather than returning a boolean) since an
+// unreadable/oversized/non-regular --stack-file must abort the run, not
+// silently degrade.
+//
+// lstat's non-follow behavior applies only to the path's FINAL component —
+// every ANCESTOR directory component is still resolved normally, so a
+// symlinked ancestor (e.g. `.ievo/link -> ~/.aws`, then --stack-file
+// `.ievo/link/credentials`) passes assertStackFileAllowed's lexical check
+// (the string is inside .ievo/) and then lstats/reads straight through to the
+// real target anyway. Re-verify containment against the REALPATH of both
+// sides after the type/size checks succeed (only then do we know the path —
+// and therefore every ancestor in it — actually exists to realpath).
+export function assertStackFileReadable(
+  resolvedPath,
+  projectRoot,
+  capBytes = MAX_STACK_FILE_BYTES,
+  statImpl = lstatSync,
+  realpathImpl = realpathSync,
+) {
+  const st = statImpl(resolvedPath);
+  if (!st.isFile()) {
+    throw new Error("not a regular file");
+  }
+  if (st.size > capBytes) {
+    throw new Error(`exceeds ${capBytes} bytes`);
+  }
+  assertContainedIn(realpathImpl(resolvedPath), realpathImpl(ievoRoot(projectRoot)));
+}
 
 // ---------------------------------------------------------------------------
 // Query generation
@@ -446,13 +535,14 @@ function requireValue(argv, i, flagName) {
 }
 
 export function parseArgs(argv) {
-  const args = { stackFile: null, limit: DEFAULT_TOTAL_LIMIT, concurrency: DEFAULT_CONCURRENCY, perQuery: DEFAULT_PER_QUERY_LIMIT };
+  const args = { stackFile: null, limit: DEFAULT_TOTAL_LIMIT, concurrency: DEFAULT_CONCURRENCY, perQuery: DEFAULT_PER_QUERY_LIMIT, project: "." };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--stack-file") args.stackFile = requireValue(argv, ++i, "--stack-file");
     else if (a === "--limit") args.limit = parsePositiveInt(requireValue(argv, ++i, "--limit"), "--limit", DEFAULT_TOTAL_LIMIT);
     else if (a === "--concurrency") args.concurrency = parsePositiveInt(requireValue(argv, ++i, "--concurrency"), "--concurrency", DEFAULT_CONCURRENCY);
     else if (a === "--per-query") args.perQuery = parsePositiveInt(requireValue(argv, ++i, "--per-query"), "--per-query", DEFAULT_PER_QUERY_LIMIT);
+    else if (a === "--project") args.project = requireValue(argv, ++i, "--project");
   }
   return args;
 }
@@ -545,9 +635,14 @@ export async function main(argv = process.argv, stdinStream = process.stdin, log
     log(`discover.mjs — multi-source candidate discovery for ievo init
 Usage:
   echo '{"languages":["python"],"deps":["pytest"]}' | discover.mjs
-  discover.mjs --stack-file <path> [--limit N] [--concurrency N]
+  discover.mjs --stack-file <path> [--project <root>] [--limit N] [--concurrency N]
   discover.mjs --version
-  discover.mjs --help`);
+  discover.mjs --help
+
+Notes:
+  --stack-file <path> is untrusted input: it must be an existing regular file
+  inside <project root>/.ievo/ (--project, default ".") and under a fixed
+  size cap — any other path is rejected rather than read.`);
     return exit(0);
   }
 
@@ -565,7 +660,9 @@ Usage:
     inputSource = `--stack-file ${args.stackFile}`;
     let raw;
     try {
-      raw = readFileSync(args.stackFile, "utf-8");
+      const allowedPath = assertStackFileAllowed(args.stackFile, args.project);
+      assertStackFileReadable(allowedPath, args.project);
+      raw = readFileSync(allowedPath, "utf-8");
     } catch (err) {
       errLog(`Error: cannot read stack file '${args.stackFile}': ${err.message}`);
       return exit(3);
@@ -573,8 +670,12 @@ Usage:
     try {
       stack = JSON.parse(raw);
     } catch (err) {
+      // Unlike the stdin path below, never echo raw file content here: an
+      // attacker-influenced --stack-file could point at any regular file
+      // inside .ievo/, including a credential accidentally dropped there
+      // (skills#543) — the parse-failure message alone is enough to debug a
+      // malformed stack file without also disclosing its content.
       errLog(`Error: invalid JSON in ${inputSource}: ${err.message}`);
-      errLog(`First 200 chars: ${raw.slice(0, 200)}`);
       return exit(3);
     }
   } else {

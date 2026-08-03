@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.77.5
+
+Contain `discover.mjs`'s `--stack-file` to the project's own `.ievo/` directory and stop echoing raw file content on a parse failure — Eva vuln-scan dogfooding finding, #543.
+
+- **Gap closed (#543)** — `discover.mjs`'s documented invocation (`init/SKILL.md` Step 5b) is always `echo '<stack-json>' | node discover.mjs` (stdin); `--stack-file <path>` is an undocumented-in-practice alternate input reachable only if something — e.g. a prompt injection altering the Bash command line — supplies it directly. `main()` read it with `readFileSync(args.stackFile, "utf-8")` and no `resolve()`/containment check and no size cap, unlike the identical `--text-file` shape already hardened in `evolution_candidates.mjs` (#523). Two disclosure paths followed: a non-JSON target's first 200 raw bytes were printed to stderr, and a JSON-shaped target (e.g. a GCP service-account key or OAuth token cache) was echoed in full to stdout via `stack_input` in the output JSON.
+- **Containment + size cap** — new `assertStackFileAllowed`/`assertStackFileReadable` pair, mirroring `evolution_candidates.mjs`'s `assertTextFileAllowed`/`assertTextFileReadable`: a lexical pre-check restricting `--stack-file` to `<project>/.ievo/` (new `--project <root>` flag, default `.`), then an `lstatSync` regular-file + `MAX_STACK_FILE_BYTES` (256 KB, matching `MAX_TEXT_FILE_BYTES`/`MAX_SCAN_FILE_BYTES`) size-cap check, then a realpath re-check against both sides to close the gap a lexical-only check leaves open when an ancestor directory under `.ievo/` is itself a symlink.
+- **Dropped the raw-content echo** — the non-JSON `--stack-file` path no longer logs `First 200 chars: ...` to stderr; the parse-failure message alone is enough to debug a malformed stack file without also disclosing its content. The stdin path is untouched — it's the documented, actually-used invocation and carries no equivalent untrusted-path precondition.
+- **Tests** — new `assertStackFileAllowed`/`assertStackFileReadable` unit suites (containment, traversal, symlinked-ancestor rejection, size cap, real-fs defaults), `--project` flag coverage, and `main()`/CLI-subprocess tests for the containment rejection, oversized rejection, non-regular-file rejection, ENOENT-inside-`.ievo/`, and the no-raw-echo guarantee. Existing `--stack-file` tests updated to write fixtures under `<project>/.ievo/` and pass `--project`.
+- **Scope** — `plugins/ievo/scripts/discover.mjs` + its test suite; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table; 0.77.4 was independently claimed by sibling PR #542 before this one rebased, so this PR takes the next free slot (0.77.4 → 0.77.5). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.77.4
 
 Guard `validate_skills.mjs`'s `discoverSkillFiles()` against symlink-following (CWE-59) — Eva research-audit finding, recurring since 2026-07-23.

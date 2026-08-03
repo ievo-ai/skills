@@ -3,7 +3,7 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, readFileSync, symlinkSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -21,6 +21,10 @@ import {
   CODEX_VISIBILITY_FLOOR,
   CATEGORY_QUERIES,
   STACK_INDEPENDENT_QUERIES,
+  IEVO_DIR,
+  MAX_STACK_FILE_BYTES,
+  assertStackFileAllowed,
+  assertStackFileReadable,
   qualityTier,
   buildQueries,
   searchSkillsSh,
@@ -94,6 +98,108 @@ describe("constants", () => {
     }
   });
 
+  it("IEVO_DIR / MAX_STACK_FILE_BYTES are sensible (skills#543)", () => {
+    assert.equal(IEVO_DIR, ".ievo");
+    assert.equal(MAX_STACK_FILE_BYTES, 256 * 1024);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// assertStackFileAllowed / assertStackFileReadable (skills#543 — mirrors
+// evolution_candidates.mjs's assertTextFileAllowed / assertTextFileReadable
+// containment fix for --text-file, #523)
+// ---------------------------------------------------------------------------
+
+describe("assertStackFileAllowed", () => {
+  it("returns the resolved path when it is inside <projectRoot>/.ievo/", () => {
+    const result = assertStackFileAllowed("/proj/.ievo/stack.json", "/proj");
+    assert.equal(result, resolve("/proj/.ievo/stack.json"));
+  });
+
+  it("allows the .ievo/ directory itself (no trailing path)", () => {
+    assert.equal(assertStackFileAllowed("/proj/.ievo", "/proj"), resolve("/proj/.ievo"));
+  });
+
+  it("throws for a sibling directory that merely shares the '.ievo' prefix", () => {
+    assert.throws(() => assertStackFileAllowed("/proj/.ievo-evil/stack.json", "/proj"), /must be inside/);
+  });
+
+  it("throws for a path escaping via traversal", () => {
+    assert.throws(() => assertStackFileAllowed("/proj/.ievo/../../etc/passwd", "/proj"), /must be inside/);
+  });
+
+  it("throws for an absolute path entirely outside the project (e.g. ~/.aws/credentials)", () => {
+    assert.throws(() => assertStackFileAllowed("/home/<name>/.aws/credentials", "/proj"), /must be inside/);
+  });
+});
+
+describe("assertStackFileReadable", () => {
+  const fakeStat = (isFile, size) => () => ({ isFile: () => isFile, size });
+  const fakeRealpath = (p) => p; // identity: realpath equals the lexical path (no symlink involved)
+
+  it("passes for a regular file under the size cap whose realpath stays inside .ievo/", () => {
+    assert.doesNotThrow(() =>
+      assertStackFileReadable("/proj/.ievo/stack.json", "/proj", 100, fakeStat(true, 10), fakeRealpath));
+  });
+
+  it("throws for a non-regular file (e.g. a symlink or directory, per lstat)", () => {
+    assert.throws(
+      () => assertStackFileReadable("/proj/.ievo/stack.json", "/proj", 100, fakeStat(false, 10), fakeRealpath),
+      /not a regular file/,
+    );
+  });
+
+  it("throws when the file exceeds the size cap", () => {
+    assert.throws(
+      () => assertStackFileReadable("/proj/.ievo/stack.json", "/proj", 100, fakeStat(true, 101), fakeRealpath),
+      /exceeds 100 bytes/,
+    );
+  });
+
+  it("throws when the realpath resolves outside .ievo/ (symlinked ancestor directory)", () => {
+    // Simulates .ievo/link -> /outside, --stack-file .ievo/link/stack.json: the
+    // lexical path is inside .ievo/, but lstat resolves the intermediate
+    // "link" component (POSIX semantics) and reports on the REAL target, so
+    // isFile()/size alone would pass. The realpath re-check must still catch it.
+    const realpathImpl = (p) => (p === "/proj/.ievo" ? "/proj/.ievo" : "/outside/stack.json");
+    assert.throws(
+      () => assertStackFileReadable("/proj/.ievo/link/stack.json", "/proj", 100, fakeStat(true, 10), realpathImpl),
+      /must be inside/,
+    );
+  });
+
+  it("defaults capBytes to MAX_STACK_FILE_BYTES and statImpl/realpathImpl to the real fs", () => {
+    // Real fs, real lstatSync/realpathSync defaults: a genuine regular file
+    // under a genuine <projectRoot>/.ievo/, well under the cap, no symlink.
+    const projectRoot = join(tmpdir(), `discover-readable-defaults-${process.pid}`);
+    const filePath = join(projectRoot, IEVO_DIR, "stack.json");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, "{}", "utf-8");
+    try {
+      assert.doesNotThrow(() => assertStackFileReadable(filePath, projectRoot));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a REAL symlinked ancestor directory under .ievo/ pointing outside the project (end-to-end)", () => {
+    const root = join(tmpdir(), `discover-symlink-${process.pid}`);
+    const projectRoot = join(root, "proj");
+    const outsideDir = join(root, "outside");
+    const ievoDir = join(projectRoot, IEVO_DIR);
+    mkdirSync(outsideDir, { recursive: true });
+    mkdirSync(ievoDir, { recursive: true });
+    writeFileSync(join(outsideDir, "stack.json"), '{"languages":["python"]}', "utf-8");
+    symlinkSync(outsideDir, join(ievoDir, "link"), "dir");
+    try {
+      const stackFile = join(ievoDir, "link", "stack.json");
+      const allowedPath = assertStackFileAllowed(stackFile, projectRoot);
+      assert.throws(() => assertStackFileReadable(allowedPath, projectRoot), /must be inside/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -554,11 +660,17 @@ describe("parseArgs", () => {
     assert.equal(a.limit, DEFAULT_TOTAL_LIMIT);
     assert.equal(a.concurrency, DEFAULT_CONCURRENCY);
     assert.equal(a.perQuery, DEFAULT_PER_QUERY_LIMIT);
+    assert.equal(a.project, ".");
   });
 
   it("--stack-file sets path", () => {
     const a = parseArgs(["node", "discover.mjs", "--stack-file", "/path/to/stack.json"]);
     assert.equal(a.stackFile, "/path/to/stack.json");
+  });
+
+  it("--project sets the containment root for --stack-file (skills#543)", () => {
+    const a = parseArgs(["node", "discover.mjs", "--project", "/some/project"]);
+    assert.equal(a.project, "/some/project");
   });
 
   it("--limit parses integer", () => {
@@ -935,21 +1047,77 @@ describe("main", () => {
     assert.match(run.errs.join("\n"), /provide stack/);
   });
 
+  // Builds a --stack-file path INSIDE <projectRoot>/.ievo/ — the only
+  // directory assertStackFileAllowed permits (skills#543) — so a test not
+  // exercising containment itself doesn't trip it.
+  function allowedStackFile(projectRoot, name, content) {
+    const dir = join(projectRoot, IEVO_DIR);
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, name);
+    writeFileSync(p, content, "utf-8");
+    return p;
+  }
+
   it("reads --stack-file when provided", async () => {
-    const stackPath = join(tmpDir, "stack.json");
-    writeFileSync(stackPath, JSON.stringify({ languages: ["go"] }), "utf-8");
+    const stackPath = allowedStackFile(tmpDir, "stack.json", JSON.stringify({ languages: ["go"] }));
     const run = makeRun();
     // Set globalThis.fetch to a stub so we don't hit real API
     const origFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ skills: [] }) });
     try {
-      await main(["node", "discover.mjs", "--stack-file", stackPath], Readable.from([""]), run.log, run.errLog, run.exit, noCodex);
+      await main(["node", "discover.mjs", "--stack-file", stackPath, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit, noCodex);
       assert.equal(run.exitCode, 0);
       const output = JSON.parse(run.logs.join("\n"));
       assert.equal(output.stack_input.languages[0], "go");
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+
+  // --- #543: containment, size cap, non-regular-file rejection, no raw echo ---
+
+  it("rejects a --stack-file outside the project's .ievo/ directory (containment)", async () => {
+    const outside = join(tmpDir, "outside-secret.json");
+    writeFileSync(outside, JSON.stringify({ languages: ["go"] }), "utf-8");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", outside, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), /cannot read stack file '.*outside-secret\.json': must be inside .*\.ievo/);
+  });
+
+  it("rejects a --stack-file that is a directory, not a regular file", async () => {
+    const dirAsStackFile = join(tmpDir, IEVO_DIR, "not-a-file");
+    mkdirSync(dirAsStackFile, { recursive: true });
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", dirAsStackFile, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), /cannot read stack file '.*not-a-file': not a regular file/);
+  });
+
+  it("rejects a --stack-file exceeding MAX_STACK_FILE_BYTES", async () => {
+    const stackPath = allowedStackFile(tmpDir, "big.json", "x".repeat(MAX_STACK_FILE_BYTES + 1));
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", stackPath, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), new RegExp(`cannot read stack file '.*big\\.json': exceeds ${MAX_STACK_FILE_BYTES} bytes`));
+  });
+
+  it("exits 3 when --stack-file inside .ievo/ does not exist (ENOENT via lstat)", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", join(tmpDir, IEVO_DIR, "does-not-exist.json"), "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), /cannot read stack file '.*does-not-exist\.json': /);
+  });
+
+  it("never echoes raw --stack-file content on a parse failure (skills#543 — unlike the stdin path)", async () => {
+    const stackPath = allowedStackFile(tmpDir, "invalid-no-echo.json", "not json but has a SECRET=abc123token in it");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", stackPath, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /invalid JSON in --stack-file/);
+    assert.doesNotMatch(errText, /First 200 chars/);
+    assert.doesNotMatch(errText, /SECRET=abc123token/);
   });
 
   it("reads stdin JSON when --stack-file is absent", async () => {
@@ -1056,15 +1224,14 @@ describe("main", () => {
   });
 
   it("exits 3 on invalid --stack-file JSON with source-aware error", async () => {
-    const stackPath = join(tmpDir, "invalid.json");
-    writeFileSync(stackPath, "not json at all", "utf-8");
+    const stackPath = allowedStackFile(tmpDir, "invalid.json", "not json at all");
     const run = makeRun();
-    await main(["node", "discover.mjs", "--stack-file", stackPath], Readable.from([""]), run.log, run.errLog, run.exit);
+    await main(["node", "discover.mjs", "--stack-file", stackPath, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
     assert.equal(run.exitCode, 3);
     assert.match(run.errs.join("\n"), /invalid JSON in --stack-file/);
   });
 
-  it("exits 3 on missing --stack-file", async () => {
+  it("exits 3 on missing --stack-file (outside .ievo/ — containment rejects before ENOENT)", async () => {
     const run = makeRun();
     await main(["node", "discover.mjs", "--stack-file", "/nope/missing.json"], Readable.from([""]), run.log, run.errLog, run.exit);
     assert.equal(run.exitCode, 3);
@@ -1178,9 +1345,11 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
   });
 
   it("runs as CLI with --stack-file containing empty stack, exits 5 (no queries derived)", () => {
-    const stackPath = join(tmpDir, "stack.json");
+    const ievoDir = join(tmpDir, ".ievo");
+    mkdirSync(ievoDir, { recursive: true });
+    const stackPath = join(ievoDir, "stack.json");
     writeFileSync(stackPath, JSON.stringify({}), "utf-8");
-    const r = spawnSync(process.execPath, [scriptPath, "--stack-file", stackPath], {
+    const r = spawnSync(process.execPath, [scriptPath, "--stack-file", stackPath, "--project", tmpDir], {
       encoding: "utf-8",
       timeout: 30000,
     });
@@ -1212,14 +1381,28 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
   });
 
   it("runs as CLI, exits 3 with source-aware error on malformed --stack-file", () => {
-    const stackPath = join(tmpDir, "bad.json");
+    const ievoDir = join(tmpDir, ".ievo");
+    mkdirSync(ievoDir, { recursive: true });
+    const stackPath = join(ievoDir, "bad.json");
     writeFileSync(stackPath, "{not valid", "utf-8");
-    const r = spawnSync(process.execPath, [scriptPath, "--stack-file", stackPath], {
+    const r = spawnSync(process.execPath, [scriptPath, "--stack-file", stackPath, "--project", tmpDir], {
       encoding: "utf-8",
       timeout: 30000,
     });
     assert.equal(r.status, 3);
     assert.match(r.stderr, /invalid JSON in --stack-file/);
+  });
+
+  it("runs as CLI, exits 3 with containment error on --stack-file outside --project's .ievo/", () => {
+    const outside = join(tmpDir, "outside.json");
+    writeFileSync(outside, JSON.stringify({ languages: ["go"] }), "utf-8");
+    const r = spawnSync(process.execPath, [scriptPath, "--stack-file", outside, "--project", tmpDir], {
+      encoding: "utf-8",
+      timeout: 30000,
+    });
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /cannot read stack file/);
+    assert.match(r.stderr, /must be inside/);
   });
 
   it("runs as CLI, exits 3 on missing --stack-file", () => {

@@ -49,15 +49,15 @@ cd <your-project>
 
 ### Choosing an install scope
 
-The Quick Start above installs to **user** scope — the default — available to you across every project. Two other scopes cover different situations:
+The Quick Start above uses the interactive `/plugin install`, which prompts you to pick a scope. **User** scope makes iEvo available to you across every project; two other scopes cover different situations:
 
 | Scope | Settings file | Use when |
 |-------|----------------|----------|
-| `user` (default) | `~/.claude/settings.json` | Personal use across all your projects — what the Quick Start above does. |
+| `user` (CLI default) | `~/.claude/settings.json` | Personal use across all your projects. |
 | `project` | `.claude/settings.json` | You want the whole team to get iEvo automatically — committed to git, so collaborators are prompted to trust + install it on `git pull` (see *iEvo bootstraps itself for teammates* below). |
 | `local` | `.claude/settings.local.json` | Just you, just this repo — e.g. trying iEvo on a shared/team project without affecting collaborators. Gitignored by default. |
 
-Interactively, `/plugin install ievo@ievo-skills` (or `/plugin` → **Discover**) prompts you to pick a scope. Non-interactively (CI, scripting), pass `--scope` to the CLI form instead:
+Interactively, `/plugin install ievo@ievo-skills` (or `/plugin` → **Discover**) prompts you to pick a scope. Non-interactively (CI, scripting), use the `claude plugin install` shell form instead — it installs to `user` scope unless you pass `--scope`:
 
 ```bash
 claude plugin install ievo@ievo-skills --scope project   # shared with the team

@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.77.4
+
+Guard `validate_skills.mjs`'s `discoverSkillFiles()` against symlink-following (CWE-59) — Eva research-audit finding, recurring since 2026-07-23.
+
+- **Gap closed** — `discoverSkillFiles()` used `statSync` (follows symlinks) instead of `lstatSync` (judges the directory entry on its own metadata) to test whether a `plugins/ievo/skills/` entry is a directory. The same file's `isOversized()`, two functions above, already documents the lstatSync-not-statSync rationale for exactly this reason — this function just didn't follow it. A crafted PR could add a symlinked directory entry under `plugins/ievo/skills/` pointing outside the repo tree, and `statSync` would happily follow it into discovery.
+- **The fix** — `discoverSkillFiles()` now judges every candidate entry via `lstatSync`, matching `isOversized()`'s existing pattern; no `statSync` call remains in the file.
+- **Tests** — new CWE-59 regression case (symlinked directory entry is excluded from discovery: 0 matches post-fix vs 1 pre-fix); confirmed the repo's own 22 skill directories are all real, so the change causes no discovery loss.
+- **Scope** — `plugins/ievo/scripts/validate_skills.mjs` + its test suite; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table; 0.77.1 and 0.77.2 were both claimed and superseded by sibling PRs (#546, #547) before this one rebased, so this PR takes the next free slot (0.77.3 → 0.77.4). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger all updated in lockstep — SCRIPT_VERSION coupling applies here same as any other plugin-path change; an earlier revision of this entry incorrectly claimed it didn't.
+
 ## v0.77.3
 
 Close a redaction gap in `scrub.mjs` — HTTP credential-header values (`Authorization`/`Cookie`/`Set-Cookie`) passed through every scrub stage unredacted (CWE-200) — Eva vuln-scan dogfooding finding, #544.

@@ -21,7 +21,7 @@
 //   node validate_skills.mjs <file1> <file2> ...      (explicit files)
 //   node validate_skills.mjs --quiet                   (only print violations)
 
-import { lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -305,24 +305,32 @@ export function validateSkill(filePath) {
   return validateSkillContent(content, parentDirName);
 }
 
+// Uses lstatSync (not statSync) so a symlinked directory entry under
+// skillsDir is judged on its own metadata and never followed (CWE-59) — the
+// same rationale as isOversized() above. A crafted PR could otherwise add a
+// symlink under plugins/ievo/skills/ pointing outside the repo tree (e.g.
+// ../../../../etc), causing this scan to walk and validate content that
+// isn't actually part of the shipped skill set. Unlike statSync, lstatSync
+// never throws on a dangling symlink target — it reports the link's own
+// metadata — so entryPath's lstat needs no try/catch of its own: a
+// non-directory entry (regular file, symlink of any kind) simply fails
+// isDirectory() and is skipped. A genuine lstat failure on a name
+// readdirSync just returned (e.g. a TOCTOU race) is left to propagate to
+// main()'s existing try/catch around this call, rather than being silently
+// swallowed here.
 export function discoverSkillFiles(skillsDir) {
   const resolved = resolve(skillsDir);
   const entries = readdirSync(resolved);
   const files = [];
   for (const entry of entries) {
     const entryPath = resolve(resolved, entry);
+    if (!lstatSync(entryPath).isDirectory()) continue;
+    const skillPath = resolve(entryPath, "SKILL.md");
     try {
-      if (statSync(entryPath).isDirectory()) {
-        const skillPath = resolve(entryPath, "SKILL.md");
-        try {
-          statSync(skillPath);
-          files.push(skillPath);
-        } catch {
-          // no SKILL.md in this subdirectory
-        }
-      }
+      lstatSync(skillPath);
+      files.push(skillPath);
     } catch {
-      // stat failed — skip
+      // no SKILL.md in this subdirectory
     }
   }
   return files;

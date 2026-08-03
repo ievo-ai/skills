@@ -709,12 +709,23 @@ describe("discoverSkillFiles", () => {
     assert.equal(files.length, 1);
   });
 
-  it("skips entries where stat fails (e.g. broken symlink)", () => {
+  it("skips a symlink entry via lstat (not-a-directory), even with a dangling target", () => {
     const symlinkDir = join(tmpDir, "symlink-test");
     mkdirSync(symlinkDir, { recursive: true });
     symlinkSync(join(symlinkDir, "nonexistent-target"), join(symlinkDir, "broken-link"));
     const files = discoverSkillFiles(symlinkDir);
     assert.equal(files.length, 0);
+  });
+
+  it("does not follow a symlink pointed at a real directory (CWE-59)", () => {
+    const symlinkDir = join(tmpDir, "symlink-follow-test");
+    const realSkillDir = join(tmpDir, "symlink-follow-target");
+    mkdirSync(symlinkDir, { recursive: true });
+    mkdirSync(realSkillDir, { recursive: true });
+    writeFileSync(join(realSkillDir, "SKILL.md"), "---\nname: target-skill\n---", "utf-8");
+    symlinkSync(realSkillDir, join(symlinkDir, "linked-skill"));
+    const files = discoverSkillFiles(symlinkDir);
+    assert.equal(files.length, 0, "a symlinked directory entry must not be followed into");
   });
 
   after(() => {

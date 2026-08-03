@@ -47,6 +47,25 @@ cd <your-project>
 
 **v0.6.0**: discovery now happens via our own `discover.mjs` script hitting `https://skills.sh/api/search` directly — no more manual `npx skills add` step required.
 
+### Choosing an install scope
+
+The Quick Start above uses the interactive `/plugin install`, which prompts you to pick a scope. **User** scope makes iEvo available to you across every project; two other scopes cover different situations:
+
+| Scope | Settings file | Use when |
+|-------|----------------|----------|
+| `user` (CLI default) | `~/.claude/settings.json` | Personal use across all your projects. |
+| `project` | `.claude/settings.json` | You want the whole team to get iEvo automatically — committed to git, so collaborators are prompted to trust + install it on `git pull` (see *iEvo bootstraps itself for teammates* below). |
+| `local` | `.claude/settings.local.json` | Just you, just this repo — e.g. trying iEvo on a shared/team project without affecting collaborators. Gitignored by default. |
+
+Interactively, `/plugin install ievo@ievo-skills` (or `/plugin` → **Discover**) prompts you to pick a scope. Non-interactively (CI, scripting), use the `claude plugin install` shell form instead — it installs to `user` scope unless you pass `--scope`:
+
+```bash
+claude plugin install ievo@ievo-skills --scope project   # shared with the team
+claude plugin install ievo@ievo-skills --scope local     # this machine, this repo only
+```
+
+See [Plugin installation scopes](https://code.claude.com/docs/en/plugins-reference#plugin-installation-scopes) for the full explanation, including the read-only `managed` scope set by organization admins.
+
 ### Developer install (git clone, no marketplace)
 
 Prefer a live git checkout over the marketplace? Claude Code v2.1.157+ auto-loads plugins placed under `.claude/skills/` without any marketplace registration. This repo's plugin root is `plugins/ievo/` (the repo root itself only holds the marketplace manifest), so clone to a scratch location and symlink the plugin directory in — cloning straight to `~/.claude/skills/ievo` would nest the plugin one level too deep and silently fail to load:
@@ -348,6 +367,14 @@ That can also read as a confusing downgrade. `~/.claude/plugins/installed_plugin
 Even `claude plugin marketplace update <name>` — which runs a `git pull` against the cached clone under the hood — isn't guaranteed to leave the clone at the latest commit: the [docs](https://code.claude.com/docs/en/plugin-marketplaces#marketplace-updates-fail-in-offline-environments) state that "by default, when a `git pull` fails, Claude Code attempts a re-clone from scratch," and running the command **manually** has been observed reporting success while an untracked local edit to the cached clone's own `marketplace.json` blocked a clean fast-forward (one machine, one occurrence — not a documented general guarantee either way).
 
 **Mitigation**: if `plugin update` / `marketplace update` output looks stale or reads like an unexplained downgrade, verify — and if needed refresh — the cached clone directly: `git log -1` and `git pull` inside `~/.claude/plugins/marketplaces/<marketplace>`, discarding any untracked local modification to that clone's `marketplace.json` first if it blocks the fast-forward, then re-run `claude plugin update`. Reported on iEvo 0.74.3 with Claude Code 2.1.220 ([ievo-ai/skills#512](https://github.com/ievo-ai/skills/issues/512)).
+
+### Known configuration gotcha — plugin shows `disabled` in a brand-new project despite `enabled: true` at user scope
+
+A plugin installed and enabled at **user** scope can still show as `disabled` the first time you open a brand-new project, with no project/local override anywhere to explain it. Confirmed on Claude Code v2.1.220 with iEvo v0.77.0: `~/.claude/settings.json` had `"enabledPlugins": {"ievo@ievo-skills": true}`; the new project had no `.claude/settings.json` at all, and its `.claude/settings.local.json` had no `enabledPlugins` key; `claude plugin list --json` showed exactly one **user**-scope entry for `ievo@ievo-skills` with `"enabled": true` and no matching project-scope entry — yet the `/plugin` → **Installed** tab (filtered to "ievo") showed `ievo Plugin · ievo-skills · o disabled`, `/plugin install` reported the plugin "already installed globally", and every `/ievo:*` skill came back `Unknown command`.
+
+This is an **upstream Claude Code defect, not an iEvo bootstrap issue** — the failure happens before any iEvo code path runs (no `.ievo/` write, no skill or script execution), and there is no iEvo-side install step that could cause a correctly-enabled user-scope plugin to load as disabled in a fresh project.
+
+**Mitigation**: apply the official troubleshooting guidance for this class of issue — clear the plugin cache and reinstall: "Plugin skills not appearing: clear the cache with `rm -rf ~/.claude/plugins/cache`, restart Claude Code, and reinstall the plugin" ([official docs](https://code.claude.com/docs/en/discover-plugins#common-issues)). If that doesn't resolve it, this is a Claude Code issue to report upstream, not an iEvo one. Reported on iEvo 0.77.0 with Claude Code 2.1.220 ([ievo-ai/skills#549](https://github.com/ievo-ai/skills/issues/549)).
 
 ## Install paths
 

@@ -55,7 +55,7 @@ Usage:
   node scrub.mjs --help
 
 Redacts PEM-armored private-key blocks, provider-shaped secret values
-(GitHub/OpenAI/Slack/AWS tokens, JWTs), secret-shaped NAME=value / NAME: value
+(GitHub/OpenAI/Slack/AWS/Stripe tokens, JWTs), secret-shaped NAME=value / NAME: value
 assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, bare PASSWORD/SECRET/
 TOKEN/APIKEY/API_KEY), HTTP credential-header values (Authorization/Cookie/
 Set-Cookie), URL-embedded credentials (scheme://user:pass@host), rewrites

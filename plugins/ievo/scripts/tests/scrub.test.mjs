@@ -394,6 +394,16 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets(text), text);
   });
 
+  it("does not match an uppercase-preceded (acronym-run) suffix — deliberate scope boundary (skills#557)", () => {
+    // The camel alternative's lookbehind is [a-z0-9]: an acronym run before
+    // the suffix word (APIToken, SSHKey, 2FAToken) is a different identifier
+    // grammar with its own false-positive surface, outside #557's scope.
+    // Pinned so a future widening of the lookbehind has to confront that
+    // false-positive analysis explicitly instead of drifting in unnoticed.
+    const text = "APIToken=abc123 SSHKey: xyz789 x2FAToken=v";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
   it("fully redacts a multi-word unquoted value, not just its first token (skills#493)", () => {
     assert.equal(redactNamedSecrets("PASSWORD=my secret pass"), "PASSWORD=[REDACTED]");
     assert.equal(
@@ -617,6 +627,23 @@ describe("redactNamedSecrets", () => {
     // swallows the trailing space, since no assignment follows it to stop at.
     assert.equal(out, Array(units).fill("PASSWORD=[REDACTED]").join(" "));
     assert.doesNotMatch(out, /"a/);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("stays linear on a long camelCase-shaped word with many embedded suffixes and no terminal match", () => {
+    // The camelCase alternative's greedy [A-Za-z0-9_]* backtracks through
+    // every embedded capitalized suffix inside a word before failing — but
+    // only from the single \b at the word's start (every interior position is
+    // word→word, so no other match attempt begins), making the cost one
+    // O(word) sweep per word rather than per character. Same empirical
+    // pinning discipline as the sibling linearity tests above, applied to the
+    // new alternative: 20k embedded `Token`s whose terminal \b never fires
+    // (the trailing `x` keeps every candidate suffix mid-identifier).
+    const input = `${"aToken".repeat(20_000)}x`;
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, input);
     assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
   });
 

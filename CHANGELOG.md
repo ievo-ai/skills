@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.1
+
+`security-auditor.md` now redacts real secret values before they can reach a public RED-verdict issue — closes #556.
+
+- **Gap closed (#556)** — `security-auditor.md`'s `## Rules` had no instruction to redact a real (non-placeholder) credential/token/key value before quoting it into `flags[].excerpt` or `report_template.body`. Since a RED verdict's `report_template.body` is filed as a public, auto-rendering GitHub issue in the audited candidate's own (often third-party) repo, a real secret encountered during the deep-scan antivirus pass — a hardcoded API key used as a decoy, an accidentally committed credential, a config fixture with a real value — would have been republished verbatim in a permanently archived, publicly indexed location.
+- **New `## Rules` bullet (`security-auditor.md`)** — "Never echo raw secret values", mirroring the near-identical rule already shipped in the sibling agents `deep-reviewer.md` and `vuln-scanner.md`: any real credential/token/key value encountered must never appear verbatim in `flags[].excerpt` or `report_template.body` — describe the handling pattern and redact the value itself (`AKIA****`) instead, while still citing `file` + `explanation` as evidence. Takes precedence over the existing "Excerpt containment" markdown-fencing note for the secret substring specifically (that note guards a different threat — rendered-content exfiltration via crafted excerpts — and doesn't cover raw secret disclosure): redact the credential value first, then apply the fencing to whatever excerpt text remains.
+- **Scope** — `plugins/ievo/agents/security-auditor.md`; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (closes a gap in existing agent instructions, not a new capability); `plugin.json`, `marketplace.json`, and the coupled `discover.mjs`/`evolution_candidates.mjs`/`scrub.mjs` `SCRIPT_VERSION`s, and the AGENTS.md compliance ledger header updated in lockstep (0.78.0 → 0.78.1).
+
 ## v0.78.0
 
 Offer to share generally-reusable `/ievo:evo` lessons upstream, even when they aren't about iEvo itself — closes #554.

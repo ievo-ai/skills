@@ -292,6 +292,7 @@ Default to YELLOW on incomplete — better safer-than-sorry than false GREEN.
 - **No install action.** You only audit and emit verdict + report_template. Install/report decisions are init's responsibility.
 - **report_template only on RED.** YELLOW = install-with-awareness, no report needed. GREEN = silent install.
 - **Neutralize excerpts before they go public.** `report_template.body` is filed as a public, auto-rendering GitHub issue — see § Output structured JSON's "Excerpt containment" note for the fencing rule.
+- **Never echo raw secret values.** Any real credential/token/key value encountered during the scan — not a placeholder/test value — must never appear verbatim in `flags[].excerpt` or `report_template.body`. Describe the handling pattern and redact the value itself (`AKIA****`) instead, while still citing `file` + `explanation` as evidence. Takes precedence over excerpt containment for the secret substring specifically — the two combine, they don't conflict: redact the credential value first, then apply the § Output structured JSON "Excerpt containment" fencing to whatever excerpt text remains.
 
 ## Why this is an agent (not just the skill)
 

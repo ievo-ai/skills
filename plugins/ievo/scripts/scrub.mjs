@@ -217,9 +217,19 @@ function titleCase(literal) {
 // examples share. The trailing \b that ASSIGNMENT_RE wraps around NAME_ALT
 // keeps the suffix terminal in every alternative (authTokenValue is no more
 // a match than AUTH_TOKEN_VALUE is).
+//
+// The ID suffix additionally matches fully capitalized (SessionID,
+// AccessKeyID — the AWS Go SDK's own field spelling): Go's initialisms
+// convention capitalizes the whole abbreviation where camelCase would
+// title-case a word, and Go-binary error dumps (kubectl, terraform, aws)
+// are a common shape in captured tool output. The lower→upper lookbehind
+// still applies, so an acronym run before it (UUID) stays out. The other
+// four suffixes are ordinary words with no initialism spelling. Found by
+// /ievo:vuln-scan on this diff, not by the original skills#557 report.
+const CAMEL_SUFFIXES = [...SECRET_SUFFIXES.map(titleCase), "ID"];
 const NAME_ALT = [
   String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
-  String.raw`[A-Za-z0-9][A-Za-z0-9_]*(?<=[a-z0-9])(?:${SECRET_SUFFIXES.map(titleCase).join("|")})`,
+  String.raw`[A-Za-z0-9][A-Za-z0-9_]*(?<=[a-z0-9])(?:${CAMEL_SUFFIXES.join("|")})`,
   ...BARE_SECRET_NAMES.map(anyCase),
 ].join("|");
 

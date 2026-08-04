@@ -394,6 +394,17 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets(text), text);
   });
 
+  it("redacts a Go-style fully-capitalized ID suffix (found by /ievo:vuln-scan on this diff)", () => {
+    // Go's initialisms convention (SessionID, AccessKeyID — the AWS Go SDK's
+    // own field spelling) capitalizes the whole abbreviation where camelCase
+    // would write Id — a common shape in Go-binary (kubectl/terraform/aws)
+    // error dumps. The lower→upper lookbehind still applies, so an acronym
+    // run before the all-caps ID (UUID) stays out.
+    assert.equal(redactNamedSecrets("SessionID=abc123def456"), "SessionID=[REDACTED]");
+    assert.equal(redactNamedSecrets('AccessKeyID: "AKIAIOSFODNN7EXAMPLE"'), 'AccessKeyID: "[REDACTED]"');
+    assert.equal(redactNamedSecrets("UUID=550e8400"), "UUID=550e8400");
+  });
+
   it("does not match an uppercase-preceded (acronym-run) suffix — deliberate scope boundary (skills#557)", () => {
     // The camel alternative's lookbehind is [a-z0-9]: an acronym run before
     // the suffix word (APIToken, SSHKey, 2FAToken) is a different identifier

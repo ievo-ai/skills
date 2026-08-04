@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.2
+
+Close a redaction gap in `scrub.mjs` — Stripe's underscore-delimited API key formats (`sk_live_`/`pk_live_`/`rk_live_`, plus their `_test_` counterparts) passed through every scrub stage unredacted (CWE-522) — Eva vuln-scan dogfooding finding, #558.
+
+- **Gap closed (#558)** — `PROVIDER_SECRET_RE` (`redactProviderSecrets`) listed exactly six fixed provider-token shapes: GitHub `gh[pousr]_`, `github_pat_`, OpenAI-style `sk-` (hyphen), Slack `xox[abprs]-`, AWS `AKIA`, and JWT `eyJ...`. Stripe secret/publishable/restricted keys use an underscore after the two-letter prefix (`sk_live_51H8xJ2...`), not the hyphen the OpenAI alternative requires, so a bare, unlabeled Stripe key quoted in captured tool output (e.g. inside a `Stripe error: Invalid API Key provided: sk_live_...` message) survived `redactProviderSecrets` untouched — and none of the later `redactNamedSecrets`/`redactHttpCredentialHeaders`/`redactUrlCredentials` passes caught it either, since none of them trigger on a bare token with no preceding name, header, or URL userinfo.
+- **Two new alternatives in `PROVIDER_SECRET_RE`** — `\b[sp]k_(?:live|test)_[A-Za-z0-9]{16,255}\b` (secret/publishable) and `\brk_(?:live|test)_[A-Za-z0-9]{16,255}\b` (restricted), same 255-char bound the other alternatives use for linear-time matching. Restricted keys cover both `rk_live_` and `rk_test_` (verified against docs.stripe.com/keys) — the issue's own recommendation named only `rk_live_`, but Stripe restricted keys have a `rk_test_` sandbox variant too, so the fix completes the live/test symmetry already present in the `sk`/`pk` alternative rather than leaving the same gap open one prefix over.
+- **Tests** — new `redactProviderSecrets` cases covering `sk_live_`/`sk_test_`/`pk_live_`/`pk_test_` and `rk_live_`/`rk_test_`, following the file's existing per-provider-format test style (each format gets its own `it(...)`).
+- **`--help` text** — `HELP_TEXT`'s provider list updated to `GitHub/OpenAI/Slack/AWS/Stripe tokens` (deep-review finding on this PR — the compliance ledger and changelog already named Stripe but the CLI's own help output didn't).
+- **Scope** — `plugins/ievo/scripts/scrub.mjs` + its test suite; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table; 0.78.1 was independently claimed by PR #560 (#556, merged first), so this PR rebased onto the new main and takes the next free slot (0.78.1 → 0.78.2). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.1
 
 `security-auditor.md` now redacts real secret values before they can reach a public RED-verdict issue — closes #556.

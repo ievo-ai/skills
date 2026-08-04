@@ -230,6 +230,20 @@ describe("redactProviderSecrets", () => {
     assert.equal(redactProviderSecrets(`jwt ${jwt}`), `jwt ${REDACTED}`);
   });
 
+  it("redacts a Stripe secret/publishable key (sk_live_/sk_test_/pk_live_/pk_test_)", () => {
+    for (const prefix of ["sk_live", "sk_test", "pk_live", "pk_test"]) {
+      const token = `${prefix}_51H8xJ2GZ${"a".repeat(16)}`;
+      assert.equal(redactProviderSecrets(`Stripe error: Invalid API Key provided: ${token}`), `Stripe error: Invalid API Key provided: ${REDACTED}`);
+    }
+  });
+
+  it("redacts a Stripe restricted key (rk_live_/rk_test_)", () => {
+    for (const prefix of ["rk_live", "rk_test"]) {
+      const token = `${prefix}_51H8xJ2GZ${"a".repeat(16)}`;
+      assert.equal(redactProviderSecrets(`key=${token}`), `key=${REDACTED}`);
+    }
+  });
+
   it("redacts multiple occurrences in one blob (global replace)", () => {
     const a = `ghp_${"a".repeat(36)}`;
     const b = `AKIAABCDEFGHIJKLMNOP`;

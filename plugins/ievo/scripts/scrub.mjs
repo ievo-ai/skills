@@ -42,7 +42,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.78.1";
+export const SCRIPT_VERSION = "0.78.2";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -55,7 +55,7 @@ Usage:
   node scrub.mjs --help
 
 Redacts PEM-armored private-key blocks, provider-shaped secret values
-(GitHub/OpenAI/Slack/AWS tokens, JWTs), secret-shaped NAME=value / NAME: value
+(GitHub/OpenAI/Slack/AWS/Stripe tokens, JWTs), secret-shaped NAME=value / NAME: value
 assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, bare PASSWORD/SECRET/
 TOKEN/APIKEY/API_KEY), HTTP credential-header values (Authorization/Cookie/
 Set-Cookie), URL-embedded credentials (scheme://user:pass@host), rewrites
@@ -150,6 +150,8 @@ const PROVIDER_SECRET_RE = new RegExp(
     String.raw`\bxox[abprs]-[A-Za-z0-9-]{10,255}\b`, // Slack token
     String.raw`\bAKIA[0-9A-Z]{16}\b`, // AWS access key id
     String.raw`\beyJ[A-Za-z0-9_-]{5,255}\.[A-Za-z0-9_-]{5,255}\.[A-Za-z0-9_-]{5,255}\b`, // JWT (header.payload.signature)
+    String.raw`\b[sp]k_(?:live|test)_[A-Za-z0-9]{16,255}\b`, // Stripe secret/publishable key
+    String.raw`\brk_(?:live|test)_[A-Za-z0-9]{16,255}\b`, // Stripe restricted key (both live and test mode, docs.stripe.com/keys)
   ].join("|"),
   "g",
 );

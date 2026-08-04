@@ -42,7 +42,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.78.2";
+export const SCRIPT_VERSION = "0.78.3";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -56,8 +56,9 @@ Usage:
 
 Redacts PEM-armored private-key blocks, provider-shaped secret values
 (GitHub/OpenAI/Slack/AWS/Stripe tokens, JWTs), secret-shaped NAME=value / NAME: value
-assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, bare PASSWORD/SECRET/
-TOKEN/APIKEY/API_KEY), HTTP credential-header values (Authorization/Cookie/
+assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, camelCase equivalents
+like authToken/clientSecret/accessKeyId, bare PASSWORD/SECRET/TOKEN/APIKEY/
+API_KEY), HTTP credential-header values (Authorization/Cookie/
 Set-Cookie), URL-embedded credentials (scheme://user:pass@host), rewrites
 $HOME-absolute paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
 Unicode code points. Never writes a file; on any internal error emits nothing
@@ -164,19 +165,73 @@ export function redactProviderSecrets(text) {
 // 3. Assignment VALUES for secret-shaped NAMES (name kept, value redacted)
 // ---------------------------------------------------------------------------
 
-// Suffix form: any identifier ending in _TOKEN / _KEY / _SECRET / _PASSWORD /
-// _ID (e.g. AWS_SECRET_ACCESS_KEY, DB_PASSWORD). Bare form: the handful of
-// unsuffixed names that are secret-shaped on their own (APIKEY has no
-// underscore before KEY, so it isn't covered by the suffix form; API_KEY is
-// covered by both but listed for clarity).
+// Snake form: any identifier ending in _TOKEN / _KEY / _SECRET / _PASSWORD /
+// _ID, any casing (e.g. AWS_SECRET_ACCESS_KEY, db_password). camelCase form:
+// the same suffix words as a capitalized word at a lower→upper case
+// transition instead of an underscore (authToken, clientSecret, accessKeyId,
+// secretAccessKey — the JS/Node SDK spelling of the same secret-shaped
+// names; skills#557). Bare form: the handful of unsuffixed names that are
+// secret-shaped on their own, any casing (APIKEY has no underscore before
+// KEY, so it isn't covered by the snake form; API_KEY is covered by both but
+// listed for clarity) — this is also what covers plain camelCase `apiKey`:
+// the whole identifier case-folds to APIKEY, no case transition needed.
 //
-// The suffix alternative's leading character class is [A-Za-z0-9], not just
-// [A-Za-z] — a digit-leading name (2FA_TOKEN, 1PASSWORD_SERVICE_ACCOUNT_TOKEN)
-// is a realistic secret-shaped identifier, and ASSIGNMENT_RE's \b can't
-// recover a match starting mid-identifier: every digit→letter/letter→letter
-// transition inside a name like 2FA_TOKEN is word→word, so \b never fires
-// there (skills#507).
-const NAME_ALT = String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:TOKEN|KEY|SECRET|PASSWORD|ID)|PASSWORD|SECRET|TOKEN|APIKEY|API_KEY`;
+// One suffix list drives both the snake and camelCase spellings so the two
+// alternatives cannot drift apart.
+const SECRET_SUFFIXES = ["TOKEN", "KEY", "SECRET", "PASSWORD", "ID"];
+const BARE_SECRET_NAMES = ["PASSWORD", "SECRET", "TOKEN", "APIKEY", "API_KEY"];
+
+// Case-insensitive spelling of a literal ("KEY" -> "[Kk][Ee][Yy]").
+// ASSIGNMENT_RE cannot carry the "i" flag: the camelCase alternative below is
+// meaningful only case-EXACTLY — under "i", its lower→upper boundary check
+// degenerates and any word whose lowercased tail spells a suffix matches
+// (monkey/turkey via KEY, avoid/grid via ID), redacting ordinary prose and
+// identifiers wholesale. Node 18's regexes have no scoped case-sensitivity
+// toggle (the `(?i:...)`/`(?-i:...)` modifier groups need V8 12.4+ / Node
+// 22), so the alternatives that WERE case-insensitive via the flag keep that
+// exact behavior through per-character classes instead.
+function anyCase(literal) {
+  return literal.replace(/[A-Za-z]/g, (c) => `[${c.toUpperCase()}${c.toLowerCase()}]`);
+}
+
+// "TOKEN" -> "Token", "ID" -> "Id" — the capitalized-word spelling the
+// camelCase alternative matches case-exactly.
+function titleCase(literal) {
+  return literal[0] + literal.slice(1).toLowerCase();
+}
+
+// The snake and camelCase alternatives' leading character class is
+// [A-Za-z0-9], not just [A-Za-z] — a digit-leading name (2FA_TOKEN,
+// 1PASSWORD_SERVICE_ACCOUNT_TOKEN) is a realistic secret-shaped identifier,
+// and ASSIGNMENT_RE's \b can't recover a match starting mid-identifier:
+// every digit→letter/letter→letter transition inside a name like 2FA_TOKEN
+// is word→word, so \b never fires there (skills#507).
+//
+// The camelCase alternative requires the character before the capitalized
+// suffix to be a lowercase letter or digit (`(?<=[a-z0-9])` — a real
+// lower→upper camel boundary: authToken's h→T, accessKeyId's y→I,
+// oauth2Token's 2→T). An UPPERCASE-preceded suffix (APIToken, SSHKey — an
+// acronym run before the suffix word) is deliberately not matched: that is a
+// different identifier grammar with its own false-positive surface, and
+// skills#557 scopes this fix to the lower→upper transition all its exploit
+// examples share. The trailing \b that ASSIGNMENT_RE wraps around NAME_ALT
+// keeps the suffix terminal in every alternative (authTokenValue is no more
+// a match than AUTH_TOKEN_VALUE is).
+//
+// The ID suffix additionally matches fully capitalized (SessionID,
+// AccessKeyID — the AWS Go SDK's own field spelling): Go's initialisms
+// convention capitalizes the whole abbreviation where camelCase would
+// title-case a word, and Go-binary error dumps (kubectl, terraform, aws)
+// are a common shape in captured tool output. The lower→upper lookbehind
+// still applies, so an acronym run before it (UUID) stays out. The other
+// four suffixes are ordinary words with no initialism spelling. Found by
+// /ievo:vuln-scan on this diff, not by the original skills#557 report.
+const CAMEL_SUFFIXES = [...SECRET_SUFFIXES.map(titleCase), "ID"];
+const NAME_ALT = [
+  String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
+  String.raw`[A-Za-z0-9][A-Za-z0-9_]*(?<=[a-z0-9])(?:${CAMEL_SUFFIXES.join("|")})`,
+  ...BARE_SECRET_NAMES.map(anyCase),
+].join("|");
 
 // An unquoted value stops at a comma/semicolon/CRLF (unchanged), OR right
 // before the next secret-shaped `NAME<sep>` further along the same line —
@@ -320,9 +375,13 @@ const QUOTED_VALUE_INNER = String.raw`(?:[^\r\n\\]|\\[^\r\n]){0,${QUOTED_VALUE_M
 // (covers a quoted key like `"api_key": …`), (3) separator (`=`/`:` with
 // surrounding whitespace), then a quoted value (4=quote char, 5=inner
 // text), an unquoted value (6=see UNQUOTED_VALUE above), or a malformed
-// quoted value (7=see MALFORMED_QUOTED_VALUE above). Case-insensitive —
-// assignment names appear in every casing convention (env files are
-// uppercase, JS object literals are often camelCase).
+// quoted value (7=see MALFORMED_QUOTED_VALUE above). Compiled WITHOUT the
+// "i" flag (it used to carry one): NAME_ALT now manages casing per
+// alternative — snake/bare names stay case-insensitive via anyCase()'s
+// per-character classes, while the camelCase alternative's lower→upper
+// boundary stays case-exact, which an "i" flag would destroy (see above).
+// Every other atom in the pattern is a case-agnostic character class, so
+// the flag change affects nothing else.
 //
 // The quoted alternative's inner text is QUOTED_VALUE_INNER (lazy, only CRLF
 // excluded, backslash-escape aware, length-bounded) and closes on a
@@ -340,7 +399,7 @@ const QUOTED_VALUE_INNER = String.raw`(?:[^\r\n\\]|\\[^\r\n]){0,${QUOTED_VALUE_M
 // while a quote interior to the value no longer ends it early.
 const ASSIGNMENT_RE = new RegExp(
   String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])(${QUOTED_VALUE_INNER})\4${QUOTED_VALUE_CLOSE}|(${UNQUOTED_VALUE})|(${MALFORMED_QUOTED_VALUE}))`,
-  "gi",
+  "g",
 );
 
 export function redactNamedSecrets(text) {

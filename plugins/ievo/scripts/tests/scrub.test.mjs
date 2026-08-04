@@ -329,6 +329,92 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
   });
 
+  it("redacts a camelCase suffix-shaped name at a lower→upper transition (skills#557)", () => {
+    assert.equal(redactNamedSecrets("authToken=abc123def456xyz789"), "authToken=[REDACTED]");
+    assert.equal(redactNamedSecrets("refreshToken=abcdefghijklmnop1234567890"), "refreshToken=[REDACTED]");
+    assert.equal(redactNamedSecrets('clientSecret: "supersecretvalue123456"'), 'clientSecret: "[REDACTED]"');
+    assert.equal(redactNamedSecrets("accessToken=tok-abc123"), "accessToken=[REDACTED]");
+  });
+
+  it("redacts an AWS-SDK-shaped camelCase credential pair (skills#557)", () => {
+    // The issue's confirmed leak: accessKeyId's AKIA-shaped VALUE happens to
+    // be provider-shaped, but secretAccessKey's value matches no provider
+    // pattern — the camelCase-aware named pass is what redacts it.
+    const out = redactNamedSecrets(
+      '{"accessKeyId":"AKIAIOSFODNN7EXAMPLE","secretAccessKey":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}',
+    );
+    assert.equal(out, '{"accessKeyId":"[REDACTED]","secretAccessKey":"[REDACTED]"}');
+    assert.doesNotMatch(out, /wJalrXUtnFEMI|AKIAIOSFODNN7EXAMPLE/);
+  });
+
+  it("redacts PascalCase and digit-transition camel names", () => {
+    // The lower→upper boundary accepts a digit on its left (`(?<=[a-z0-9])`),
+    // mirroring the digit-leading snake names skills#507 pinned above.
+    assert.equal(redactNamedSecrets("SessionToken=FwoGZXIvYXdzEBYaDNzk"), "SessionToken=[REDACTED]");
+    assert.equal(redactNamedSecrets("oauth2Token: abc123def456"), "oauth2Token: [REDACTED]");
+  });
+
+  it("splits back-to-back camelCase assignments on one line independently (skills#557)", () => {
+    // NEXT_ASSIGNMENT_LOOKAHEAD interpolates NAME_ALT, so the stop condition
+    // must recognise the camelCase grammar too — in both directions when the
+    // two casing styles share a line.
+    assert.equal(
+      redactNamedSecrets("authToken=one clientSecret=two"),
+      "authToken=[REDACTED] clientSecret=[REDACTED]",
+    );
+    assert.equal(
+      redactNamedSecrets("AUTH_TOKEN=one authToken=two"),
+      "AUTH_TOKEN=[REDACTED] authToken=[REDACTED]",
+    );
+    assert.equal(
+      redactNamedSecrets("authToken=one AUTH_TOKEN=two"),
+      "authToken=[REDACTED] AUTH_TOKEN=[REDACTED]",
+    );
+  });
+
+  it("does not redact ordinary words whose lowercase tail merely spells a suffix word (skills#557)", () => {
+    // The false-positive trap the camelCase fix must not introduce: the case
+    // transition is matched case-EXACTLY (ASSIGNMENT_RE no longer carries the
+    // "i" flag), so a lowercase `key`/`id`/`token` tail is never a boundary.
+    const text = "monkey=banana turkey: dinner avoid=true valid: yes grid=12 solid=1 Monkey=banana";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
+  it("does not stop a value early at a lowercase word that only case-insensitively looks camel", () => {
+    // The lookahead inherits the case-exact camel grammar: `monkey:` inside a
+    // value must not be mistaken for the start of a camelCase assignment,
+    // which would leave the value's tail unredacted.
+    assert.equal(redactNamedSecrets("PASSWORD=my monkey: is cute"), "PASSWORD=[REDACTED]");
+  });
+
+  it("does not treat a camel suffix followed by more identifier characters as secret-shaped", () => {
+    // The suffix must be terminal (the \b after NAME_ALT) — parity with the
+    // snake form, where AUTH_TOKEN_VALUE is not a match either.
+    const text = "authTokenValue=diagnostic clientSecretName: rotation";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
+  it("redacts a Go-style fully-capitalized ID suffix (found by /ievo:vuln-scan on this diff)", () => {
+    // Go's initialisms convention (SessionID, AccessKeyID — the AWS Go SDK's
+    // own field spelling) capitalizes the whole abbreviation where camelCase
+    // would write Id — a common shape in Go-binary (kubectl/terraform/aws)
+    // error dumps. The lower→upper lookbehind still applies, so an acronym
+    // run before the all-caps ID (UUID) stays out.
+    assert.equal(redactNamedSecrets("SessionID=abc123def456"), "SessionID=[REDACTED]");
+    assert.equal(redactNamedSecrets('AccessKeyID: "AKIAIOSFODNN7EXAMPLE"'), 'AccessKeyID: "[REDACTED]"');
+    assert.equal(redactNamedSecrets("UUID=550e8400"), "UUID=550e8400");
+  });
+
+  it("does not match an uppercase-preceded (acronym-run) suffix — deliberate scope boundary (skills#557)", () => {
+    // The camel alternative's lookbehind is [a-z0-9]: an acronym run before
+    // the suffix word (APIToken, SSHKey, 2FAToken) is a different identifier
+    // grammar with its own false-positive surface, outside #557's scope.
+    // Pinned so a future widening of the lookbehind has to confront that
+    // false-positive analysis explicitly instead of drifting in unnoticed.
+    const text = "APIToken=abc123 SSHKey: xyz789 x2FAToken=v";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
   it("fully redacts a multi-word unquoted value, not just its first token (skills#493)", () => {
     assert.equal(redactNamedSecrets("PASSWORD=my secret pass"), "PASSWORD=[REDACTED]");
     assert.equal(
@@ -552,6 +638,23 @@ describe("redactNamedSecrets", () => {
     // swallows the trailing space, since no assignment follows it to stop at.
     assert.equal(out, Array(units).fill("PASSWORD=[REDACTED]").join(" "));
     assert.doesNotMatch(out, /"a/);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("stays linear on a long camelCase-shaped word with many embedded suffixes and no terminal match", () => {
+    // The camelCase alternative's greedy [A-Za-z0-9_]* backtracks through
+    // every embedded capitalized suffix inside a word before failing — but
+    // only from the single \b at the word's start (every interior position is
+    // word→word, so no other match attempt begins), making the cost one
+    // O(word) sweep per word rather than per character. Same empirical
+    // pinning discipline as the sibling linearity tests above, applied to the
+    // new alternative: 20k embedded `Token`s whose terminal \b never fires
+    // (the trailing `x` keeps every candidate suffix mid-identifier).
+    const input = `${"aToken".repeat(20_000)}x`;
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, input);
     assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
   });
 
@@ -1067,6 +1170,21 @@ describe("scrub", () => {
       }),
       `DATABASE_URL=postgres://${REDACTED}@db.prod.internal:5432/app`,
     );
+  });
+
+  it("redacts a camelCase-keyed SDK credential dump via the composite pipeline (skills#557)", () => {
+    // The issue's exploit shape: a JS/Node-SDK-style error/config dump whose
+    // secretAccessKey value matches none of PROVIDER_SECRET_RE's fixed
+    // provider shapes — before the camelCase-aware named pass, this reached
+    // the persisted capture in cleartext. (accessKeyId's AKIA-shaped value is
+    // independently caught by the provider pass, which runs first; the named
+    // pass then redacts the quoted marker idempotently.)
+    const out = scrub(
+      '{"accessKeyId":"AKIAIOSFODNN7EXAMPLE","secretAccessKey":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}',
+      { home: FAKE_HOME },
+    );
+    assert.equal(out, `{"accessKeyId":"${REDACTED}","secretAccessKey":"${REDACTED}"}`);
+    assert.doesNotMatch(out, /wJalrXUtnFEMI/);
   });
 
   it("redacts an Authorization/Cookie header via the composite pipeline (NAME_ALT-less names)", () => {

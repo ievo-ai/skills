@@ -315,6 +315,128 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
   });
 
+  it("redacts a camelCase suffix-shaped NAME (skills#557)", () => {
+    assert.equal(
+      redactNamedSecrets('const authToken = "abc123def456xyz789";'),
+      'const authToken = "[REDACTED]";',
+    );
+    assert.equal(redactNamedSecrets('clientSecret: "supersecretvalue123456"'), 'clientSecret: "[REDACTED]"');
+    assert.equal(
+      redactNamedSecrets("refreshToken=abcdefghijklmnop1234567890"),
+      "refreshToken=[REDACTED]",
+    );
+    assert.equal(redactNamedSecrets("myPassword=hunter2"), "myPassword=[REDACTED]");
+  });
+
+  it("redacts an AWS-SDK-shaped camelCase credential pair (skills#557)", () => {
+    // The exact shape the issue cites: an AWS SDK error/config dump. In the
+    // composite pipeline the AKIA value is also provider-shaped, but THIS
+    // pass must catch both by name — secretAccessKey's value matches no
+    // provider pattern, so it has no other line of defense.
+    const out = redactNamedSecrets(
+      '{"accessKeyId":"AKIAIOSFODNN7EXAMPLE","secretAccessKey":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}',
+    );
+    assert.equal(out, '{"accessKeyId":"[REDACTED]","secretAccessKey":"[REDACTED]"}');
+    assert.doesNotMatch(out, /AKIA|wJalrXUtnFEMI/);
+  });
+
+  it("redacts PascalCase, ALL-CAPS-suffix, digit-transition, and mixed snake+camel names (skills#557)", () => {
+    assert.equal(redactNamedSecrets("AccessToken=abc"), "AccessToken=[REDACTED]");
+    // ALL-CAPS suffix at a real lower→upper transition (clientID convention).
+    assert.equal(redactNamedSecrets("clientID=abc123"), "clientID=[REDACTED]");
+    assert.equal(redactNamedSecrets("sessionID: xyz789"), "sessionID: [REDACTED]");
+    // AWS SigV4's own query-parameter casing.
+    assert.equal(redactNamedSecrets("AWSAccessKeyId=AKIAEXAMPLE"), "AWSAccessKeyId=[REDACTED]");
+    // digit→upper is a transition too (same [A-Za-z0-9] rationale as skills#507).
+    assert.equal(redactNamedSecrets("s3Key=x"), "s3Key=[REDACTED]");
+    assert.equal(redactNamedSecrets("2faToken=x"), "2faToken=[REDACTED]");
+    // underscores inside the prefix don't break the camel suffix match.
+    assert.equal(redactNamedSecrets("secret_keyId=x"), "secret_keyId=[REDACTED]");
+  });
+
+  it("does not redact ordinary words that merely END in a suffix word — no case transition (skills#557)", () => {
+    // all-lowercase adjacency is not a camelCase boundary...
+    for (const text of [
+      "monkey=banana",
+      "hotkey=F5",
+      "turkey: 12",
+      "avoid=true",
+      "valid=yes",
+      "grid: 12",
+      "android=pie",
+      "orchid: flower",
+    ]) {
+      assert.equal(redactNamedSecrets(text), text, text);
+    }
+    // ...capitalized ordinary words keep their suffix run lowercase...
+    assert.equal(redactNamedSecrets("Monkey=banana"), "Monkey=banana");
+    assert.equal(redactNamedSecrets("Grid=12"), "Grid=12");
+    // ...and upper→upper adjacency is deliberately NOT a boundary: MONKEY is
+    // indistinguishable from SSHKey without a dictionary, so neither matches.
+    assert.equal(redactNamedSecrets("MONKEY=banana"), "MONKEY=banana");
+    assert.equal(redactNamedSecrets("GRID=12"), "GRID=12");
+    assert.equal(redactNamedSecrets("SSHKey=abc"), "SSHKey=abc");
+    // APIKey is NOT that class — it's the bare keyword APIKEY in mixed case.
+    assert.equal(redactNamedSecrets("APIKey=abc"), "APIKey=[REDACTED]");
+  });
+
+  it("does not widen past the name's end: plurals and suffix-mid-name stay untouched (skills#557)", () => {
+    // Symmetric with the snake forms, where AUTH_TOKENS / ACCESS_TOKEN_VALUE
+    // have never matched: the suffix word must END the identifier.
+    assert.equal(redactNamedSecrets("authTokens=x"), "authTokens=x");
+    assert.equal(redactNamedSecrets("accessTokenValue=x"), "accessTokenValue=x");
+  });
+
+  it("still matches every casing of the pre-#557 forms after the i-flag removal (regression guard)", () => {
+    // The `i` flag was replaced by per-letter classes inside NAME_ALT so the
+    // camelCase alternative could stay case-exact; these pin that the old
+    // any-casing behavior survived the mechanism swap.
+    assert.equal(redactNamedSecrets("db_password: hunter2"), "db_password: [REDACTED]");
+    assert.equal(redactNamedSecrets("Api_Key=abc"), "Api_Key=[REDACTED]");
+    assert.equal(redactNamedSecrets("apikey: abc"), "apikey: [REDACTED]");
+    assert.equal(redactNamedSecrets("Token=abc"), "Token=[REDACTED]");
+    assert.equal(redactNamedSecrets("Secret: abc"), "Secret: [REDACTED]");
+    assert.equal(redactNamedSecrets("my_toKen=abc"), "my_toKen=[REDACTED]");
+  });
+
+  it("stays linear on camel-shaped identifier runs (no quadratic blowup, skills#557)", () => {
+    // The camelCase alternative adds a greedy [A-Za-z0-9_]* prefix scan plus
+    // a lookbehind-guarded suffix probe. Same pinning convention as the
+    // sibling linearity tests: a run of words carrying lower→upper
+    // transitions but no valid suffix pays one bounded backtrack per \b
+    // start position (word starts only — \b never fires word-interior), not
+    // one per interior position; the NEXT_ASSIGNMENT_LOOKAHEAD probe, which
+    // now also tries the camelCase alternative once per word of an unquoted
+    // value, inherits the same per-word bound; and a single giant name that
+    // DOES end in a suffix costs one linear backtrack sweep, not a rescan.
+    const word = `${"a".repeat(40)}B${"c".repeat(40)}D`; // transitions, no suffix
+    const plain = `${word} `.repeat(3000);
+    const probed = `PASSWORD=${`${word} `.repeat(3000)}`;
+    const giant = `${"a".repeat(100_000)}Token=v`;
+    const started = process.hrtime.bigint();
+    const plainOut = redactNamedSecrets(plain);
+    const probedOut = redactNamedSecrets(probed);
+    const giantOut = redactNamedSecrets(giant);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(plainOut, plain); // nothing secret-shaped — untouched
+    assert.equal(probedOut, "PASSWORD=[REDACTED]"); // one value to end of line
+    assert.equal(giantOut, `${"a".repeat(100_000)}Token=[REDACTED]`);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("stops an unquoted value before a camelCase assignment later on the same line (skills#557)", () => {
+    // NEXT_ASSIGNMENT_LOOKAHEAD shares NAME_ALT, so back-to-back assignments
+    // keep redacting independently across the snake/camel mix in either order.
+    assert.equal(
+      redactNamedSecrets("A_TOKEN=one authToken=two"),
+      "A_TOKEN=[REDACTED] authToken=[REDACTED]",
+    );
+    assert.equal(
+      redactNamedSecrets("authToken=one B_SECRET=two"),
+      "authToken=[REDACTED] B_SECRET=[REDACTED]",
+    );
+  });
+
   it("fully redacts a multi-word unquoted value, not just its first token (skills#493)", () => {
     assert.equal(redactNamedSecrets("PASSWORD=my secret pass"), "PASSWORD=[REDACTED]");
     assert.equal(

@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.2
+
+Redact camelCase credential keys (`authToken`, `clientSecret`, `secretAccessKey`) in `scrub.mjs`'s named-secret pass — Eva vuln-scan dogfooding finding, closes #557.
+
+- **Gap closed (#557, CWE-522)** — `NAME_ALT`'s suffix alternative only fired when the `TOKEN`/`KEY`/`SECRET`/`PASSWORD`/`ID` suffix was preceded by a literal underscore, and its bare alternative only on whole-name keywords, so a camelCase credential identifier (`authToken`, `clientSecret`, `refreshToken`, `secretAccessKey`) matched neither — there is no `\b` between two word characters like the `h`/`T` in `authToken` — and `redactNamedSecrets` copied the value through in cleartext into `.ievo/evolution-candidates/<session-id>.jsonl`. A typical AWS SDK error dump (`{"accessKeyId":…,"secretAccessKey":…}`) leaked its `secretAccessKey` value past every other pass; Stripe/Twilio-style `{apiKey, authToken, clientSecret}` config objects leaked two of three.
+- **The fix (`plugins/ievo/scripts/scrub.mjs`)** — `NAME_ALT` gained a camelCase alternative that treats a lower→upper case transition as the word boundary the underscore provides in snake_case: `(?<=[a-z0-9])` followed by the suffix word Capitalized (`authToken`) or ALL-CAPS (`clientID`). The transition check must observe the original casing, and JS cannot make one alternative case-sensitive under a pattern-level `i` on the engines this script supports (inline `(?-i:…)` modifiers need V8 12.5+; the script's Node 18 floor and CI's Node 20 predate that) — so `ASSIGNMENT_RE` dropped its `i` flag and the pre-existing alternatives now spell out both cases per letter (`[Tt][Oo][Kk][Ee][Nn]`…), behavior-identical for every pre-#557 name shape. Matched case-insensitively instead, the transition alternative would have redacted `monkey`, `hotkey`, `avoid`, `grid` — the false-positive trap the case-exact design exists to avoid. An upper→upper adjacency (`SSHKey`, `APITOKEN`) is a documented non-goal: without a dictionary it is indistinguishable from `MONKEY`/`GRID`. `NEXT_ASSIGNMENT_LOOKAHEAD` shares `NAME_ALT`, so back-to-back snake/camel assignments on one line keep redacting independently.
+- **Regression tests (`plugins/ievo/scripts/tests/scrub.test.mjs`)** — pin the issue's AWS-SDK pair and generic camelCase names (positive), PascalCase/ALL-CAPS-suffix/digit-transition/mixed-snake+camel shapes, the ordinary-word negatives (`monkey`/`avoid`/`grid`/`MONKEY`/`SSHKey`, with `APIKey` correctly still redacting as the bare keyword in mixed case), plural/suffix-mid-name non-matches, an any-casing regression guard for the `i`-flag removal, and cross-form lookahead independence — mirroring the existing skills#507/#493 regression-test pattern.
+- **Scope** — one substantive file (`plugins/ievo/scripts/scrub.mjs`) plus its test file; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.78.1 → 0.78.2, next free slot after #556's claimed 0.78.1).
+
 ## v0.78.1
 
 `security-auditor.md` now redacts real secret values before they can reach a public RED-verdict issue — closes #556.

@@ -489,7 +489,7 @@ The lesson is **upstream-relevant** only when it describes a gap, bug, or missin
 
 The lesson is **local** (the default) when it is a project convention, tech-stack fact, team role, or a mistake specific to this codebase — even when it lives on an iEvo agent/skill overlay (e.g. "in our repo the spec-writer must cite ticket IDs" targets the `spec-writer` overlay but is a project rule, not an iEvo gap). **When in doubt, stay local:** the offer is a nicety, not a gate, and a false nag undercuts the low-effort capture design.
 
-**If local:** skip straight to Step 6. Ask nothing, write nothing.
+**If local:** continue to Step 5.65 below — that step's own classifier gets one chance to catch a lesson that isn't about iEvo itself but is still worth sharing upstream as a portable practice. Ask nothing, write nothing here.
 
 **If upstream-relevant:** offer once via `AskUserQuestion` (never auto-post):
 
@@ -499,7 +499,7 @@ The lesson is **local** (the default) when it is a project convention, tech-stac
   - `Share as feedback (Recommended)` — description: `Hands off to /ievo:feedback with this lesson pre-filled. You still review and explicitly confirm before anything is posted publicly.`
   - `Skip` — description: `Keep the lesson local to this project. Nothing is posted.`
 
-If the user picks **Skip** (or the platform can't prompt / has no `feedback` skill available): proceed to Step 6. Nothing is posted.
+If the user picks **Skip** (or the platform can't prompt / has no `feedback` skill available): continue to Step 5.7, skipping Step 5.65 — this step already made its one offer for this lesson, and Step 5.65 exists only to give a *second* classifier a chance when this one never asked (see its own gate). Nothing is posted.
 
 If the user picks **Share as feedback:** hand off to the `feedback` skill (`/ievo:feedback`) with the lesson **pre-filled** — this is flow **(C) Evo handoff** in `feedback/SKILL.md` Step 0:
 
@@ -507,13 +507,50 @@ If the user picks **Share as feedback:** hand off to the `feedback` skill (`/iev
 - Do **not** translate here. If the lesson is non-English, `feedback`'s Step 3.75 translates it **once**, at the feedback stage — never duplicate translation in this skill.
 - `feedback` still runs its Step 1 (classify type), Step 3 (environment context), Step 3.5 (clarify — usually skipped, the lesson is already specific), Step 4 (build body), and — critically — **Step 5 (public-posting confirmation gate) unchanged**. Public posting stays behind that explicit `Submit` / `Cancel` gate; this skill never posts anything itself.
 
-Then continue to Step 5.7. The overlay capture is already complete and stands regardless of the feedback outcome (share, skip, or cancel at the gate).
+Then continue to Step 5.7, skipping Step 5.65 (same reason as the Skip branch above). The overlay capture is already complete and stands regardless of the feedback outcome (share, skip, or cancel at the gate).
 
 > When the capture was delegated to the `evolution` sub-agent (see "On Claude Code with the iEvo plugin" above), the sub-agent performs Steps 1–5.5 and reports its upstream-relevance verdict + the verbatim lesson back to you; a dispatched sub-agent has no way to prompt or launch another skill, so you (the caller) run this Step 5.6 — the offer and the `/ievo:feedback` handoff — in the main session.
 
+## Step 5.65: Offer to escalate a generally-reusable lesson upstream (optional)
+
+Run this step **only** when Step 5.6 classified the lesson as **local and asked nothing** — its own first paragraph above sends that case here. If Step 5.6 made an offer at all (whether the user accepted or picked Skip), this step does **not** run — go straight from there to Step 5.7. This gate exists so a single lesson is never run through two upstream-escalation classifiers: Step 5.6 already had first look and decided the lesson isn't about iEvo itself; this step gets one further, narrower look at the lessons Step 5.6 waved through as local.
+
+Using the same cheap, signal-word heuristic style as Step 5.6 (no sub-agent dispatch), decide whether this *local* lesson is nonetheless a genuinely reusable, project-agnostic engineering practice worth sharing upstream — even though it says nothing about iEvo's own behavior. This bar is narrower and more subjective than Step 5.6's, so stay conservative: most local lessons stay local here too.
+
+**Classify reusability. Default: local — and when local, do NOT prompt.**
+
+The lesson is **generally reusable** only when it reads as a portable process or engineering practice — not a fact about this project's specific stack, files, CI setup, or code — that would plausibly help *any* project using iEvo's autonomous-delivery or evolution skills. Signals (need at least one):
+
+- It states an engineering practice or process rule with no reference to this project's specific stack, file layout, tool versions, or codebase names — e.g. "always identify the authoring session/agent in an autonomous agent's PR body", "serialize PRs under strict up-to-date branch protection to avoid a stale-branch race".
+- It describes how autonomous agents, CI, or a review process should behave in general, phrased as a rule that generalizes past this codebase — not as a fix for something specific to it.
+
+The lesson is **local** (the default) when it depends on this project's specific stack, file layout, CI configuration, naming, or any other codebase-specific fact — even a project convention phrased as a general-sounding rule is local ("we always X" ties it to this project's team, not a portable practice). **When in doubt, stay local:** same bias as Step 5.6 — this offer is a nicety, not a gate, and a false nag on every capture undercuts the low-effort capture design.
+
+**If local:** skip straight to Step 5.7. Ask nothing, write nothing.
+
+**If generally reusable:** offer once via `AskUserQuestion` (never auto-post):
+
+- **Question:** `This lesson looks like a generally-reusable engineering practice, not specific to this project. Also share it as feedback to the iEvo plugin repo?`
+- **Header:** `Share upstream`
+- **Options** (single-select):
+  - `Share as feedback (Recommended)` — description: `Hands off to /ievo:feedback with this lesson pre-filled. You still review and explicitly confirm before anything is posted publicly.`
+  - `Skip` — description: `Keep the lesson local to this project. Nothing is posted.`
+
+If the user picks **Skip** (or the platform can't prompt / has no `feedback` skill available): proceed to Step 5.7. Nothing is posted.
+
+If the user picks **Share as feedback:** hand off to the `feedback` skill (`/ievo:feedback`) with the lesson **pre-filled** — the same flow **(C) Evo handoff** in `feedback/SKILL.md` Step 0 that Step 5.6 uses:
+
+- Pass the **verbatim lesson text** (the same text appended to the overlay, in the user's original language) as the feedback body, so `feedback` **skips its Step 2** (collect feedback text — already known).
+- Do **not** translate here — same rule as Step 5.6.
+- `feedback` still runs its Step 1 (classify type — usually `Idea`), Step 3 (environment context), Step 3.5 (clarify — usually skipped, the lesson is already specific), Step 4 (build body), and — critically — **Step 5 (public-posting confirmation gate) unchanged**. Public posting stays behind that explicit `Submit` / `Cancel` gate; this skill never posts anything itself.
+
+Then continue to Step 5.7. The overlay capture is already complete and stands regardless of the feedback outcome (share, skip, or cancel at the gate).
+
+> When the capture was delegated to the `evolution` sub-agent, it performs this reusability classification as its own Step 4.65 — only when its own Step 4.6 found the lesson local — and reports the verdict back to you; a dispatched sub-agent has no way to prompt or launch another skill, so you (the caller) run this Step 5.65 — the offer and the `/ievo:feedback` handoff — in the main session, same pattern as Step 5.6's own delegation note.
+
 ## Step 5.7: Offer to extract generalizable overlay entries into a skill/agent (optional)
 
-After the overlay append (Step 4), the signal file (Step 5.5), and the upstream-escalation offer (Step 5.6) all resolve, run one more cheap check, same lightweight style as Step 1 and Step 5.6: no sub-agent dispatch, no fixed entry-count threshold. This runs on **every** overlay append — Project-wide, agent-scope, or skill-scope alike (the overlay is whichever of `.ievo/evolution/project.md`, `.ievo/evolution/agents/<name>.md`, or `.ievo/evolution/skills/<name>.md` Step 4 just wrote to) — not just when reviewing the Step 0 auto-evolution backlog.
+After the overlay append (Step 4), the signal file (Step 5.5), and the upstream-escalation offers (Step 5.6, and — when it ran — Step 5.65) all resolve, run one more cheap check, same lightweight style as Step 1 and Step 5.6: no sub-agent dispatch, no fixed entry-count threshold. This runs on **every** overlay append — Project-wide, agent-scope, or skill-scope alike (the overlay is whichever of `.ievo/evolution/project.md`, `.ievo/evolution/agents/<name>.md`, or `.ievo/evolution/skills/<name>.md` Step 4 just wrote to) — not just when reviewing the Step 0 auto-evolution backlog.
 
 **Cluster judgment.** Read the full current content of the overlay file Step 4 just appended to (now including the entry you just added). Judge, by reasoning over the entries — not a mechanical count — whether 2 or more entries independently describe the **same recurring flow or role**: a repeatable procedure ("do A → B → C whenever X happens") or a repeatable judgment/review stance needing its own context. A single isolated entry, or entries that only share surface keywords without describing the same recurring thing, do NOT count. **Default: no cluster detected — and when none is detected, do NOT prompt.** This mirrors Step 5.6's "when in doubt, stay local" bias: the offer is a nicety, not a gate, and a false nag on every capture undercuts the low-effort capture design.
 
@@ -554,6 +591,7 @@ Otherwise, output a short summary to the user:
 - **Marker injected:** yes (first evolution for this target) | no (already present)
 - **Section title added:** "<title>"
 - **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
+- **Reusable-practice escalation:** not applicable (Step 5.6 already offered, or lesson classified local) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Extraction offer:** not applicable (no cluster detected) | offered → handed off to `/ievo:consolidate` | offered → skipped
 - **Next:** "Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."
 
@@ -585,7 +623,7 @@ The overlay file is also a self-contained record: anyone reading `<name>.md` see
 
 - `overlay-status/SKILL.md` — `/ievo:overlay-status` lists every overlay this skill has built up in the current project, grouped by scope (Project / agents / skills) with last-modified dates and one-line summaries. Use it after a `/ievo:evo` capture to confirm the new lesson landed where you expected, or at session start to see what rules are already active.
 - `hooks-setup/SKILL.md` — `/ievo:hooks-setup` configures a Claude Code hook that fires when the signal file `.ievo/hooks/evolution-captured` is written by Step 5.5 above (lets you get a desktop notification on every capture).
-- `feedback/SKILL.md` — `/ievo:feedback` files a lesson upstream as a public GitHub issue in `ievo-ai/skills`. Step 5.6 above hands off to it (flow C, lesson pre-filled) when a captured lesson looks like it's about the iEvo plugin itself; public posting stays behind that skill's explicit confirmation gate (its Step 5).
+- `feedback/SKILL.md` — `/ievo:feedback` files a lesson upstream as a public GitHub issue in `ievo-ai/skills`. Step 5.6 above hands off to it (flow C, lesson pre-filled) when a captured lesson looks like it's about the iEvo plugin itself, and Step 5.65 hands off the same way when a lesson Step 5.6 left local instead reads as a generally-reusable engineering practice; public posting stays behind that skill's explicit confirmation gate (its Step 5).
 - `consolidate/SKILL.md` — `/ievo:consolidate` restructures fragmented docs (doc-graph mode) or extracts a generalizable cluster of overlay entries into a new project-local skill/agent (entry-cluster mode). Step 5.7 above hands off to it, scoped to `root=<overlay path>`, for any overlay — `project.md`, an agent's, or a skill's — whose accumulated entries look like they describe one recurring procedure or role. All extraction stays behind `consolidate`'s own 3 checkpoints — nothing is removed from the overlay without explicit approval there.
 - `extract-best-practices/SKILL.md` — mines a live session for patterns nobody ever `/evo`'d, independent of whether anything is captured in an overlay. Its "too narrow" and "refines an existing target" candidates hand off here (this skill's own scope/target classification in Step 1 resolves where they land); a genuinely new, generalizable pattern instead becomes a new skill/agent there, with its own Step 5.6-style upstream-sharing offer for the resulting package.
 - `security-check/SKILL.md` — the antivirus deep-scan methodology Step 2.5 above applies to a freshly-vendored agent/skill before it touches `.claude/agents/`/`.claude/skills/` (or `.agents/skills/` on Codex), either via a dispatched `security-auditor` sub-agent (Claude Code/Codex) or applied directly (other platforms). Same skill `/ievo:init` Step 8 and `/ievo:update` Step 2.5 already gate on.

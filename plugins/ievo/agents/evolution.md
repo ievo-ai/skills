@@ -387,8 +387,22 @@ After the overlay append (Step 4) succeeds, use a cheap signal-word heuristic (n
 **Local** (the default) when it is a project convention, tech-stack fact, team role, or a codebase-specific mistake — even if it lives on an iEvo agent/skill overlay. When in doubt, stay local.
 
 You are a dispatched sub-agent: you have **no** tool to prompt the user or launch another skill, so do **not** offer or invoke `/ievo:feedback` yourself. Instead surface the verdict in your Step 5 report:
-- If **local:** report `upstream escalation: not applicable (local lesson)` — nothing more.
-- If **upstream-relevant:** report `upstream escalation: recommended` plus the **verbatim lesson text** (original language, untranslated — the caller's `feedback` flow translates once in its Step 3.75). The caller runs `evo/SKILL.md` Step 5.6 in the main session: the one-question `AskUserQuestion` offer and, on accept, the pre-filled hand-off to `/ievo:feedback` (flow C), whose explicit Step 5 gate governs any public posting.
+- If **local:** report `upstream escalation: not applicable (local lesson)` — nothing more, then run Step 4.65 below (it only applies to this local branch).
+- If **upstream-relevant:** report `upstream escalation: recommended` plus the **verbatim lesson text** (original language, untranslated — the caller's `feedback` flow translates once in its Step 3.75). The caller runs `evo/SKILL.md` Step 5.6 in the main session: the one-question `AskUserQuestion` offer and, on accept, the pre-filled hand-off to `/ievo:feedback` (flow C), whose explicit Step 5 gate governs any public posting. Skip Step 4.65 entirely in this branch — see its own gate.
+
+## Step 4.65: Classify reusability for a lesson Step 4.6 found local
+
+Run this only when Step 4.6 just classified the lesson as **local** — if Step 4.6 found it upstream-relevant instead, skip this step entirely; never run a lesson through both classifiers.
+
+Using the same cheap signal-word heuristic style as Step 4.6, judge whether this *local* lesson is nonetheless a genuinely reusable, project-agnostic engineering practice — not about iEvo's own behavior, but a portable process or practice that would plausibly help any project using iEvo's autonomous-delivery or evolution skills. **Default: local.**
+
+**Generally reusable** only when the lesson states a practice or process rule with no reference to this project's specific stack, file layout, tool versions, CI configuration, or codebase names — e.g. "always identify the authoring session/agent in an autonomous agent's PR body", "serialize PRs under strict up-to-date branch protection to avoid a stale-branch race" — or describes how autonomous agents/CI/review should behave in general, generalizing past this codebase.
+
+**Local** (the default) when it depends on this project's specifics, even a convention phrased as a general-sounding team rule ("we always X" ties it to this project's team, not a portable practice). When in doubt, stay local.
+
+You are a dispatched sub-agent: you have **no** tool to prompt the user or launch another skill, so do **not** offer or invoke `/ievo:feedback` yourself. Instead surface the verdict in your Step 5 report:
+- If **local:** report `reusable-practice escalation: not applicable (local lesson)` — nothing more.
+- If **generally reusable:** report `reusable-practice escalation: recommended` plus the **verbatim lesson text** (original language, untranslated — the caller's `feedback` flow translates once in its Step 3.75). The caller runs `evo/SKILL.md` Step 5.65 in the main session: the one-question `AskUserQuestion` offer and, on accept, the pre-filled hand-off to `/ievo:feedback` (flow C), whose explicit Step 5 gate governs any public posting.
 
 ## Step 4.7: Judge extraction-worthiness (any scope)
 
@@ -473,6 +487,7 @@ Otherwise, output a short summary to the user:
 - Marker injected: yes (first evolution for this target) | no (already present)
 - Section title: "<title>"
 - Upstream escalation: not applicable (local lesson) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
+- Reusable-practice escalation: not applicable (upstream escalation already recommended above, or lesson classified local) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Extraction candidate: not applicable | detected (+ one-line cluster description for the caller to hand to `/ievo:consolidate`)
 - Suggested next step: "Review with `git diff` and commit if satisfied."
 

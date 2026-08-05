@@ -107,10 +107,12 @@ export const STACK_INDEPENDENT_QUERIES = [
 //
 // --stack-file is untrusted input — the same class of gap already closed for
 // evolution_candidates.mjs's --text-file in #523. init/SKILL.md Step 5b's
-// documented invocation is always `echo '<stack-json>' | node discover.mjs`
-// (stdin); a --stack-file value reaching this script at all means something
-// (e.g. a prompt injection altering the Bash command line) chose the
-// alternate path. Contain it to the project's own .ievo/ directory — both
+// documented invocation now passes a fixed .ievo/log/ path via --stack-file
+// (skills#567 replaced the prior stdin pipe, which embedded manifest-derived
+// JSON text inside a single-quoted shell argument — itself the injection
+// vector). The path value is still untrusted, since an altered Bash command
+// line could still substitute a different one. Contain it to the project's
+// own .ievo/ directory regardless of how it arrived here — both
 // lexically up front (assertStackFileAllowed, mirrors scan_repo.mjs's
 // assertContained()) and again by realpath once the target is known to exist
 // (assertStackFileReadable, mirrors scan_repo.mjs's assertCheckoutContained()

@@ -19,6 +19,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, basename } from "node:path";
+import { sanitizeForLog } from "./validators/_safe-read.mjs";
 
 const SCRIPTS_DIR = "plugins/ievo/scripts";
 
@@ -151,7 +152,7 @@ function main(argv) {
 
   if (errors.length) {
     console.error("Coverage gate FAILED:");
-    for (const e of errors) console.error(`  ✗ ${e}`);
+    for (const e of errors) console.error(sanitizeForLog(`  ✗ ${e}`));
     process.exit(1);
   }
 

@@ -25,7 +25,7 @@
 
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { safeReadFileSync } from "./_safe-read.mjs";
+import { safeReadFileSync, sanitizeForLog } from "./_safe-read.mjs";
 
 export const DESCRIPTION_MAX_LENGTH = 1024;
 
@@ -169,13 +169,13 @@ export function main(argv) {
     try {
       text = safeReadFileSync(filePath, "utf-8");
     } catch (err) {
-      console.error(`${filePath}: cannot read (${err.message})`);
+      console.error(sanitizeForLog(`${filePath}: cannot read (${err.message})`));
       totalErrors++;
       continue;
     }
     const errors = checkYamlFrontmatter(text, filePath);
     for (const e of errors) {
-      console.error(`${filePath}:${e}`);
+      console.error(sanitizeForLog(`${filePath}:${e}`));
       totalErrors++;
     }
   }

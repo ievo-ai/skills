@@ -5,7 +5,13 @@ import { mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { safeReadFileSync, SymlinkRejectedError, SizeExceededError, MAX_SAFE_READ_FILE_BYTES } from "../_safe-read.mjs";
+import {
+  safeReadFileSync,
+  sanitizeForLog,
+  SymlinkRejectedError,
+  SizeExceededError,
+  MAX_SAFE_READ_FILE_BYTES,
+} from "../_safe-read.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, "tmp-safe-read-test");
@@ -115,6 +121,44 @@ describe("safeReadFileSync", () => {
   });
 });
 
+describe("sanitizeForLog", () => {
+  it("strips ESC (terminal SGR/cursor-control) sequences", () => {
+    const evil = "before" + String.fromCharCode(0x1b) + "[31mRED" + String.fromCharCode(0x1b) + "[0m";
+    assert.equal(sanitizeForLog(evil), "before[31mRED[0m");
+  });
+
+  it("strips bare CR (cursor-return log spoofing)", () => {
+    const evil = "before" + String.fromCharCode(0x0d) + "after";
+    assert.equal(sanitizeForLog(evil), "beforeafter");
+  });
+
+  it("strips the Unicode line-separator trio (U+2028, U+2029, U+0085)", () => {
+    for (const cp of [0x2028, 0x2029, 0x85]) {
+      const evil = "before" + String.fromCharCode(cp) + "after";
+      assert.equal(sanitizeForLog(evil), "beforeafter", `code point 0x${cp.toString(16)}`);
+    }
+  });
+
+  it("strips other C0 control bytes and DEL", () => {
+    const evil = "bell" + String.fromCharCode(0x07) + "backspace" + String.fromCharCode(0x08) + "del" + String.fromCharCode(0x7f);
+    assert.equal(sanitizeForLog(evil), "bellbackspacedel");
+  });
+
+  it("preserves tab and newline so ordinary multi-line messages read naturally", () => {
+    const benign = "line 1: a\tb\nline 2: c";
+    assert.equal(sanitizeForLog(benign), benign);
+  });
+
+  it("preserves ordinary printable content unchanged", () => {
+    const benign = "plugins/ievo/skills/init/SKILL.md:42: some ordinary message";
+    assert.equal(sanitizeForLog(benign), benign);
+  });
+
+  it("coerces a non-string argument via String()", () => {
+    assert.equal(sanitizeForLog(42), "42");
+  });
+});
+
 // ── CLI regression: each validator refuses a symlinked argument ──────────
 //
 // One end-to-end check per validator confirming the CLI (not just the unit
@@ -194,6 +238,53 @@ describe("validators refuse oversized CLI arguments", () => {
 
       assert.notEqual(r.status, 0);
       assert.match(r.stderr, /exceeding/);
+    });
+  }
+});
+
+// ── CLI regression: each validator strips control chars from an ─────────
+// attacker-controlled path before it reaches stderr (CWE-150)
+//
+// A committed filename is exactly as attacker-controlled as file content —
+// git/actions/checkout permit any byte but NUL and '/' in a path component.
+// A symlinked argument whose OWN filename carries an ESC byte exercises the
+// full sink: safeReadFileSync's SymlinkRejectedError embeds `path` in its
+// message, and the calling validator's `${path}: cannot read (...)` line
+// must come out through sanitizeForLog with the ESC byte gone.
+
+describe("validators strip control characters from attacker-controlled paths", () => {
+  const VALIDATORS_DIR = resolve(__dirname, "..");
+  const VALIDATORS = [
+    "nested-fences.mjs",
+    "crlf-frontmatter.mjs",
+    "machine-local-paths.mjs",
+    "placeholder-leakage.mjs",
+    "utf8-validate.mjs",
+    "yaml-frontmatter.mjs",
+  ];
+
+  before(() => {
+    mkdirSync(TMP, { recursive: true });
+  });
+
+  after(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  for (const validator of VALIDATORS) {
+    it(`${validator} never echoes a raw ESC byte from a crafted path`, () => {
+      const target = resolve(TMP, `secret-ctl-${validator}.txt`);
+      writeFileSync(target, "irrelevant");
+      const evilName = "evil-" + String.fromCharCode(0x1b) + "[31m-" + validator + ".md";
+      const link = resolve(TMP, evilName);
+      symlinkSync(target, link);
+
+      const r = spawnSync(process.execPath, [resolve(VALIDATORS_DIR, validator), link], {
+        encoding: "utf-8",
+      });
+
+      assert.notEqual(r.status, 0);
+      assert.doesNotMatch(r.stderr, new RegExp(String.fromCharCode(0x1b)));
     });
   }
 });

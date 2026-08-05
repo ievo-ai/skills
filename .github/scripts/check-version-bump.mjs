@@ -58,7 +58,7 @@ import { readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { safeReadFileSync } from "./validators/_safe-read.mjs";
+import { safeReadFileSync, sanitizeForLog } from "./validators/_safe-read.mjs";
 
 export const PLUGIN_JSON_PATH = "plugins/ievo/.claude-plugin/plugin.json";
 export const MARKETPLACE_JSON_PATH = ".claude-plugin/marketplace.json";
@@ -262,7 +262,7 @@ export function main(
 
   if (result.errors.length) {
     errLog("Version-bump gate FAILED:");
-    for (const e of result.errors) errLog(`  ✗ ${e}`);
+    for (const e of result.errors) errLog(sanitizeForLog(`  ✗ ${e}`));
     return exit(1);
   }
 

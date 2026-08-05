@@ -118,9 +118,27 @@ exit 0
 # Same contract as correction-capture.sh's shim above -- see that file for
 # the full rationale. Static and identical across every project.
 # CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
+#
+# Unlike the other two shims this one does NOT no-op silently when its
+# companion is absent (skills#551). The companion is gitignored, so "flag
+# committed, per-clone regeneration never run" -- the exact drift the
+# companion's own wiring check exists to report -- is precisely the case in
+# which that check cannot run at all: a fresh clone would stay silent for a
+# whole session, which IS the reported bug. This shim is the only tracked,
+# always-present file on that path, so it owns the one check the companion
+# structurally cannot make about itself: flag ON, companion missing. Every
+# richer check (vendored copies, sibling companions, wired hook entries,
+# pending-candidate count) stays in the companion, which runs whenever it
+# exists. SessionStart stdout is parsed as hook JSON, so the warning rides
+# the same additionalContext channel the companion already uses, and the
+# ASCII / no-double-quotes contract applies here too.
 
 REAL=.ievo/hooks/scripts/evo-analysis-nudge.local.sh
 [ -f "$REAL" ] && exec sh "$REAL"
+
+[ -f .ievo/evo-auto.flag ] || exit 0
+
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\\n' 'iEvo auto-evolution: .ievo/evo-auto.flag is ON but this clone has no generated hook logic (drift detected) -- .ievo/hooks/scripts/evo-analysis-nudge.local.sh is missing, so capture may be partly or entirely inactive. The generated companions are gitignored and must be regenerated once per clone: run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install.'
 exit 0
 `,
 
@@ -477,12 +495,57 @@ describe("clean clone (before any per-clone regeneration)", () => {
         `${name}: expected no "command not found", got ${JSON.stringify(result)}`,
       );
       assert.equal(result.status, 0, `${name}: expected exit 0`);
+    }
+  });
+
+  it("the two capture shims stay silent with no companion present", () => {
+    // UserPromptSubmit fires on every message and PostToolUseFailure on every
+    // failed tool call, so neither may say anything of its own -- their stdout
+    // is parsed as hook JSON and a per-message warning would be unusable noise.
+    for (const name of ["correction-capture.sh", "failure-capture.sh"]) {
+      const result = sh(CLONE, `.ievo/hooks/scripts/${name}`, '{"session_id":"repro"}');
+      assert.equal(result.status, 0, name);
       assert.equal(
         result.stdout,
         "",
         `${name}: expected silent no-op with no companion present`,
       );
     }
+  });
+
+  it("the SessionStart shim warns instead of staying silent (skills#551)", () => {
+    // This clone is the exact skills#551 repro: `.ievo/evo-auto.flag` is
+    // tracked (Step 5 tells users to commit it) and so is the shim, but the
+    // companion holding the wiring-integrity check is gitignored and was
+    // never regenerated here. Before the fix the shim no-opped, so the
+    // companion's own check could not run and the whole session passed with
+    // zero capture and zero warning. The check has to live in the tracked
+    // file to fire at all.
+    const result = sh(
+      CLONE,
+      ".ievo/hooks/scripts/evo-analysis-nudge.sh",
+      '{"session_id":"repro"}',
+    );
+    assert.equal(result.status, 0);
+    assert.notEqual(
+      result.stdout,
+      "",
+      "expected a drift nudge on a fresh clone, got silence -- the exact skills#551 bug",
+    );
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.hookSpecificOutput.hookEventName, "SessionStart");
+    const ctx = payload.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("evo-analysis-nudge.local.sh"));
+    assert.ok(ctx.includes("/ievo:evo-auto-enable"));
+    assert.ok(
+      !ctx.includes('"'),
+      "additionalContext must stay double-quote-free (JSON-embedding contract)",
+    );
+    assert.ok(
+      [...ctx].every((c) => c.charCodeAt(0) < 128),
+      "additionalContext must stay ASCII-only",
+    );
   });
 
   it("resolves the exact command+args .claude/settings.json wires, with no 127", () => {
@@ -613,9 +676,16 @@ describe("disable (companions removed, shims left in place)", () => {
     ]) {
       rmSync(join(CLONE, ".ievo/hooks/scripts", companion), { force: true });
     }
+    // A real `/ievo:evo-auto-disable` removes the flag as well as the
+    // companions (see evo-auto-disable/SKILL.md) -- model that faithfully.
+    // Without this the state below would be flag-ON-companion-missing, i.e.
+    // drift, and the SessionStart shim would correctly warn rather than go
+    // quiet (that state is covered by the clean-clone repro above and by the
+    // tracked-shim describe at the end of this file).
+    rmSync(join(CLONE, ".ievo/evo-auto.flag"), { force: true });
   });
 
-  it("the shim returns to a safe silent no-op, same as a clean clone", () => {
+  it("every shim returns to a safe silent no-op once auto-mode is off", () => {
     for (const name of Object.keys(SHIMS)) {
       const result = sh(CLONE, `.ievo/hooks/scripts/${name}`);
       assert.equal(result.status, 0);
@@ -807,8 +877,16 @@ describe("evo-analysis-nudge.local.sh wiring-integrity check (skills#551)", () =
     assert.ok(ctx.includes("drift detected"));
     assert.ok(ctx.includes("vendored scrub.mjs"));
     assert.ok(ctx.includes("correction-capture.local.sh"));
-    assert.ok(ctx.includes("evo-analysis-nudge.local.sh"));
     assert.ok(ctx.includes("failure-capture.local.sh"));
+    // Never names ITSELF: this script is `evo-analysis-nudge.local.sh`, so a
+    // self-check could only report a state in which it does not run. The
+    // tracked shim owns that one (see the describe below). `.local.sh` is
+    // matched deliberately -- "evo-analysis-nudge hook entry in ..." names the
+    // wired SHIM path and is a different, legitimate finding.
+    assert.ok(
+      !ctx.includes("evo-analysis-nudge.local.sh"),
+      "the companion must not claim to detect its own absence",
+    );
     assert.ok(ctx.includes(".claude/settings.json"));
     assert.ok(ctx.includes("/ievo:evo-auto-enable"));
     assert.ok(!ctx.includes('"'), "additionalContext must stay double-quote-free (JSON-embedding contract)");
@@ -947,5 +1025,137 @@ describe("evo-analysis-nudge.local.sh wiring-integrity check (skills#551)", () =
     stubAccumulator(dir, { count: "0" });
     const result = runNudge(dir, { CLAUDECODE: "1" });
     assert.equal(result.status, 0);
+  });
+});
+
+// The other half of the skills#551 check, and the half that actually reaches a
+// fresh clone. Everything the describe above exercises lives in the GITIGNORED
+// `evo-analysis-nudge.local.sh`, which by definition cannot run when it was
+// never regenerated on this clone -- so the flag-committed / companion-absent
+// state (the reported repro) needed its check in the TRACKED shim, where it is
+// present on every clone. The clean-clone describe near the top of this file
+// covers the same behavior through a real git clone; these tests isolate the
+// shim's own decision table in scratch dirs, including the states a clone
+// cannot easily reproduce (flag absent, companion present).
+describe("evo-analysis-nudge.sh tracked shim: flag-vs-companion check (skills#551)", () => {
+  const ROOT = join(tmpdir(), `evo-analysis-nudge-shim-${process.pid}`);
+  const SHIM_REL = ".ievo/hooks/scripts/evo-analysis-nudge.sh";
+
+  before(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+    mkdirSync(ROOT, { recursive: true });
+  });
+
+  after(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+  });
+
+  // Each case gets its own project dir holding a real copy of the shim at the
+  // exact wired path, so `cwd`-relative lookups behave as they do in a project.
+  function project({ flag = false, companion = null } = {}) {
+    const dir = join(ROOT, `proj-${Math.floor(1e9 * Math.random())}`);
+    mkdirSync(join(dir, ".ievo/hooks/scripts"), { recursive: true });
+    const shimPath = join(dir, SHIM_REL);
+    writeFileSync(shimPath, SHIMS["evo-analysis-nudge.sh"]);
+    chmodSync(shimPath, 0o755);
+    if (flag) {
+      writeFileSync(
+        join(dir, ".ievo/evo-auto.flag"),
+        "enabled: true\nenabled_at: 2026-08-05T00:00:00Z\nenabled_by: test\nsignal: corrections-only\nauto_write_scope: project-wide-only\n",
+      );
+    }
+    if (companion !== null) {
+      writeFileSync(
+        join(dir, ".ievo/hooks/scripts/evo-analysis-nudge.local.sh"),
+        companion,
+      );
+    }
+    return dir;
+  }
+
+  it("flag ON, companion never regenerated -> drift warning (the reported repro)", () => {
+    const dir = project({ flag: true });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.notEqual(result.stdout, "", "expected a drift nudge, got silence");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.hookSpecificOutput.hookEventName, "SessionStart");
+    const ctx = payload.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes(".ievo/evo-auto.flag is ON"));
+    assert.ok(ctx.includes("evo-analysis-nudge.local.sh"));
+    assert.ok(ctx.includes("/ievo:evo-auto-enable"));
+    assert.ok(
+      !ctx.includes('"'),
+      "additionalContext must stay double-quote-free (JSON-embedding contract)",
+    );
+    assert.ok(
+      [...ctx].every((c) => c.charCodeAt(0) < 128),
+      "additionalContext must stay ASCII-only",
+    );
+  });
+
+  it("emits exactly one line of hook JSON (SessionStart stdout is parsed, not logged)", () => {
+    const dir = project({ flag: true });
+    const { stdout } = sh(dir, SHIM_REL);
+    assert.equal(stdout.split("\n").filter(Boolean).length, 1);
+    assert.ok(stdout.endsWith("\n"));
+  });
+
+  it("flag absent -> completely silent (auto-mode is off; nothing has drifted)", () => {
+    const dir = project({ flag: false });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("companion present -> delegates, and adds nothing of its own", () => {
+    // The shim must not double-report: once the companion exists it owns the
+    // whole message (drift list + pending count), and `exec` replaces the
+    // shim's process, so the companion's output is the only output.
+    const dir = project({
+      flag: true,
+      companion: `#!/bin/sh\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"companion ran"}}\\n'\nexit 0\n`,
+    });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(
+      payload.hookSpecificOutput.additionalContext,
+      "companion ran",
+      "the shim must delegate wholesale, never prepend its own warning",
+    );
+  });
+
+  it("companion present but silent -> stays silent (a healthy, fully-wired project)", () => {
+    const dir = project({ flag: true, companion: "#!/bin/sh\nexit 0\n" });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("a companion that fails still leaves the session unblocked", () => {
+    // `exec` hands the exit status to the caller, so a broken companion can
+    // surface a non-zero status -- but SessionStart is non-blocking on both
+    // platforms and the shim itself must never turn that into a crash or a
+    // partial-JSON write of its own.
+    const dir = project({ flag: true, companion: "#!/bin/sh\nexit 3\n" });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.stdout, "");
+    assert.notEqual(result.status, 127);
+  });
+
+  it("delegates to a companion that lacks the exec bit (no `[ -x ]` guard)", () => {
+    const dir = project({
+      flag: true,
+      companion: `#!/bin/sh\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"companion ran"}}\\n'\nexit 0\n`,
+    });
+    chmodSync(join(dir, ".ievo/hooks/scripts/evo-analysis-nudge.local.sh"), 0o644);
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.equal(
+      JSON.parse(result.stdout).hookSpecificOutput.additionalContext,
+      "companion ran",
+    );
   });
 });

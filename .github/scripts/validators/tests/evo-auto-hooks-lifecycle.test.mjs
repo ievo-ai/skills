@@ -637,3 +637,315 @@ describe("disable (companions removed, shims left in place)", () => {
     assert.equal(status.trim(), "");
   });
 });
+
+// Regression test for skills#551: `.ievo/evo-auto.flag` could exist (claiming
+// auto-evolution ENABLED) with none of the vendored fallback copies, `.local.sh`
+// companions, or wired hook-config entries actually on disk -- e.g. a
+// hand-written flag file, or a `/ievo:evo-auto-enable` run that died partway
+// through Step 3/3.5 -- and nothing surfaced the mismatch, not a nudge, not an
+// error, for the length of an entire session. `evo-auto-enable/SKILL.md` Step
+// 3.5.3 now extends the SessionStart nudge script to also check for this drift
+// every session and warn when found.
+//
+// Unlike the `realCompanion()` stand-in above (used only to exercise the
+// tracked-shim -> `.local.sh` dispatch mechanism generically), this describe
+// extracts the REAL, full `evo-analysis-nudge.local.sh` body from SKILL.md
+// verbatim and executes it -- the wiring-integrity check is real, testable
+// logic now, and a stand-in would let it drift from what actually ships with
+// every test here still green.
+describe("evo-analysis-nudge.local.sh wiring-integrity check (skills#551)", () => {
+  // Pulls the fenced ```sh block that immediately follows Step 3.5.3's heading
+  // out of the already-loaded SKILL.md source -- same "verbatim, not templated"
+  // principle as the SHIMS/GITIGNORE_BLOCK literals above, just extracted
+  // instead of duplicated (this script is much larger than the four-line shims).
+  function extractFencedScript(src, afterHeading) {
+    const headingAt = src.indexOf(afterHeading);
+    assert.ok(headingAt > 0, `heading not found in SKILL.md: ${afterHeading}`);
+    const fenceOpenAt = src.indexOf("```sh\n", headingAt);
+    assert.ok(fenceOpenAt > 0, `no fenced sh block after heading: ${afterHeading}`);
+    const bodyStart = fenceOpenAt + "```sh\n".length;
+    const fenceCloseAt = src.indexOf("\n```", bodyStart);
+    assert.ok(fenceCloseAt > 0, `unterminated fenced block after heading: ${afterHeading}`);
+    return src.slice(bodyStart, fenceCloseAt + 1);
+  }
+
+  const NUDGE_SCRIPT = extractFencedScript(
+    ENABLE_SKILL_SRC,
+    "### 3.5.3 Write the SessionStart analysis nudge",
+  );
+
+  it("the extracted script matches the documented contract (sanity check on the extraction itself)", () => {
+    assert.ok(NUDGE_SCRIPT.startsWith("#!/bin/sh\n"));
+    assert.ok(NUDGE_SCRIPT.includes("evo-auto.flag"));
+    assert.ok(NUDGE_SCRIPT.includes("HOOKS_FILE"));
+  });
+
+  const ROOT = join(tmpdir(), `evo-analysis-nudge-wiring-${process.pid}`);
+  const SCRIPT_PATH = join(ROOT, "evo-analysis-nudge.local.sh");
+
+  before(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+    mkdirSync(ROOT, { recursive: true });
+    writeFileSync(SCRIPT_PATH, NUDGE_SCRIPT);
+    chmodSync(SCRIPT_PATH, 0o755);
+  });
+
+  after(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+  });
+
+  // Fresh, isolated project dir per test (no git needed -- this check is pure
+  // filesystem + hook-config presence, unlike the gitignore describes above).
+  function freshProject() {
+    const dir = join(ROOT, `proj-${Math.floor(1e9 * Math.random())}`);
+    mkdirSync(join(dir, ".ievo/hooks/scripts/vendor"), { recursive: true });
+    return dir;
+  }
+
+  function writeFlag(dir) {
+    writeFileSync(
+      join(dir, ".ievo/evo-auto.flag"),
+      "enabled: true\nenabled_at: 2026-08-05T00:00:00Z\nenabled_by: test\nsignal: corrections-only\nauto_write_scope: project-wide-only\n",
+    );
+  }
+
+  // A minimal accumulator stand-in whose `count` subcommand prints a fixed
+  // value -- exercises this script's drift check without re-testing
+  // evolution_candidates.mjs itself (covered by its own suite).
+  function stubAccumulator(dir, { count = "0", broken = false } = {}) {
+    const p = join(dir, ".ievo/hooks/scripts/vendor/evolution_candidates.mjs");
+    const body = broken
+      ? `process.stdout.write("not-a-number");\nprocess.exit(0);\n`
+      : `const cmd = process.argv[2];\nif (cmd === "count") process.stdout.write(${JSON.stringify(String(count))});\nprocess.exit(0);\n`;
+    writeFileSync(p, body);
+  }
+
+  function writeVendorScrub(dir) {
+    writeFileSync(join(dir, ".ievo/hooks/scripts/vendor/scrub.mjs"), "process.exit(0);\n");
+  }
+
+  function writeCompanions(dir, names) {
+    for (const name of names) {
+      writeFileSync(join(dir, ".ievo/hooks/scripts", name), "#!/bin/sh\nexit 0\n");
+    }
+  }
+
+  const ALL_COMPANIONS = [
+    "correction-capture.local.sh",
+    "evo-analysis-nudge.local.sh",
+    "failure-capture.local.sh",
+  ];
+
+  function writeClaudeSettings(dir, { includeFailure = true } = {}) {
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    const hooks = {
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/correction-capture.sh"] }] }],
+      SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/evo-analysis-nudge.sh"] }] }],
+    };
+    if (includeFailure) {
+      hooks.PostToolUseFailure = [{ hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/failure-capture.sh"] }] }];
+      hooks.PermissionDenied = [{ hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/failure-capture.sh"] }] }];
+    }
+    writeFileSync(join(dir, ".claude/settings.json"), JSON.stringify({ hooks }, null, 2));
+  }
+
+  function writeCodexHooks(dir) {
+    mkdirSync(join(dir, ".codex"), { recursive: true });
+    const hooks = {
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "sh .ievo/hooks/scripts/correction-capture.sh" }] }],
+      SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "sh .ievo/hooks/scripts/evo-analysis-nudge.sh" }] }],
+      PermissionRequest: [{ hooks: [{ type: "command", command: "sh .ievo/hooks/scripts/failure-capture.sh" }] }],
+    };
+    writeFileSync(join(dir, ".codex/hooks.json"), JSON.stringify({ hooks }, null, 2));
+  }
+
+  function writeFullWiring(dir) {
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir);
+  }
+
+  function runNudge(dir, env = {}) {
+    // Strip (not just override-to-undefined -- unreliable across Node
+    // versions in spawnSync's env option) any platform-detection signal this
+    // test process itself might carry, so each test's env fully controls
+    // platform detection instead of partially inheriting the CI runner's own.
+    const baseEnv = { ...process.env };
+    delete baseEnv.CLAUDECODE;
+    delete baseEnv.CODEX_CLI;
+    delete baseEnv.CODEX_INTERNAL_ORIGINATOR_OVERRIDE;
+    delete baseEnv.__CFBundleIdentifier;
+    return spawnSync("sh", [SCRIPT_PATH], {
+      cwd: dir,
+      input: "{}",
+      encoding: "utf-8",
+      env: { ...baseEnv, ...env },
+    });
+  }
+
+  function parseAdditionalContext(stdout) {
+    const parsed = JSON.parse(stdout);
+    return parsed.hookSpecificOutput.additionalContext;
+  }
+
+  it("flag absent -> completely silent, wiring check never runs", () => {
+    const dir = freshProject();
+    // No flag written at all.
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("flag present, nothing else installed -> drift warning naming every missing piece (skills#551 repro)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.notEqual(result.stdout, "", "expected a drift nudge, got silence -- the exact skills#551 bug");
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("vendored scrub.mjs"));
+    assert.ok(ctx.includes("correction-capture.local.sh"));
+    assert.ok(ctx.includes("evo-analysis-nudge.local.sh"));
+    assert.ok(ctx.includes("failure-capture.local.sh"));
+    assert.ok(ctx.includes(".claude/settings.json"));
+    assert.ok(ctx.includes("/ievo:evo-auto-enable"));
+    assert.ok(!ctx.includes('"'), "additionalContext must stay double-quote-free (JSON-embedding contract)");
+  });
+
+  it("vendored evolution_candidates.mjs itself absent -> reported, via the real (non-stubbed) node ENOENT fallback", () => {
+    // Every other test calls stubAccumulator(), which always writes this
+    // exact file -- so the "vendored evolution_candidates.mjs" branch of the
+    // wiring check (SKILL.md's `[ -f .../vendor/evolution_candidates.mjs ] ||
+    // note_missing ...`) is never driven false anywhere else in this suite.
+    // Deliberately skip stubAccumulator() here: `node "$ACC" count` then hits
+    // a real ENOENT, and the script's own `2>/dev/null || echo 0` fallback
+    // (not a test stub) supplies n=0, while the wiring check independently
+    // reports the file as missing.
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir);
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("vendored evolution_candidates.mjs"));
+  });
+
+  it("fully wired, zero pending candidates -> silent, no false-positive nudge", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("fully wired, N pending candidates -> ordinary count nudge, no drift language", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "4" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("4 evolution candidate(s)"));
+    assert.ok(!ctx.includes("drift detected"));
+  });
+
+  it("one hook entry missing from an otherwise-wired config -> combined drift + pending-count message", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir, { includeFailure: false });
+    stubAccumulator(dir, { count: "2" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("failure-capture hook entry in .claude/settings.json"));
+    assert.ok(ctx.includes("2 evolution candidate(s)"));
+    assert.ok(!ctx.includes("correction-capture hook entry"), "only the actually-missing entry should be named");
+  });
+
+  it("no hook config file at all -> names the file itself as missing", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    // Deliberately no .claude/settings.json and no .codex/hooks.json.
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes(".claude/settings.json itself (no hook config file at all)"));
+  });
+
+  it("Codex platform ($CODEX_CLI set) checks .codex/hooks.json, never .claude/settings.json", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir); // fully wired on the WRONG (Claude Code) file
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CODEX_CLI: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(
+      ctx.includes(".codex/hooks.json itself (no hook config file at all)"),
+      "a Codex session must judge .codex/hooks.json, not treat an unrelated .claude/settings.json as proof of wiring",
+    );
+  });
+
+  it("Codex platform, fully wired at .codex/hooks.json -> silent, no drift", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeCodexHooks(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CODEX_CLI: "1" });
+    assert.equal(result.stdout, "");
+  });
+
+  it("$CLAUDECODE set together with $CODEX_CLI set -> Codex wins (Step 1.5 ordering: Claude Code requires CODEX_CLI unset)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir); // wired only on the Claude Code side
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1", CODEX_CLI: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes(".codex/hooks.json itself (no hook config file at all)"));
+  });
+
+  it("a broken/non-numeric accumulator no longer silently swallows the drift check (the actual regression)", () => {
+    // Before skills#551, a `count` parse failure hit an early `exit 0` in the
+    // same case statement, skipping the wiring check entirely -- so a broken
+    // accumulator masked its own drift instead of surfacing it. Full wiring
+    // minus one companion + a garbage (non-numeric) count output must still
+    // report the missing companion.
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ["correction-capture.local.sh", "evo-analysis-nudge.local.sh"]); // failure-capture missing
+    writeClaudeSettings(dir);
+    stubAccumulator(dir, { broken: true });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.notEqual(result.stdout, "", "a broken accumulator must not mask a real wiring gap");
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("failure-capture.local.sh"));
+  });
+
+  it("never exits non-zero, even on the drift path (SessionStart cannot block startup)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+  });
+});

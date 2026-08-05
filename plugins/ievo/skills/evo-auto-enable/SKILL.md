@@ -408,7 +408,18 @@ appends it.
 
 Use the Write tool to create `.ievo/hooks/scripts/evo-analysis-nudge.local.sh`
 — same `.local.sh` companion convention as Step 3.5.2; never write this
-content to the plain `evo-analysis-nudge.sh` name (the tracked shim):
+content to the plain `evo-analysis-nudge.sh` name (the tracked shim). Besides
+the existing pending-candidate count, this script now ALSO asserts the
+wiring itself is genuinely installed (closes #551) — a hand-written
+`.ievo/evo-auto.flag`, or a `/ievo:evo-auto-enable` run that died partway
+through Step 3/3.5, can leave the flag claiming ENABLED with none of the
+vendored fallback copies, `.local.sh` companions, or wired hook-config
+entries actually on disk, and nothing surfaced that mismatch — not a
+SessionStart nudge, not an error — for the length of an entire session
+(the reported failure mode). Checked every SessionStart rather than only at
+enable time, since the same drift can appear later too (a teammate wipes
+`.ievo/hooks/` locally, a manual `settings.json` edit drops an entry, a stale
+clone never ran the per-clone regeneration Step 3.5.4 describes):
 
 ```sh
 #!/bin/sh
@@ -416,6 +427,18 @@ content to the plain `evo-analysis-nudge.sh` name (the tracked shim):
 # On a NEW session, when auto-evolution is ON, prune to the last 10 sessions and,
 # if any candidates are pending, nudge the agent to review them via
 # /ievo:evo. No LLM work happens here -- this only counts + surfaces.
+#
+# Also verifies the wiring itself is actually installed (skills#551): the flag
+# can exist -- claiming ENABLED -- with none of the vendored fallback copies,
+# `.local.sh` companions, or wired hook-config entries actually on disk (a
+# hand-written flag file, or a `/ievo:evo-auto-enable` run that died partway
+# through Step 3/3.5). Checked every SessionStart, not just at enable time,
+# since the same drift can appear later too (a teammate wipes `.ievo/hooks/`
+# locally, a manual settings.json edit drops an entry, a stale clone that
+# never ran the per-clone regeneration). This is what actually surfaces the
+# "flag present but no hook files found on disk" mismatch every session,
+# closing the gap the reporter hit: a whole session with zero capture and
+# zero warning.
 #
 # CONTRACT: fail-silent, context-only (SessionStart cannot block startup),
 # ASCII-only additionalContext. NO `set -e`.
@@ -431,16 +454,82 @@ ACC="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/evolution_candidates.mjs}
 # Retention: keep the last 10 sessions of candidates (best-effort).
 node "$ACC" prune --keep 10 >/dev/null 2>&1 || true
 
+# A missing/broken accumulator (itself a symptom of the drift this script now
+# checks for below) must not silently swallow the whole nudge the way a bare
+# early `exit 0` on a parse failure previously did -- fall back to 0 pending
+# candidates and let the wiring check run regardless.
 n=$(node "$ACC" count 2>/dev/null || echo 0)
-case "$n" in ""|*[!0-9]*) exit 0 ;; esac
-[ "$n" -gt 0 ] || exit 0
+case "$n" in ""|*[!0-9]*) n=0 ;; esac
 
-msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured mechanical tool signals (tool failures/denials on Claude Code, approval requests on Codex), not corrections -- apply a signal-then-fixed-vs-noise judgment before folding one in: a signal later resolved toward the same goal is learnable, a signal inside normal iteration is noise. Remove each candidate from its session file as you consume it."
+# Wiring-integrity check -- same platform-detection rule as /ievo:init Step
+# 1.5 (ordered, first match wins): $CLAUDECODE set with $CODEX_CLI unset ->
+# Claude Code; else $CODEX_CLI set -> Codex; else a Codex Desktop signal
+# (CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop, or macOS
+# __CFBundleIdentifier=com.openai.codex) -> Codex; else Claude Code. This
+# script's content is identical on both platforms (only the wiring differs),
+# so it self-detects which config file its own session should have wired.
+if [ -n "$CLAUDECODE" ] && [ -z "$CODEX_CLI" ]; then
+  HOOKS_FILE=.claude/settings.json
+elif [ -n "$CODEX_CLI" ]; then
+  HOOKS_FILE=.codex/hooks.json
+elif [ "$CODEX_INTERNAL_ORIGINATOR_OVERRIDE" = "Codex Desktop" ] || [ "$__CFBundleIdentifier" = "com.openai.codex" ]; then
+  HOOKS_FILE=.codex/hooks.json
+else
+  HOOKS_FILE=.claude/settings.json
+fi
+
+missing=""
+note_missing() {
+  [ -z "$missing" ] && missing="$1" || missing="$missing, $1"
+}
+[ -f .ievo/hooks/scripts/vendor/evolution_candidates.mjs ] || note_missing "vendored evolution_candidates.mjs"
+[ -f .ievo/hooks/scripts/vendor/scrub.mjs ] || note_missing "vendored scrub.mjs"
+[ -f .ievo/hooks/scripts/correction-capture.local.sh ] || note_missing "correction-capture.local.sh"
+[ -f .ievo/hooks/scripts/evo-analysis-nudge.local.sh ] || note_missing "evo-analysis-nudge.local.sh"
+[ -f .ievo/hooks/scripts/failure-capture.local.sh ] || note_missing "failure-capture.local.sh"
+# Presence-based, not event-placement-based: this confirms the path string
+# is wired SOMEWHERE in the file, not that it sits under the correct event
+# key (UserPromptSubmit/SessionStart/PostToolUseFailure+PermissionDenied on
+# Claude Code; the Codex equivalents) -- a manual edit that moved an entry to
+# the wrong event would still read as "wired" here. -qF (fixed-string, not
+# regex) since these are literal paths, not patterns.
+if [ -f "$HOOKS_FILE" ]; then
+  grep -qF '.ievo/hooks/scripts/correction-capture.sh' "$HOOKS_FILE" 2>/dev/null || note_missing "correction-capture hook entry in $HOOKS_FILE"
+  grep -qF '.ievo/hooks/scripts/evo-analysis-nudge.sh' "$HOOKS_FILE" 2>/dev/null || note_missing "evo-analysis-nudge hook entry in $HOOKS_FILE"
+  grep -qF '.ievo/hooks/scripts/failure-capture.sh' "$HOOKS_FILE" 2>/dev/null || note_missing "failure-capture hook entry in $HOOKS_FILE"
+else
+  note_missing "$HOOKS_FILE itself (no hook config file at all)"
+fi
+
+[ "$n" -gt 0 ] || [ -n "$missing" ] || exit 0
+
+if [ -n "$missing" ]; then
+  drift_msg="iEvo auto-evolution: .ievo/evo-auto.flag is ON but the hook wiring is missing or incomplete (drift detected) -- ${missing}. Corrections are NOT being captured right now. Re-run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install."
+fi
+
+if [ -n "$missing" ] && [ "$n" -gt 0 ]; then
+  msg="${drift_msg} Separately, ${n} evolution candidate(s) captured in earlier sessions are still pending review -- offer /ievo:evo for those too once wiring is repaired."
+elif [ -n "$missing" ]; then
+  msg="$drift_msg"
+else
+  msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured mechanical tool signals (tool failures/denials on Claude Code, approval requests on Codex), not corrections -- apply a signal-then-fixed-vs-noise judgment before folding one in: a signal later resolved toward the same goal is learnable, a signal inside normal iteration is noise. Remove each candidate from its session file as you consume it."
+fi
+
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
 exit 0
 ```
 
 Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/evo-analysis-nudge.local.sh`.
+
+**Why a nudge, not a blocking error:** `SessionStart` cannot block startup on
+either platform, and this script's own contract (like every other hook this
+skill writes) is fail-silent — so a drift finding is surfaced as
+`additionalContext` for the agent to relay, exactly like the existing
+pending-candidate count, never a hard failure. This mirrors ask #2 from
+issue #551 ("a way to verify auto-mode is genuinely wired end-to-end") while
+ask #1 (self-healing re-run) was already satisfied by this skill's existing
+idempotency — re-running `/ievo:evo-auto-enable` after this nudge fires
+repairs exactly the drift it names.
 
 #### 3.5.4 Wire the correction-capture + analysis hooks into the client's hook config
 
@@ -791,7 +880,7 @@ Pending queue: .ievo/evolution-candidates/pending.md
 Hooks, wired in .claude/settings.json (commit this + the three shim scripts
 below so a fresh clone never hits "command not found" — skills#446):
   UserPromptSubmit               → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
-  SessionStart                    → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
+  SessionStart                    → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune; also verifies wiring is genuinely installed, warning if it drifts — #551)
   PostToolUseFailure/PermissionDenied → .ievo/hooks/scripts/failure-capture.sh
     (installed either way; active only when Signal is corrections+failures)
   These three are tracked, static dispatcher shims — safe to commit, identical
@@ -821,7 +910,7 @@ Hooks, wired in .codex/hooks.json (loads once this project's .codex/ layer is
 trusted in Codex — commit this file + the three shim scripts below so a fresh
 clone never hits "command not found": skills#446):
   UserPromptSubmit  → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
-  SessionStart      → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
+  SessionStart      → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune; also verifies wiring is genuinely installed, warning if it drifts — #551)
   PermissionRequest → .ievo/hooks/scripts/failure-capture.sh
     (installed either way; active only when Signal is corrections+failures.
     Codex has no failed-tool/denied event — this records approval REQUESTS,
@@ -958,6 +1047,16 @@ MUST:
    `scrub.mjs` before it ever reaches disk; if scrubbing fails or `scrub.mjs`
    itself is unavailable, the record is dropped — fail-closed for content, never
    a raw record written even transiently.
+6. **Verify wiring integrity every session, not just at enable time (#551).**
+   The `SessionStart` nudge also checks that the vendored fallback copies,
+   all three `.local.sh` companions, and the invoking client's own wired hook
+   entries are actually present on disk. A flag present with none of that
+   installed — e.g. a hand-written `.ievo/evo-auto.flag`, or drift introduced
+   after enable — surfaces as a drift warning in the same `additionalContext`
+   channel, naming exactly what is missing and pointing at re-running
+   `/ievo:evo-auto-enable` (already idempotent/self-healing) to repair it.
+   Never a blocking error — `SessionStart` cannot block startup, and this
+   check shares the same fail-silent contract as every other hook here.
 
 ## Rules
 

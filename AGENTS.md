@@ -214,6 +214,49 @@ No carve-outs remain as of v0.6.7. Every Node script in `plugins/ievo/scripts/` 
 - Commit footer: `Co-Authored-By: iEVO <noreply@ievo.ai>` (NOT the default Claude/Anthropic footer)
 - Merge strategy: merge commit (`--merge --delete-branch`), never squash
 
+### PR footers for autonomous agent sessions — `Session: <platform> <session-id>`
+
+Any skill whose own instructions have an agent call `gh pr create` (or an
+equivalent PR-creation call) **on behalf of an autonomous session** should
+template a `Session: <platform> <session-id>` line into the PR body, alongside
+the `Co-Authored-By` footer above. This makes an agent-opened PR traceable back
+to the exact session/transcript that produced it — motivated by a real
+incident: an autonomous session dispatched a background sub-agent that opened a
+PR, and the orchestrating session lost track of it for a while amid unrelated
+work; nothing in the PR body said which session had opened it, so only indirect
+reconstruction from commit messages and timing worked (skills#553).
+
+Per-platform mechanism — both verified working as of this writing (2026-08-05),
+but this is exactly the kind of thing that moves, so re-verify before relying
+on either:
+- **Claude Code**: `${CLAUDE_SESSION_ID}` is a documented skill-body template
+  variable (§ "Available string substitutions", `code.claude.com/docs/en/skills`)
+  — Claude Code substitutes it into the skill's own markdown before the model
+  sees it, so a `SKILL.md` can safely template `Session: claude-code
+  ${CLAUDE_SESSION_ID}` into a PR-body instruction. Caveat: this only fires
+  when a `SKILL.md` is actually invoked — a bare Task-dispatched sub-agent with
+  no skill in play (the shape of the original incident) isn't covered by this
+  mechanism alone.
+- **Codex**: `CODEX_THREAD_ID` is injected directly into the shell environment
+  for tool calls the agent runs, so a `gh pr create` step can read it as an
+  ordinary env var (`$CODEX_THREAD_ID`) with no skill-templating step needed —
+  [openai/codex#10096](https://github.com/openai/codex/pull/10096) (merged
+  2026-02-03, shipped rust-v0.95.0+, verified against `codex-rs/protocol/src/shell_environment.rs`).
+  This resolves [openai/codex#8923](https://github.com/openai/codex/issues/8923)
+  ("expose current Codex session ID programmatically") — not yet reflected on
+  the official [environment-variables docs page](https://developers.openai.com/codex/environment-variables)
+  as of this writing, so the PR/source is the citation, not the docs page.
+
+No skill in this repo currently calls `gh pr create`, so nothing here is
+mechanically enforced yet; this is guidance for the next skill (here or
+elsewhere) that opens one, not a retroactive fix for PRs already merged without
+the footer. The PR-facing paths that do exist only *read* PR data — e.g.
+`review-retrospective` (`gh pr view`, then read-only `gh api .../pulls/<n>/…`
+calls in the sub-agent; it stops unless the PR is `MERGED`) and
+`/ievo:vuln-scan --pr <N>` (`gh pr diff <N> --name-only`, `commands/vuln-scan.md`,
+which resolves an *open* PR's changed files). Treat that list as illustrative,
+not exhaustive: re-grep for `gh pr `/`gh api .*pulls` before relying on it.
+
 ### Issue lifecycle — Eva-brokered (D-004 Phase 2, skills#271/#277)
 
 Issue triage and implementation are handled by the private Eva orchestration repo; this repo keeps only thin event forwarders. The v1 in-repo pipeline (`issue-pipeline.yml` route/implement, `review-fixer.yml`, `fix-command.yml`, `conflict-resolver.yml`, the `@`-mention responder, the in-repo code-review workflow, and `.github/prompts/`) was paused in skills#271 and removed in skills#277.

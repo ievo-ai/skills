@@ -11,11 +11,38 @@
 // never classifies scope or writes overlays (per #293 Q3: no LLM work at
 // teardown, analyze at next SessionStart).
 //
-// Storage: one JSONL file per session under
-//   <project>/.ievo/evolution-candidates/<session-id>.jsonl
-// each line: {"ts":"<ISO-8601 UTC>","scope":"<scope>","text":"<correction>"}.
+// Storage: one JSONL file per session, each line:
+//   {"ts":"<ISO-8601 UTC>","scope":"<scope>","text":"<correction>"}.
 // The human-review queue `pending.md` (scaffolded by evo-auto-enable) is a
 // SEPARATE, .md file and is never touched here (the `.jsonl` filter excludes it).
+//
+// Location (relocated in v0.78.8, closes #564): when `projectRoot` sits
+// inside a git working tree, session files live under the repo's SHARED
+// git-common-dir (`git rev-parse --git-common-dir`, resolved to an absolute
+// path) rather than inside `projectRoot` itself — `<git-common-dir>/ievo/
+// evolution-candidates/<session-id>.jsonl`. A git worktree's own directory
+// (everything `git worktree remove`, or a plain `rm -rf`, can delete) is NOT
+// the common-dir: for the main checkout `--git-common-dir` is `.git` inside
+// it, but from ANY linked worktree it resolves to the absolute path of the
+// SAME shared `.git` directory back in the main checkout — so a session
+// captured while working in a worktree survives that worktree's removal.
+// Session ids are already unique per session (a UUID in practice — see
+// `sanitizeSessionId`), so multiple worktrees of one repo sharing this one
+// directory is the intended outcome, not a collision risk: each worktree's
+// session still gets its own file, just anchored somewhere the worktree
+// itself can't take down with it.
+// Outside a git working tree (`getGitCommonDir` returns null — not a repo,
+// or `git` itself is unavailable), storage falls back to the pre-#564
+// location, `<project>/.ievo/evolution-candidates/` — unchanged behavior.
+// Migration/fallback for already-accumulated data (#564 Part 1 scope): reads
+// (`listSessions`, and therefore `countPending`/`pruneSessions`) merge BOTH
+// locations rather than migrating files on disk — no destructive move, no
+// partial-copy failure mode, and a session id present in both (only possible
+// if a project's git-repo status itself changed mid-session) resolves to the
+// git-common-dir copy. New candidates always append to the git-common-dir
+// location when one is available; a project only ever accumulates further
+// NEW data at the old location once it stops being (or never was) a git
+// working tree.
 //
 // Retention (per #293 Q4): keep the last 10 sessions; `prune` removes older
 // per-session files. Dedup: an identical (scope, text) candidate is not appended
@@ -72,14 +99,18 @@
 import { readFileSync, appendFileSync, mkdirSync, readdirSync, unlinkSync, lstatSync, realpathSync } from "node:fs";
 import { join, dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { scrub } from "./scrub.mjs";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.78.6";
+export const SCRIPT_VERSION = "0.78.8";
 export const IEVO_DIR = ".ievo";
 export const CANDIDATES_DIR = "evolution-candidates";
 export const SESSION_EXT = ".jsonl";
+// Subdirectory created under the shared git-common-dir (see the storage-
+// location header comment above), e.g. <repo>/.git/ievo/evolution-candidates.
+export const GIT_COMMON_SUBDIR = "ievo";
 export const DEFAULT_RETENTION = 10;
 // Capture is scope-agnostic: classification is deferred to the next-session
 // analysis pass, so freshly captured candidates carry this placeholder scope.
@@ -102,11 +133,54 @@ Notes:
   over-long text truncated.`;
 
 // ---------------------------------------------------------------------------
-// Paths
+// Paths (#564 — git-common-dir relocation)
 // ---------------------------------------------------------------------------
 
-export function candidatesDir(projectRoot = ".") {
+// Resolves the absolute path of `projectRoot`'s shared git-common-dir, or
+// null when `projectRoot` is not inside a git working tree (including: not a
+// repo at all, `projectRoot` does not exist yet, or the `git` binary itself
+// is unavailable — every failure mode degrades to "no git dir", never a
+// throw, since callers treat this as a fallback signal, not an error).
+// `git rev-parse --git-common-dir` prints an absolute path when run from a
+// linked worktree (already the main checkout's real `.git`) but a
+// cwd-relative one (typically the literal string `.git`) when run from the
+// main checkout itself — resolving it against `projectRoot` normalizes both
+// cases to one absolute path without needing `--path-format=absolute`
+// (git 2.31+ only; this stays correct on older git too).
+// `timeout` bounds a hung/unresponsive `git` so a single append/list/prune
+// call can't block indefinitely — 5s is generous for a local `rev-parse`.
+export function defaultGetGitCommonDir(projectRoot, spawnImpl = spawnSync) {
+  let result;
+  try {
+    result = spawnImpl("git", ["rev-parse", "--git-common-dir"], {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      timeout: 5000,
+    });
+  } catch {
+    return null;
+  }
+  if (!result || result.error || result.status !== 0) return null;
+  const dir = (result.stdout ?? "").trim();
+  if (!dir) return null;
+  return resolve(projectRoot, dir);
+}
+
+// Pre-#564 location — still where a non-git project stores candidates, and
+// still read (merged) alongside the new location so already-accumulated data
+// for a git project isn't silently orphaned by the relocation. See the
+// storage-location header comment for the full migration/fallback story.
+export function legacyCandidatesDir(projectRoot = ".") {
   return join(projectRoot, IEVO_DIR, CANDIDATES_DIR);
+}
+
+export function candidatesDir(projectRoot = ".", deps = {}) {
+  const { getGitCommonDir = defaultGetGitCommonDir } = deps;
+  const gitCommonDir = getGitCommonDir(projectRoot);
+  if (gitCommonDir) {
+    return join(gitCommonDir, GIT_COMMON_SUBDIR, CANDIDATES_DIR);
+  }
+  return legacyCandidatesDir(projectRoot);
 }
 
 // Session ids come from the host agent (a UUID in practice), but treat them as
@@ -122,8 +196,8 @@ export function sanitizeSessionId(id) {
   return s;
 }
 
-export function sessionFilePath(projectRoot, sessionId) {
-  return join(candidatesDir(projectRoot), `${sanitizeSessionId(sessionId)}${SESSION_EXT}`);
+export function sessionFilePath(projectRoot, sessionId, deps = {}) {
+  return join(candidatesDir(projectRoot, deps), `${sanitizeSessionId(sessionId)}${SESSION_EXT}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +336,7 @@ export function appendCandidate(
     statImpl = lstatSync,
     realpathImpl = realpathSync,
     now = () => new Date().toISOString(),
+    getGitCommonDir = defaultGetGitCommonDir,
   } = deps;
 
   // --text-file takes precedence: read the correction from disk instead of
@@ -302,7 +377,7 @@ export function appendCandidate(
   }
   const cleanText = resolvedText.trim();
   // sessionFilePath throws on an unusable session id — surfaced by the caller.
-  const filePath = sessionFilePath(projectRoot, sessionId);
+  const filePath = sessionFilePath(projectRoot, sessionId, { getGitCommonDir });
 
   const existing = readSessionCandidates(filePath, readImpl);
   if (existing.some((c) => c.text === cleanText && (c.scope ?? DEFAULT_SCOPE) === scope)) {
@@ -319,28 +394,41 @@ export function appendCandidate(
 // List / count / prune
 // ---------------------------------------------------------------------------
 
+// Merges the current (git-common-dir, when available) location with the
+// legacy <projectRoot>/.ievo/evolution-candidates location, so already-
+// accumulated data under the pre-#564 path keeps surfacing after the
+// relocation (see the storage-location header comment). For a non-git
+// project the two resolve to the same directory and this is a single scan,
+// identical to pre-#564 behavior. A session id present in both (only
+// possible if a project's git-repo status changed mid-session) resolves to
+// the current-location copy — it is scanned first and a later duplicate id
+// is skipped.
 export function listSessions(projectRoot = ".", deps = {}) {
-  const { readdir = readdirSync, readImpl = readFileSync } = deps;
-  const dir = candidatesDir(projectRoot);
-  let entries;
-  try {
-    entries = readdir(dir);
-  } catch (err) {
-    if (err.code === "ENOENT") return [];
-    throw err;
-  }
+  const { readdir = readdirSync, readImpl = readFileSync, getGitCommonDir = defaultGetGitCommonDir } = deps;
+  const currentDir = candidatesDir(projectRoot, { getGitCommonDir });
+  const legacyDir = legacyCandidatesDir(projectRoot);
+  const dirs = currentDir === legacyDir ? [currentDir] : [currentDir, legacyDir];
+
   const sessions = [];
-  for (const name of entries) {
-    // Only per-session accumulator files — never pending.md or other artefacts.
-    if (!name.endsWith(SESSION_EXT)) continue;
-    const filePath = join(dir, name);
-    const candidates = readSessionCandidates(filePath, readImpl);
-    sessions.push({
-      sessionId: name.slice(0, -SESSION_EXT.length),
-      filePath,
-      candidates,
-      latestTs: latestTimestamp(candidates),
-    });
+  const seenIds = new Set();
+  for (const dir of dirs) {
+    let entries;
+    try {
+      entries = readdir(dir);
+    } catch (err) {
+      if (err.code === "ENOENT") continue;
+      throw err;
+    }
+    for (const name of entries) {
+      // Only per-session accumulator files — never pending.md or other artefacts.
+      if (!name.endsWith(SESSION_EXT)) continue;
+      const sessionId = name.slice(0, -SESSION_EXT.length);
+      if (seenIds.has(sessionId)) continue;
+      seenIds.add(sessionId);
+      const filePath = join(dir, name);
+      const candidates = readSessionCandidates(filePath, readImpl);
+      sessions.push({ sessionId, filePath, candidates, latestTs: latestTimestamp(candidates) });
+    }
   }
   return sessions;
 }

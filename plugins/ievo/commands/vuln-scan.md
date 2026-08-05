@@ -39,7 +39,40 @@ if [ -z "$BASE_BRANCH" ]; then
   BASE_BRANCH="main"
   echo "Warning: could not detect default branch — falling back to 'main'."
 fi
-git diff --name-only "$(git merge-base HEAD "origin/$BASE_BRANCH")"..HEAD
+```
+
+**Validate `BASE_BRANCH` before any further use.** Both resolution paths
+above ultimately reflect the remote's own reported default-branch/HEAD
+pointer — data the remote owner fully controls, including a compromised or
+adversarial fork someone is about to audit with this exact tool. Git's
+ref-name grammar forbids only a narrow set of characters (control chars,
+space, `~^:?*[\`, `..`, leading/trailing `/`, trailing `.lock`) — backticks,
+`$()`, `;`, `&`, `|` are all legal in a ref name — so an unvalidated
+`BASE_BRANCH` is live shell syntax the moment it is interpolated into
+`"origin/$BASE_BRANCH"`. This holds even if the resolution above and the
+`git diff` below end up in separate Bash tool calls: shell variables don't
+persist across calls, so a crafted branch name re-embedded as literal text
+in the next command is exactly as dangerous as it was in the first. Check
+`BASE_BRANCH` against the same ref allowlist `inspect/SKILL.md` Step 1 uses
+before it is used anywhere below — refuse and fall back to `main` (with a
+warning) on failure rather than build `"origin/$BASE_BRANCH"` from an
+unchecked value:
+
+- Matches `^[A-Za-z0-9._/-]+$` (letters, digits, `.`, `_`, `-`, `/` only)
+- Does not start with `-` (would be parsed as a flag)
+- Does not contain `..` or `@{`
+
+Also resolve the merge-base into its own statement, only after validation
+passes, rather than nesting the substitution inline inside the `git diff`
+call — so no single command line embeds two levels of substitution:
+
+```bash
+if ! [[ "$BASE_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || [[ "$BASE_BRANCH" == -* ]] || [[ "$BASE_BRANCH" == *".."* ]] || [[ "$BASE_BRANCH" == *"@{"* ]]; then
+  echo "Warning: detected default branch name contains invalid characters — falling back to 'main'."
+  BASE_BRANCH="main"
+fi
+MERGE_BASE=$(git merge-base HEAD "refs/remotes/origin/$BASE_BRANCH")
+git diff --name-only "$MERGE_BASE"..HEAD
 ```
 
 If no diff exists (clean branch), inform the user and suggest `--module` or `--full` instead.

@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.9
+
+Close a command-injection gap in `commands/vuln-scan.md`'s default `--diff` scope resolution — an unvalidated `BASE_BRANCH` was interpolated into a nested Bash command substitution (CWE-78) — Eva vuln-scan dogfooding finding, #565.
+
+- **Gap closed (#565)** — the Scope determination block resolved `BASE_BRANCH` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `gh repo view --json defaultBranchRef`. Both values are fully controlled by whatever remote `origin` points at, including a compromised or adversarial fork someone is about to audit with this exact tool. Git's ref-name grammar does not forbid shell metacharacters (backtick, `$()`, `;`, `&`, `|`), so an unvalidated default-branch name was live shell syntax the moment it was re-embedded into `"$(git merge-base HEAD "origin/$BASE_BRANCH")"` — a nested command substitution inside a double-quoted string, with no allowlist check between resolution and use.
+- **New validation before use** — `BASE_BRANCH` is now checked against the same ref allowlist `inspect/SKILL.md` Step 1 already uses (`^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`), falling back to `main` with a warning on failure, before it is ever interpolated into `"origin/$BASE_BRANCH"`.
+- **Nested substitution split** — `git merge-base HEAD "refs/remotes/origin/$BASE_BRANCH"` now resolves into its own `MERGE_BASE` variable in a separate statement, only after validation passes, rather than nesting the substitution inline inside the final `git diff` call.
+- **Scope** — `plugins/ievo/commands/vuln-scan.md` only; the rest of the diff is the mandatory version-bump ceremony below. No script/test changes — this command is pure Markdown instructions with no code path for `node --test` to cover.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.78.8 → 0.78.9). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.8
 
 Relocate `evolution_candidates.mjs`'s per-session storage outside the git-worktree-removable tree — Part 1 of 2, closes #564.

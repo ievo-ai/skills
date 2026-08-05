@@ -14,9 +14,12 @@ import {
   IEVO_DIR,
   CANDIDATES_DIR,
   SESSION_EXT,
+  GIT_COMMON_SUBDIR,
   DEFAULT_RETENTION,
   DEFAULT_SCOPE,
   MAX_TEXT_FILE_BYTES,
+  defaultGetGitCommonDir,
+  legacyCandidatesDir,
   candidatesDir,
   sanitizeSessionId,
   sessionFilePath,
@@ -35,6 +38,13 @@ import {
   isCliEntry,
 } from "../evolution_candidates.mjs";
 
+// Forces legacy (pre-#564) path resolution — injected throughout tests that
+// don't care about the git-common-dir relocation, so their assertions stay
+// deterministic regardless of whether the OS tmpdir happens to sit inside a
+// git working tree on a given machine. Dedicated describe blocks below test
+// the relocation itself (fake AND real git-common-dir resolution).
+const NO_GIT = { getGitCommonDir: () => null };
+
 // appendCandidate routes --text-file content through scrub.mjs's scrub(), which
 // is not redaction-only: these two pin the OTHER stages of that transform (see
 // the "capture-behaviour change" tests below), keyed off scrub.mjs's own
@@ -45,8 +55,13 @@ const SCRIPT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "evol
 
 // Write a session .jsonl file directly (bypassing appendCandidate) so tests can
 // craft exact on-disk state, including malformed lines and custom timestamps.
+// Always targets the legacy location (NO_GIT) — callers that want to seed the
+// git-common-dir location instead pass an explicit dir to writeSessionAt.
 function writeSession(root, sessionId, records) {
-  const dir = candidatesDir(root);
+  writeSessionAt(candidatesDir(root, NO_GIT), sessionId, records);
+}
+
+function writeSessionAt(dir, sessionId, records) {
   mkdirSync(dir, { recursive: true });
   const body = records
     .map((r) => (typeof r === "string" ? r : JSON.stringify(r)))
@@ -174,13 +189,155 @@ describe("assertTextFileReadable", () => {
 // Paths
 // ---------------------------------------------------------------------------
 
-describe("candidatesDir", () => {
-  it("joins project root with .ievo/evolution-candidates", () => {
-    assert.equal(candidatesDir("/tmp/proj"), join("/tmp/proj", ".ievo", "evolution-candidates"));
+describe("legacyCandidatesDir", () => {
+  it("joins project root with .ievo/evolution-candidates, ignoring git entirely", () => {
+    assert.equal(legacyCandidatesDir("/tmp/proj"), join("/tmp/proj", ".ievo", "evolution-candidates"));
   });
 
   it("defaults project root to cwd-relative '.'", () => {
-    assert.equal(candidatesDir(), join(".", ".ievo", "evolution-candidates"));
+    assert.equal(legacyCandidatesDir(), join(".", ".ievo", "evolution-candidates"));
+  });
+});
+
+describe("candidatesDir (#564 — git-common-dir relocation)", () => {
+  it("falls back to the legacy .ievo/evolution-candidates path when not a git working tree", () => {
+    assert.equal(candidatesDir("/tmp/proj", NO_GIT), join("/tmp/proj", ".ievo", "evolution-candidates"));
+  });
+
+  it("defaults project root to cwd-relative '.' on the legacy fallback", () => {
+    assert.equal(candidatesDir(undefined, NO_GIT), join(".", ".ievo", "evolution-candidates"));
+  });
+
+  it("defaults deps to {} (real getGitCommonDir) when no deps are given", () => {
+    // No injection at all — exercises the `deps = {}` default parameter itself.
+    // "/definitely/does/not/exist" is neither a repo nor an existing directory,
+    // so the real defaultGetGitCommonDir resolves to null regardless of host.
+    assert.equal(
+      candidatesDir("/definitely/does/not/exist/evc-default-deps"),
+      join("/definitely/does/not/exist/evc-default-deps", ".ievo", "evolution-candidates"),
+    );
+  });
+
+  it("joins <git-common-dir>/ievo/evolution-candidates when inside a git working tree", () => {
+    const deps = { getGitCommonDir: () => "/repo/.git" };
+    assert.equal(candidatesDir("/repo", deps), join("/repo/.git", GIT_COMMON_SUBDIR, "evolution-candidates"));
+  });
+
+  it("uses the git-common-dir location even when projectRoot is a linked worktree elsewhere", () => {
+    // The whole point of the relocation: a worktree's own path never appears
+    // in the resolved candidates dir once getGitCommonDir resolves it to the
+    // shared main-checkout .git.
+    const deps = { getGitCommonDir: () => "/main-checkout/.git" };
+    const dir = candidatesDir("/some/other/worktree/path", deps);
+    assert.equal(dir, join("/main-checkout/.git", GIT_COMMON_SUBDIR, "evolution-candidates"));
+    assert.ok(!dir.includes("worktree"));
+  });
+});
+
+describe("defaultGetGitCommonDir (#564)", () => {
+  it("returns null when the spawn itself throws", () => {
+    assert.equal(defaultGetGitCommonDir("/proj", () => { throw new Error("boom"); }), null);
+  });
+
+  it("returns null when spawnImpl returns a falsy result", () => {
+    assert.equal(defaultGetGitCommonDir("/proj", () => null), null);
+  });
+
+  it("returns null when spawnImpl reports a spawn error (e.g. git binary missing)", () => {
+    const spawnImpl = () => ({ error: Object.assign(new Error("not found"), { code: "ENOENT" }), status: null, stdout: "" });
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl), null);
+  });
+
+  it("returns null on a non-zero exit status (not a git repo)", () => {
+    const spawnImpl = () => ({ status: 128, stdout: "", stderr: "fatal: not a git repository\n" });
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl), null);
+  });
+
+  it("returns null when stdout is empty or whitespace-only despite a zero exit", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "   \n" });
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl), null);
+  });
+
+  it("returns null when stdout is missing entirely (nullish-coalescing fallback)", () => {
+    const spawnImpl = () => ({ status: 0 }); // no stdout field at all
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl), null);
+  });
+
+  it("resolves a relative git-common-dir (main checkout: '.git') against projectRoot", () => {
+    const spawnImpl = () => ({ status: 0, stdout: ".git\n" });
+    assert.equal(defaultGetGitCommonDir("/repo", spawnImpl, () => true), resolve("/repo", ".git"));
+  });
+
+  it("passes an already-absolute git-common-dir (linked worktree) through resolve() unchanged", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "/main-checkout/.git\n" });
+    assert.equal(defaultGetGitCommonDir("/some/worktree", spawnImpl, () => true), "/main-checkout/.git");
+  });
+
+  // --- #564 vuln-scan follow-up: plausibility check on the resolved dir (CWE-73) ---
+
+  it("returns null when the resolved directory does not look like a git dir (existsImpl all false)", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "/not-really-a-git-dir\n" });
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl, () => false), null);
+  });
+
+  it("returns the resolved directory when it looks like a git dir (HEAD + objects + refs all present)", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "/real/.git\n" });
+    const seen = [];
+    const existsImpl = (p) => { seen.push(p); return true; };
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl, existsImpl), "/real/.git");
+    assert.deepEqual(seen.sort(), [join("/real/.git", "HEAD"), join("/real/.git", "objects"), join("/real/.git", "refs")].sort());
+  });
+
+  it("short-circuits on the first missing entry (existsImpl not called for the rest)", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "/partial/.git\n" });
+    const calls = [];
+    const existsImpl = (p) => { calls.push(p); return false; };
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl, existsImpl), null);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0], join("/partial/.git", "HEAD"));
+  });
+
+  it("invokes the real git binary with --git-common-dir and a bounded timeout by default", () => {
+    let capturedArgs, capturedOpts;
+    const spawnImpl = (cmd, args, opts) => {
+      capturedArgs = args;
+      capturedOpts = opts;
+      return { status: 0, stdout: "/x/.git\n" };
+    };
+    defaultGetGitCommonDir("/proj", spawnImpl);
+    assert.deepEqual(capturedArgs, ["rev-parse", "--git-common-dir"]);
+    assert.equal(capturedOpts.cwd, "/proj");
+    assert.equal(typeof capturedOpts.timeout, "number");
+    assert.ok(capturedOpts.timeout > 0);
+  });
+
+  // --- real git, real filesystem: end-to-end sanity beyond the injected-spawn unit tests above ---
+
+  it("resolves the real .git dir for a real git repository (default spawnSync)", () => {
+    const root = join(tmpdir(), `evc-gitdir-real-${process.pid}`);
+    mkdirSync(root, { recursive: true });
+    try {
+      const init = spawnSync("git", ["init", "-q"], { cwd: root });
+      assert.equal(init.status, 0);
+      const dir = defaultGetGitCommonDir(root);
+      assert.equal(dir, resolve(root, ".git"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null for a real, non-git directory (default spawnSync)", () => {
+    const root = join(tmpdir(), `evc-gitdir-none-${process.pid}`);
+    mkdirSync(root, { recursive: true });
+    try {
+      assert.equal(defaultGetGitCommonDir(root), null);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null for a nonexistent directory (default spawnSync)", () => {
+    assert.equal(defaultGetGitCommonDir(join(tmpdir(), `evc-gitdir-missing-${process.pid}`)), null);
   });
 });
 
@@ -208,15 +365,30 @@ describe("sanitizeSessionId", () => {
 });
 
 describe("sessionFilePath", () => {
-  it("builds <root>/.ievo/evolution-candidates/<id>.jsonl", () => {
+  it("builds <root>/.ievo/evolution-candidates/<id>.jsonl on the legacy fallback", () => {
     assert.equal(
-      sessionFilePath("/p", "sess1"),
+      sessionFilePath("/p", "sess1", NO_GIT),
       join("/p", ".ievo", "evolution-candidates", "sess1.jsonl"),
     );
   });
 
+  it("defaults deps to {} when omitted (real getGitCommonDir, nonexistent root falls back)", () => {
+    assert.equal(
+      sessionFilePath("/definitely/does/not/exist/evc-sfp-default-deps", "sess1"),
+      join("/definitely/does/not/exist/evc-sfp-default-deps", ".ievo", "evolution-candidates", "sess1.jsonl"),
+    );
+  });
+
   it("propagates the sanitize error for an unusable id", () => {
-    assert.throws(() => sessionFilePath("/p", ""), /invalid session id/);
+    assert.throws(() => sessionFilePath("/p", "", NO_GIT), /invalid session id/);
+  });
+
+  it("builds <git-common-dir>/ievo/evolution-candidates/<id>.jsonl when getGitCommonDir resolves", () => {
+    const deps = { getGitCommonDir: () => "/repo/.git" };
+    assert.equal(
+      sessionFilePath("/repo", "sess1", deps),
+      join("/repo/.git", GIT_COMMON_SUBDIR, "evolution-candidates", "sess1.jsonl"),
+    );
   });
 });
 
@@ -278,7 +450,7 @@ describe("readSessionCandidates", () => {
 
   it("parses candidates from an existing file", () => {
     writeSession(root, "s1", [{ ts: "2026-01-01T00:00:00Z", scope: "unclassified", text: "hi" }]);
-    const out = readSessionCandidates(sessionFilePath(root, "s1"));
+    const out = readSessionCandidates(sessionFilePath(root, "s1", NO_GIT));
     assert.equal(out.length, 1);
     assert.equal(out[0].text, "hi");
   });
@@ -312,12 +484,12 @@ describe("appendCandidate", () => {
 
   it("writes a trimmed candidate to the session file (real fs, default now())", () => {
     const projectRoot = join(root, "p1");
-    const res = appendCandidate({ projectRoot, sessionId: "sess-A", text: "  we always pin deps  " });
+    const res = appendCandidate({ projectRoot, sessionId: "sess-A", text: "  we always pin deps  " }, NO_GIT);
     assert.equal(res.written, true);
     assert.equal(res.record.text, "we always pin deps");
     assert.equal(res.record.scope, DEFAULT_SCOPE);
     assert.match(res.record.ts, /^\d{4}-\d{2}-\d{2}T/); // ISO-8601 from real Date
-    const onDisk = readSessionCandidates(sessionFilePath(projectRoot, "sess-A"));
+    const onDisk = readSessionCandidates(sessionFilePath(projectRoot, "sess-A", NO_GIT));
     assert.equal(onDisk.length, 1);
     assert.equal(onDisk[0].text, "we always pin deps");
   });
@@ -326,26 +498,26 @@ describe("appendCandidate", () => {
     const projectRoot = join(root, "p2");
     const res = appendCandidate({
       projectRoot, sessionId: "sess-B", text: "prefer X", scope: "project-wide", ts: "2026-07-04T00:00:00Z",
-    });
+    }, NO_GIT);
     assert.equal(res.record.ts, "2026-07-04T00:00:00Z");
     assert.equal(res.record.scope, "project-wide");
   });
 
   it("dedups an identical (scope, text) candidate within the same session", () => {
     const projectRoot = join(root, "p3");
-    const first = appendCandidate({ projectRoot, sessionId: "s", text: "same", ts: "2026-07-04T00:00:00Z" });
+    const first = appendCandidate({ projectRoot, sessionId: "s", text: "same", ts: "2026-07-04T00:00:00Z" }, NO_GIT);
     assert.equal(first.written, true);
-    const second = appendCandidate({ projectRoot, sessionId: "s", text: "same", ts: "2026-07-04T01:00:00Z" });
+    const second = appendCandidate({ projectRoot, sessionId: "s", text: "same", ts: "2026-07-04T01:00:00Z" }, NO_GIT);
     assert.equal(second.written, false);
     assert.equal(second.reason, "duplicate");
-    assert.equal(readSessionCandidates(sessionFilePath(projectRoot, "s")).length, 1);
+    assert.equal(readSessionCandidates(sessionFilePath(projectRoot, "s", NO_GIT)).length, 1);
   });
 
   it("treats an existing record with no scope field as DEFAULT_SCOPE for dedup (nullish coalescing)", () => {
     const projectRoot = join(root, "p4");
     // Pre-seed a raw line WITHOUT a scope field.
     writeSession(projectRoot, "s", [{ ts: "2026-07-04T00:00:00Z", text: "legacy" }]);
-    const res = appendCandidate({ projectRoot, sessionId: "s", text: "legacy", scope: DEFAULT_SCOPE });
+    const res = appendCandidate({ projectRoot, sessionId: "s", text: "legacy", scope: DEFAULT_SCOPE }, NO_GIT);
     assert.equal(res.written, false);
     assert.equal(res.reason, "duplicate");
   });
@@ -358,12 +530,33 @@ describe("appendCandidate", () => {
         readImpl: () => { const e = new Error("nf"); e.code = "ENOENT"; throw e; },
         mkdir: () => {},
         appendFile: (p, body) => writes.push([p, body]),
+        getGitCommonDir: () => null,
       },
     );
     assert.equal(res.written, true);
     assert.equal(writes.length, 1);
     // Path is rooted at the default "." → contains .ievo/evolution-candidates.
     assert.ok(res.filePath.includes(join(".ievo", "evolution-candidates")));
+  });
+
+  it("writes under <git-common-dir>/ievo/evolution-candidates when getGitCommonDir resolves (no disk writes)", () => {
+    const writes = [];
+    const projectRoot = join(root, "p-git");
+    const res = appendCandidate(
+      { projectRoot, sessionId: "s", text: "t", ts: "2026-07-04T00:00:00Z" },
+      {
+        readImpl: () => { const e = new Error("nf"); e.code = "ENOENT"; throw e; },
+        mkdir: () => {},
+        appendFile: (p, body) => writes.push([p, body]),
+        getGitCommonDir: () => join(projectRoot, ".git"),
+      },
+    );
+    assert.equal(res.written, true);
+    assert.equal(
+      res.filePath,
+      join(projectRoot, ".git", GIT_COMMON_SUBDIR, "evolution-candidates", "s.jsonl"),
+    );
+    assert.ok(!res.filePath.includes(join(".ievo", "evolution-candidates")));
   });
 
   // --- --text-file (#373: never interpolate free-form correction text into a
@@ -386,7 +579,7 @@ describe("appendCandidate", () => {
   it("reads the correction from --text-file instead of --text (real fs)", () => {
     const projectRoot = join(root, "tf1");
     const textFilePath = allowedTextFile(projectRoot, "correction.txt", "  we always pin deps via --text-file  \n");
-    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }, NO_GIT);
     assert.equal(res.written, true);
     assert.equal(res.record.text, "we always pin deps via --text-file");
   });
@@ -394,14 +587,14 @@ describe("appendCandidate", () => {
   it("--text-file takes precedence when both --text and --text-file are given", () => {
     const projectRoot = join(root, "tf2");
     const textFilePath = allowedTextFile(projectRoot, "correction.txt", "from the file");
-    const res = appendCandidate({ projectRoot, sessionId: "s", text: "from --text", textFile: textFilePath });
+    const res = appendCandidate({ projectRoot, sessionId: "s", text: "from --text", textFile: textFilePath }, NO_GIT);
     assert.equal(res.record.text, "from the file");
   });
 
   it("throws a descriptive error when --text-file cannot be read (ENOENT)", () => {
     const projectRoot = join(root, "tf3");
     assert.throws(
-      () => appendCandidate({ projectRoot, sessionId: "s", textFile: join(projectRoot, IEVO_DIR, "does-not-exist.txt") }),
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: join(projectRoot, IEVO_DIR, "does-not-exist.txt") }, NO_GIT),
       /could not read --text-file '.*does-not-exist\.txt': /,
     );
   });
@@ -410,7 +603,7 @@ describe("appendCandidate", () => {
     const projectRoot = join(root, "tf4");
     const textFilePath = allowedTextFile(projectRoot, "correction.txt", "   \n\t\n");
     assert.throws(
-      () => appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }),
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }, NO_GIT),
       /non-empty --text or --text-file/,
     );
   });
@@ -424,6 +617,7 @@ describe("appendCandidate", () => {
         statImpl: () => ({ isFile: () => true, size: 10 }),
         realpathImpl: (p) => p, // identity: no symlink involved in this fixture
         readImpl: boom,
+        getGitCommonDir: () => null,
       }),
       /could not read --text-file '.*whatever': denied/,
     );
@@ -436,10 +630,10 @@ describe("appendCandidate", () => {
     const outside = join(root, "outside-secret.txt");
     writeFileSync(outside, "not inside .ievo", "utf-8");
     assert.throws(
-      () => appendCandidate({ projectRoot, sessionId: "s", textFile: outside }),
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: outside }, NO_GIT),
       /could not read --text-file '.*outside-secret\.txt': must be inside .*\.ievo/,
     );
-    assert.equal(existsSync(sessionFilePath(projectRoot, "s")), false);
+    assert.equal(existsSync(sessionFilePath(projectRoot, "s", NO_GIT)), false);
   });
 
   it("rejects a --text-file that is a directory, not a regular file", () => {
@@ -447,7 +641,7 @@ describe("appendCandidate", () => {
     const dirAsTextFile = join(projectRoot, IEVO_DIR, "not-a-file");
     mkdirSync(dirAsTextFile, { recursive: true });
     assert.throws(
-      () => appendCandidate({ projectRoot, sessionId: "s", textFile: dirAsTextFile }),
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: dirAsTextFile }, NO_GIT),
       /could not read --text-file '.*not-a-file': not a regular file/,
     );
   });
@@ -456,7 +650,7 @@ describe("appendCandidate", () => {
     const projectRoot = join(root, "tf-big");
     const textFilePath = allowedTextFile(projectRoot, "big.txt", "x".repeat(MAX_TEXT_FILE_BYTES + 1));
     assert.throws(
-      () => appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }),
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }, NO_GIT),
       new RegExp(`could not read --text-file '.*big\\.txt': exceeds ${MAX_TEXT_FILE_BYTES} bytes`),
     );
   });
@@ -468,7 +662,7 @@ describe("appendCandidate", () => {
       "correction.txt",
       "the fix used ghp_abcdefghijklmnopqrstuvwxyz0123456789AB by mistake",
     );
-    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }, NO_GIT);
     assert.equal(res.written, true);
     assert.doesNotMatch(res.record.text, /ghp_[A-Za-z0-9]{30,}/);
     assert.match(res.record.text, /\[REDACTED\]/);
@@ -486,7 +680,7 @@ describe("appendCandidate", () => {
     // stages only the truncation one can change this input.
     const body = "a".repeat(MAX_CODEPOINTS + 25);
     const textFilePath = allowedTextFile(projectRoot, "correction.txt", body);
-    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }, NO_GIT);
     assert.equal(res.written, true);
     assert.equal(res.record.text, "a".repeat(MAX_CODEPOINTS) + TRUNCATION_MARKER);
     assert.ok(res.record.text.endsWith(TRUNCATION_MARKER));
@@ -496,7 +690,7 @@ describe("appendCandidate", () => {
     const projectRoot = join(root, "tf-home");
     const home = homedir();
     const textFilePath = allowedTextFile(projectRoot, "correction.txt", `see ${home}/notes/pinning.md for the rule`);
-    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath });
+    const res = appendCandidate({ projectRoot, sessionId: "s", textFile: textFilePath }, NO_GIT);
     assert.equal(res.written, true);
     assert.equal(res.record.text, "see ~/notes/pinning.md for the rule");
     assert.ok(!res.record.text.includes(home));
@@ -512,12 +706,29 @@ describe("listSessions", () => {
   after(() => rmSync(root, { recursive: true, force: true }));
 
   it("returns [] when the candidates dir does not exist (ENOENT)", () => {
-    assert.deepEqual(listSessions(join(root, "empty-proj")), []);
+    assert.deepEqual(listSessions(join(root, "empty-proj"), NO_GIT), []);
   });
 
   it("rethrows a non-ENOENT readdir error", () => {
     const boom = () => { const e = new Error("perm"); e.code = "EACCES"; throw e; };
-    assert.throws(() => listSessions(root, { readdir: boom }), /perm/);
+    assert.throws(() => listSessions(root, { ...NO_GIT, readdir: boom }), /perm/);
+  });
+
+  it("rethrows a non-ENOENT readdir error from the legacy dir when the git-common-dir scan already succeeded", () => {
+    // currentDir !== legacyDir (git project) exercises the SECOND loop
+    // iteration's error path — the first test above only covers the
+    // single-dir (non-git) case, where the two directories collapse to one.
+    const projectRoot = join(root, "git-proj-legacy-error");
+    const boom = () => { const e = new Error("perm"); e.code = "EACCES"; throw e; };
+    const gitDir = join(projectRoot, ".git");
+    const currentDir = join(gitDir, GIT_COMMON_SUBDIR, "evolution-candidates");
+    assert.throws(
+      () => listSessions(projectRoot, {
+        getGitCommonDir: () => gitDir,
+        readdir: (dir) => (dir === currentDir ? [] : boom()),
+      }),
+      /perm/,
+    );
   });
 
   it("lists only .jsonl session files, ignoring pending.md and other artefacts", () => {
@@ -528,15 +739,52 @@ describe("listSessions", () => {
       { ts: "2026-01-04T00:00:00Z", text: "three" },
     ]);
     // Non-session artefacts that must be ignored.
-    writeFileSync(join(candidatesDir(projectRoot), "pending.md"), "# parked\n", "utf-8");
-    writeFileSync(join(candidatesDir(projectRoot), "README.txt"), "notes\n", "utf-8");
+    writeFileSync(join(candidatesDir(projectRoot, NO_GIT), "pending.md"), "# parked\n", "utf-8");
+    writeFileSync(join(candidatesDir(projectRoot, NO_GIT), "README.txt"), "notes\n", "utf-8");
 
-    const sessions = listSessions(projectRoot).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    const sessions = listSessions(projectRoot, NO_GIT).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
     assert.equal(sessions.length, 2);
     assert.deepEqual(sessions.map((s) => s.sessionId), ["sA", "sB"]);
     assert.equal(sessions[0].candidates.length, 1);
     assert.equal(sessions[1].candidates.length, 2);
     assert.equal(sessions[1].latestTs, "2026-01-04T00:00:00Z");
+  });
+
+  // --- #564: merge across the git-common-dir (current) and legacy locations ---
+
+  it("merges sessions from both the current and legacy locations for a git project", () => {
+    const projectRoot = join(root, "git-proj-merge");
+    const gitDir = join(projectRoot, ".git");
+    const currentDir = join(gitDir, GIT_COMMON_SUBDIR, "evolution-candidates");
+    const legacyDir = legacyCandidatesDir(projectRoot);
+    writeSessionAt(currentDir, "new-sess", [{ ts: "2026-02-01T00:00:00Z", text: "captured post-relocation" }]);
+    writeSessionAt(legacyDir, "old-sess", [{ ts: "2026-01-01T00:00:00Z", text: "captured pre-relocation" }]);
+
+    const sessions = listSessions(projectRoot, { getGitCommonDir: () => gitDir })
+      .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    assert.deepEqual(sessions.map((s) => s.sessionId), ["new-sess", "old-sess"]);
+    assert.equal(sessions[0].filePath, join(currentDir, "new-sess.jsonl"));
+    assert.equal(sessions[1].filePath, join(legacyDir, "old-sess.jsonl"));
+  });
+
+  it("prefers the current-location copy when the same session id exists in both locations", () => {
+    const projectRoot = join(root, "git-proj-collision");
+    const gitDir = join(projectRoot, ".git");
+    const currentDir = join(gitDir, GIT_COMMON_SUBDIR, "evolution-candidates");
+    const legacyDir = legacyCandidatesDir(projectRoot);
+    writeSessionAt(currentDir, "dup", [{ ts: "2026-02-01T00:00:00Z", text: "current copy" }]);
+    writeSessionAt(legacyDir, "dup", [{ ts: "2026-01-01T00:00:00Z", text: "legacy copy" }]);
+
+    const sessions = listSessions(projectRoot, { getGitCommonDir: () => gitDir });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].filePath, join(currentDir, "dup.jsonl"));
+    assert.equal(sessions[0].candidates[0].text, "current copy");
+  });
+
+  it("returns [] for a git project with neither location populated", () => {
+    const projectRoot = join(root, "git-proj-empty");
+    const gitDir = join(projectRoot, ".git");
+    assert.deepEqual(listSessions(projectRoot, { getGitCommonDir: () => gitDir }), []);
   });
 });
 
@@ -545,7 +793,7 @@ describe("countPending", () => {
   after(() => rmSync(root, { recursive: true, force: true }));
 
   it("returns 0 when there are no sessions", () => {
-    assert.equal(countPending(join(root, "none")), 0);
+    assert.equal(countPending(join(root, "none"), NO_GIT), 0);
   });
 
   it("sums candidates across all sessions", () => {
@@ -555,7 +803,20 @@ describe("countPending", () => {
       { ts: "2026-01-02T00:00:00Z", text: "b" },
       { ts: "2026-01-03T00:00:00Z", text: "c" },
     ]);
-    assert.equal(countPending(projectRoot), 3);
+    assert.equal(countPending(projectRoot, NO_GIT), 3);
+  });
+
+  it("sums candidates across both the current and legacy locations for a git project", () => {
+    const projectRoot = join(root, "git-proj-sum");
+    const gitDir = join(projectRoot, ".git");
+    const currentDir = join(gitDir, GIT_COMMON_SUBDIR, "evolution-candidates");
+    const legacyDir = legacyCandidatesDir(projectRoot);
+    writeSessionAt(currentDir, "s1", [{ ts: "2026-02-01T00:00:00Z", text: "a" }]);
+    writeSessionAt(legacyDir, "s2", [
+      { ts: "2026-01-01T00:00:00Z", text: "b" },
+      { ts: "2026-01-02T00:00:00Z", text: "c" },
+    ]);
+    assert.equal(countPending(projectRoot, { getGitCommonDir: () => gitDir }), 3);
   });
 });
 
@@ -571,7 +832,7 @@ describe("pruneSessions", () => {
     const projectRoot = join(root, "under");
     writeSession(projectRoot, "s1", [{ ts: "2026-01-01T00:00:00Z", text: "a" }]);
     writeSession(projectRoot, "s2", [{ ts: "2026-01-02T00:00:00Z", text: "b" }]);
-    const res = pruneSessions(projectRoot); // default keep = 10
+    const res = pruneSessions(projectRoot, undefined, NO_GIT); // default keep = 10
     assert.deepEqual(res.removed, []);
     assert.equal(res.kept, 2);
   });
@@ -585,15 +846,30 @@ describe("pruneSessions", () => {
     writeSession(projectRoot, "C", [{ ts: "2026-01-02T00:00:00Z", text: "c" }]);
     writeSession(projectRoot, "D", [{ ts: "2026-01-02T00:00:00Z", text: "d" }]);
 
-    const res = pruneSessions(projectRoot, 2);
+    const res = pruneSessions(projectRoot, 2, NO_GIT);
     // Ordered most-recent-first: A(03), then D/C(02, id desc → D before C), then B(01).
     // Keep A + D; remove C and B.
     assert.equal(res.kept, 2);
     assert.equal(res.removed.length, 2);
-    assert.ok(existsSync(sessionFilePath(projectRoot, "A")));
-    assert.ok(existsSync(sessionFilePath(projectRoot, "D")));
-    assert.ok(!existsSync(sessionFilePath(projectRoot, "C")));
-    assert.ok(!existsSync(sessionFilePath(projectRoot, "B")));
+    assert.ok(existsSync(sessionFilePath(projectRoot, "A", NO_GIT)));
+    assert.ok(existsSync(sessionFilePath(projectRoot, "D", NO_GIT)));
+    assert.ok(!existsSync(sessionFilePath(projectRoot, "C", NO_GIT)));
+    assert.ok(!existsSync(sessionFilePath(projectRoot, "B", NO_GIT)));
+  });
+
+  it("prunes across both the current and legacy locations for a git project (unlinks from whichever dir a session actually lives in)", () => {
+    const projectRoot = join(root, "git-proj-prune");
+    const gitDir = join(projectRoot, ".git");
+    const currentDir = join(gitDir, GIT_COMMON_SUBDIR, "evolution-candidates");
+    const legacyDir = legacyCandidatesDir(projectRoot);
+    writeSessionAt(currentDir, "new-sess", [{ ts: "2026-02-01T00:00:00Z", text: "a" }]);
+    writeSessionAt(legacyDir, "old-sess", [{ ts: "2026-01-01T00:00:00Z", text: "b" }]);
+
+    const res = pruneSessions(projectRoot, 1, { getGitCommonDir: () => gitDir });
+    assert.equal(res.kept, 1);
+    assert.deepEqual(res.removed, [join(legacyDir, "old-sess.jsonl")]);
+    assert.ok(existsSync(join(currentDir, "new-sess.jsonl")));
+    assert.ok(!existsSync(join(legacyDir, "old-sess.jsonl")));
   });
 
   it("orders equal-timestamp sessions by id (tiebreak exercised both directions)", () => {
@@ -607,6 +883,7 @@ describe("pruneSessions", () => {
     };
     const removed = [];
     const res = pruneSessions("/proj", 1, {
+      ...NO_GIT,
       readdir: () => Object.keys(files),
       readImpl: (p) => {
         const base = p.split(/[\\/]/).pop();
@@ -699,6 +976,12 @@ describe("main", () => {
         log: (...a) => logs.push(a.join(" ")),
         errLog: (...a) => errs.push(a.join(" ")),
         exit: (c) => { exitCode = c; },
+        // Forces legacy path resolution for every main()-level test below —
+        // deterministic regardless of whether the OS tmpdir sits inside a git
+        // working tree (see NO_GIT). The relocation itself is exercised via
+        // the lower-level candidatesDir/appendCandidate/listSessions tests
+        // above and the real-git CLI subprocess suite below.
+        deps: NO_GIT,
       },
       logs,
       errs,
@@ -940,5 +1223,86 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     const r = run(["frobnicate"]);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /unknown or missing command/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real git worktree removal (#564 — end-to-end proof of the actual fix)
+// ---------------------------------------------------------------------------
+
+describe("git worktree relocation, real git (#564)", () => {
+  const scratch = join(tmpdir(), `evc-worktree-${process.pid}`);
+  const mainRepo = join(scratch, "main-repo");
+  const worktree = join(scratch, "wt-feature");
+
+  function git(args, opts = {}) {
+    const r = spawnSync("git", args, { cwd: mainRepo, encoding: "utf-8", ...opts });
+    assert.equal(r.status, 0, `git ${args.join(" ")} failed: ${r.stderr}`);
+    return r;
+  }
+
+  function run(args, opts = {}) {
+    return spawnSync(process.execPath, [SCRIPT_PATH, ...args], { encoding: "utf-8", timeout: 30000, ...opts });
+  }
+
+  before(() => {
+    mkdirSync(mainRepo, { recursive: true });
+    git(["init", "-q"]);
+    git(["config", "user.email", "evc-test@example.com"]);
+    git(["config", "user.name", "evc-test"]);
+    writeFileSync(join(mainRepo, "file.txt"), "hi\n", "utf-8");
+    git(["add", "file.txt"]);
+    git(["commit", "-q", "-m", "init"]);
+    git(["worktree", "add", "-q", "-b", "feature", worktree]);
+  });
+  after(() => rmSync(scratch, { recursive: true, force: true }));
+
+  it("writes a candidate captured inside the worktree to the MAIN checkout's shared .git, not the worktree", () => {
+    const appended = run(["append", "--project", worktree, "--session", "wt-sess", "--text", "captured in worktree"]);
+    assert.equal(appended.status, 0, appended.stderr);
+    const result = JSON.parse(appended.stdout);
+    assert.equal(result.written, true);
+
+    const expectedPath = join(mainRepo, ".git", GIT_COMMON_SUBDIR, "evolution-candidates", "wt-sess.jsonl");
+    assert.equal(result.filePath, expectedPath);
+    assert.ok(existsSync(expectedPath), "candidate file must exist under the main checkout's .git");
+    assert.ok(
+      !existsSync(join(worktree, IEVO_DIR, CANDIDATES_DIR, "wt-sess.jsonl")),
+      "candidate file must NOT exist under the worktree's own .ievo/",
+    );
+  });
+
+  it("SURVIVES the worktree's removal — the exact failure mode reported in #564", () => {
+    // Precondition from the previous test: a candidate was captured while
+    // working inside `worktree`. Now simulate exactly what the issue
+    // describes — the worktree is deleted (branch merged / task done) before
+    // anyone reviewed the pending candidate.
+    rmSync(worktree, { recursive: true, force: true });
+    assert.ok(!existsSync(worktree));
+
+    // Querying from the (still-present) main checkout must still find it —
+    // pre-#564 this candidate would have been deleted along with the
+    // worktree and permanently lost.
+    const counted = run(["count", "--project", mainRepo]);
+    assert.equal(counted.status, 0, counted.stderr);
+    assert.equal(counted.stdout.trim(), "1");
+
+    const listed = run(["list", "--project", mainRepo]);
+    assert.equal(listed.status, 0, listed.stderr);
+    const sessions = JSON.parse(listed.stdout);
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].sessionId, "wt-sess");
+    assert.equal(sessions[0].candidates[0].text, "captured in worktree");
+  });
+
+  it("resolves the main checkout's OWN git-common-dir to the same shared location (relative '.git' case)", () => {
+    // Run from the main checkout itself (not a linked worktree) — the
+    // '.git' git rev-parse prints here is relative, exercising the other
+    // half of defaultGetGitCommonDir's resolve() normalization (the
+    // worktree case above already exercised the absolute-path half).
+    const appended = run(["append", "--project", mainRepo, "--session", "main-sess", "--text", "captured in main checkout"]);
+    assert.equal(appended.status, 0, appended.stderr);
+    const result = JSON.parse(appended.stdout);
+    assert.equal(result.filePath, join(mainRepo, ".git", GIT_COMMON_SUBDIR, "evolution-candidates", "main-sess.jsonl"));
   });
 });

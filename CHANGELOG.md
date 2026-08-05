@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.6
+
+Document file-level `sandbox.credentials` mask mode (Claude Code v2.1.221, Linux/WSL) in the Sandbox hardening sections — an Eva research proposal, #559.
+
+- **Gap closed (#559)** — Claude Code v2.1.221 extended `sandbox.credentials`'s `"mode": "mask"` option, previously documented as an `envVars`-only capability, to `files` entries on Linux/WSL: sandboxed commands read a sentinel copy of the file (the whole file, or only the spans an `extract` regex captures) while the sandbox proxy substitutes the real value on egress; macOS falls back to `deny` for `files` masking. `security-check/SKILL.md`, `vuln-scan/SKILL.md`, and `AGENTS.md` § Security model all showed `files: [{path, mode: "deny"}]` as the only file mode, with `mask` called out explicitly as `envVars`-only — stale for operators on Linux/WSL who want a `files` entry to stay usable by a tool that legitimately needs to authenticate with it, instead of an outright `deny` block.
+- **`security-check/SKILL.md` § "Sandbox hardening" → "Credential reads"** — added the `files` `mask` note (v2.1.221+, Linux/WSL only) right after the existing `envVars` `mask` sentence, plus the macOS deny-fallback caveat.
+- **`vuln-scan/SKILL.md`** — same addition, mirroring `security-check/SKILL.md`'s wording per the existing cross-file duplication pattern.
+- **`AGENTS.md` § Security model** — the `sandbox.credentials` bullet's JSON shape description updated from `{files: [{path, mode: "deny"}], ...}` to `{files: [{path, mode: "deny"|"mask" (mask: Linux/WSL only, v2.1.221+)}], ...}`, plus a sentence on the macOS fallback.
+- **Verified independently** against the [v2.1.221 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.221) and the current `code.claude.com/docs/en/sandboxing#mask-credential-files` page — both match the issue's citation.
+- **Scope** — pure documentation; no code path, no new command/flag/frontmatter. The `extract`-regex sub-feature worked example is left as a documented follow-up (issue's own open question), not blocking this update.
+- **Version** — `docs:` touches `plugins/ievo/**` (two `SKILL.md` files), so the standard bump table applies, not the infra-only exemption; patch bump per AGENTS.md's bump table. 0.78.5 landed via #571 while this PR was in flight, so this PR rebased onto the new main and takes the next free slot (0.78.5 → 0.78.6). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.5
 
 `/ievo:evo-auto-enable`'s SessionStart nudge now detects and warns when the auto-evolution hook wiring has drifted from what `.ievo/evo-auto.flag` claims — closes #551.

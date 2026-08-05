@@ -38,7 +38,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.78.5";
+export const SCRIPT_VERSION = "0.78.7";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
@@ -107,10 +107,15 @@ export const STACK_INDEPENDENT_QUERIES = [
 //
 // --stack-file is untrusted input — the same class of gap already closed for
 // evolution_candidates.mjs's --text-file in #523. init/SKILL.md Step 5b's
-// documented invocation is always `echo '<stack-json>' | node discover.mjs`
-// (stdin); a --stack-file value reaching this script at all means something
-// (e.g. a prompt injection altering the Bash command line) chose the
-// alternate path. Contain it to the project's own .ievo/ directory — both
+// documented invocation is now `discover.mjs --stack-file <path>` reading the
+// JSON Step 5a wrote via the Write tool (skills#567 — replaced the earlier
+// `echo '<stack-json>' | node discover.mjs` stdin pipe, which let
+// manifest-derived text with an embedded quote break out of the shell
+// argument). The FILE'S CONTENT stays untrusted even though the flag itself
+// is now the sanctioned path: it's built from manifest-derived deps/
+// categories/frameworks with no charset restriction, and a prompt-injected
+// agent turn could still point --stack-file at a different path outright.
+// Contain it to the project's own .ievo/ directory — both
 // lexically up front (assertStackFileAllowed, mirrors scan_repo.mjs's
 // assertContained()) and again by realpath once the target is known to exist
 // (assertStackFileReadable, mirrors scan_repo.mjs's assertCheckoutContained()

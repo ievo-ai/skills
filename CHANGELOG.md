@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.7
+
+Close a command-injection gap in `init/SKILL.md` Step 5b — manifest-derived stack JSON was embedded directly inside a single-quoted `echo` shell argument instead of being passed via a file (CWE-78) — Eva vuln-scan dogfooding finding, #567.
+
+- **Gap closed (#567)** — Step 5b's documented invocation was `echo '<stack-input-json>' | node discover.mjs --limit 50 --concurrency 8`, with Step 5a's JSON (manifest-derived `deps`/`categories`/`frameworks`, no charset restriction) substituted directly into a single-quoted shell argument. A legitimate PEP 508 environment marker such as `numpy; python_version=='3.9'` already contains a single quote — no crafted manifest required to break out of the quoted argument and inject arbitrary shell syntax, in a session where Step 1 has, by design, already pre-approved `Bash(gh api*)`/`Bash(gh search*)`. `discover.mjs` itself already supported a hardened `--stack-file` flag as of v0.77.5 (#543, containment to `<project>/.ievo/` + realpath re-check + 256 KB size cap) but the `init/SKILL.md` call site was never updated to use it.
+- **Step 5a now writes the stack JSON via the Write tool** to a fixed path (`<project>/.ievo/log/discover-stack-input.json`) instead of building a shell string from it, mirroring the established safe-passing convention this issue itself cites (`feedback/SKILL.md` Step 6's `--body-file`-not-inline pattern, and #523's identical fix for `evolution_candidates.mjs --text-file`).
+- **Step 5b now invokes `discover.mjs --stack-file .ievo/log/discover-stack-input.json`** in place of the `echo | node` pipe — the untrusted stack text never sits inside a hand-built shell literal. No script changes were needed; `discover.mjs`'s `--stack-file` handling (containment, realpath re-check, size cap) was already in place from #543.
+- **Scope** — `plugins/ievo/skills/init/SKILL.md` Step 5a/5b only; the rest of the diff is the mandatory version-bump ceremony below. No script/test changes — this is a documentation-only fix to the skill's instructed shell invocation.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.78.5 → 0.78.7, skipping 0.78.6 which is claimed by a concurrent open PR at the time of this bump). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.5
 
 `/ievo:evo-auto-enable`'s SessionStart nudge now detects and warns when the auto-evolution hook wiring has drifted from what `.ievo/evo-auto.flag` claims — closes #551.

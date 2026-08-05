@@ -497,11 +497,30 @@ Inputs come from:
 - `categories` — resolved category list (Step 4.5)
 - `frameworks` — major frameworks present (Step 4)
 
+**Write it to a file — never inline it into a shell command.** Manifest-derived
+`deps`/`categories`/`frameworks` text carries no charset restriction — a
+legitimate PEP 508 environment marker such as `numpy; python_version=='3.9'`
+already contains a single quote, no crafting required. Embedding this JSON
+directly inside a quoted `echo` argument would let that quote terminate the
+argument early and inject arbitrary shell syntax (CWE-78). Use the **Write
+tool** (NOT Bash/`echo`) to write the JSON object built above, literal bytes,
+to a fixed path:
+
+- `file_path`: `<project>/.ievo/log/discover-stack-input.json`
+- `content`: the stack JSON object above
+
 ### Step 5b — Invoke discover.mjs via Bash
 
 ```bash
-echo '<stack-input-json>' | node "${CLAUDE_PLUGIN_ROOT}/scripts/discover.mjs" --limit 50 --concurrency 8
+node "${CLAUDE_PLUGIN_ROOT}/scripts/discover.mjs" --stack-file .ievo/log/discover-stack-input.json --limit 50 --concurrency 8
 ```
+
+`--stack-file` reads the file written in Step 5a instead of taking the JSON on
+stdin, so the untrusted stack text never sits inside a hand-built shell
+literal. `discover.mjs` restricts `--stack-file` to `<project>/.ievo/` — both
+lexically and by realpath — and caps it at 256 KB (skills#543); `--project`
+defaults to `.`, which resolves correctly here since init always runs with the
+project root as its working directory.
 
 The script:
 1. Builds 15-30 queries from the stack (language fundamentals + per-dep + per-category + stack-specific compound + a fixed stack-independent group for general-purpose codebase-audit/planning-advisor meta-tools — not gated behind any detected category, since that class of skill isn't tied to a language/framework/dep)

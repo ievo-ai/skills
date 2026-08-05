@@ -247,11 +247,15 @@ on either:
   the official [environment-variables docs page](https://developers.openai.com/codex/environment-variables)
   as of this writing, so the PR/source is the citation, not the docs page.
 
-No skill in this repo currently calls `gh pr create` — `review-retrospective`
-is the only one that reads PR data at all, and only *already-merged* PRs — so
-nothing here is mechanically enforced yet; this is guidance for the next skill
-(here or elsewhere) that opens one, not a retroactive fix for PRs already
-merged without the footer.
+No skill in this repo currently calls `gh pr create`, so nothing here is
+mechanically enforced yet; this is guidance for the next skill (here or
+elsewhere) that opens one, not a retroactive fix for PRs already merged without
+the footer. The PR-facing paths that do exist only *read* PR data — e.g.
+`review-retrospective` (`gh pr view`, then read-only `gh api .../pulls/<n>/…`
+calls in the sub-agent; it stops unless the PR is `MERGED`) and
+`/ievo:vuln-scan --pr <N>` (`gh pr diff <N> --name-only`, `commands/vuln-scan.md`,
+which resolves an *open* PR's changed files). Treat that list as illustrative,
+not exhaustive: re-grep for `gh pr `/`gh api .*pulls` before relying on it.
 
 ### Issue lifecycle — Eva-brokered (D-004 Phase 2, skills#271/#277)
 

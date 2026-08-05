@@ -497,11 +497,40 @@ Inputs come from:
 - `categories` — resolved category list (Step 4.5)
 - `frameworks` — major frameworks present (Step 4)
 
+**Write this JSON to disk via the Write tool, NOT via an inline Bash string.**
+Several supported manifest formats legitimately permit near-arbitrary text in a
+dependency line — e.g. `requirements.txt` PEP 508 environment markers routinely
+contain single quotes, such as `numpy; python_version=='3.9'` — so `deps`/
+`categories`/`frameworks` values are not safe to embed textually inside a
+quoted shell argument (skills#567: a single quote inside any of them breaks out
+of a single-quoted `echo` argument and the remainder is parsed as unquoted
+shell syntax). The Write tool writes literal bytes with no shell involved.
+
+```
+# Write tool (NOT Bash):
+#   file_path: <project>/.ievo/log/discover-stack-input.json
+#   content:   <the stack JSON built above>   (literal bytes, no shell expansion)
+```
+
+`.ievo/log/` already exists by this point (created in Step 2.5, `mkdir -p
+.ievo/log`) and is gitignored (Step 10) — this file is diagnostic, not project
+state.
+
 ### Step 5b — Invoke discover.mjs via Bash
 
 ```bash
-echo '<stack-input-json>' | node "${CLAUDE_PLUGIN_ROOT}/scripts/discover.mjs" --limit 50 --concurrency 8
+node "${CLAUDE_PLUGIN_ROOT}/scripts/discover.mjs" --stack-file .ievo/log/discover-stack-input.json --limit 50 --concurrency 8
 ```
+
+`--stack-file` reads the JSON from the fixed path Step 5a just wrote — never
+from stdin, and never with the stack JSON text embedded in the command line
+itself. `discover.mjs` contains its own `--stack-file` hardening
+(`assertStackFileAllowed`/`assertStackFileReadable`: containment to
+`<project>/.ievo/`, regular-file-only, 256 KiB cap — skills#543), so this call
+site inherits that same protection already in place for every other
+cross-repo-boundary fetch in this plugin (mirrors `evolution_candidates.mjs`'s
+`--text-file` fix, #523, and the `feedback/SKILL.md` Step 6 convention of
+writing untrusted text via the Write tool rather than an inline shell string).
 
 The script:
 1. Builds 15-30 queries from the stack (language fundamentals + per-dep + per-category + stack-specific compound + a fixed stack-independent group for general-purpose codebase-audit/planning-advisor meta-tools — not gated behind any detected category, since that class of skill isn't tied to a language/framework/dep)

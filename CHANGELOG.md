@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.9
+
+Fix `init/SKILL.md` Step 5b's command-injection-prone `discover.mjs` invocation — closes #567.
+
+- **Gap closed (#567)** — Step 5b invoked `echo '<stack-input-json>' | node discover.mjs --limit 50 --concurrency 8`, substituting the Step 5a stack JSON (manifest-derived `deps`/`categories`/`frameworks`, no charset restriction) directly as text inside a single-quoted shell argument. Several supported manifest formats legitimately permit an embedded single quote in a dependency line — e.g. `requirements.txt` PEP 508 environment markers such as `numpy; python_version=='3.9'` — which breaks out of the single-quoted argument and hands the remainder to the shell as unquoted syntax (CWE-78), in a session where Step 1's permission check has already pre-approved `Bash(gh api*)`/`Bash(gh search*)`.
+- **`init/SKILL.md` Step 5a/5b** — the stack JSON is now written to a fixed path (`.ievo/log/discover-stack-input.json`) via the Write tool (literal bytes, no shell expansion), then Step 5b invokes `discover.mjs --stack-file .ievo/log/discover-stack-input.json` instead of piping through `echo`. `discover.mjs` already carries `--stack-file` hardening from #543 (`assertStackFileAllowed`/`assertStackFileReadable`: containment to `<project>/.ievo/`, regular-file-only, 256 KiB cap) — that flag was hardened but never wired into this call site until now. Mirrors the identical fix already applied to `evolution_candidates.mjs`'s `--text-file` (#523) and the `feedback/SKILL.md` Step 6 convention this issue itself cited.
+- **Scope** — documentation-only change to the skill's invocation instructions; no script code changes (the hardened `--stack-file` flag already existed).
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.78.8 → 0.78.9). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.8
 
 Relocate `evolution_candidates.mjs`'s per-session storage outside the git-worktree-removable tree — Part 1 of 2, closes #564.

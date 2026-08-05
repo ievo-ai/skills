@@ -247,10 +247,11 @@ on either:
   the official [environment-variables docs page](https://developers.openai.com/codex/environment-variables)
   as of this writing, so the PR/source is the citation, not the docs page.
 
-No skill in this repo currently calls `gh pr create` (`review-retrospective` /
-`evolution` only *read* already-merged PRs), so nothing here is mechanically
-enforced yet — this is guidance for the next skill (here or elsewhere) that
-opens one, not a retroactive fix for PRs already merged without the footer.
+No skill in this repo currently calls `gh pr create` — `review-retrospective`
+is the only one that reads PR data at all, and only *already-merged* PRs — so
+nothing here is mechanically enforced yet; this is guidance for the next skill
+(here or elsewhere) that opens one, not a retroactive fix for PRs already
+merged without the footer.
 
 ### Issue lifecycle — Eva-brokered (D-004 Phase 2, skills#271/#277)
 

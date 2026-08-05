@@ -265,12 +265,36 @@ describe("defaultGetGitCommonDir (#564)", () => {
 
   it("resolves a relative git-common-dir (main checkout: '.git') against projectRoot", () => {
     const spawnImpl = () => ({ status: 0, stdout: ".git\n" });
-    assert.equal(defaultGetGitCommonDir("/repo", spawnImpl), resolve("/repo", ".git"));
+    assert.equal(defaultGetGitCommonDir("/repo", spawnImpl, () => true), resolve("/repo", ".git"));
   });
 
   it("passes an already-absolute git-common-dir (linked worktree) through resolve() unchanged", () => {
     const spawnImpl = () => ({ status: 0, stdout: "/main-checkout/.git\n" });
-    assert.equal(defaultGetGitCommonDir("/some/worktree", spawnImpl), "/main-checkout/.git");
+    assert.equal(defaultGetGitCommonDir("/some/worktree", spawnImpl, () => true), "/main-checkout/.git");
+  });
+
+  // --- #564 vuln-scan follow-up: plausibility check on the resolved dir (CWE-73) ---
+
+  it("returns null when the resolved directory does not look like a git dir (existsImpl all false)", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "/not-really-a-git-dir\n" });
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl, () => false), null);
+  });
+
+  it("returns the resolved directory when it looks like a git dir (HEAD + objects + refs all present)", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "/real/.git\n" });
+    const seen = [];
+    const existsImpl = (p) => { seen.push(p); return true; };
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl, existsImpl), "/real/.git");
+    assert.deepEqual(seen.sort(), [join("/real/.git", "HEAD"), join("/real/.git", "objects"), join("/real/.git", "refs")].sort());
+  });
+
+  it("short-circuits on the first missing entry (existsImpl not called for the rest)", () => {
+    const spawnImpl = () => ({ status: 0, stdout: "/partial/.git\n" });
+    const calls = [];
+    const existsImpl = (p) => { calls.push(p); return false; };
+    assert.equal(defaultGetGitCommonDir("/proj", spawnImpl, existsImpl), null);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0], join("/partial/.git", "HEAD"));
   });
 
   it("invokes the real git binary with --git-common-dir and a bounded timeout by default", () => {

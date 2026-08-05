@@ -96,7 +96,7 @@
 // uses it today, and any future one is expected to redact upstream, same as
 // already documented above.
 
-import { readFileSync, appendFileSync, mkdirSync, readdirSync, unlinkSync, lstatSync, realpathSync } from "node:fs";
+import { readFileSync, appendFileSync, mkdirSync, readdirSync, unlinkSync, lstatSync, realpathSync, existsSync } from "node:fs";
 import { join, dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -149,7 +149,26 @@ Notes:
 // (git 2.31+ only; this stays correct on older git too).
 // `timeout` bounds a hung/unresponsive `git` so a single append/list/prune
 // call can't block indefinitely — 5s is generous for a local `rev-parse`.
-export function defaultGetGitCommonDir(projectRoot, spawnImpl = spawnSync) {
+//
+// Plausibility check on the resolved directory (found by /ievo:vuln-scan on
+// this diff, CWE-73): unlike this file's own read-side containment for
+// --text-file (assertTextFileAllowed/assertTextFileReadable below), git's
+// stdout was otherwise trusted verbatim as a write/delete root with no
+// re-validation. A `.git` FILE (not the directory `git clone` itself always
+// creates at a repo's top level) can redirect via a `gitdir:`/`commondir`
+// chain to an arbitrary existing directory elsewhere on disk — git honors
+// that redirect for any such file it encounters, including one committed as
+// ordinary tracked content inside a repo subdirectory, not just ones git
+// itself generates for worktrees/submodules. Requiring the resolved
+// directory to actually look like a git dir (HEAD file + objects/refs dirs
+// — the same minimal shape git itself expects of a `--git-common-dir`
+// target) bounds that: an attacker can still point this at some OTHER real
+// git directory already on the victim's filesystem, but not at an arbitrary
+// non-git path. Closing that residual is a larger redesign (e.g. requiring
+// the resolved dir to be an ancestor-or-descendant of projectRoot) deferred
+// as out of scope for #564's Part 1 — falls back to the legacy location like
+// every other resolution failure this function already degrades on.
+export function defaultGetGitCommonDir(projectRoot, spawnImpl = spawnSync, existsImpl = existsSync) {
   let result;
   try {
     result = spawnImpl("git", ["rev-parse", "--git-common-dir"], {
@@ -163,7 +182,10 @@ export function defaultGetGitCommonDir(projectRoot, spawnImpl = spawnSync) {
   if (!result || result.error || result.status !== 0) return null;
   const dir = (result.stdout ?? "").trim();
   if (!dir) return null;
-  return resolve(projectRoot, dir);
+  const resolved = resolve(projectRoot, dir);
+  const looksLikeGitDir = ["HEAD", "objects", "refs"].every((entry) => existsImpl(join(resolved, entry)));
+  if (!looksLikeGitDir) return null;
+  return resolved;
 }
 
 // Pre-#564 location — still where a non-git project stores candidates, and

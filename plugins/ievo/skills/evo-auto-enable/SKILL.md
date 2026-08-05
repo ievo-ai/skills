@@ -693,25 +693,26 @@ this skill's issue #432 bug class):
   hook never blocks the session), so a session started outside the project
   root degrades to no capture, not an error.
 
-**Functional check (both platforms), before claiming success:** after writing
-the config, (1) re-read it and parse it as JSON (`node -e
+**Functional check (both platforms), before claiming success — (1) here,
+(2) and (3) at the end of Step 3.6:** after writing the config, (1) re-read it
+and parse it as JSON (`node -e
 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' <file>` —
-malformed config is a silent kill on a fail-open platform); (2) dry-run each
-wired command once from the project root via Bash (`sh
-.ievo/hooks/scripts/evo-analysis-nudge.sh < /dev/null; echo "exit=$?"`) and
-confirm exit 0 — the same command `.claude/settings.json`/`.codex/hooks.json`
-will actually invoke, so this proves the wired path resolves and the tracked
-shim runs without a 127.
+malformed config is a silent kill on a fail-open platform). Run this one now,
+against the write you just made.
 
-A green dry-run does **not** prove anything captures: the tracked shim exits 0
-*by design* when its companion is absent — that silent no-op IS the clean-clone
-contract (Step 3.5.1b) — so (2) cannot tell "delegation works" apart from
-"nothing was ever written". The complementary assertion, that every `.local.sh`
-companion is actually on disk, is **check (3) at the end of Step 3.6**. It runs
-there, not here: `failure-capture.local.sh` is written by Step 3.6, so at this
-point in a linear enable run it does not exist yet and the check would print a
-spurious `MISSING: failure-capture.local.sh` for a companion the run is about
-to write. Do not claim success until Step 3.6's check (3) has also passed.
+The other two — **(2)** dry-run each wired command and confirm exit 0, and
+**(3)** assert every `.local.sh` companion is on disk — both run at the **end
+of Step 3.6**, and both for the same reason: Step 3.6 writes
+`failure-capture.local.sh` and wires its own hook entries, so at this point in a
+linear enable run neither exists yet. Run here, (3) would print a spurious
+`MISSING: failure-capture.local.sh`, and (2)'s dry-run of
+`evo-analysis-nudge.sh` would reach that script's own wiring-integrity check
+(Step 3.5.3) and print a spurious `... the hook wiring is missing or incomplete
+(drift detected) -- failure-capture.local.sh, failure-capture hook entry in
+<config file> ...`. Both name artifacts this run is about to write, against a
+step whose own rule is "do NOT claim success" — false failures on the happy
+path. Do not claim success, and do not report drift to the user, until Step
+3.6's checks (2) and (3) have run and passed there.
 
 Only hooks Codex/Claude Code fire on a real session boundary can prove
 end-to-end delivery — say so in Step 5's confirmation instead of implying the
@@ -876,13 +877,36 @@ step:
 }
 ```
 
-Include this entry in Step 3.5.4's functional check (JSON re-parse + dry-run).
+Re-parse the file as JSON after this merge, the same way Step 3.5.4's check (1)
+does — this step's edit is the last write either config file receives, and the
+dry-run below invokes what it wires.
 
-**Check (3) — every `.local.sh` companion is on disk.** This is the third part
-of Step 3.5.4's functional check, deferred to here because *this* step writes
-`failure-capture.local.sh`: run in 3.5.4 it would print a spurious
-`MISSING: failure-capture.local.sh` on every linear enable run. Run it now,
-from the project root, once all three companions have been written:
+**Checks (2) and (3) — run both here, now the install is complete.** They are
+the remaining two parts of Step 3.5.4's functional check, deferred to this step
+because *this* step writes the last companion (`failure-capture.local.sh`) and
+wires the last hook entries. Run both from the project root.
+
+**(2) — every wired command dry-runs to exit 0.** These are the same commands
+`.claude/settings.json`/`.codex/hooks.json` will actually invoke, so this proves
+each wired path resolves and the tracked shim runs without a 127:
+
+```sh
+for f in correction-capture evo-analysis-nudge failure-capture; do
+  sh ".ievo/hooks/scripts/$f.sh" < /dev/null
+  echo "$f.sh exit=$?"
+done
+```
+
+Confirm all three print `exit=0`. Run back in 3.5.4 instead, the
+`evo-analysis-nudge.sh` line would reach that script's own wiring-integrity
+check (Step 3.5.3) and report `failure-capture.local.sh` plus the
+failure-capture hook entry as drift — artifacts Step 3.6 had not written yet.
+Run *here*, after a complete enable, that dry-run should be either silent or a
+plain pending-candidate count: any `drift detected` line is now a real finding,
+and enable must not claim success while one prints.
+
+**(3) — every `.local.sh` companion is on disk**, once all three have been
+written:
 
 ```sh
 for f in correction-capture evo-analysis-nudge failure-capture; do
@@ -890,15 +914,15 @@ for f in correction-capture evo-analysis-nudge failure-capture; do
 done
 ```
 
-**(3) is not redundant with 3.5.4's (2)** — it is the half that makes the check
-mean anything. The tracked shim exits 0 *by design* when its companion is
-absent: that silent no-op IS the clean-clone contract (Step 3.5.1b). So a green
-dry-run says nothing about whether Steps 3.5.2/3.5.3/3.6 ever wrote the real
-logic; enable could report success on a project where nothing captures —
-precisely issue #432's "says ENABLED, captures nothing". Only (2) **and** (3)
-together show the tracked-shim → `.local.sh`-companion delegation chain is
-complete on disk, and even then only its two halves individually: the shim's
-`exec` of a present companion is exercised by the test suite
+**(3) is not redundant with (2)** — it is the half that makes the check mean
+anything. The tracked shim exits 0 *by design* when its companion is absent:
+that silent no-op IS the clean-clone contract (Step 3.5.1b). So a green exit
+code says nothing about whether Steps 3.5.2/3.5.3/3.6 ever wrote the real logic;
+enable could report success on a project where nothing captures — precisely
+issue #432's "says ENABLED, captures nothing". Only (2) **and** (3) together
+show the tracked-shim → `.local.sh`-companion delegation chain is complete on
+disk, and even then only its two halves individually: the shim's `exec` of a
+present companion is exercised by the test suite
 (`.github/scripts/validators/tests/evo-auto-hooks-lifecycle.test.mjs`), not by
 this check.
 

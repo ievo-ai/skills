@@ -405,6 +405,36 @@ describe("literals stay in sync with their SKILL.md sources", () => {
     );
   });
 
+  it("the wired-command dry-run is ordered after the step that writes the last companion", () => {
+    // Same ordering trap as the check above, reached by a different route.
+    // Once `evo-analysis-nudge.local.sh` grew a wiring-integrity check
+    // (skills#551), dry-running `evo-analysis-nudge.sh` became a probe of the
+    // whole install — so run from Step 3.5.4 it reports `failure-capture.
+    // local.sh` and the failure-capture hook entry as drift, neither of which
+    // Step 3.6 has written yet. Exit stays 0 (SessionStart cannot block), but
+    // the enabling agent reads that stdout and may report a broken install on
+    // a perfectly healthy linear enable. The behavioural half of this is the
+    // "mid-enable state" test in the wiring-integrity describe below.
+    const dryRunAt = ENABLE_SKILL_SRC.indexOf(
+      'sh ".ievo/hooks/scripts/$f.sh" < /dev/null',
+    );
+    const companionWriteAt = ENABLE_SKILL_SRC.indexOf(
+      "chmod +x .ievo/hooks/scripts/failure-capture.local.sh",
+    );
+    const wiringCheckAt = ENABLE_SKILL_SRC.indexOf(
+      "# Wiring-integrity check -- same platform-detection rule as /ievo:init",
+    );
+    assert.ok(dryRunAt > 0, "wired-command dry-run missing from " + ENABLE_SKILL);
+    assert.ok(
+      wiringCheckAt > 0,
+      `the nudge's wiring-integrity check is gone from ${ENABLE_SKILL} — re-check whether this ordering still matters`,
+    );
+    assert.ok(
+      dryRunAt > companionWriteAt,
+      `the wired-command dry-run precedes the step that writes failure-capture.local.sh in ${ENABLE_SKILL} — a linear enable run would print a spurious drift warning`,
+    );
+  });
+
   it("SKILL.md wires exactly the three shim paths this file exercises", () => {
     for (const name of Object.keys(SHIMS)) {
       assert.ok(
@@ -890,6 +920,50 @@ describe("evo-analysis-nudge.local.sh wiring-integrity check (skills#551)", () =
     assert.ok(ctx.includes(".claude/settings.json"));
     assert.ok(ctx.includes("/ievo:evo-auto-enable"));
     assert.ok(!ctx.includes('"'), "additionalContext must stay double-quote-free (JSON-embedding contract)");
+  });
+
+  it("mid-enable state (Step 3.5 done, Step 3.6 not yet) -> drift naming exactly the two artifacts 3.6 writes", () => {
+    // Why SKILL.md defers the wired-command dry-run to the END of Step 3.6
+    // (pinned structurally by the ordering test in the first describe): at the
+    // point Step 3.5.4 finishes, everything Step 3.5 installs is on disk but
+    // `failure-capture.local.sh` and its hook entries are not — Step 3.6 writes
+    // them. This script cannot tell that transient state apart from real drift,
+    // and by design it should not try: a check that special-cased "we are
+    // probably mid-enable" would also stay quiet on a run that genuinely died
+    // between 3.5.4 and 3.6, which is one of the failure modes skills#551 is
+    // about. So the state is fixed by ordering the dry-run, not by teaching the
+    // script to guess. This test pins the exact output that ordering avoids.
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "0" });
+    writeVendorScrub(dir);
+    writeCompanions(dir, [
+      "correction-capture.local.sh",
+      "evo-analysis-nudge.local.sh",
+    ]);
+    writeClaudeSettings(dir, { includeFailure: false });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(
+      ctx.includes(
+        "(drift detected) -- failure-capture.local.sh, failure-capture hook entry in .claude/settings.json. Capture may be",
+      ),
+      `mid-enable drift must name exactly the two artifacts Step 3.6 writes, in order; got: ${ctx}`,
+    );
+    // Nothing Step 3.5 already wrote may appear in the missing list.
+    for (const notMissing of [
+      "vendored evolution_candidates.mjs",
+      "vendored scrub.mjs",
+      "correction-capture.local.sh",
+      "correction-capture hook entry",
+      "evo-analysis-nudge hook entry",
+    ]) {
+      assert.ok(
+        !ctx.includes(notMissing),
+        `${notMissing} was written by Step 3.5 and must not read as drift`,
+      );
+    }
   });
 
   it("vendored evolution_candidates.mjs itself absent -> reported, via the real (non-stubbed) node ENOENT fallback", () => {

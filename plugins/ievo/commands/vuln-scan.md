@@ -39,7 +39,24 @@ if [ -z "$BASE_BRANCH" ]; then
   BASE_BRANCH="main"
   echo "Warning: could not detect default branch — falling back to 'main'."
 fi
-git diff --name-only "$(git merge-base HEAD "origin/$BASE_BRANCH")"..HEAD
+
+# Validate before any further use — both sources above ultimately reflect
+# origin's own reported default-branch/HEAD pointer, fully controlled by
+# whatever remote origin points at (plausibly a compromised/adversarial fork
+# being audited by this exact command). git's ref-name grammar permits
+# backtick, $(), ;, &, | in a legal ref name, so an unvalidated value would
+# be live shell syntax the moment it's interpolated below. Same allowlist as
+# inspect/SKILL.md Step 1.
+if [[ ! "$BASE_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || [[ "$BASE_BRANCH" == -* ]] || [[ "$BASE_BRANCH" == *..* ]] || [[ "$BASE_BRANCH" == *@\{* ]]; then
+  echo "Warning: detected default branch failed validation — falling back to 'main'."
+  BASE_BRANCH="main"
+fi
+
+# Resolved into its own statement (not nested inside the git diff call) so
+# the allowlist check above always runs before $BASE_BRANCH reaches a shell
+# command.
+MERGE_BASE=$(git merge-base HEAD "refs/remotes/origin/$BASE_BRANCH")
+git diff --name-only "$MERGE_BASE"..HEAD
 ```
 
 If no diff exists (clean branch), inform the user and suggest `--module` or `--full` instead.

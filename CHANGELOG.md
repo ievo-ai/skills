@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.4
+
+Validate `vuln-scan.md`'s `--diff` scope `BASE_BRANCH` against an allowlist before shell interpolation (CWE-78) — Eva vuln-scan dogfooding finding, #565.
+
+- **Gap closed (#565)** — the Scope determination block's default `--diff` mode resolved `BASE_BRANCH` from `git symbolic-ref refs/remotes/origin/HEAD` (falling back to `gh repo view --json defaultBranchRef`), both of which reflect the `origin` remote's own reported default-branch/HEAD pointer — data fully controlled by whatever remote `origin` points at, including a compromised/adversarial fork being audited by this exact command. Git's ref-name grammar (`git check-ref-format`) permits backtick, `$()`, `;`, `&`, `|` in a legal ref name, and `BASE_BRANCH` was interpolated unvalidated into `"$(git merge-base HEAD "origin/$BASE_BRANCH")"` — a malicious default-branch name became live shell syntax the moment it was re-embedded into a freshly-constructed Bash command, since this session's Bash tool does not persist shell variables across separate tool-call invocations.
+- **Allowlist gate added** — reuses the exact validation already established in `inspect/SKILL.md` Step 1 for the same class of untrusted ref value: `^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`. `BASE_BRANCH` is checked immediately after resolution/fallback and before any further use; a value that fails falls back to `main` with a warning, mirroring the existing "could not detect default branch" fallback already in this block.
+- **Nested command substitution split** — `git merge-base HEAD "refs/remotes/origin/$BASE_BRANCH"` now resolves into its own `MERGE_BASE` variable in a separate statement, executed only after the allowlist check passes, rather than nesting the substitution inline inside the final `git diff --name-only` call.
+- **Scope** — `plugins/ievo/commands/vuln-scan.md`; the rest of the diff is the mandatory version-bump ceremony below.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.78.3 → 0.78.4). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.3
 
 Close a redaction gap in `scrub.mjs` — camelCase credential keys (`authToken`, `clientSecret`, `refreshToken`, `accessKeyId`, `secretAccessKey`, …) passed through `redactNamedSecrets` unredacted because `NAME_ALT` only recognized underscore-delimited suffixes and bare whole-identifier keywords (CWE-522) — Eva vuln-scan dogfooding finding, #557.

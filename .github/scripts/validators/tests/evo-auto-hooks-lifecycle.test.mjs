@@ -118,9 +118,27 @@ exit 0
 # Same contract as correction-capture.sh's shim above -- see that file for
 # the full rationale. Static and identical across every project.
 # CONTRACT: fail-silent, non-blocking. NO \`set -e\`.
+#
+# Unlike the other two shims this one does NOT no-op silently when its
+# companion is absent (skills#551). The companion is gitignored, so "flag
+# committed, per-clone regeneration never run" -- the exact drift the
+# companion's own wiring check exists to report -- is precisely the case in
+# which that check cannot run at all: a fresh clone would stay silent for a
+# whole session, which IS the reported bug. This shim is the only tracked,
+# always-present file on that path, so it owns the one check the companion
+# structurally cannot make about itself: flag ON, companion missing. Every
+# richer check (vendored copies, sibling companions, wired hook entries,
+# pending-candidate count) stays in the companion, which runs whenever it
+# exists. SessionStart stdout is parsed as hook JSON, so the warning rides
+# the same additionalContext channel the companion already uses, and the
+# ASCII / no-double-quotes contract applies here too.
 
 REAL=.ievo/hooks/scripts/evo-analysis-nudge.local.sh
 [ -f "$REAL" ] && exec sh "$REAL"
+
+[ -f .ievo/evo-auto.flag ] || exit 0
+
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\\n' 'iEvo auto-evolution: .ievo/evo-auto.flag is ON but this clone has no generated hook logic (drift detected) -- .ievo/hooks/scripts/evo-analysis-nudge.local.sh is missing, so capture may be partly or entirely inactive. The generated companions are gitignored and must be regenerated once per clone: run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install.'
 exit 0
 `,
 
@@ -387,6 +405,36 @@ describe("literals stay in sync with their SKILL.md sources", () => {
     );
   });
 
+  it("the wired-command dry-run is ordered after the step that writes the last companion", () => {
+    // Same ordering trap as the check above, reached by a different route.
+    // Once `evo-analysis-nudge.local.sh` grew a wiring-integrity check
+    // (skills#551), dry-running `evo-analysis-nudge.sh` became a probe of the
+    // whole install — so run from Step 3.5.4 it reports `failure-capture.
+    // local.sh` and the failure-capture hook entry as drift, neither of which
+    // Step 3.6 has written yet. Exit stays 0 (SessionStart cannot block), but
+    // the enabling agent reads that stdout and may report a broken install on
+    // a perfectly healthy linear enable. The behavioural half of this is the
+    // "mid-enable state" test in the wiring-integrity describe below.
+    const dryRunAt = ENABLE_SKILL_SRC.indexOf(
+      'sh ".ievo/hooks/scripts/$f.sh" < /dev/null',
+    );
+    const companionWriteAt = ENABLE_SKILL_SRC.indexOf(
+      "chmod +x .ievo/hooks/scripts/failure-capture.local.sh",
+    );
+    const wiringCheckAt = ENABLE_SKILL_SRC.indexOf(
+      "# Wiring-integrity check -- same platform-detection rule as /ievo:init",
+    );
+    assert.ok(dryRunAt > 0, "wired-command dry-run missing from " + ENABLE_SKILL);
+    assert.ok(
+      wiringCheckAt > 0,
+      `the nudge's wiring-integrity check is gone from ${ENABLE_SKILL} — re-check whether this ordering still matters`,
+    );
+    assert.ok(
+      dryRunAt > companionWriteAt,
+      `the wired-command dry-run precedes the step that writes failure-capture.local.sh in ${ENABLE_SKILL} — a linear enable run would print a spurious drift warning`,
+    );
+  });
+
   it("SKILL.md wires exactly the three shim paths this file exercises", () => {
     for (const name of Object.keys(SHIMS)) {
       assert.ok(
@@ -477,12 +525,57 @@ describe("clean clone (before any per-clone regeneration)", () => {
         `${name}: expected no "command not found", got ${JSON.stringify(result)}`,
       );
       assert.equal(result.status, 0, `${name}: expected exit 0`);
+    }
+  });
+
+  it("the two capture shims stay silent with no companion present", () => {
+    // UserPromptSubmit fires on every message and PostToolUseFailure on every
+    // failed tool call, so neither may say anything of its own -- their stdout
+    // is parsed as hook JSON and a per-message warning would be unusable noise.
+    for (const name of ["correction-capture.sh", "failure-capture.sh"]) {
+      const result = sh(CLONE, `.ievo/hooks/scripts/${name}`, '{"session_id":"repro"}');
+      assert.equal(result.status, 0, name);
       assert.equal(
         result.stdout,
         "",
         `${name}: expected silent no-op with no companion present`,
       );
     }
+  });
+
+  it("the SessionStart shim warns instead of staying silent (skills#551)", () => {
+    // This clone is the exact skills#551 repro: `.ievo/evo-auto.flag` is
+    // tracked (Step 5 tells users to commit it) and so is the shim, but the
+    // companion holding the wiring-integrity check is gitignored and was
+    // never regenerated here. Before the fix the shim no-opped, so the
+    // companion's own check could not run and the whole session passed with
+    // zero capture and zero warning. The check has to live in the tracked
+    // file to fire at all.
+    const result = sh(
+      CLONE,
+      ".ievo/hooks/scripts/evo-analysis-nudge.sh",
+      '{"session_id":"repro"}',
+    );
+    assert.equal(result.status, 0);
+    assert.notEqual(
+      result.stdout,
+      "",
+      "expected a drift nudge on a fresh clone, got silence -- the exact skills#551 bug",
+    );
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.hookSpecificOutput.hookEventName, "SessionStart");
+    const ctx = payload.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("evo-analysis-nudge.local.sh"));
+    assert.ok(ctx.includes("/ievo:evo-auto-enable"));
+    assert.ok(
+      !ctx.includes('"'),
+      "additionalContext must stay double-quote-free (JSON-embedding contract)",
+    );
+    assert.ok(
+      [...ctx].every((c) => c.charCodeAt(0) < 128),
+      "additionalContext must stay ASCII-only",
+    );
   });
 
   it("resolves the exact command+args .claude/settings.json wires, with no 127", () => {
@@ -613,9 +706,16 @@ describe("disable (companions removed, shims left in place)", () => {
     ]) {
       rmSync(join(CLONE, ".ievo/hooks/scripts", companion), { force: true });
     }
+    // A real `/ievo:evo-auto-disable` removes the flag as well as the
+    // companions (see evo-auto-disable/SKILL.md) -- model that faithfully.
+    // Without this the state below would be flag-ON-companion-missing, i.e.
+    // drift, and the SessionStart shim would correctly warn rather than go
+    // quiet (that state is covered by the clean-clone repro above and by the
+    // tracked-shim describe at the end of this file).
+    rmSync(join(CLONE, ".ievo/evo-auto.flag"), { force: true });
   });
 
-  it("the shim returns to a safe silent no-op, same as a clean clone", () => {
+  it("every shim returns to a safe silent no-op once auto-mode is off", () => {
     for (const name of Object.keys(SHIMS)) {
       const result = sh(CLONE, `.ievo/hooks/scripts/${name}`);
       assert.equal(result.status, 0);
@@ -635,5 +735,501 @@ describe("disable (companions removed, shims left in place)", () => {
     ]);
     const status = git(CLONE, "status", "--porcelain", ".ievo/hooks/");
     assert.equal(status.trim(), "");
+  });
+});
+
+// Regression test for skills#551: `.ievo/evo-auto.flag` could exist (claiming
+// auto-evolution ENABLED) with none of the vendored fallback copies, `.local.sh`
+// companions, or wired hook-config entries actually on disk -- e.g. a
+// hand-written flag file, or a `/ievo:evo-auto-enable` run that died partway
+// through Step 3/3.5 -- and nothing surfaced the mismatch, not a nudge, not an
+// error, for the length of an entire session. `evo-auto-enable/SKILL.md` Step
+// 3.5.3 now extends the SessionStart nudge script to also check for this drift
+// every session and warn when found.
+//
+// Unlike the `realCompanion()` stand-in above (used only to exercise the
+// tracked-shim -> `.local.sh` dispatch mechanism generically), this describe
+// extracts the REAL, full `evo-analysis-nudge.local.sh` body from SKILL.md
+// verbatim and executes it -- the wiring-integrity check is real, testable
+// logic now, and a stand-in would let it drift from what actually ships with
+// every test here still green.
+describe("evo-analysis-nudge.local.sh wiring-integrity check (skills#551)", () => {
+  // Pulls the fenced ```sh block that immediately follows Step 3.5.3's heading
+  // out of the already-loaded SKILL.md source -- same "verbatim, not templated"
+  // principle as the SHIMS/GITIGNORE_BLOCK literals above, just extracted
+  // instead of duplicated (this script is much larger than the four-line shims).
+  function extractFencedScript(src, afterHeading) {
+    const headingAt = src.indexOf(afterHeading);
+    assert.ok(headingAt > 0, `heading not found in SKILL.md: ${afterHeading}`);
+    const fenceOpenAt = src.indexOf("```sh\n", headingAt);
+    assert.ok(fenceOpenAt > 0, `no fenced sh block after heading: ${afterHeading}`);
+    const bodyStart = fenceOpenAt + "```sh\n".length;
+    const fenceCloseAt = src.indexOf("\n```", bodyStart);
+    assert.ok(fenceCloseAt > 0, `unterminated fenced block after heading: ${afterHeading}`);
+    return src.slice(bodyStart, fenceCloseAt + 1);
+  }
+
+  const NUDGE_SCRIPT = extractFencedScript(
+    ENABLE_SKILL_SRC,
+    "### 3.5.3 Write the SessionStart analysis nudge",
+  );
+
+  it("the extracted script matches the documented contract (sanity check on the extraction itself)", () => {
+    assert.ok(NUDGE_SCRIPT.startsWith("#!/bin/sh\n"));
+    assert.ok(NUDGE_SCRIPT.includes("evo-auto.flag"));
+    assert.ok(NUDGE_SCRIPT.includes("HOOKS_FILE"));
+  });
+
+  const ROOT = join(tmpdir(), `evo-analysis-nudge-wiring-${process.pid}`);
+  const SCRIPT_PATH = join(ROOT, "evo-analysis-nudge.local.sh");
+
+  before(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+    mkdirSync(ROOT, { recursive: true });
+    writeFileSync(SCRIPT_PATH, NUDGE_SCRIPT);
+    chmodSync(SCRIPT_PATH, 0o755);
+  });
+
+  after(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+  });
+
+  // Fresh, isolated project dir per test (no git needed -- this check is pure
+  // filesystem + hook-config presence, unlike the gitignore describes above).
+  function freshProject() {
+    const dir = join(ROOT, `proj-${Math.floor(1e9 * Math.random())}`);
+    mkdirSync(join(dir, ".ievo/hooks/scripts/vendor"), { recursive: true });
+    return dir;
+  }
+
+  function writeFlag(dir) {
+    writeFileSync(
+      join(dir, ".ievo/evo-auto.flag"),
+      "enabled: true\nenabled_at: 2026-08-05T00:00:00Z\nenabled_by: test\nsignal: corrections-only\nauto_write_scope: project-wide-only\n",
+    );
+  }
+
+  // A minimal accumulator stand-in whose `count` subcommand prints a fixed
+  // value -- exercises this script's drift check without re-testing
+  // evolution_candidates.mjs itself (covered by its own suite).
+  function stubAccumulator(dir, { count = "0", broken = false } = {}) {
+    const p = join(dir, ".ievo/hooks/scripts/vendor/evolution_candidates.mjs");
+    const body = broken
+      ? `process.stdout.write("not-a-number");\nprocess.exit(0);\n`
+      : `const cmd = process.argv[2];\nif (cmd === "count") process.stdout.write(${JSON.stringify(String(count))});\nprocess.exit(0);\n`;
+    writeFileSync(p, body);
+  }
+
+  function writeVendorScrub(dir) {
+    writeFileSync(join(dir, ".ievo/hooks/scripts/vendor/scrub.mjs"), "process.exit(0);\n");
+  }
+
+  function writeCompanions(dir, names) {
+    for (const name of names) {
+      writeFileSync(join(dir, ".ievo/hooks/scripts", name), "#!/bin/sh\nexit 0\n");
+    }
+  }
+
+  const ALL_COMPANIONS = [
+    "correction-capture.local.sh",
+    "evo-analysis-nudge.local.sh",
+    "failure-capture.local.sh",
+  ];
+
+  function writeClaudeSettings(dir, { includeFailure = true } = {}) {
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    const hooks = {
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/correction-capture.sh"] }] }],
+      SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/evo-analysis-nudge.sh"] }] }],
+    };
+    if (includeFailure) {
+      hooks.PostToolUseFailure = [{ hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/failure-capture.sh"] }] }];
+      hooks.PermissionDenied = [{ hooks: [{ type: "command", command: "sh", args: [".ievo/hooks/scripts/failure-capture.sh"] }] }];
+    }
+    writeFileSync(join(dir, ".claude/settings.json"), JSON.stringify({ hooks }, null, 2));
+  }
+
+  function writeCodexHooks(dir) {
+    mkdirSync(join(dir, ".codex"), { recursive: true });
+    const hooks = {
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "sh .ievo/hooks/scripts/correction-capture.sh" }] }],
+      SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "sh .ievo/hooks/scripts/evo-analysis-nudge.sh" }] }],
+      PermissionRequest: [{ hooks: [{ type: "command", command: "sh .ievo/hooks/scripts/failure-capture.sh" }] }],
+    };
+    writeFileSync(join(dir, ".codex/hooks.json"), JSON.stringify({ hooks }, null, 2));
+  }
+
+  function writeFullWiring(dir) {
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir);
+  }
+
+  function runNudge(dir, env = {}) {
+    // Strip (not just override-to-undefined -- unreliable across Node
+    // versions in spawnSync's env option) any platform-detection signal this
+    // test process itself might carry, so each test's env fully controls
+    // platform detection instead of partially inheriting the CI runner's own.
+    const baseEnv = { ...process.env };
+    delete baseEnv.CLAUDECODE;
+    delete baseEnv.CODEX_CLI;
+    delete baseEnv.CODEX_INTERNAL_ORIGINATOR_OVERRIDE;
+    delete baseEnv.__CFBundleIdentifier;
+    return spawnSync("sh", [SCRIPT_PATH], {
+      cwd: dir,
+      input: "{}",
+      encoding: "utf-8",
+      env: { ...baseEnv, ...env },
+    });
+  }
+
+  function parseAdditionalContext(stdout) {
+    const parsed = JSON.parse(stdout);
+    return parsed.hookSpecificOutput.additionalContext;
+  }
+
+  it("flag absent -> completely silent, wiring check never runs", () => {
+    const dir = freshProject();
+    // No flag written at all.
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("flag present, nothing else installed -> drift warning naming every missing piece (skills#551 repro)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.notEqual(result.stdout, "", "expected a drift nudge, got silence -- the exact skills#551 bug");
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("vendored scrub.mjs"));
+    assert.ok(ctx.includes("correction-capture.local.sh"));
+    assert.ok(ctx.includes("failure-capture.local.sh"));
+    // Never names ITSELF: this script is `evo-analysis-nudge.local.sh`, so a
+    // self-check could only report a state in which it does not run. The
+    // tracked shim owns that one (see the describe below). `.local.sh` is
+    // matched deliberately -- "evo-analysis-nudge hook entry in ..." names the
+    // wired SHIM path and is a different, legitimate finding.
+    assert.ok(
+      !ctx.includes("evo-analysis-nudge.local.sh"),
+      "the companion must not claim to detect its own absence",
+    );
+    assert.ok(ctx.includes(".claude/settings.json"));
+    assert.ok(ctx.includes("/ievo:evo-auto-enable"));
+    assert.ok(!ctx.includes('"'), "additionalContext must stay double-quote-free (JSON-embedding contract)");
+  });
+
+  it("mid-enable state (Step 3.5 done, Step 3.6 not yet) -> drift naming exactly the two artifacts 3.6 writes", () => {
+    // Why SKILL.md defers the wired-command dry-run to the END of Step 3.6
+    // (pinned structurally by the ordering test in the first describe): at the
+    // point Step 3.5.4 finishes, everything Step 3.5 installs is on disk but
+    // `failure-capture.local.sh` and its hook entries are not — Step 3.6 writes
+    // them. This script cannot tell that transient state apart from real drift,
+    // and by design it should not try: a check that special-cased "we are
+    // probably mid-enable" would also stay quiet on a run that genuinely died
+    // between 3.5.4 and 3.6, which is one of the failure modes skills#551 is
+    // about. So the state is fixed by ordering the dry-run, not by teaching the
+    // script to guess. This test pins the exact output that ordering avoids.
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "0" });
+    writeVendorScrub(dir);
+    writeCompanions(dir, [
+      "correction-capture.local.sh",
+      "evo-analysis-nudge.local.sh",
+    ]);
+    writeClaudeSettings(dir, { includeFailure: false });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(
+      ctx.includes(
+        "(drift detected) -- failure-capture.local.sh, failure-capture hook entry in .claude/settings.json. Capture may be",
+      ),
+      `mid-enable drift must name exactly the two artifacts Step 3.6 writes, in order; got: ${ctx}`,
+    );
+    // Nothing Step 3.5 already wrote may appear in the missing list.
+    for (const notMissing of [
+      "vendored evolution_candidates.mjs",
+      "vendored scrub.mjs",
+      "correction-capture.local.sh",
+      "correction-capture hook entry",
+      "evo-analysis-nudge hook entry",
+    ]) {
+      assert.ok(
+        !ctx.includes(notMissing),
+        `${notMissing} was written by Step 3.5 and must not read as drift`,
+      );
+    }
+  });
+
+  it("vendored evolution_candidates.mjs itself absent -> reported, via the real (non-stubbed) node ENOENT fallback", () => {
+    // Every other test calls stubAccumulator(), which always writes this
+    // exact file -- so the "vendored evolution_candidates.mjs" branch of the
+    // wiring check (SKILL.md's `[ -f .../vendor/evolution_candidates.mjs ] ||
+    // note_missing ...`) is never driven false anywhere else in this suite.
+    // Deliberately skip stubAccumulator() here: `node "$ACC" count` then hits
+    // a real ENOENT, and the script's own `2>/dev/null || echo 0` fallback
+    // (not a test stub) supplies n=0, while the wiring check independently
+    // reports the file as missing.
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir);
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("vendored evolution_candidates.mjs"));
+  });
+
+  it("fully wired, zero pending candidates -> silent, no false-positive nudge", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("fully wired, N pending candidates -> ordinary count nudge, no drift language", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "4" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("4 evolution candidate(s)"));
+    assert.ok(!ctx.includes("drift detected"));
+  });
+
+  it("one hook entry missing from an otherwise-wired config -> combined drift + pending-count message", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir, { includeFailure: false });
+    stubAccumulator(dir, { count: "2" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("failure-capture hook entry in .claude/settings.json"));
+    assert.ok(ctx.includes("2 evolution candidate(s)"));
+    assert.ok(!ctx.includes("correction-capture hook entry"), "only the actually-missing entry should be named");
+  });
+
+  it("no hook config file at all -> names the file itself as missing", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    // Deliberately no .claude/settings.json and no .codex/hooks.json.
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes(".claude/settings.json itself (no hook config file at all)"));
+  });
+
+  it("Codex platform ($CODEX_CLI set) checks .codex/hooks.json, never .claude/settings.json", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir); // fully wired on the WRONG (Claude Code) file
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CODEX_CLI: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(
+      ctx.includes(".codex/hooks.json itself (no hook config file at all)"),
+      "a Codex session must judge .codex/hooks.json, not treat an unrelated .claude/settings.json as proof of wiring",
+    );
+  });
+
+  it("Codex platform, fully wired at .codex/hooks.json -> silent, no drift", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeCodexHooks(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CODEX_CLI: "1" });
+    assert.equal(result.stdout, "");
+  });
+
+  it("$CLAUDECODE set together with $CODEX_CLI set -> Codex wins (Step 1.5 ordering: Claude Code requires CODEX_CLI unset)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ALL_COMPANIONS);
+    writeClaudeSettings(dir); // wired only on the Claude Code side
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1", CODEX_CLI: "1" });
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes(".codex/hooks.json itself (no hook config file at all)"));
+  });
+
+  it("a broken/non-numeric accumulator no longer silently swallows the drift check (the actual regression)", () => {
+    // Before skills#551, a `count` parse failure hit an early `exit 0` in the
+    // same case statement, skipping the wiring check entirely -- so a broken
+    // accumulator masked its own drift instead of surfacing it. Full wiring
+    // minus one companion + a garbage (non-numeric) count output must still
+    // report the missing companion.
+    const dir = freshProject();
+    writeFlag(dir);
+    writeVendorScrub(dir);
+    writeCompanions(dir, ["correction-capture.local.sh", "evo-analysis-nudge.local.sh"]); // failure-capture missing
+    writeClaudeSettings(dir);
+    stubAccumulator(dir, { broken: true });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.notEqual(result.stdout, "", "a broken accumulator must not mask a real wiring gap");
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("failure-capture.local.sh"));
+  });
+
+  it("never exits non-zero, even on the drift path (SessionStart cannot block startup)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+  });
+});
+
+// The other half of the skills#551 check, and the half that actually reaches a
+// fresh clone. Everything the describe above exercises lives in the GITIGNORED
+// `evo-analysis-nudge.local.sh`, which by definition cannot run when it was
+// never regenerated on this clone -- so the flag-committed / companion-absent
+// state (the reported repro) needed its check in the TRACKED shim, where it is
+// present on every clone. The clean-clone describe near the top of this file
+// covers the same behavior through a real git clone; these tests isolate the
+// shim's own decision table in scratch dirs, including the states a clone
+// cannot easily reproduce (flag absent, companion present).
+describe("evo-analysis-nudge.sh tracked shim: flag-vs-companion check (skills#551)", () => {
+  const ROOT = join(tmpdir(), `evo-analysis-nudge-shim-${process.pid}`);
+  const SHIM_REL = ".ievo/hooks/scripts/evo-analysis-nudge.sh";
+
+  before(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+    mkdirSync(ROOT, { recursive: true });
+  });
+
+  after(() => {
+    rmSync(ROOT, { recursive: true, force: true });
+  });
+
+  // Each case gets its own project dir holding a real copy of the shim at the
+  // exact wired path, so `cwd`-relative lookups behave as they do in a project.
+  function project({ flag = false, companion = null } = {}) {
+    const dir = join(ROOT, `proj-${Math.floor(1e9 * Math.random())}`);
+    mkdirSync(join(dir, ".ievo/hooks/scripts"), { recursive: true });
+    const shimPath = join(dir, SHIM_REL);
+    writeFileSync(shimPath, SHIMS["evo-analysis-nudge.sh"]);
+    chmodSync(shimPath, 0o755);
+    if (flag) {
+      writeFileSync(
+        join(dir, ".ievo/evo-auto.flag"),
+        "enabled: true\nenabled_at: 2026-08-05T00:00:00Z\nenabled_by: test\nsignal: corrections-only\nauto_write_scope: project-wide-only\n",
+      );
+    }
+    if (companion !== null) {
+      writeFileSync(
+        join(dir, ".ievo/hooks/scripts/evo-analysis-nudge.local.sh"),
+        companion,
+      );
+    }
+    return dir;
+  }
+
+  it("flag ON, companion never regenerated -> drift warning (the reported repro)", () => {
+    const dir = project({ flag: true });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.notEqual(result.stdout, "", "expected a drift nudge, got silence");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.hookSpecificOutput.hookEventName, "SessionStart");
+    const ctx = payload.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes(".ievo/evo-auto.flag is ON"));
+    assert.ok(ctx.includes("evo-analysis-nudge.local.sh"));
+    assert.ok(ctx.includes("/ievo:evo-auto-enable"));
+    assert.ok(
+      !ctx.includes('"'),
+      "additionalContext must stay double-quote-free (JSON-embedding contract)",
+    );
+    assert.ok(
+      [...ctx].every((c) => c.charCodeAt(0) < 128),
+      "additionalContext must stay ASCII-only",
+    );
+  });
+
+  it("emits exactly one line of hook JSON (SessionStart stdout is parsed, not logged)", () => {
+    const dir = project({ flag: true });
+    const { stdout } = sh(dir, SHIM_REL);
+    assert.equal(stdout.split("\n").filter(Boolean).length, 1);
+    assert.ok(stdout.endsWith("\n"));
+  });
+
+  it("flag absent -> completely silent (auto-mode is off; nothing has drifted)", () => {
+    const dir = project({ flag: false });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("companion present -> delegates, and adds nothing of its own", () => {
+    // The shim must not double-report: once the companion exists it owns the
+    // whole message (drift list + pending count), and `exec` replaces the
+    // shim's process, so the companion's output is the only output.
+    const dir = project({
+      flag: true,
+      companion: `#!/bin/sh\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"companion ran"}}\\n'\nexit 0\n`,
+    });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(
+      payload.hookSpecificOutput.additionalContext,
+      "companion ran",
+      "the shim must delegate wholesale, never prepend its own warning",
+    );
+  });
+
+  it("companion present but silent -> stays silent (a healthy, fully-wired project)", () => {
+    const dir = project({ flag: true, companion: "#!/bin/sh\nexit 0\n" });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+
+  it("a companion that fails still leaves the session unblocked", () => {
+    // `exec` hands the exit status to the caller, so a broken companion can
+    // surface a non-zero status -- but SessionStart is non-blocking on both
+    // platforms and the shim itself must never turn that into a crash or a
+    // partial-JSON write of its own.
+    const dir = project({ flag: true, companion: "#!/bin/sh\nexit 3\n" });
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.stdout, "");
+    assert.notEqual(result.status, 127);
+  });
+
+  it("delegates to a companion that lacks the exec bit (no `[ -x ]` guard)", () => {
+    const dir = project({
+      flag: true,
+      companion: `#!/bin/sh\nprintf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"companion ran"}}\\n'\nexit 0\n`,
+    });
+    chmodSync(join(dir, ".ievo/hooks/scripts/evo-analysis-nudge.local.sh"), 0o644);
+    const result = sh(dir, SHIM_REL);
+    assert.equal(result.status, 0);
+    assert.equal(
+      JSON.parse(result.stdout).hookSpecificOutput.additionalContext,
+      "companion ran",
+    );
   });
 });

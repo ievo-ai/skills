@@ -266,12 +266,29 @@ message, so the failure is not a one-time cosmetic error like
 `hooks-setup`'s Stop hook precedent.
 
 The fix: these three wired paths now hold a **tracked, static dispatcher
-shim** — identical content on every project and every plugin version, safe to
-commit once and never touch again. Steps 3.5.2/3.5.3/3.6 write the actual
+shim** — identical content on every project, carrying nothing project-specific
+or version-specific, so it is safe to commit and needs no per-clone
+regeneration. (Static means "does not vary by project", not "frozen forever":
+the shim bodies below are the current ones and can change between plugin
+versions — #551 changed the `SessionStart` one. A project keeps whatever it
+committed until someone re-runs this skill, which overwrites all three
+unconditionally; an older shim is merely older, never broken, since the
+companion holds the behavior.) Steps 3.5.2/3.5.3/3.6 write the actual
 generated logic to a **different, still-gitignored** `.local.sh` companion
 path; the shim `exec`s that companion when present, else no-ops silently. A
 clean clone always has the shim (tracked), so the wired command always
 exists — the companion is what still needs a per-clone run to appear.
+
+One deliberate exception (#551): the **SessionStart** shim, instead of
+no-opping, emits a drift warning when `.ievo/evo-auto.flag` is present but
+its companion is not. That combination is exactly the fresh-clone /
+half-finished-enable drift Step 3.5.3's wiring check exists to surface — and
+the one case that check can never surface itself, since a missing companion
+is a companion that never runs. The tracked shim is the only always-present
+file on that path, so the check has to live here to fire at all. The other
+two shims stay bare no-ops: `UserPromptSubmit` fires on every message (a
+warning there would repeat all session), and `SessionStart` is already the
+channel this skill uses for exactly this kind of once-per-session notice.
 
 Use the Write tool to create the three shims (paths match Step 3.5.4's wiring
 exactly — do not rename):
@@ -299,9 +316,27 @@ exit 0
 # Same contract as correction-capture.sh's shim above -- see that file for
 # the full rationale. Static and identical across every project.
 # CONTRACT: fail-silent, non-blocking. NO `set -e`.
+#
+# Unlike the other two shims this one does NOT no-op silently when its
+# companion is absent (skills#551). The companion is gitignored, so "flag
+# committed, per-clone regeneration never run" -- the exact drift the
+# companion's own wiring check exists to report -- is precisely the case in
+# which that check cannot run at all: a fresh clone would stay silent for a
+# whole session, which IS the reported bug. This shim is the only tracked,
+# always-present file on that path, so it owns the one check the companion
+# structurally cannot make about itself: flag ON, companion missing. Every
+# richer check (vendored copies, sibling companions, wired hook entries,
+# pending-candidate count) stays in the companion, which runs whenever it
+# exists. SessionStart stdout is parsed as hook JSON, so the warning rides
+# the same additionalContext channel the companion already uses, and the
+# ASCII / no-double-quotes contract applies here too.
 
 REAL=.ievo/hooks/scripts/evo-analysis-nudge.local.sh
 [ -f "$REAL" ] && exec sh "$REAL"
+
+[ -f .ievo/evo-auto.flag ] || exit 0
+
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' 'iEvo auto-evolution: .ievo/evo-auto.flag is ON but this clone has no generated hook logic (drift detected) -- .ievo/hooks/scripts/evo-analysis-nudge.local.sh is missing, so capture may be partly or entirely inactive. The generated companions are gitignored and must be regenerated once per clone: run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install.'
 exit 0
 ```
 
@@ -324,10 +359,11 @@ Then make all three executable via Bash:
 These three files are the ONLY thing this skill writes outside `.ievo/hooks/
 scripts/vendor/` that is meant to be committed — call this out explicitly to
 the user in Step 5 so `git add` picks them up. Idempotent and safe to
-overwrite unconditionally: the content above never varies by project or
-plugin version, so re-running this step on an already-set-up project (or one
-migrating from a pre-#446 install where the wired path already holds a full
-generated script) simply replaces whatever was there with the shim — the
+overwrite unconditionally: the content above never varies by project, and
+carries no generated or per-clone state, so re-running this step on an
+already-set-up project (one on an older shim, or one migrating from a
+pre-#446 install where the wired path already holds a full generated script)
+simply replaces whatever was there with the current shim — the
 next sub-step immediately regenerates the real logic at the `.local.sh`
 companion path, so nothing is lost.
 
@@ -343,9 +379,14 @@ four-line dispatch). One consequence to state to the user in Step 5 (its
 confirmation block says this in one line), plus the tradeoff behind it:
 
 - Review any diff to `.ievo/hooks/scripts/*.sh` as executable code, not as
-  config. The shim content is **static** — identical on every project and
-  every plugin version — so a diff to it is never a routine update; treat one
-  from an untrusted contributor as suspicious by default.
+  config. The shim content is **static** — identical on every project, and
+  carrying no generated, machine-local, or per-clone content — so a diff to
+  it is never routine project churn. Exactly one legitimate cause exists:
+  someone re-ran this skill on a plugin version whose shim body changed
+  (#551 changed the `SessionStart` one), which reproduces this step's
+  fenced blocks byte-for-byte. Anything that does not match the installed
+  plugin's own shim body is suspicious by default — especially from an
+  untrusted contributor.
 - The tradeoff is deliberate and bounded: the alternative (wiring committed
   hook config at a path no clone has) is the 127-on-every-message bug this
   step exists to close, and the shims deliberately hold no capture logic —
@@ -408,7 +449,24 @@ appends it.
 
 Use the Write tool to create `.ievo/hooks/scripts/evo-analysis-nudge.local.sh`
 — same `.local.sh` companion convention as Step 3.5.2; never write this
-content to the plain `evo-analysis-nudge.sh` name (the tracked shim):
+content to the plain `evo-analysis-nudge.sh` name (the tracked shim). Besides
+the existing pending-candidate count, this script now ALSO asserts the
+wiring itself is genuinely installed (closes #551) — a hand-written
+`.ievo/evo-auto.flag`, or a `/ievo:evo-auto-enable` run that died partway
+through Step 3/3.5, can leave the flag claiming ENABLED with none of the
+vendored fallback copies, `.local.sh` companions, or wired hook-config
+entries actually on disk, and nothing surfaced that mismatch — not a
+SessionStart nudge, not an error — for the length of an entire session
+(the reported failure mode). Checked every SessionStart rather than only at
+enable time, since the same drift can appear later too (a teammate wipes
+`.ievo/hooks/` locally, a manual `settings.json` edit drops an entry, a stale
+clone never ran the per-clone regeneration Step 3.5.4 describes).
+
+One half of that check does NOT live here: this file is gitignored, so it
+cannot report its own absence — the case where the flag is committed and no
+companion was ever regenerated on this clone. Step 3.5.1b's tracked
+`evo-analysis-nudge.sh` shim covers that one, and everything below assumes
+this script is running, i.e. that the companion exists:
 
 ```sh
 #!/bin/sh
@@ -416,6 +474,18 @@ content to the plain `evo-analysis-nudge.sh` name (the tracked shim):
 # On a NEW session, when auto-evolution is ON, prune to the last 10 sessions and,
 # if any candidates are pending, nudge the agent to review them via
 # /ievo:evo. No LLM work happens here -- this only counts + surfaces.
+#
+# Also verifies the wiring itself is actually installed (skills#551): the flag
+# can exist -- claiming ENABLED -- with none of the vendored fallback copies,
+# `.local.sh` companions, or wired hook-config entries actually on disk (a
+# hand-written flag file, or a `/ievo:evo-auto-enable` run that died partway
+# through Step 3/3.5). Checked every SessionStart, not just at enable time,
+# since the same drift can appear later too (a teammate wipes `.ievo/hooks/`
+# locally, a manual settings.json edit drops an entry, a stale clone that
+# never ran the per-clone regeneration). This is what actually surfaces the
+# "flag present but no hook files found on disk" mismatch every session,
+# closing the gap the reporter hit: a whole session with zero capture and
+# zero warning.
 #
 # CONTRACT: fail-silent, context-only (SessionStart cannot block startup),
 # ASCII-only additionalContext. NO `set -e`.
@@ -431,16 +501,90 @@ ACC="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/evolution_candidates.mjs}
 # Retention: keep the last 10 sessions of candidates (best-effort).
 node "$ACC" prune --keep 10 >/dev/null 2>&1 || true
 
+# A missing/broken accumulator (itself a symptom of the drift this script now
+# checks for below) must not silently swallow the whole nudge the way a bare
+# early `exit 0` on a parse failure previously did -- fall back to 0 pending
+# candidates and let the wiring check run regardless.
 n=$(node "$ACC" count 2>/dev/null || echo 0)
-case "$n" in ""|*[!0-9]*) exit 0 ;; esac
-[ "$n" -gt 0 ] || exit 0
+case "$n" in ""|*[!0-9]*) n=0 ;; esac
 
-msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured mechanical tool signals (tool failures/denials on Claude Code, approval requests on Codex), not corrections -- apply a signal-then-fixed-vs-noise judgment before folding one in: a signal later resolved toward the same goal is learnable, a signal inside normal iteration is noise. Remove each candidate from its session file as you consume it."
+# Wiring-integrity check -- same platform-detection rule as /ievo:init Step
+# 1.5 (ordered, first match wins): $CLAUDECODE set with $CODEX_CLI unset ->
+# Claude Code; else $CODEX_CLI set -> Codex; else a Codex Desktop signal
+# (CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop, or macOS
+# __CFBundleIdentifier=com.openai.codex) -> Codex; else Claude Code. This
+# script's content is identical on both platforms (only the wiring differs),
+# so it self-detects which config file its own session should have wired.
+if [ -n "$CLAUDECODE" ] && [ -z "$CODEX_CLI" ]; then
+  HOOKS_FILE=.claude/settings.json
+elif [ -n "$CODEX_CLI" ]; then
+  HOOKS_FILE=.codex/hooks.json
+elif [ "$CODEX_INTERNAL_ORIGINATOR_OVERRIDE" = "Codex Desktop" ] || [ "$__CFBundleIdentifier" = "com.openai.codex" ]; then
+  HOOKS_FILE=.codex/hooks.json
+else
+  HOOKS_FILE=.claude/settings.json
+fi
+
+missing=""
+note_missing() {
+  [ -z "$missing" ] && missing="$1" || missing="$missing, $1"
+}
+[ -f .ievo/hooks/scripts/vendor/evolution_candidates.mjs ] || note_missing "vendored evolution_candidates.mjs"
+[ -f .ievo/hooks/scripts/vendor/scrub.mjs ] || note_missing "vendored scrub.mjs"
+[ -f .ievo/hooks/scripts/correction-capture.local.sh ] || note_missing "correction-capture.local.sh"
+[ -f .ievo/hooks/scripts/failure-capture.local.sh ] || note_missing "failure-capture.local.sh"
+# Deliberately NOT checked here: `evo-analysis-nudge.local.sh` itself. This
+# script IS that file -- when it is absent nothing here runs, so a check for
+# it could only ever report the one state it cannot observe. The tracked
+# shim `evo-analysis-nudge.sh` (Step 3.5.1b) owns that check instead: it is
+# committed, so it is present even on a clone that never regenerated the
+# companions, which is exactly when that state occurs.
+# Presence-based, not event-placement-based: this confirms the path string
+# is wired SOMEWHERE in the file, not that it sits under the correct event
+# key (UserPromptSubmit/SessionStart/PostToolUseFailure+PermissionDenied on
+# Claude Code; the Codex equivalents) -- a manual edit that moved an entry to
+# the wrong event would still read as "wired" here. -qF (fixed-string, not
+# regex) since these are literal paths, not patterns.
+if [ -f "$HOOKS_FILE" ]; then
+  grep -qF '.ievo/hooks/scripts/correction-capture.sh' "$HOOKS_FILE" 2>/dev/null || note_missing "correction-capture hook entry in $HOOKS_FILE"
+  grep -qF '.ievo/hooks/scripts/evo-analysis-nudge.sh' "$HOOKS_FILE" 2>/dev/null || note_missing "evo-analysis-nudge hook entry in $HOOKS_FILE"
+  grep -qF '.ievo/hooks/scripts/failure-capture.sh' "$HOOKS_FILE" 2>/dev/null || note_missing "failure-capture hook entry in $HOOKS_FILE"
+else
+  note_missing "$HOOKS_FILE itself (no hook config file at all)"
+fi
+
+[ "$n" -gt 0 ] || [ -n "$missing" ] || exit 0
+
+if [ -n "$missing" ]; then
+  # Deliberately hedged: this list covers partial drift too (one missing hook
+  # entry still leaves the other capture paths working), so it must not claim
+  # capture has stopped outright.
+  drift_msg="iEvo auto-evolution: .ievo/evo-auto.flag is ON but the hook wiring is missing or incomplete (drift detected) -- ${missing}. Capture may be partly or entirely inactive. Re-run /ievo:evo-auto-enable to repair -- it is idempotent and safe to re-run on top of a partial install."
+fi
+
+if [ -n "$missing" ] && [ "$n" -gt 0 ]; then
+  msg="${drift_msg} Separately, ${n} evolution candidate(s) captured in earlier sessions are still pending review -- offer /ievo:evo for those too once wiring is repaired."
+elif [ -n "$missing" ]; then
+  msg="$drift_msg"
+else
+  msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured mechanical tool signals (tool failures/denials on Claude Code, approval requests on Codex), not corrections -- apply a signal-then-fixed-vs-noise judgment before folding one in: a signal later resolved toward the same goal is learnable, a signal inside normal iteration is noise. Remove each candidate from its session file as you consume it."
+fi
+
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
 exit 0
 ```
 
 Then make it executable via Bash: `chmod +x .ievo/hooks/scripts/evo-analysis-nudge.local.sh`.
+
+**Why a nudge, not a blocking error:** `SessionStart` cannot block startup on
+either platform, and this script's own contract (like every other hook this
+skill writes) is fail-silent — so a drift finding is surfaced as
+`additionalContext` for the agent to relay, exactly like the existing
+pending-candidate count, never a hard failure. This mirrors ask #2 from
+issue #551 ("a way to verify auto-mode is genuinely wired end-to-end") while
+ask #1 (self-healing re-run) was already satisfied by this skill's existing
+idempotency — re-running `/ievo:evo-auto-enable` after this nudge fires
+repairs exactly the drift it names.
 
 #### 3.5.4 Wire the correction-capture + analysis hooks into the client's hook config
 
@@ -549,25 +693,26 @@ this skill's issue #432 bug class):
   hook never blocks the session), so a session started outside the project
   root degrades to no capture, not an error.
 
-**Functional check (both platforms), before claiming success:** after writing
-the config, (1) re-read it and parse it as JSON (`node -e
+**Functional check (both platforms), before claiming success — (1) here,
+(2) and (3) at the end of Step 3.6:** after writing the config, (1) re-read it
+and parse it as JSON (`node -e
 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' <file>` —
-malformed config is a silent kill on a fail-open platform); (2) dry-run each
-wired command once from the project root via Bash (`sh
-.ievo/hooks/scripts/evo-analysis-nudge.sh < /dev/null; echo "exit=$?"`) and
-confirm exit 0 — the same command `.claude/settings.json`/`.codex/hooks.json`
-will actually invoke, so this proves the wired path resolves and the tracked
-shim runs without a 127.
+malformed config is a silent kill on a fail-open platform). Run this one now,
+against the write you just made.
 
-A green dry-run does **not** prove anything captures: the tracked shim exits 0
-*by design* when its companion is absent — that silent no-op IS the clean-clone
-contract (Step 3.5.1b) — so (2) cannot tell "delegation works" apart from
-"nothing was ever written". The complementary assertion, that every `.local.sh`
-companion is actually on disk, is **check (3) at the end of Step 3.6**. It runs
-there, not here: `failure-capture.local.sh` is written by Step 3.6, so at this
-point in a linear enable run it does not exist yet and the check would print a
-spurious `MISSING: failure-capture.local.sh` for a companion the run is about
-to write. Do not claim success until Step 3.6's check (3) has also passed.
+The other two — **(2)** dry-run each wired command and confirm exit 0, and
+**(3)** assert every `.local.sh` companion is on disk — both run at the **end
+of Step 3.6**, and both for the same reason: Step 3.6 writes
+`failure-capture.local.sh` and wires its own hook entries, so at this point in a
+linear enable run neither exists yet. Run here, (3) would print a spurious
+`MISSING: failure-capture.local.sh`, and (2)'s dry-run of
+`evo-analysis-nudge.sh` would reach that script's own wiring-integrity check
+(Step 3.5.3) and print a spurious `... the hook wiring is missing or incomplete
+(drift detected) -- failure-capture.local.sh, failure-capture hook entry in
+<config file> ...`. Both name artifacts this run is about to write, against a
+step whose own rule is "do NOT claim success" — false failures on the happy
+path. Do not claim success, and do not report drift to the user, until Step
+3.6's checks (2) and (3) have run and passed there.
 
 Only hooks Codex/Claude Code fire on a real session boundary can prove
 end-to-end delivery — say so in Step 5's confirmation instead of implying the
@@ -732,13 +877,36 @@ step:
 }
 ```
 
-Include this entry in Step 3.5.4's functional check (JSON re-parse + dry-run).
+Re-parse the file as JSON after this merge, the same way Step 3.5.4's check (1)
+does — this step's edit is the last write either config file receives, and the
+dry-run below invokes what it wires.
 
-**Check (3) — every `.local.sh` companion is on disk.** This is the third part
-of Step 3.5.4's functional check, deferred to here because *this* step writes
-`failure-capture.local.sh`: run in 3.5.4 it would print a spurious
-`MISSING: failure-capture.local.sh` on every linear enable run. Run it now,
-from the project root, once all three companions have been written:
+**Checks (2) and (3) — run both here, now the install is complete.** They are
+the remaining two parts of Step 3.5.4's functional check, deferred to this step
+because *this* step writes the last companion (`failure-capture.local.sh`) and
+wires the last hook entries. Run both from the project root.
+
+**(2) — every wired command dry-runs to exit 0.** These are the same commands
+`.claude/settings.json`/`.codex/hooks.json` will actually invoke, so this proves
+each wired path resolves and the tracked shim runs without a 127:
+
+```sh
+for f in correction-capture evo-analysis-nudge failure-capture; do
+  sh ".ievo/hooks/scripts/$f.sh" < /dev/null
+  echo "$f.sh exit=$?"
+done
+```
+
+Confirm all three print `exit=0`. Run back in 3.5.4 instead, the
+`evo-analysis-nudge.sh` line would reach that script's own wiring-integrity
+check (Step 3.5.3) and report `failure-capture.local.sh` plus the
+failure-capture hook entry as drift — artifacts Step 3.6 had not written yet.
+Run *here*, after a complete enable, that dry-run should be either silent or a
+plain pending-candidate count: any `drift detected` line is now a real finding,
+and enable must not claim success while one prints.
+
+**(3) — every `.local.sh` companion is on disk**, once all three have been
+written:
 
 ```sh
 for f in correction-capture evo-analysis-nudge failure-capture; do
@@ -746,15 +914,15 @@ for f in correction-capture evo-analysis-nudge failure-capture; do
 done
 ```
 
-**(3) is not redundant with 3.5.4's (2)** — it is the half that makes the check
-mean anything. The tracked shim exits 0 *by design* when its companion is
-absent: that silent no-op IS the clean-clone contract (Step 3.5.1b). So a green
-dry-run says nothing about whether Steps 3.5.2/3.5.3/3.6 ever wrote the real
-logic; enable could report success on a project where nothing captures —
-precisely issue #432's "says ENABLED, captures nothing". Only (2) **and** (3)
-together show the tracked-shim → `.local.sh`-companion delegation chain is
-complete on disk, and even then only its two halves individually: the shim's
-`exec` of a present companion is exercised by the test suite
+**(3) is not redundant with (2)** — it is the half that makes the check mean
+anything. The tracked shim exits 0 *by design* when its companion is absent:
+that silent no-op IS the clean-clone contract (Step 3.5.1b). So a green exit
+code says nothing about whether Steps 3.5.2/3.5.3/3.6 ever wrote the real logic;
+enable could report success on a project where nothing captures — precisely
+issue #432's "says ENABLED, captures nothing". Only (2) **and** (3) together
+show the tracked-shim → `.local.sh`-companion delegation chain is complete on
+disk, and even then only its two halves individually: the shim's `exec` of a
+present companion is exercised by the test suite
 (`.github/scripts/validators/tests/evo-auto-hooks-lifecycle.test.mjs`), not by
 this check.
 
@@ -791,7 +959,7 @@ Pending queue: .ievo/evolution-candidates/pending.md
 Hooks, wired in .claude/settings.json (commit this + the three shim scripts
 below so a fresh clone never hits "command not found" — skills#446):
   UserPromptSubmit               → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
-  SessionStart                    → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
+  SessionStart                    → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune; also verifies wiring is genuinely installed, warning if it drifts — #551)
   PostToolUseFailure/PermissionDenied → .ievo/hooks/scripts/failure-capture.sh
     (installed either way; active only when Signal is corrections+failures)
   These three are tracked, static dispatcher shims — safe to commit, identical
@@ -821,7 +989,7 @@ Hooks, wired in .codex/hooks.json (loads once this project's .codex/ layer is
 trusted in Codex — commit this file + the three shim scripts below so a fresh
 clone never hits "command not found": skills#446):
   UserPromptSubmit  → .ievo/hooks/scripts/correction-capture.sh (capture corrections)
-  SessionStart      → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune)
+  SessionStart      → .ievo/hooks/scripts/evo-analysis-nudge.sh (surface backlog + prune; also verifies wiring is genuinely installed, warning if it drifts — #551)
   PermissionRequest → .ievo/hooks/scripts/failure-capture.sh
     (installed either way; active only when Signal is corrections+failures.
     Codex has no failed-tool/denied event — this records approval REQUESTS,
@@ -958,6 +1126,21 @@ MUST:
    `scrub.mjs` before it ever reaches disk; if scrubbing fails or `scrub.mjs`
    itself is unavailable, the record is dropped — fail-closed for content, never
    a raw record written even transiently.
+6. **Verify wiring integrity every session, not just at enable time (#551).**
+   The `SessionStart` path also checks that the vendored fallback copies, the
+   `.local.sh` companions, and the invoking client's own wired hook entries
+   are actually present on disk. A flag present with none of that installed —
+   e.g. a hand-written `.ievo/evo-auto.flag`, or drift introduced after
+   enable — surfaces as a drift warning in the same `additionalContext`
+   channel, naming exactly what is missing and pointing at re-running
+   `/ievo:evo-auto-enable` (already idempotent/self-healing) to repair it.
+   The check is split across both files on that path, because a gitignored
+   script cannot report its own absence: the **tracked** `evo-analysis-nudge.sh`
+   shim (Step 3.5.1b) warns when the flag is on but its companion was never
+   regenerated on this clone — the fresh-clone case — and the companion
+   (Step 3.5.3) checks everything else whenever it does run. Never a blocking
+   error — `SessionStart` cannot block startup, and both share the same
+   fail-silent contract as every other hook here.
 
 ## Rules
 

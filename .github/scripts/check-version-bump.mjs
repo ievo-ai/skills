@@ -58,7 +58,7 @@ import { readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { safeReadFileSync } from "./validators/_safe-read.mjs";
+import { safeReadFileSync, sanitizeForLog } from "./validators/_safe-read.mjs";
 
 export const PLUGIN_JSON_PATH = "plugins/ievo/.claude-plugin/plugin.json";
 export const MARKETPLACE_JSON_PATH = ".claude-plugin/marketplace.json";
@@ -243,7 +243,7 @@ export function main(
   try {
     mergeBase = getMergeBase(base, head, execImpl);
   } catch (e) {
-    errLog(`check-version-bump: failed to compute merge-base('${base}', '${head}'): ${e.message}`);
+    errLog(sanitizeForLog(`check-version-bump: failed to compute merge-base('${base}', '${head}'): ${e.message}`));
     return exit(2);
   }
 
@@ -251,7 +251,11 @@ export function main(
   try {
     result = checkVersionBump({ mergeBase, head, execImpl, readFileImpl, readdirImpl });
   } catch (e) {
-    errLog(`check-version-bump: unexpected failure while checking the bump (a git diff error, or malformed plugin.json/marketplace.json JSON): ${e.message}`);
+    errLog(
+      sanitizeForLog(
+        `check-version-bump: unexpected failure while checking the bump (a git diff error, or malformed plugin.json/marketplace.json JSON): ${e.message}`,
+      ),
+    );
     return exit(2);
   }
 
@@ -262,7 +266,7 @@ export function main(
 
   if (result.errors.length) {
     errLog("Version-bump gate FAILED:");
-    for (const e of result.errors) errLog(`  ✗ ${e}`);
+    for (const e of result.errors) errLog(sanitizeForLog(`  ✗ ${e}`));
     return exit(1);
   }
 

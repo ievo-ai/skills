@@ -34,7 +34,7 @@
 
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { safeReadFileSync } from "./_safe-read.mjs";
+import { safeReadFileSync, sanitizeForLog } from "./_safe-read.mjs";
 
 // Returns null if the buffer is valid UTF-8; otherwise the TextDecoder
 // error message. `fatal: true` makes the decoder throw on the first
@@ -62,13 +62,13 @@ export function main(argv) {
     try {
       buf = safeReadFileSync(path);
     } catch (err) {
-      console.error(`${path}: cannot read (${err.message})`);
+      console.error(sanitizeForLog(`${path}: cannot read (${err.message})`));
       totalErrors++;
       continue;
     }
     const errMsg = checkUtf8(buf);
     if (errMsg !== null) {
-      console.error(`${path}:0: invalid UTF-8 bytes (${errMsg})`);
+      console.error(sanitizeForLog(`${path}:0: invalid UTF-8 bytes (${errMsg})`));
       totalErrors++;
     }
   }

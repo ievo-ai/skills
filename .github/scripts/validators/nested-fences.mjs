@@ -24,7 +24,7 @@
 
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { safeReadFileSync } from "./_safe-read.mjs";
+import { safeReadFileSync, sanitizeForLog } from "./_safe-read.mjs";
 
 const FENCE_RE = /^(`{3,})(.*)$/;
 
@@ -81,13 +81,13 @@ function main(argv) {
     try {
       text = safeReadFileSync(path, "utf-8");
     } catch (err) {
-      console.error(`${path}: cannot read (${err.message})`);
+      console.error(sanitizeForLog(`${path}: cannot read (${err.message})`));
       totalErrors++;
       continue;
     }
     const errors = checkNestedFences(text);
     for (const e of errors) {
-      console.error(`${path}:${e}`);
+      console.error(sanitizeForLog(`${path}:${e}`));
       totalErrors++;
     }
   }

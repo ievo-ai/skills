@@ -1,5 +1,9 @@
-// _safe-read.mjs — symlink-safe, size-capped file read shared by the six
-// pre-commit validators in this directory.
+// _safe-read.mjs — symlink-safe, size-capped file read (`safeReadFileSync`)
+// plus a log-injection guard (`sanitizeForLog`), shared by the six
+// pre-commit validators in this directory and, for `sanitizeForLog` /
+// `safeReadFileSync` respectively, by check-coverage.mjs / check-version-bump.mjs
+// one directory up — both echo PR-controlled paths or JSON-parse errors
+// through the same sink and reuse this module rather than duplicating it.
 //
 // Why (symlinks): readFileSync follows symlinks by default. actions/checkout
 // (and git generally) materializes a committed symlink blob (mode 120000) as
@@ -43,6 +47,33 @@
 import { lstatSync, readFileSync } from "node:fs";
 
 export const MAX_SAFE_READ_FILE_BYTES = 10 * 1024 * 1024;
+
+// sanitizeForLog — strips control characters that would otherwise ride a
+// PR-controlled file path or file content verbatim into console.error/log
+// output (CWE-150). Every validator here echoes argv paths and/or excerpts
+// of file content it just read on a violation — both are attacker-chosen
+// on a fork PR. Left unstripped, an embedded ESC (0x1B) sequence forges
+// terminal SGR/cursor-control codes in a raw log view (`gh run view --log`),
+// and a bare CR (0x0D) or a Unicode line separator (U+2028/U+2029/U+0085)
+// lets injected text visually overwrite or split adjacent legitimate output
+// — a log-spoofing primitive, not a gate-bypass (GitHub Actions workflow
+// commands are parsed line-anchored on real \n bytes, so this does not
+// forge ::error::/::add-mask:: commands).
+//
+// Deliberately NOT the same character class as validate_skills.mjs /
+// validate_agents.mjs's CONTROL_CHAR_RE (0x00-0x08, 0x0b-0x0c, 0x0e-0x1f,
+// 0x7f) -- that pattern leaves 0x0d (CR) unstripped, which is fine for its
+// own sink (a rendered Markdown table cell) but not here: CR is exactly the
+// cursor-return primitive the log-spoofing scenario above depends on. This
+// class strips every C0 control byte except \t (0x09) and \n (0x0a) -- so
+// 0x00-0x08, 0x0b-0x1f (CR included), 0x7f -- plus the three Unicode
+// line-separator code points (U+2028/U+2029/U+0085) a raw terminal stream
+// can also act on that a Markdown-table sink doesn't need to cover.
+const LOG_UNSAFE_RE = /[\x00-\x08\x0b-\x1f\x7f\u2028\u2029\u0085]/g;
+
+export function sanitizeForLog(value) {
+  return String(value).replace(LOG_UNSAFE_RE, "");
+}
 
 export class SymlinkRejectedError extends Error {
   constructor(path, st) {

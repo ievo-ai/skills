@@ -243,7 +243,7 @@ export function main(
   try {
     mergeBase = getMergeBase(base, head, execImpl);
   } catch (e) {
-    errLog(`check-version-bump: failed to compute merge-base('${base}', '${head}'): ${e.message}`);
+    errLog(sanitizeForLog(`check-version-bump: failed to compute merge-base('${base}', '${head}'): ${e.message}`));
     return exit(2);
   }
 
@@ -251,7 +251,11 @@ export function main(
   try {
     result = checkVersionBump({ mergeBase, head, execImpl, readFileImpl, readdirImpl });
   } catch (e) {
-    errLog(`check-version-bump: unexpected failure while checking the bump (a git diff error, or malformed plugin.json/marketplace.json JSON): ${e.message}`);
+    errLog(
+      sanitizeForLog(
+        `check-version-bump: unexpected failure while checking the bump (a git diff error, or malformed plugin.json/marketplace.json JSON): ${e.message}`,
+      ),
+    );
     return exit(2);
   }
 

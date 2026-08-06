@@ -1,5 +1,9 @@
-// _safe-read.mjs — symlink-safe, size-capped file read shared by the six
-// pre-commit validators in this directory.
+// _safe-read.mjs — symlink-safe, size-capped file read (`safeReadFileSync`)
+// plus a log-injection guard (`sanitizeForLog`), shared by the six
+// pre-commit validators in this directory and, for `sanitizeForLog` /
+// `safeReadFileSync` respectively, by check-coverage.mjs / check-version-bump.mjs
+// one directory up — both echo PR-controlled paths or JSON-parse errors
+// through the same sink and reuse this module rather than duplicating it.
 //
 // Why (symlinks): readFileSync follows symlinks by default. actions/checkout
 // (and git generally) materializes a committed symlink blob (mode 120000) as

@@ -553,6 +553,16 @@ to read a real session identifier.
    manual `git add`/`commit`; a wrong auto-commit on a protected branch is
    the exact failure this step exists to prevent.
 
+   **Report this sub-case precisely.** Both branches immediately above
+   (name matched a common default, or didn't) reach your Step 5 report
+   through this `symbolic-ref`-failed fallback, where nothing was ever
+   authoritatively confirmed — report the "default-branch status could not
+   be confirmed — `origin/HEAD` unset — skipped per fail-closed" value,
+   never the plain "default branch" value. That plain value is reserved
+   for point 3's case below, where `symbolic-ref` succeeded and its result
+   was compared directly against the current branch — a real confirmation,
+   not a guess from a name list.
+
 3. **If the current branch equals the resolved (or assumed) default
    branch** → do NOT auto-commit. Fall through to today's behavior.
 
@@ -771,7 +781,7 @@ Otherwise, output a short summary to the user:
 - Upstream escalation: not applicable (local lesson) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Reusable-practice escalation: not applicable (upstream escalation already recommended above, or lesson classified local) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Extraction candidate: not applicable | detected (+ one-line cluster description for the caller to hand to `/ievo:consolidate`)
-- Auto-commit (Step 4.4): committed locally to branch `<name>` (not pushed — only the overlay file itself; the marker injection above, if any, is a separate uncommitted change on this branch) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted on branch `<name>` (default-branch status could not be confirmed — `origin/HEAD` unset — skipped per fail-closed) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (`.ievo/evo-auto.flag` present: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown` — the next SessionStart nudge will surface it; flag absent: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown`, but auto-evo mode is off in this project so no SessionStart nudge will surface it — review `.ievo/evolution-candidates/pending.md` manually)
+- Auto-commit (Step 4.4): committed locally to branch `<name>` (not pushed — only the overlay file itself; the marker injection above, if any, is a separate uncommitted change on this branch) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted on branch `<name>` (default-branch status could not be confirmed — `origin/HEAD` unset — skipped per fail-closed) | left uncommitted (not a git repository, or detached HEAD) | left uncommitted on branch `<name>` (overlay path failed safety validation — commit manually) | attempted and failed: `<reason>` (`.ievo/evo-auto.flag` present: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown` — the next SessionStart nudge will surface it; flag absent: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown`, but auto-evo mode is off in this project so no SessionStart nudge will surface it — review `.ievo/evolution-candidates/pending.md` manually)
 - Suggested next step: if Step 4.4 committed: "Committed locally to branch `<name>` (not pushed) — push whenever you push the rest of your work on this branch." else: "Review with `git diff` and commit if satisfied."
 
 ## Rules

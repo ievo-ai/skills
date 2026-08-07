@@ -125,11 +125,23 @@ both funnel through the same Step 4 → 5 → 5.4 sequence.
 4. **If the current branch is a non-default feature branch** → stage and
    commit ONLY the overlay file this invocation touched (the exact path
    Step 3/4 wrote to — never `git add -A`/`git add .`, which could sweep up
-   unrelated in-progress work): `git add <overlay-file-path> && git commit
-   -m "docs(evolution): <short title from Step 4>"`. Local commit only —
-   **never `git push`**. Pushing is a visible, external action; committing
-   locally is cheap to inspect and trivially reversible
-   (`git reset --soft HEAD~1`) if the user doesn't want it.
+   unrelated in-progress work):
+   ```
+   git add <overlay-file-path>
+   git commit --only <overlay-file-path> -m "docs(evolution): <short title from Step 4>"
+   ```
+   **`--only` is required, not optional decoration.** Verified empirically:
+   plain `git commit` after `git add <path>` commits the **entire index**,
+   not just the path just staged — if the user already had unrelated work
+   staged (e.g. mid-rebase, or their own in-progress `git add`), a bare
+   `git add <path> && git commit -m ...` would silently sweep that
+   unrelated staged content into this docs-only commit too. `git commit
+   --only <path>` commits changes to exactly that path and leaves
+   everything else in the index untouched — confirmed by reproducing both
+   behaviors side by side in a scratch repo with a pre-staged unrelated
+   file. Local commit only — **never `git push`**. Pushing is a visible,
+   external action; committing locally is cheap to inspect and trivially
+   reversible (`git reset --soft HEAD~1`) if the user doesn't want it.
 5. **If the commit fails** (pre-commit hook rejects it, nothing to commit
    because the file was already staged/committed by something else, or any
    other non-zero exit) — this is non-fatal. Do not retry, do not force
@@ -165,6 +177,11 @@ both funnel through the same Step 4 → 5 → 5.4 sequence.
 
 - **Never `git add -A` or `git add .`.** Stage only the single overlay
   file path this invocation wrote to.
+- **Always `git commit --only <path>`, never a bare `git commit`.**
+  Verified empirically: a bare `git commit` after `git add <path>` commits
+  the whole index, including any unrelated content the user already had
+  staged — `--only` is the sole guarantee this commit contains exactly the
+  overlay file and nothing else.
 - **Never push.** The commit is local; pushing stays entirely the user's
   own action, same as today.
 - **Never `--no-verify` / skip hooks.** If a project's pre-commit hooks

@@ -131,13 +131,18 @@ Awaiting scope classification (from earlier auto-capture, reviewed via
 Already captured, only the commit failed (`evo/SKILL.md` Step 5.4's
 headless-invocation fallback — the overlay entry was already written
 successfully; this just needs a manual `git add` + `git commit --only`
-on the noted file, never re-run through Step 0/1 classification):
-
-## <ISO-8601 UTC> — session <session-id>
-- Scope: autocommit-failed
-- Overlay file: <path>
-- Branch: <branch-name>
-- Reason: <failure reason>
+on the noted file, never re-run through Step 0/1 classification). Format:
+a `## <ISO-8601 UTC> — session <session-id>` heading followed by four
+fields — `Scope: autocommit-failed`, `Overlay file: <path>`,
+`Branch: <branch-name>`, `Reason: <failure reason>` — see `evo/SKILL.md`
+Step 5.4 point 5 for the authoritative field list. Deliberately described
+in prose here, not reproduced as a standalone block: a literal
+`- Scope: autocommit-failed` line written into this very scaffold would
+itself exact-match the nudge script's detector below (Step 3.5.3) on
+every freshly created `pending.md` — faking a false-positive "commit
+needed" nudge starting at session one, before any real entry ever
+existed. If you add a worked example back here later, keep the `Scope`
+value out of a standalone line (e.g. inline it in prose, as above).
 ```
 
 ### 3.5 Install the correction-capture + analysis + failure-capture hooks

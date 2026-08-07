@@ -111,7 +111,9 @@ stop this. Fetch this way instead — no untrusted byte ever crosses a shell:
    `..`/`@{`) before any further use. Refuse and report if it fails. Only
    then call `gh api "repos/<owner>/<repo>/commits/<default-branch>" --jq
    '.sha'` and validate the result matches `^[0-9a-f]{7,40}$` — this becomes
-   the `commit_sha` recorded in sub-step 4 above.
+   the `commit_sha` recorded in §9a's numbered "Skill:" list, step 4 above
+   (not a "How to fetch the tree" sub-step — this list has its own, unrelated
+   step 4 further down).
 3. **Shallow-clone into a fresh, per-invocation `mktemp -d` directory** —
    never a shared checkout path:
    ```bash
@@ -120,7 +122,113 @@ stop this. Fetch this way instead — no untrusted byte ever crosses a shell:
    git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>
    git -C "$CHECKOUT_DIR" checkout <commit-sha>
    ```
-4. **For a skill** (`<source-path-in-repo>` is the skill's directory):
+4. **Check for a symlink at, under, or anywhere on the way to
+   `<source-path-in-repo>` before enumerating or reading anything.** Git
+   preserves a symlink as an ordinary tree entry (mode `120000`); if the
+   checkout materializes it as a real OS-level symlink, sub-step 5's
+   Glob/Read (or sub-step 6's single Read) follows it like any other file —
+   so a malicious plugin repo can ship, say,
+   `<source-path-in-repo>/assets/logo.png` as a symlink to `~/.ssh/id_rsa`
+   or `~/.aws/credentials`, and that secret's *contents* (not the plugin's
+   own file) flow into context and, if nothing downstream catches it, get
+   written into the project's own trusted `.claude/skills/`/`.claude/agents/`
+   tree. Check this via the git index, not the filesystem — a no-follow
+   filesystem check (e.g. `find -type l`) would need `<source-path-in-repo>`
+   interpolated into a Bash command line, which the note below forbids,
+   since it is exactly as untrusted as any other value drawn from this
+   repo's tree:
+   ```bash
+   git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'
+   ```
+   Run it with **no path argument** — `$CHECKOUT_DIR` alone is
+   `mktemp`-generated and safe to pass to `-C`, so no untrusted byte reaches
+   the shell here either — with `-c core.quotePath=false` (see the quoting
+   paragraph below), and with the trailing `| grep '^120000'` exactly as
+   shown: a fixed, literal pattern, not a value built from
+   `<source-path-in-repo>` or anything else untrusted, so it adds no
+   injection surface. It exists to bound the size of what you have to read,
+   not to filter out anything a plain `ls-files -s` wouldn't also show you:
+   a large or padded upstream repo can carry thousands of tracked files, and
+   reasoning over an unfiltered listing that size risks the Bash tool
+   truncating its own output before a symlink entry buried in it ever
+   reaches you — silently defeating this whole check. Piping through this
+   fixed filter bounds the returned text to the symlink entries alone, so
+   the check's completeness no longer depends on the repo's total file
+   count. `grep` prints nothing and exits **1** when it matches no line, and
+   that empty result IS the pass case — the index carries no symlink at
+   all — not a command failure to retry, to re-run without the filter, or
+   to work around.
+
+   `-c core.quotePath=false` is load-bearing for the same reason the `grep`
+   is: without it the check silently fails to match the very entries it
+   exists to catch. `core.quotePath` **defaults to on**, and git then
+   C-quotes any path holding a byte over 0x7F — wrapping the whole path in
+   double quotes and octal-escaping the byte — so a symlink at
+   `evil-plügin/assets/foo` prints as the literal
+   `"evil-pl\303\274gin/assets/foo"`, which is equal to, under, and an
+   ancestor of *nothing*: all three comparisons below miss it, and sub-step
+   5's Glob then follows the link. Setting `core.quotePath=false` stops git
+   treating high bytes as unusual, so those paths come back raw and
+   comparable (verified on git 2.54.0; the same default is why
+   `deep-review/SKILL.md` passes `-z` to its own `ls-files`).
+
+   That flag narrows the quoting, it does not end it: **double quotes,
+   backslash and control characters are escaped regardless of
+   `core.quotePath`**, so a symlink at `q"dir/bar`, `back\slash/x`, or a path
+   containing a TAB or newline still comes back quoted —
+   `"q\"dir/bar"`, `"back\\slash/x"`, `"nl\nfile"` (all verified on git
+   2.54.0). Those you cannot compare either, and an embedded newline would
+   additionally split one entry across what look like two lines. So **fail
+   closed**: if the path field of any returned line still begins with a `"`
+   after the flag, do NOT try to unescape it and do NOT ignore it — refuse
+   to vendor exactly as if it had matched. This is deliberately
+   conservative: it can refuse a repo whose only quoted symlink lies outside
+   `<source-path-in-repo>` entirely, which is the correct trade when the
+   alternative is reasoning about containment from a path you cannot
+   reliably reconstruct. The `grep '^120000'` filter keeps that conservatism
+   cheap — only symlink entries are ever considered, so an ordinary file
+   with an awkward name never triggers a refusal.
+
+   Then inspect the returned listing yourself (it is data you reason over,
+   not a command you build): each line is `<mode> <sha> <stage>`, a TAB,
+   then the entry's repo-relative path, so take the path after the TAB
+   (having applied the still-quoted refusal above), strip any trailing `/`
+   from it AND from `<source-path-in-repo>` (the skill case writes
+   `<source-path-in-repo>` as a directory, the agent case as a single file —
+   normalize both sides before comparing anything), and compare the two as
+   `/`-separated **segment** lists. Refuse the whole item — do NOT run
+   sub-step 5 or 6 below — when a listed entry is **equal to**
+   `<source-path-in-repo>` (the target itself is a symlink), **under**
+   `<source-path-in-repo>` (its segments begin with
+   `<source-path-in-repo>`'s — the skill case's whole tree, e.g. a symlinked
+   file inside the skill directory), **or an ancestor of**
+   `<source-path-in-repo>` (`<source-path-in-repo>`'s segments begin with
+   the listed entry's — the link sits on the path you are about to walk
+   *through*). The slash normalization and the ancestor branch are not
+   belt-and-braces: each closes a distinct instance of the very attack this
+   sub-step blocks, because git indexes a symlinked *directory* as a
+   **single** `120000` entry for the directory itself — no trailing slash,
+   and nothing "inside" it tracked at all, since git never descends through
+   a symlink. A repo shipping the skill directory `<source-path-in-repo>`
+   as a link to `~/.ssh` therefore yields the one line
+   `<source-path-in-repo>` itself, already caught by the equals check above;
+   shipping an ancestor of it instead — e.g. the whole `skills/` directory —
+   yields a line SHORTER than `<source-path-in-repo>`, which no
+   equals-or-starts-with test can ever match — the ancestor branch is what
+   catches those. In every one of those cases sub-step 5's Glob on
+   `$CHECKOUT_DIR/<source-path-in-repo>` would otherwise resolve straight
+   through the link and enumerate its target. Compare by segment rather
+   than by raw character prefix so that a sibling entry such as
+   `<source-path-in-repo>-notes`, which shares a character prefix with
+   `<source-path-in-repo>` but lies neither under it nor on the way to it,
+   does not trip the check. A listing whose lines all fall outside every one
+   of these relations means the checkout has symlinks elsewhere in the repo
+   that this item doesn't touch — not a reason to refuse. If you refuse,
+   that's this item's per-item failure (§ opening paragraph above — report
+   and continue with the next, do NOT abort the flow): log it as `FAILED:
+   symlink entry detected` in the `<ok|FAILED: reason>` slot
+   (log-format.md §9).
+5. **For a skill** (`<source-path-in-repo>` is the skill's directory):
    enumerate `$CHECKOUT_DIR/<source-path-in-repo>` with the **Glob tool**
    (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source-path-in-repo>"` — never a
    Bash `find`/`ls`). For each match, compute its path relative to
@@ -129,20 +237,26 @@ stop this. Fetch this way instead — no untrusted byte ever crosses a shell:
    (skip that file) if it does. A normal git tree entry can't produce this
    (git itself refuses a bare `..` tree component), but a symlinked or
    otherwise crafted entry inside the candidate's own repo should not be
-   trusted over the check. Then **Read** each verified file and **Write** it
+   trusted over the check (sub-step 4 above already refused any such entry
+   before this Glob ever ran — this check catches a different threat,
+   relative-path forgery in the entry's *name*, not an entry that's actually
+   a symlink). Then **Read** each verified file and **Write** it
    to the matching relative location under the platform's vendor root (§9a
    above — `.claude/skills/<name>/` on Claude Code, `.agents/skills/<name>/`
    on Codex).
-5. **For an agent** (`<source-path-in-repo>` is the single agent `.md` file,
+6. **For an agent** (`<source-path-in-repo>` is the single agent `.md` file,
    not a directory — Glob-enumerating a file path returns nothing): **Read**
    `$CHECKOUT_DIR/<source-path-in-repo>` directly with the **Read tool**, then
    **Write** its content to `<project>/.claude/agents/<name>.md`.
 
 Glob and Read/Write all take paths as direct parameters, never shell text, so
 neither a malicious `<source-path-in-repo>` nor a malicious file name inside
-it can reach a shell — and the sub-step 4 relative-path check keeps a
-crafted tree entry from resolving outside the vendor root, while the
-`<name>` validation above keeps a crafted `<name>` from doing the same.
+it can reach a shell — the sub-step 5 relative-path check keeps a crafted
+tree-entry *name* from resolving outside the vendor root on write, the
+sub-step 4 symlink check keeps a crafted tree-entry *type* from resolving
+outside the checkout entirely on read (a different threat — see sub-step 4),
+and the `<name>` validation above keeps a crafted `<name>` from doing either
+via the Write side.
 
 If cloning or resolution fails (private repo, no network), report the
 failure — do NOT fall back to per-file `gh api` fetching, which reintroduces
@@ -152,7 +266,8 @@ the injection this replaces.
 are dropped with a visible reason at SKILL.md Step 7a's platform filter and
 never reach this step; Codex documents no project-level custom-agent path):
 - `<source-path-in-repo>` is the single agent `.md` file (not a directory) —
-  fetch it via "How to fetch the tree" sub-step 5, not sub-step 4
+  fetch it via "How to fetch the tree" sub-step 6, not sub-step 5. Sub-step 4's
+  symlink-containment check runs first regardless, same as the skill case.
 - File path: `<project>/.claude/agents/<name>.md`
 - Overlay marker inserted in the agent body (after frontmatter)
 - Overlay file path: `.ievo/evolution/agents/<name>.md`

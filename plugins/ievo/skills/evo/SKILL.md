@@ -505,30 +505,26 @@ review of an earlier session's auto-captured candidate.
    When it **fails** (no remote configured, or a detached remote HEAD —
    exits 128 with `fatal: ref refs/remotes/origin/HEAD is not a symbolic
    ref`), there is no way to positively confirm the current branch is a
-   non-default feature branch. In that case, check whether the current
-   branch name is one of the common default names: `main`, `master`,
-   `trunk`, `develop`.
-   - Name matches → treat it as the default branch (skip auto-commit,
-     same as a confirmed match in step 3).
-   - Name does **not** match → still treat it as the default branch and
-     skip auto-commit. Nothing here positively rules out default-branch
-     status, and the fail-closed rule below applies precisely because
-     `symbolic-ref` gave no answer at all.
+   non-default feature branch. Treat it as the default branch and skip
+   auto-commit unconditionally — do not fall back to guessing from the
+   branch name (`main`/`master`/`trunk`/`develop`): a name match and a
+   non-match both land on the same "can't positively rule out
+   default-branch status" outcome below, so the name check decides
+   nothing and only adds a branch that never changes the result.
 
    **Fail closed:** whenever default-branch status can't be positively
    ruled out, skip auto-commit. A missed auto-commit costs the user one
    manual `git add`/`commit`; a wrong auto-commit on a protected branch
    is the exact failure this step exists to prevent.
 
-   **Report this sub-case precisely.** Both branches immediately above
-   (name matched a common default, or didn't) reach Step 6 through this
-   `symbolic-ref`-failed fallback, where nothing was ever authoritatively
-   confirmed — report Step 6's "default-branch status could not be
-   confirmed — `origin/HEAD` unset — skipped per fail-closed" value, never
-   the plain "default branch" value. That plain value is reserved for
-   point 3's case below, where `symbolic-ref` succeeded and its result was
-   compared directly against the current branch — a real confirmation,
-   not a guess from a name list.
+   **Report this sub-case precisely.** This `symbolic-ref`-failed fallback
+   reaches Step 6 with nothing ever authoritatively confirmed — report
+   Step 6's "default-branch status could not be confirmed — `origin/HEAD`
+   unset — skipped per fail-closed" value, never the plain "default
+   branch" value. That plain value is reserved for point 3's case below,
+   where `symbolic-ref` succeeded and its result was compared directly
+   against the current branch — a real confirmation, not a guess from a
+   name list.
 
 3. **If the current branch equals the resolved (or assumed) default
    branch** → do NOT auto-commit. Fall through to today's behavior — this

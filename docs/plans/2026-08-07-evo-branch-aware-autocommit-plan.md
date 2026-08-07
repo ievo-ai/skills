@@ -475,7 +475,7 @@ git commit -m "fix: correct Step 5.4 / nudge prose found during dry-run validati
 - [ ] **Step 1: Placeholder scan**
 
 ```bash
-grep -n 'TBD\|TODO\|<owner>/<repo>' plugins/ievo/skills/evo/SKILL.md | grep -A0 -B0 'Step 5.4'
+grep -n 'TBD\|TODO\|<owner>/<repo>' plugins/ievo/skills/evo/SKILL.md | grep -A0 -B0 'Step 5.4'  # placeholder-ok: shell example scanning for placeholders, not a placeholder itself
 ```
 
 Expected: no output (the new Step 5.4 section introduces no placeholders — every `<...>` in it is a documented substitution the agent fills from Step 4's already-known values, not an unfinished spot).

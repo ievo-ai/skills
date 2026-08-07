@@ -129,7 +129,7 @@ here: the handoff is **never** delegated to the `evolution` sub-agent — see th
 exception under "On Claude Code with the iEvo plugin" above.
 
 This handoff is **overlay-only**. Go straight to Step 4 (append to
-`.ievo/evolution/skills/<name>.md`), then Steps 5, 5.5, 5.6, 5.7 as usual.
+`.ievo/evolution/skills/<name>.md`), then Steps 5, 5.4, 5.5, 5.6, 5.7 as usual.
 Skip Steps 1.5, 2, and 2.5 **unconditionally** — no user-level copy prompt, no
 vendoring, no security re-audit. Vendoring `init` or `evo-auto-enable` into
 `.claude/skills/`|`.agents/skills/` would shadow the plugin's own live copy
@@ -462,6 +462,178 @@ Pick one from this list (or write a short custom string if none fits):
 
 If unclear from the conversation, default to `user-observed mistake` or `user-defined convention` based on lesson tone.
 
+## Step 5.4: Auto-commit on a feature branch
+
+By this point Step 4 has appended the lesson to the overlay file and Step 5
+has resolved and filled in its `Trigger` field — the overlay entry's
+content is now final. This step decides whether to fold that file change
+into a git commit on the current branch, so a lesson capture never needs
+its own dedicated branch/PR. It runs **after** Step 5, not between Step 4
+and Step 5: Step 4's template writes `**Trigger:** <placeholder>` literally,
+and committing before Step 5 fills that in would commit the placeholder
+text instead of the real value.
+
+This step needs no session context beyond the overlay file path Step 4
+wrote to and the repo's current git state — it runs identically whether
+the lesson came from a live manual `/ievo:evo` call or from Step 0's
+review of an earlier session's auto-captured candidate.
+
+1. **Resolve the current branch:**
+   ```
+   git branch --show-current
+   ```
+   Two distinct "can't proceed" signals, verified against real git
+   behavior — check for both:
+   - Inside a git repo but in detached HEAD: exits **0** with **empty
+     stdout**. Check the output, not the exit code.
+   - Outside a git repo entirely: exits **128** with a
+     `fatal: not a git repository` stderr message.
+
+   Either signal → skip the rest of this step entirely. Fall through to
+   today's behavior: the overlay file stays edited/uncommitted, and
+   Step 6 reports it as such.
+
+2. **Resolve the repo's default branch — never hardcode `main`:**
+   ```
+   git symbolic-ref refs/remotes/origin/HEAD
+   ```
+   Strip the `refs/remotes/origin/` prefix from the output (e.g.
+   `refs/remotes/origin/main` → `main`). When this succeeds, its result
+   is authoritative — compare it directly against the current branch in
+   step 3.
+
+   When it **fails** (no remote configured, or a detached remote HEAD —
+   exits 128 with `fatal: ref refs/remotes/origin/HEAD is not a symbolic
+   ref`), there is no way to positively confirm the current branch is a
+   non-default feature branch. In that case, check whether the current
+   branch name is one of the common default names: `main`, `master`,
+   `trunk`, `develop`.
+   - Name matches → treat it as the default branch (skip auto-commit,
+     same as a confirmed match in step 3).
+   - Name does **not** match → still treat it as the default branch and
+     skip auto-commit. Nothing here positively rules out default-branch
+     status, and the fail-closed rule below applies precisely because
+     `symbolic-ref` gave no answer at all.
+
+   **Fail closed:** whenever default-branch status can't be positively
+   ruled out, skip auto-commit. A missed auto-commit costs the user one
+   manual `git add`/`commit`; a wrong auto-commit on a protected branch
+   is the exact failure this step exists to prevent.
+
+   **Report this sub-case precisely.** Both branches immediately above
+   (name matched a common default, or didn't) reach Step 6 through this
+   `symbolic-ref`-failed fallback, where nothing was ever authoritatively
+   confirmed — report Step 6's "default-branch status could not be
+   confirmed — `origin/HEAD` unset — skipped per fail-closed" value, never
+   the plain "default branch" value. That plain value is reserved for
+   point 3's case below, where `symbolic-ref` succeeded and its result was
+   compared directly against the current branch — a real confirmation,
+   not a guess from a name list.
+
+3. **If the current branch equals the resolved (or assumed) default
+   branch** → do NOT auto-commit. Fall through to today's behavior — this
+   is the protected-`main` case a PR-only repo relies on; auto-committing
+   here would recreate the exact pain this feature exists to remove, from
+   the opposite direction.
+
+4. **If the current branch is a confirmed non-default feature branch:**
+   first validate `<overlay-file-path>` (the exact path Step 4 wrote to —
+   `.ievo/evolution/project.md`, `.ievo/evolution/agents/<name>.md`, or
+   `.ievo/evolution/skills/<name>.md`) against
+   `^\.ievo/evolution/(project\.md|(agents|skills)/[A-Za-z0-9._-]+\.md)$`
+   before it reaches a command line. This is required, not optional: for
+   agent/skill scope, `<name>` traces back to a target name Step 1 resolved
+   — either the user's own text, or a match against an existing local
+   agent/skill filename, which a prior vendoring pass (Step 2's "How to
+   fetch source") could have populated from an untrusted plugin repo's own
+   tree, itself documented there as capable of holding almost any byte,
+   including shell metacharacters. If validation fails, treat this like any
+   other "can't proceed" signal in this step: skip auto-commit, fall
+   through to today's behavior, and say so in Step 6's report (`left
+   uncommitted — overlay path failed safety validation, commit manually`).
+   Only once it passes:
+   ```
+   git add <overlay-file-path>
+   git commit --only <overlay-file-path> -m "docs(evolution): <overlay-file-path>"
+   ```
+   The commit message reuses the now-validated path itself, never the
+   lesson's free-text short title — a title can legally contain shell
+   metacharacters (backticks, `$(...)`) that a double-quoted `-m` string
+   does not neutralize, the same class of hazard Step 2's vendor-fetch
+   validation exists to close.
+
+   **`--only` is required, not optional.** Verified empirically: a bare
+   `git commit` after `git add <path>` commits the entire index, not just
+   the path just staged — if the user already had unrelated work staged
+   (mid-rebase, or their own separate `git add`), a bare commit would
+   silently sweep that into this docs-only commit too. `git commit --only
+   <path>` commits exactly that path and leaves everything else in the
+   index untouched.
+
+   Local commit only — **never `git push`** (see Rules). Committing
+   locally is cheap to inspect and trivially reversible
+   (`git reset --soft HEAD~1`) if the result isn't wanted; pushing is a
+   visible, external action that stays entirely the user's own call.
+
+5. **If the commit fails** (pre-commit hook rejects it, or any other
+   non-zero exit) — non-fatal. Do not retry. Do not add `--no-verify`
+   (see Rules). `git commit` is atomic — a failed commit never partially
+   commits, so the overlay file's content is never lost, only left
+   uncommitted/staged. What happens next depends on whether a human can
+   read the outcome right now:
+
+   - **Interactive session** — do nothing further here; Step 6 reports
+     the failure reason, and the user sees it immediately and can
+     fix/retry themselves.
+   - **Headless/autonomous invocation** — same no-interactive-session
+     detection Step 2.5 already uses (a self-contained invocation prompt
+     like an `/ievo:schedule` Routine's "You are running a scheduled iEvo
+     operation," or any other headless/CI context where nothing reads
+     output synchronously): **never block or retry.** Append a new entry
+     to `.ievo/evolution-candidates/pending.md` (create the file with
+     `evo-auto-enable/SKILL.md` Step 3's scaffold first if it doesn't
+     exist yet) in this format:
+     ```markdown
+
+     ## <ISO-8601 UTC> — session <session-id>
+     - Scope: autocommit-failed
+     - Overlay file: <overlay-file-path>
+     - Branch: <branch-name>
+     - Reason: <failure reason, truncated to one line>
+     ```
+     Write these four field lines flush-left, with no leading or trailing
+     whitespace — `evo-auto-enable/SKILL.md` Step 3.5.3's nudge detector
+     matches `^- Scope: autocommit-failed$` exactly (anchored, no
+     whitespace tolerance), so an indented copy of this fenced example
+     would silently never be picked up.
+
+     `Scope: autocommit-failed` is a distinct value from the existing
+     `ambiguous`/`user-level-only` scopes — this candidate isn't awaiting
+     scope classification, it's already-classified content that just
+     needs a manual commit. Continue the calling flow immediately after
+     appending; do not wait for the entry to be reviewed.
+
+     **This has a precondition.** `evo-analysis-nudge.sh`'s SessionStart
+     nudge (`evo-auto-enable` Step 3.5.3) is what surfaces this to a
+     human, the next time an interactive session starts in this repo —
+     but only in a project where `/ievo:evo-auto-enable` has actually
+     been run: that script's own first line is `[ -f .ievo/evo-auto.flag ]
+     || exit 0`, so a project without the flag never runs the nudge at
+     all, no matter how many `autocommit-failed` entries pile up in
+     `pending.md`. Before finishing this step, check whether
+     `.ievo/evo-auto.flag` exists (Read or Glob tool — this is a fixed,
+     known path, not a value that needs a Bash command):
+     - **Flag present:** nothing else to do here — the next interactive
+       session's nudge will surface this entry.
+     - **Flag absent:** still append the entry (a human may find it
+       manually later, or enable auto-evo mode afterward), but Step 6's
+       report for this capture must say so plainly instead of implying
+       the nudge will catch it — see Step 6's updated template below.
+
+6. **Update what Step 6 reports** — see Step 6's revised template below;
+   it now states the auto-commit outcome precisely instead of always
+   pointing at a manual `git diff`.
+
 ## Step 5.5: Signal file for lifecycle hooks
 
 After the overlay append in Step 4 succeeds, write `.ievo/hooks/evolution-captured` (create the directory if absent). The body is a single line: the ISO-8601 UTC timestamp of the capture. This file is the trigger for any `PostToolUse` hook configured via `/ievo:hooks-setup` matching `Write(.ievo/hooks/evolution-captured)`.
@@ -590,10 +762,11 @@ Otherwise, output a short summary to the user:
 - **Overlay file:** path
 - **Marker injected:** yes (first evolution for this target) | no (already present)
 - **Section title added:** "<title>"
+- **Auto-commit (Step 5.4):** committed locally to branch `<name>` (not pushed — only the overlay file itself; the marker injection above, if any, is a separate uncommitted change on this branch) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted on branch `<name>` (default-branch status could not be confirmed — `origin/HEAD` unset — skipped per fail-closed) | left uncommitted (not a git repository, or detached HEAD) | left uncommitted on branch `<name>` (overlay path failed safety validation — commit manually) | attempted and failed: `<reason>` (interactive: fix and retry yourself; headless with `.ievo/evo-auto.flag` present: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed` — the next SessionStart nudge will surface it; headless with the flag absent: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, but auto-evo mode is off in this project so no SessionStart nudge will surface it — review `.ievo/evolution-candidates/pending.md` manually)
 - **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Reusable-practice escalation:** not applicable (Step 5.6 already offered, or lesson classified local) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Extraction offer:** not applicable (no cluster detected) | offered → handed off to `/ievo:consolidate` | offered → skipped
-- **Next:** "Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."
+- **Next:** if Step 5.4 committed: `"Committed locally to branch <name> (not pushed) — push whenever you push the rest of your work on this branch."` else: ``"Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."``
 
 ## Rules
 
@@ -606,6 +779,7 @@ Otherwise, output a short summary to the user:
 - **Project-wide overlay is shared.** All project-wide rules accumulate in one `project.md`. No splitting by topic — chronological with `## Trigger` field for context.
 - **Never interpolate a path — `<owner>`, `<repo>`, or the target `<path>` — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read/write with the Read/Write tools instead — see § "How to fetch source" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
 - **Re-audit gates vendoring, not every capture.** Step 2.5 only applies when Step 2 is vendoring fresh content from a plugin — an already-local target, a project-wide lesson, or a platform-mismatch self-check handoff (Step 1's carve-out, which never vendors) skips it entirely. A YELLOW/RED verdict that isn't explicitly overridden aborts the whole capture (no overlay write, no marker injection) — never fabricate a lower verdict, or silently write anyway, to force the capture through.
+- **Auto-commit (Step 5.4) stays local, scoped, and never forces past a rejection.** Stage only the exact overlay file path Step 4 wrote to — never `git add -A`/`git add .`, which could sweep unrelated in-progress work into a docs-only commit. Never `git push` the commit it makes — committing locally is the whole point (cheap to inspect, trivially reversible); pushing stays the user's own call. Never pass `--no-verify` (or any other bypass) to force a commit past a failing pre-commit hook — a rejected commit is a signal for the user to look at, not an obstacle to route around; report it (Step 6) and stop.
 
 ## Why overlay model
 

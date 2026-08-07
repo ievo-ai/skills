@@ -119,11 +119,25 @@ you have folded into an overlay.
 Retention: candidates from the last 10 sessions are kept; older per-session
 candidate files are cleaned up (suggest cleanup, never delete without asking).
 
-Each parked candidate is appended below as:
+Each parked candidate is appended below as one of two kinds:
+
+Awaiting scope classification (from earlier auto-capture, reviewed via
+`/ievo:evo`'s Step 0):
 
 ## <ISO-8601 UTC> — session <session-id>
 - Scope: ambiguous | user-level-only
 - Correction: <verbatim user correction / lesson text>
+
+Already captured, only the commit failed (`evo/SKILL.md` Step 5.4's
+headless-invocation fallback — the overlay entry was already written
+successfully; this just needs a manual `git add` + `git commit --only`
+on the noted file, never re-run through Step 0/1 classification):
+
+## <ISO-8601 UTC> — session <session-id>
+- Scope: autocommit-failed
+- Overlay file: <path>
+- Branch: <branch-name>
+- Reason: <failure reason>
 ```
 
 ### 3.5 Install the correction-capture + analysis + failure-capture hooks
@@ -553,7 +567,17 @@ else
   note_missing "$HOOKS_FILE itself (no hook config file at all)"
 fi
 
-[ "$n" -gt 0 ] || [ -n "$missing" ] || exit 0
+# Separately check pending.md for autocommit-failed entries (evo/SKILL.md
+# Step 5.4's headless-invocation fallback) -- these are already-classified
+# overlay writes whose commit failed, not candidates awaiting scope
+# classification, so the accumulator's own count above never sees them.
+PENDING=".ievo/evolution-candidates/pending.md"
+autocommit_note=""
+if [ -f "$PENDING" ] && grep -q '^- Scope: autocommit-failed$' "$PENDING" 2>/dev/null; then
+  autocommit_note=" Some entries in .ievo/evolution-candidates/pending.md are Scope: autocommit-failed -- a previous run captured a lesson successfully (the overlay entry is already written) but its auto-commit failed; review the entry for the file/branch/reason and commit it manually, do NOT re-run it through Step 0/1 classification."
+fi
+
+[ "$n" -gt 0 ] || [ -n "$missing" ] || [ -n "$autocommit_note" ] || exit 0
 
 if [ -n "$missing" ]; then
   # Deliberately hedged: this list covers partial drift too (one missing hook
@@ -566,9 +590,13 @@ if [ -n "$missing" ] && [ "$n" -gt 0 ]; then
   msg="${drift_msg} Separately, ${n} evolution candidate(s) captured in earlier sessions are still pending review -- offer /ievo:evo for those too once wiring is repaired."
 elif [ -n "$missing" ]; then
   msg="$drift_msg"
-else
+elif [ "$n" -gt 0 ]; then
   msg="iEvo auto-evolution: ${n} evolution candidate(s) captured in earlier sessions are pending review. Offer to run /ievo:evo to fold them in -- for each candidate apply Step 1 scope classification: auto-write ONLY unambiguous project-wide lessons to .ievo/evolution/project.md; park anything ambiguous or user-level in .ievo/evolution-candidates/pending.md for manual review. Never write agent/skill or user-level overlays silently. Candidates with scope=tool-failure are captured mechanical tool signals (tool failures/denials on Claude Code, approval requests on Codex), not corrections -- apply a signal-then-fixed-vs-noise judgment before folding one in: a signal later resolved toward the same goal is learnable, a signal inside normal iteration is noise. Remove each candidate from its session file as you consume it."
+else
+  msg="iEvo auto-evolution:"
 fi
+
+msg="${msg}${autocommit_note}"
 
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
 exit 0

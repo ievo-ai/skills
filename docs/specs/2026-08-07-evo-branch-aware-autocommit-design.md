@@ -38,9 +38,9 @@ output synchronously) — a failed auto-commit cannot block or retry-loop
 an autonomous cycle. See the failure-handling branch in step 5 below,
 which touches `evo-analysis-nudge.sh` in addition to `evo/SKILL.md`.
 
-## Context available to each step (why Step 4.5 needs none of it)
+## Context available to each step (why Step 5.4 needs none of it)
 
-Step 4.5 itself is context-free by design: it only consumes the file path
+Step 5.4 itself is context-free by design: it only consumes the file path
 Step 4 just wrote and the current `git branch --show-current` — pure git
 mechanics, no session history required. The scope-classification decision
 (Step 1, unchanged by this design) is a different matter, and its context
@@ -60,7 +60,7 @@ varies by entry path:
   classification can't confidently place is parked in `pending.md` rather
   than guessed.
 
-**Consequence for Step 4.5:** when a Step 0 review runs in a new session,
+**Consequence for Step 5.4:** when a Step 0 review runs in a new session,
 the branch active at that moment may have nothing to do with whatever
 branch was checked out when the original correction happened (that branch
 may already be merged and gone). This is fine, not a gap: an overlay entry
@@ -72,20 +72,36 @@ PR."
 
 ## Design
 
-Insert a new **Step 4.5** in `evo/SKILL.md`, immediately after Step 4
-(append the lesson to the overlay file) and before Step 5 (determine
-Trigger value). Because Step 0 (auto-evolution candidate intake) already
-runs each candidate through "Steps 1–5.7 as its own lesson," this step is
-automatically inherited by the auto-capture path with no separate case
-needed — manual `/ievo:evo` and auto-write both funnel through the same
-Step 4 → 4.5 sequence.
+Insert a new **Step 5.4** in `evo/SKILL.md`, immediately after Step 5
+(determine the Trigger value) and before Step 5.5 (signal file for
+lifecycle hooks) — **not** between Step 4 and Step 5. This placement is
+load-bearing, not cosmetic: Step 4's "Append the new section" template
+writes `**Trigger:** <user-observed mistake / user-defined convention /
+vendored / etc.>` as a literal placeholder; Step 5 is what actually
+resolves and fills in that field. Committing between Step 4 and Step 5
+(the original draft of this doc's mistake, caught while grounding this
+plan against the real file) would commit an overlay entry with that
+placeholder text still in it, never the real Trigger value. Steps 5.5
+onward touch other files (the `.ievo/hooks/evolution-captured` signal
+file, upstream-escalation hand-offs) or a separate skill entirely
+(`/ievo:consolidate`), not the overlay file itself, so the overlay's
+content is fully settled once Step 5 completes — that is the correct,
+and only correct, point to commit it. Because Step 0 (auto-evolution
+candidate intake) already runs each candidate through "Steps 1–5.7 as
+its own lesson," this step is automatically inherited by the auto-capture
+path with no separate case needed — manual `/ievo:evo` and auto-write
+both funnel through the same Step 4 → 5 → 5.4 sequence.
 
-**Step 4.5 — Auto-commit on a feature branch:**
+**Step 5.4 — Auto-commit on a feature branch:**
 
-1. Resolve the current branch: `git branch --show-current`. Empty output
-   (detached HEAD) or a non-zero exit (not a git repo) → skip this step
-   entirely, fall through to today's behavior (leave the file edited,
-   Step 6 reports it as an uncommitted change).
+1. Resolve the current branch: `git branch --show-current`. Verified
+   behavior (two distinct signals, not one): inside a git repo but in
+   detached HEAD, the command exits **0** with **empty stdout** — check
+   the output, not the exit code, for this case. Outside a git repo
+   entirely, it exits **128** with a `fatal: not a git repository` stderr
+   message. Either signal (empty output, or non-zero exit) → skip this
+   step entirely, fall through to today's behavior (leave the file
+   edited, Step 6 reports it as an uncommitted change).
 2. Resolve the repo's default branch — never hardcode `main`. Prefer
    `git symbolic-ref refs/remotes/origin/HEAD` (strip the `refs/remotes/origin/`
    prefix) — when this succeeds, its result is authoritative; compare it

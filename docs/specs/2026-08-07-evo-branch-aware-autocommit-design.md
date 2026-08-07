@@ -38,6 +38,38 @@ output synchronously) — a failed auto-commit cannot block or retry-loop
 an autonomous cycle. See the failure-handling branch in step 5 below,
 which touches `evo-analysis-nudge.sh` in addition to `evo/SKILL.md`.
 
+## Context available to each step (why Step 4.5 needs none of it)
+
+Step 4.5 itself is context-free by design: it only consumes the file path
+Step 4 just wrote and the current `git branch --show-current` — pure git
+mechanics, no session history required. The scope-classification decision
+(Step 1, unchanged by this design) is a different matter, and its context
+varies by entry path:
+
+- **Live manual `/ievo:evo <text>` invocation** — full session context.
+- **Real-time auto-capture (`correction-capture.sh`)** — also a live
+  session, but performs no classification at capture time; it only records
+  the correction verbatim, deferring classification.
+- **Step 0 review at a later session's start** — reduced context, by
+  iEvo's own existing, documented design: the reviewing agent sees only
+  the verbatim captured `text`, run through Steps 1–5.7 "as its own
+  lesson" (`evo-auto-enable`'s contract: "Analyze at the next session,
+  with **fresh context**"). It has no access to the original session that
+  produced the correction. This is why auto-write is restricted to
+  unambiguous project-wide candidates only — anything the reduced-context
+  classification can't confidently place is parked in `pending.md` rather
+  than guessed.
+
+**Consequence for Step 4.5:** when a Step 0 review runs in a new session,
+the branch active at that moment may have nothing to do with whatever
+branch was checked out when the original correction happened (that branch
+may already be merged and gone). This is fine, not a gap: an overlay entry
+is a project-wide convention record, not data scoped to the PR that
+triggered the observation, so committing it to whichever feature branch
+happens to be active *now* is correct — the goal (per skills#552) is only
+"don't force a dedicated PR for this," not "land in the exact originating
+PR."
+
 ## Design
 
 Insert a new **Step 4.5** in `evo/SKILL.md`, immediately after Step 4

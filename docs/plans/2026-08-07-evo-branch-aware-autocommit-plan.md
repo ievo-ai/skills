@@ -507,3 +507,254 @@ If clean, this task is done with no new commit (Tasks 1–2 already committed th
 git add plugins/ievo/skills/evo/SKILL.md plugins/ievo/skills/evo-auto-enable/SKILL.md
 git commit -m "docs: fix cross-reference/consistency issue found in self-review"
 ```
+
+---
+
+### Task 5: Mirror Step 5.4 into `agents/evolution.md` as Step 4.4 (added after Task 4's self-review found the default delegation path was inert)
+
+**Why this task exists:** Task 4's self-review found that `plugins/ievo/agents/evolution.md` — the `evolution` sub-agent, the DEFAULT delegation path per `evo/SKILL.md` line 35 ("If the `evolution` sub-agent is available, delegate via Task tool... Otherwise execute the steps below directly") — never got a Step 5.4 equivalent. Confirmed independently by the controller: `agents/evolution.md` goes Step 4 → Step 4.5 with no gap step, and its Bash surface is a closed, prose-level allowlist (six command templates; `Bash` IS granted in `tools:` frontmatter — the restriction is self-imposed model-layer prose, not a platform `disallowedTools` entry, per the file's own frontmatter comment, verified against Claude Code's scoped-tool-name platform limitation, #400/#405). Consequence: on the default Claude Code + plugin path, the overlay lesson gets appended but never auto-committed — the whole 4-task feature was inert for the majority of real invocations. Operator decision (2026-08-07): mirror Step 5.4 into `evolution.md` as Step 4.4, matching the codebase's own established convention (verified via CHANGELOG.md: every prior `evo/SKILL.md` step addition landed with a same-PR `evolution.md` mirror, zero exceptions).
+
+**Design decisions settled before dispatch (controller's own research, not left to the implementer to improvise):**
+1. **Always headless — no interactive branch.** `evolution.md` Step 2.5 already establishes, with cited platform verification, that "Claude Code unconditionally withholds `AskUserQuestion` from every Task-dispatched sub-agent." Step 4.4's mirror of Step 5.4 point 5 (commit failure) must skip the interactive-vs-headless fork entirely and always take the `pending.md`-park path — there is no session for a human to see a live failure in.
+2. **`session-id` field: use `unknown`.** No verified mechanism exists for a Task-dispatched sub-agent to read a real Claude Code `session_id` (only hooks receive that, via stdin JSON — `evolution.md` is not a hook). `evo-auto-enable/SKILL.md`'s own hook scripts already establish the exact fallback idiom for this situation (`jq -r '.session_id // "unknown"'`) — reuse `unknown`, do not fabricate an identifier.
+3. **Bash allowlist widening is a prose-only change**, not a `tools:`/`disallowedTools:` frontmatter change — `Bash` is already granted (frontmatter line 21); the "six command templates" restriction lives entirely in the `## Bash command allowlist` body section (lines 195-220) and its enforcement is stated as binding "at the model layer" (line 225-226), since scoped `Bash(prefix*)` frontmatter entries strip the whole tool on this platform (the file's own comment, verified empirically, #400).
+4. **No new injection surface.** The two new arguments needing values (`<overlay-file-path>`, `<short title from Step 4>`) are not vendored/untrusted plugin content — `<overlay-file-path>` is one of exactly 3 deterministic paths Step 4 already computes and writes to via the Write tool; the title is derived from the user's own lesson text (same trust boundary Step 4 already accepts unfiltered into the overlay file). This is a materially different trust boundary than Step 2's owner/repo/path values (untrusted plugin-repo content) that motivate the existing allowlist's strict validation language — do not require new validation regexes for these two, just note the trust-boundary distinction inline so a future reader doesn't conflate the two.
+
+**Files:**
+- Modify: `plugins/ievo/agents/evolution.md` — insert new `## Step 4.4` section (between Step 4's closing fence, currently ending at line 365, and `## Step 4.5` at line 367); widen `## Bash command allowlist` (lines 195-220); update Step 5's report template (the stale line 492 `Suggested next step: "Review with `git diff` and commit if satisfied."` bullet); add one new `## Rules` bullet mirroring `evo/SKILL.md`'s own Step 5.4-era Rules addition (scoped `git add`, never push, never `--no-verify`).
+
+**Interfaces:**
+- Consumes: the overlay file path and short title Step 4 already produces (identical shape to what `evo/SKILL.md` Step 4 produces for its own Step 5.4).
+- Produces: on a failed commit, a `pending.md` entry in the exact same format Task 1 established (`Scope: autocommit-failed` / `Overlay file` / `Branch` / `Reason`), with `<session-id>` always literally `unknown` for this path.
+
+- [ ] **Step 1: Insert `## Step 4.4: Auto-commit on a feature branch`**
+
+Use the Edit tool. `old_string` (the exact text currently at the Step 4 / Step 4.5 boundary):
+```
+## <YYYY-MM-DD HH:MM UTC> — <short title derived from lesson>
+**Trigger:** <user-observed mistake | user-defined convention | vendored | upstream rebase>
+
+<full lesson text — verbatim>
+```
+
+## Step 4.5: Signal file for lifecycle hooks
+```
+
+`new_string`:
+````
+## <YYYY-MM-DD HH:MM UTC> — <short title derived from lesson>
+**Trigger:** <user-observed mistake | user-defined convention | vendored | upstream rebase>
+
+<full lesson text — verbatim>
+```
+
+## Step 4.4: Auto-commit on a feature branch
+
+By this point Step 4 has appended the lesson to the overlay file, with its
+`Trigger` field already filled in the same append — unlike `evo/SKILL.md`,
+which resolves `Trigger` in a separate Step 5, this agent's Step 4 template
+writes the real value in one pass, so there is no placeholder-vs-final
+ordering hazard to guard against here. This step mirrors `evo/SKILL.md`'s
+Step 5.4 exactly (see that file for the full empirical verification behind
+each git behavior claimed below), adapted for two facts specific to this
+sub-agent: it never has an interactive session, and it has no verified way
+to read a real session identifier.
+
+1. **Resolve the current branch:**
+   ```
+   git branch --show-current
+   ```
+   Two distinct "can't proceed" signals — check for both:
+   - Inside a git repo but in detached HEAD: exits **0** with **empty
+     stdout**. Check the output, not the exit code.
+   - Outside a git repo entirely: exits **128** with a
+     `fatal: not a git repository` stderr message.
+
+   Either signal → skip the rest of this step entirely. Fall through to
+   today's behavior: the overlay file stays edited/uncommitted, and your
+   Step 5 report says so.
+
+2. **Resolve the repo's default branch — never hardcode `main`:**
+   ```
+   git symbolic-ref refs/remotes/origin/HEAD
+   ```
+   Strip the `refs/remotes/origin/` prefix from the output. When this
+   succeeds, its result is authoritative — compare it directly against the
+   current branch in point 3.
+
+   When it **fails** (no remote configured, or a detached remote HEAD),
+   check whether the current branch name is one of the common default
+   names: `main`, `master`, `trunk`, `develop`. Either way — name matches or
+   not — treat it as the default branch and skip auto-commit: nothing here
+   positively rules out default-branch status, and `symbolic-ref` gave no
+   answer at all.
+
+   **Fail closed:** whenever default-branch status can't be positively
+   ruled out, skip auto-commit. A missed auto-commit costs the user one
+   manual `git add`/`commit`; a wrong auto-commit on a protected branch is
+   the exact failure this step exists to prevent.
+
+3. **If the current branch equals the resolved (or assumed) default
+   branch** → do NOT auto-commit. Fall through to today's behavior.
+
+4. **If the current branch is a confirmed non-default feature branch:**
+   ```
+   git add <overlay-file-path>
+   git commit --only <overlay-file-path> -m "docs(evolution): <short title from Step 4>"
+   ```
+   Replace `<overlay-file-path>` with the exact path Step 4 wrote to and
+   `<short title from Step 4>` with the same short title used in that
+   overlay entry's `##` heading. Neither value is untrusted vendored
+   content — `<overlay-file-path>` is one of the three deterministic paths
+   Step 4 above already computes, and the title comes from the user's own
+   lesson text, the same trust boundary Step 4 already writes unfiltered
+   into the overlay file.
+
+   **`--only` is required, not optional.** A bare `git commit` after
+   `git add <path>` commits the entire index, not just the path just
+   staged — `git commit --only <path>` commits exactly that path and
+   leaves everything else in the index untouched. Never `git push` (see
+   Rules) — local commit only, always.
+
+5. **If the commit fails** (pre-commit hook rejects it, or any other
+   non-zero exit) — non-fatal. Do not retry. Do not add `--no-verify` (see
+   Rules). You are a dispatched sub-agent with no way to prompt a human
+   mid-run — the same constraint Step 2.5 above already documents and
+   cites. Unlike `evo/SKILL.md`'s own direct-execution path, there is no
+   interactive branch here: **always** take the headless path. Append a
+   new entry to `.ievo/evolution-candidates/pending.md` (create the file
+   with `evo-auto-enable/SKILL.md` Step 3's scaffold first if it doesn't
+   exist yet) in this format:
+   ```markdown
+
+   ## <ISO-8601 UTC> — session <session-id>
+   - Scope: autocommit-failed
+   - Overlay file: <overlay-file-path>
+   - Branch: <branch-name>
+   - Reason: <failure reason, truncated to one line>
+   ```
+   For `<session-id>`: you have no verified way to read the dispatching
+   session's actual identifier — you are a Task-dispatched sub-agent, not
+   a hook (only a hook receives `session_id` on stdin JSON). Use the
+   literal value `unknown`, the same fallback `evo-auto-enable/SKILL.md`'s
+   own hook scripts already use when a session id can't be resolved. Do
+   not fabricate an identifier. Continue immediately after appending; do
+   not wait for the entry to be reviewed. `evo-analysis-nudge.sh`'s
+   SessionStart nudge is what surfaces this to a human, the next time an
+   interactive session starts in this repo.
+
+6. **Report this outcome precisely** — see the updated Step 5 report
+   template below; it now states the auto-commit outcome instead of always
+   pointing at a manual `git diff`.
+
+## Step 4.5: Signal file for lifecycle hooks
+````
+
+- [ ] **Step 2: Widen the Bash command allowlist**
+
+Use the Edit tool. `old_string`:
+```
+## Bash command allowlist (closed set — #400 pattern, #405)
+
+Your entire legitimate Bash surface is the six command templates in the "How
+to fetch source" list above. These are the ONLY Bash invocations you may
+ever run — same shape, same flags, same argument order, nothing added:
+
+1. `gh api "repos/<owner>/<repo>" --jq '.default_branch'`
+2. `gh api "repos/<owner>/<repo>/commits/<default-branch>" --jq '.sha'`
+3. `CHECKOUT_DIR=$(mktemp -d)`
+4. `git clone --depth 1 "https://github.com/<owner>/<repo>.git" "$CHECKOUT_DIR"`
+5. `git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>`
+6. `git -C "$CHECKOUT_DIR" checkout <commit-sha>`
+
+`<owner>`/`<repo>`/`<default-branch>`/`<commit-sha>` may hold ONLY values
+that already passed this agent's own Step 2 validation (the owner/repo slug
+regexes, the ref allowlist, the hex-sha regex) — never a value read from the
+vendored target's own content.
+```
+
+`new_string`:
+```
+## Bash command allowlist (closed set — #400 pattern, #405; widened for Step 4.4's auto-commit)
+
+Your entire legitimate Bash surface is the ten command templates below —
+six for Step 2's vendor-fetch, four for Step 4.4's auto-commit. These are
+the ONLY Bash invocations you may ever run — same shape, same flags, same
+argument order, nothing added:
+
+1. `gh api "repos/<owner>/<repo>" --jq '.default_branch'`
+2. `gh api "repos/<owner>/<repo>/commits/<default-branch>" --jq '.sha'`
+3. `CHECKOUT_DIR=$(mktemp -d)`
+4. `git clone --depth 1 "https://github.com/<owner>/<repo>.git" "$CHECKOUT_DIR"`
+5. `git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>`
+6. `git -C "$CHECKOUT_DIR" checkout <commit-sha>`
+7. `git branch --show-current`
+8. `git symbolic-ref refs/remotes/origin/HEAD`
+9. `git add <overlay-file-path>`
+10. `git commit --only <overlay-file-path> -m "docs(evolution): <short title from Step 4>"`
+
+`<owner>`/`<repo>`/`<default-branch>`/`<commit-sha>` (templates 1-6) may
+hold ONLY values that already passed this agent's own Step 2 validation
+(the owner/repo slug regexes, the ref allowlist, the hex-sha regex) — never
+a value read from the vendored target's own content. `<overlay-file-path>`
+and `<short title from Step 4>` (templates 9-10) are a different, lower-risk
+trust boundary: neither is vendored plugin content — the path is one of the
+three deterministic paths Step 4 above already computes, and the title
+comes from the user's own lesson text, which Step 4 already writes
+unfiltered into the overlay file via the Write tool. No new validation
+regex is required for these two; they carry no injection risk beyond what
+Step 4's own Write-tool call already accepts.
+```
+
+Note: this `old_string`/`new_string` pair only widens the allowlist (adds
+templates 7-10 and the trailing trust-boundary paragraph). Everything after
+it in the file (the "Everything else is prohibited" paragraph and the
+prompt-injection-flag paragraph) is untouched — do not repeat or duplicate
+those paragraphs when applying this edit; they remain exactly where they
+already are in the file, immediately following the block being replaced.
+
+- [ ] **Step 3: Update Step 5's report template**
+
+Use the Edit tool. `old_string`:
+```
+- Extraction candidate: not applicable | detected (+ one-line cluster description for the caller to hand to `/ievo:consolidate`)
+- Suggested next step: "Review with `git diff` and commit if satisfied."
+```
+
+`new_string`:
+```
+- Extraction candidate: not applicable | detected (+ one-line cluster description for the caller to hand to `/ievo:consolidate`)
+- Auto-commit (Step 4.4): committed locally to branch `<name>` (not pushed) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown`)
+- Suggested next step: if Step 4.4 committed: "Committed locally to branch `<name>` (not pushed) — push whenever you push the rest of your work on this branch." else: "Review with `git diff` and commit if satisfied."
+```
+
+- [ ] **Step 4: Add a Rules bullet mirroring `evo/SKILL.md`'s own Step 5.4-era addition**
+
+Use the Edit tool. `old_string`:
+```
+- **Neutralize the whole SKIPPED line before it renders.** Both of its interpolations — the `<top 1-2 flags — category + one-line explanation>` text and the `<owner>/<repo>@<path>` vendor pointer, the latter carrying a tree path that can hold almost any byte — are rendered as Markdown by whatever session/skill dispatched this agent; see Step 5's "Excerpt containment" note for the fencing rule covering both.
+```
+
+`new_string`:
+```
+- **Neutralize the whole SKIPPED line before it renders.** Both of its interpolations — the `<top 1-2 flags — category + one-line explanation>` text and the `<owner>/<repo>@<path>` vendor pointer, the latter carrying a tree path that can hold almost any byte — are rendered as Markdown by whatever session/skill dispatched this agent; see Step 5's "Excerpt containment" note for the fencing rule covering both.
+- **Auto-commit (Step 4.4) stays local, scoped, and never forces past a rejection.** Never `git add -A`/`git add .` — stage only the overlay file path. Always `git commit --only <path>`, never a bare `git commit`. Never `git push`. Never `--no-verify` or any other hook-skipping flag — a rejected commit is a real signal, not an obstacle to route around.
+```
+
+- [ ] **Step 5: Verify structural consistency**
+
+Run: `grep -n '^## Step' plugins/ievo/agents/evolution.md`
+Expected: Step 4.4 appears between Step 4 and Step 4.5, in order: `Step 1`, `Step 2`, `Step 2.5`, `Step 3`, `Step 4`, `Step 4.4`, `Step 4.5`, `Step 4.6`, `Step 4.65`, `Step 4.7`, `Step 5`.
+
+Run: `grep -c '^[0-9]\+\. ' -A0 plugins/ievo/agents/evolution.md` is not reliable for the allowlist count — instead run: `sed -n '/## Bash command allowlist/,/^## Step 2.5/p' plugins/ievo/agents/evolution.md | grep -c '^[0-9]\+\. \`'`
+Expected: **10** (six original + four new).
+
+Run: `grep -n 'evo/SKILL.md.*Steps 1' plugins/ievo/skills/evo/SKILL.md`
+Confirm line 638's "the sub-agent performs Steps 1–5.5" blockquote — no edit needed to this file; once Step 4.4 exists in `evolution.md`, this range description becomes accurate again (it was already written using `evo/SKILL.md`'s own step numbers as shorthand for what the sub-agent covers).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add plugins/ievo/agents/evolution.md
+git commit -m "feat: mirror Step 5.4 auto-commit into the evolution sub-agent as Step 4.4 (skills#552)"
+```

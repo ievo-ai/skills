@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.13
+
+Close a CWE-59 symlink-containment gap in `commands/update.md`'s vendor-refresh recipe — closes #583.
+
+- **Gap closed (#583)** — `update.md` Step 2 sub-step 3 canonicalizes and validates only `$CHECKOUT_DIR/<source.path>` (the directory or file itself) before sub-step 5 (now 6) enumerates it with Glob and Reads/Writes every listed entry into `<stage-dir>` — with no per-entry containment check. A symlink planted inside an already-vendored skill's upstream directory (attacker now controls or has compromised that upstream) would pass the one directory-level check untouched, and its resolved target's bytes would be Read and staged before Step 2.5's re-audit ever runs, regardless of where the symlink points.
+- **New sub-step 4** ports the same review-hardened pattern already merged in `evolution.md` (v0.78.11, #587) and `install-protocol.md` (v0.78.12, #590), adapted for this file's `source.path` naming and its sub-step 5/6 ordering (agent-then-skill): `git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'` (no path argument) before either fetch sub-step, refusing the whole target if any returned, segment-compared symlink entry is equal to `source.path`, under it, **or an ancestor of it** — reported as `SKIPPED — invalid source metadata` in Step 6, same as a Step 1 validation or sub-step 3 containment failure. `-c core.quotePath=false` plus a fail-closed refusal on any still-quoted path keeps the comparison from being silently defeated by an unusual filename.
+- **Scope** — `plugins/ievo/commands/update.md` only (sub-step renumbering 4→5, 5→6, 6→7, plus the Step 6 report line and a new Rules-section bullet cross-referencing the two prior landings); the rest of the diff is the mandatory version-bump ceremony below. No script/test changes — this file is pure Markdown instructions with no code path for `node --test` to cover. The companion `evolution.md` finding (#582) and `install-protocol.md` finding (#590), filed in the same Eva vuln-scan run, are already closed (v0.78.11, v0.78.12).
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.78.12 → 0.78.13). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.12
 
 Close a CWE-59 symlink-containment gap in `init/references/install-protocol.md`'s vendor-fetch recipe — closes #590.

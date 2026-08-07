@@ -63,13 +63,114 @@ For each target that passed Step 1's validation, fetch into a staging path — d
    ```
    **Record that echoed path against this target's `<name>` before moving on, and carry it forward as `<stage-dir>`.** Every later reference below — sub-steps 4/5 here, Step 2.5, Step 3.5 — means *that recorded literal path for the target being processed*, substituted in like any other `<...>` placeholder in this file. It is not a `$STAGE_DIR` shell variable read back from an earlier command: each Bash call gets its own shell, and targets are handled as a batch (Step 2.5 dispatches every changed target's audit in one parallel message), so a second target's `mktemp -d` would shadow the first's — leaving target 1's staging dir, possibly holding RED-flagged content, on disk forever and breaking Step 3.5's cleanup guarantee.
 3. **Verify `source.path` stays inside the clone before Glob/Read ever touch it.** `source.path` is raw frontmatter text, not a path obtained by walking the cloned tree — a crafted overlay can set it to `../../../../etc/passwd` or similar. Resolve `$CHECKOUT_DIR/<source.path>` to its canonical form and confirm the result is `$CHECKOUT_DIR` itself or a descendant of it. Do this as a plain path check on the string already in hand from Step 1 — never by writing `<source.path>` into a Bash command line to test it, which would reopen the same CWE-78 this fix closes (it is still unvalidated for shell metacharacters). If containment fails, refuse the target — report `SKIPPED — invalid source metadata` in Step 6, same as a Step 1 validation failure.
-4. **Agent** (`source.path` is the single agent `.md` file, not a directory — Glob-enumerating a file path returns nothing): Read the now-verified `$CHECKOUT_DIR/<source.path>` directly with the **Read tool**, then Write its content to `<stage-dir>/<name>.md` with the **Write tool**.
-5. **Skill** (`source.path` is the skill's directory): enumerate the now-verified `$CHECKOUT_DIR/<source.path>` with the **Glob tool** (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source.path>"` — never a Bash `find`/`ls`), then Read each listed file and Write it to the matching relative location under `<stage-dir>/<name>/`.
-6. Remove the checkout dir once staging is complete: `rm -rf "$CHECKOUT_DIR"` (safe — this path is `mktemp`-generated, never attacker-controlled).
+4. **Check for a symlink at, under, or anywhere on the way to `source.path`
+   before sub-steps 5-6 read or enumerate anything.** Git preserves a
+   symlink as an ordinary tree entry (mode `120000`); if the checkout
+   materializes it as a real OS-level symlink, the Read/Glob tools below
+   follow it like any other file — so an already-vendored target's upstream
+   repo, now attacker-controlled or compromised, can ship, say,
+   `<source.path>/assets/logo.png` as a symlink to `~/.ssh/id_rsa` or
+   `~/.aws/credentials`, and that secret's *contents* (not the upstream
+   file) flow into context and get staged into `<stage-dir>` — sub-step 3's
+   directory-level containment check runs once, before this enumeration,
+   and never re-validates the individual entries Glob returns. Check this
+   via the git index, not the filesystem — a no-follow filesystem check
+   (e.g. `find -type l`) would need `source.path` interpolated into a Bash
+   command line, which the Rules section's "never interpolate `source.path`"
+   rule forbids, since it is exactly as untrusted as any other value drawn
+   from this repo's tree:
+   ```bash
+   git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'
+   ```
+   Run it with **no path argument** — `$CHECKOUT_DIR` alone is
+   `mktemp`-generated and safe to pass to `-C`, so no untrusted byte reaches
+   the shell here either — with `-c core.quotePath=false` (see the quoting
+   paragraphs below), and with the trailing `| grep '^120000'` exactly as
+   shown: a fixed, literal pattern, not a value built from `source.path` or
+   anything else untrusted, so it adds no injection surface. It exists to
+   bound the size of what you have to read, not to filter out anything a
+   plain `ls-files -s` wouldn't also show you: a large or padded upstream
+   repo can carry thousands of tracked files, and reasoning over an
+   unfiltered listing that size risks the Bash tool truncating its own
+   output before a symlink entry buried in it ever reaches you — silently
+   defeating this whole check. Piping through this fixed filter bounds the
+   returned text to the symlink entries alone, so the check's completeness
+   no longer depends on the repo's total file count. `grep` prints nothing
+   and exits **1** when it matches no line, and that empty result IS the
+   pass case — the index carries no symlink at all — not a command failure
+   to retry, to re-run without the filter, or to work around.
 
-Glob and Read/Write all take paths as direct parameters, never shell text, so neither a malicious `source.path` nor a malicious file name inside it can reach a shell — and the containment check in sub-step 3 keeps a `../`-laden `source.path` from resolving outside `$CHECKOUT_DIR` in the first place.
+   `-c core.quotePath=false` is load-bearing for the same reason the `grep`
+   is: without it the check silently fails to match the very entries it
+   exists to catch. `core.quotePath` **defaults to on**, and git then
+   C-quotes any path holding a byte over 0x7F — wrapping the whole path in
+   double quotes and octal-escaping the byte — so a symlink at
+   `evil-plügin/assets/foo` prints as the literal
+   `"evil-pl\303\274gin/assets/foo"`, which is equal to, under, and an
+   ancestor of *nothing*: all three comparisons below miss it, and sub-steps
+   5-6's Glob/Read then follow the link. Setting `core.quotePath=false`
+   stops git treating high bytes as unusual, so those paths come back raw
+   and comparable (verified on git 2.54.0; the same default is why
+   `deep-review/SKILL.md` passes `-z` to its own `ls-files`).
 
-If the ref/commit resolution fails, the containment check in sub-step 3 fails, or the Read/Glob sub-step finds nothing at `source.path` in the cloned tree (upstream renamed/removed), stop for this target. A containment failure is a crafted/invalid target, not a missing upstream — report it as `SKIPPED — invalid source metadata` (Step 6), same as a Step 1 validation failure; the other two cases report `UPSTREAM MISSING`. Either way: do not touch the local copy. Remove `$CHECKOUT_DIR` (if it was created) with `rm -rf "$CHECKOUT_DIR"` right here — Step 3.5 only covers this target's `<stage-dir>` (staged fetch + scratch copy), not this fetch's own checkout dir, so do not defer its cleanup. Clean up any partial staged content per Step 3.5 before moving to the next target. Do NOT fall back to per-file `gh api` fetching — that reintroduces the injection this replaces.
+   That flag narrows the quoting, it does not end it: **double quotes,
+   backslash and control characters are escaped regardless of
+   `core.quotePath`**, so a symlink at `q"dir/bar`, `back\slash/x`, or a
+   path containing a TAB or newline still comes back quoted —
+   `"q\"dir/bar"`, `"back\\slash/x"`, `"nl\nfile"` (all verified on git
+   2.54.0). Those you cannot compare either, and an embedded newline would
+   additionally split one entry across what look like two lines. So **fail
+   closed**: if the path field of any returned line still begins with a `"`
+   after the flag, do NOT try to unescape it and do NOT ignore it — refuse
+   the target exactly as if it had matched, and report the same `SKIPPED —
+   invalid source metadata` outcome in Step 6. This is deliberately
+   conservative: it can refuse a target whose only quoted symlink lies
+   outside `source.path` entirely, which is the correct trade when the
+   alternative is reasoning about containment from a path you cannot
+   reliably reconstruct. The `grep '^120000'` filter keeps that
+   conservatism cheap — only symlink entries are ever considered, so an
+   ordinary file with an awkward name never triggers a refusal.
+
+   Then inspect the returned listing yourself (it is data you reason over,
+   not a command you build): each line is `<mode> <sha> <stage>`, a TAB,
+   then the entry's repo-relative path, so take the path after the TAB
+   (having applied the still-quoted refusal above), strip any trailing `/`
+   from it AND from `source.path` (the skill case writes `source.path` as a
+   directory, the agent case as a single file — normalize both sides before
+   comparing anything), and compare the two as `/`-separated **segment**
+   lists. Refuse the whole target — do NOT run sub-steps 5-6 below — when a
+   listed entry is **equal to** `source.path` (the target itself is a
+   symlink), **under** `source.path` (its segments begin with
+   `source.path`'s — the skill case's whole tree, e.g. a symlinked file
+   inside the skill directory), **or an ancestor of** `source.path`
+   (`source.path`'s segments begin with the listed entry's — the link sits
+   on the path you are about to walk *through*). The slash normalization
+   and the ancestor branch are not belt-and-braces: each closes a distinct
+   instance of the very attack this sub-step blocks, because git indexes a
+   symlinked *directory* as a **single** `120000` entry for the directory
+   itself — no trailing slash, and nothing "inside" it tracked at all,
+   since git never descends through a symlink. An upstream repo shipping
+   the skill directory `source.path` as a link to `~/.ssh` therefore yields
+   the one line `source.path` itself, already caught by the equals check
+   above; shipping an ancestor of it instead — e.g. the repo root or a
+   parent directory — yields a line SHORTER than `source.path`, which no
+   equals-or-starts-with test can ever match — the ancestor branch is what
+   catches those. In every one of those cases sub-steps 5-6's Glob/Read on
+   `$CHECKOUT_DIR/<source.path>` would otherwise resolve straight through
+   the link and enumerate or read its target. Compare by segment rather
+   than by raw character prefix so that a sibling entry such as
+   `<source.path>-notes`, which shares a character prefix with
+   `source.path` but lies neither under it nor on the way to it, does not
+   trip the check. A listing whose lines all fall outside every one of
+   these relations means the checkout has symlinks elsewhere in the repo
+   that this target doesn't touch — not a reason to refuse.
+5. **Agent** (`source.path` is the single agent `.md` file, not a directory — Glob-enumerating a file path returns nothing): Read the now-verified `$CHECKOUT_DIR/<source.path>` directly with the **Read tool**, then Write its content to `<stage-dir>/<name>.md` with the **Write tool**.
+6. **Skill** (`source.path` is the skill's directory): enumerate the now-verified `$CHECKOUT_DIR/<source.path>` with the **Glob tool** (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<source.path>"` — never a Bash `find`/`ls`), then Read each listed file and Write it to the matching relative location under `<stage-dir>/<name>/`.
+7. Remove the checkout dir once staging is complete: `rm -rf "$CHECKOUT_DIR"` (safe — this path is `mktemp`-generated, never attacker-controlled).
+
+Glob and Read/Write all take paths as direct parameters, never shell text, so neither a malicious `source.path` nor a malicious file name inside it can reach a shell — the sub-step 3 containment check keeps a `../`-laden `source.path` from resolving outside `$CHECKOUT_DIR` on the string level, and the sub-step 4 symlink check keeps a `source.path` that resolves *through* a symlink from being read or enumerated at all, regardless of what its string contents look like.
+
+If the ref/commit resolution fails, the containment check in sub-step 3 fails, the symlink check in sub-step 4 finds a match, or the Read/Glob sub-step finds nothing at `source.path` in the cloned tree (upstream renamed/removed), stop for this target. A containment or symlink-check failure is a crafted/invalid target, not a missing upstream — report it as `SKIPPED — invalid source metadata` (Step 6), same as a Step 1 validation failure; the other case reports `UPSTREAM MISSING`. Either way: do not touch the local copy. Remove `$CHECKOUT_DIR` (if it was created) with `rm -rf "$CHECKOUT_DIR"` right here — Step 3.5 only covers this target's `<stage-dir>` (staged fetch + scratch copy), not this fetch's own checkout dir, so do not defer its cleanup. Clean up any partial staged content per Step 3.5 before moving to the next target. Do NOT fall back to per-file `gh api` fetching — that reintroduces the injection this replaces.
 
 ### 2.5. Re-audit content that changed since the last audit
 
@@ -186,7 +287,7 @@ For each target, output one line:
 - `<scope>/<name>: SKIPPED — flagged <YELLOW|RED>, no interactive session to confirm` — auto-skipped because `AskUserQuestion` had no one to answer it (e.g. an unattended `/ievo:schedule` run); local copy and `source.commit_sha` left untouched, same as an explicit decline
 - `<scope>/<name>: UPSTREAM MISSING — overlay preserved, please review` if the repo/branch/commit resolution 404'd, or `source.path` was not found in the cloned tree
 - `<scope>/<name>: SKIPPED — no source metadata (local-only)` for local targets
-- `<scope>/<name>: SKIPPED — invalid source metadata` if Step 1's `<name>`/`source.repo` validation failed, or Step 2's `source.path` containment check failed
+- `<scope>/<name>: SKIPPED — invalid source metadata` if Step 1's `<name>`/`source.repo` validation failed, or Step 2's `source.path` containment or symlink check failed
 - `<scope>/<name>: SKIPPED — agent target, Claude Code-only (run /ievo:update from Claude Code)` — Codex run; Codex has no project-level custom-agent path (Step 1)
 - `<scope>/<name>: SKIPPED — stranded under .claude/skills/, not Codex-visible — re-vendor via /ievo:init` — Codex run; the migration path owns this (Step 1)
 
@@ -224,3 +325,4 @@ Run git diff .agents/skills/ .ievo/evolution/ to review changes before commit.
 - **Order matters for symlinked content.** If a skill has `scripts/` with executable files, restore permissions after fetch (`chmod +x` on `.sh`/`.py` known patterns).
 - **Validate `<name>` and `source.repo` before any Bash use; never interpolate `source.path` into a Bash/`gh api` command at all.** Step 1 validates `<name>` (from the overlay filename) against `^[A-Za-z0-9_-]+$` and `source.repo` against `scan_repo.mjs`'s `OWNER_REPO_RE` before a target is allowed to reach Step 2/2.5/3.5 — every `cp`/`sed`/`rm` command line built later in those steps depends on that gate having already run. `source.path` is different: a git tree path can legally contain shell metacharacters, so no regex is safe to interpolate it through — Step 2 fetches it exclusively via clone + the Glob/Read tools (direct parameters, never a command string), same pattern as `evo/SKILL.md`, `evolution.md`, and `install-protocol.md`'s own vendor fetches.
 - **`source.path` containment, not just shell-safety.** Unlike `<source-path-in-repo>` in the sibling fetches (derived by walking a real cloned tree, which git itself never lets contain a bare `..` component), `update.md`'s `source.path` is raw overlay frontmatter an attacker can set to anything. Step 2 sub-step 3 resolves `$CHECKOUT_DIR/<source.path>` and confirms it stays inside `$CHECKOUT_DIR` before Glob/Read ever use it — a `../`-laden value must be refused, not merely passed through as "safe because it's a tool parameter".
+- **Symlink containment gates reading, not just the directory-level check.** Sub-step 3's containment check runs once, on `source.path` itself, before sub-steps 5-6 enumerate or read anything under it — it never re-validates the individual entries Glob returns. Step 2 sub-step 4 closes that gap: it checks the git index for a `120000`-mode entry at, under, **or on any ancestor path of** `source.path` before sub-steps 5-6 ever Read/Glob it — an already-vendored target's upstream can carry a symlink to a local secret outside `$CHECKOUT_DIR`, and the Read tool follows it like any other file. The ancestor half of that match is load-bearing, not belt-and-braces: git indexes a symlinked *directory* as one `120000` entry for the directory itself (no trailing slash, nothing beneath it tracked), so `source.path` shipped as a link to `~/.ssh` is an entry that neither equals nor starts with a trailing-slash-normalized `source.path` — which is why the comparison normalizes trailing slashes on both sides and matches by `/`-separated segment in both directions. The check's own `git -c core.quotePath=false ls-files -s | grep '^120000'` form matters as much as its placement: the fixed `grep` filter bounds what you read to symlink entries alone so a large upstream repo can't push the one line that matters past the Bash tool's own output-truncation limit, and `-c core.quotePath=false` stops git C-quoting any path holding a byte over 0x7F (which would otherwise make that entry equal, sit under, and be an ancestor of nothing). Because double quotes, backslash and control characters stay escaped even with the flag set, the rule also **fails closed on any still-quoted path** (leading `"`): refuse rather than unescape, since a path you cannot reliably reconstruct is one you cannot reliably contain. A match refuses the whole target before any content is read into `<stage-dir>` — Step 2.5's re-audit never gets a chance to catch it, because the read/staging this check blocks would already have happened before that gate runs. Same pattern as `evolution.md`'s Step 2 sub-step 4 and `install-protocol.md`'s "How to fetch the tree" sub-step 4, adapted for this file's `source.path` naming.

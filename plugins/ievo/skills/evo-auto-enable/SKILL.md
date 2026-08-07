@@ -297,10 +297,27 @@ two can never re-ignore these five). Read the project's `.gitignore` (absent
 ```
 
 Verify with `git check-ignore -q .ievo/hooks/tmp` (exit 0 — still ignored) AND
-`git check-ignore -q .ievo/hooks/scripts/correction-capture.sh` (exit 1 — NOT
-ignored, so it is trackable) before proceeding. Only skip this whole
-precondition when the project is not a git repo (`git rev-parse
---is-inside-work-tree` fails — nothing to track, so nothing PR-tamperable).
+all five negations before proceeding — checking only `correction-capture.sh`
+is not sufficient: that filename was already carved out under the OLDER
+three-filename block too, so a check limited to it would pass even if the
+upgrade to the two NEW negations (`evolution_candidates.mjs`, `scrub.mjs`)
+silently failed or was skipped, leaving those two files gitignored while the
+three `.sh` files land committed:
+
+```
+for f in correction-capture.sh evo-analysis-nudge.sh failure-capture.sh evolution_candidates.mjs scrub.mjs; do
+  git check-ignore -q ".ievo/hooks/scripts/$f" && echo "STILL IGNORED: $f"
+done
+```
+
+Every line must print nothing (exit 1 = NOT ignored = trackable). If any
+`STILL IGNORED:` line prints, the gitignore reconciliation above did not
+fully apply — do NOT proceed to the copy step below; fix the `.gitignore`
+first (re-check which of the three cases in the reconciliation logic above
+should have matched, and apply it again) and re-verify before continuing.
+Only skip this whole precondition when the project is not a git repo
+(`git rev-parse --is-inside-work-tree` fails — nothing to track, so nothing
+PR-tamperable).
 
 **Copy the five files, then make the three `.sh` ones executable.** Run via
 Bash, using the plugin root this skill itself is running from:
@@ -379,13 +396,17 @@ hand-written `.ievo/evo-auto.flag`, or a project that never wired these hooks
 into `.claude/settings.json`/`.codex/hooks.json` at all, can leave the flag
 claiming ENABLED with the hook entries actually missing — checked every
 SessionStart, not just at enable time, since a manual `settings.json` edit
-can drop an entry later too. Because all five files Step 3.5.1 installs are
-now **committed** (skills#552 follow-up), the file-presence half of this
-check (missing vendored copies, missing companions) that #551 originally
-needed is gone by construction — git guarantees this script and its
-siblings are on disk the moment `.claude/settings.json` itself is, on any
-clone. The remaining, still-real check is whether the hook **entries** are
-actually wired into that config file.
+can drop an entry later too. Two checks make up the assertion: **(a)** all
+five files Step 3.5.1 installs are actually present under
+`.ievo/hooks/scripts/` — committing them (skills#552 follow-up) makes this
+true on a *correctly-set-up* clone, but Step 3.5.1's gitignore reconciliation
+is an LLM-interpreted prose step, not compiled code, so a stale or
+partially-applied `.gitignore` can still leave `evolution_candidates.mjs`/
+`scrub.mjs` gitignored while the `.sh` files land committed — capture then
+silently dies for anyone who clones after that point, exactly the class of
+bug #551 exists to catch. This check is what catches it. **(b)** whether the
+hook **entries** are actually wired into `.claude/settings.json`/
+`.codex/hooks.json`.
 
 Separately checks `.ievo/evolution-candidates/pending.md` for
 `Scope: autocommit-failed` entries — these are already-classified overlay
@@ -656,13 +677,9 @@ Confirm all three print `exit=0`. Run back in 3.5.4 instead, the
 check (Step 3.5.3) and report the failure-capture hook entry as drift — an
 entry this step hadn't wired yet. Run *here*, after a complete enable, that
 dry-run should be either silent or a plain pending-candidate count: any
-`drift detected` line is now a real finding, and enable must not claim
-success while one prints. (The file-presence half of this check — is
-everything actually on disk — is no longer a separate check: skills#552's
-follow-up committed all five files in Step 3.5.1, so git already guarantees
-that before this step even runs. The one thing left to verify here is that
-the config file's wiring resolves without a 127, which is what this dry-run
-proves.)
+`drift detected` line — including a file-presence one, if Step 3.5.1's own
+gitignore verification somehow let a stale negation through — is now a real
+finding, and enable must not claim success while one prints.
 
 ### 4. Offer to gitignore the candidate queue
 
@@ -859,18 +876,21 @@ that participate in auto-evolution MUST:
    itself is unavailable, the record is dropped — fail-closed for content, never
    a raw record written even transiently.
 6. **Verify wiring integrity every session, not just at enable time (#551).**
-   The `SessionStart` path checks that the invoking client's own wired hook
-   entries are actually present in `.claude/settings.json`/`.codex/hooks.json`.
-   A flag present with entries missing — e.g. a hand-written
-   `.ievo/evo-auto.flag`, or a manual settings.json edit that dropped one —
-   surfaces as a drift warning in the same `additionalContext` channel, naming
-   exactly what is missing and pointing at re-running `/ievo:evo-auto-enable`
-   (already idempotent/self-healing) to repair it. Since skills#552's
-   follow-up, the file-presence half of this check no longer exists as a
-   separate case: all five hook/dependency files are committed (Step 3.5.1),
-   so git guarantees their presence the moment `.claude/settings.json` itself
-   is — there is no more "flag on, files missing" fresh-clone gap to detect.
-   Never a blocking error — `SessionStart` cannot block startup, and this
+   The `SessionStart` path checks two things: **(a)** all five hook/dependency
+   files are actually present under `.ievo/hooks/scripts/` — committing them
+   (skills#552 follow-up) means presence is guaranteed on a *correctly*
+   gitignore-reconciled clone, but Step 3.5.1's reconciliation is an
+   LLM-interpreted prose step, not compiled code, so a stale or
+   partially-applied `.gitignore` can still leave `evolution_candidates.mjs`/
+   `scrub.mjs` gitignored while the `.sh` files land committed; **(b)** the
+   invoking client's own wired hook entries are actually present in
+   `.claude/settings.json`/`.codex/hooks.json`. A flag present with either
+   missing — e.g. a hand-written `.ievo/evo-auto.flag`, a manual settings.json
+   edit that dropped one, or the gitignore gap in (a) — surfaces as a drift
+   warning in the same `additionalContext` channel, naming exactly what is
+   missing and pointing at re-running `/ievo:evo-auto-enable` (already
+   idempotent/self-healing) to repair it. Never a blocking error —
+   `SessionStart` cannot block startup, and this
    hook shares the same fail-silent contract as every other hook here.
 
 ## Rules

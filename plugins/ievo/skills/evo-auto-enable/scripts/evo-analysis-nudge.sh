@@ -6,14 +6,19 @@
 #
 # Committed directly (skills#552 follow-up) -- this file IS the full logic,
 # not a dispatcher to a gitignored companion. A plain `git clone` gets a
-# working hook immediately, so the file-presence half of the old wiring-
-# integrity check (skills#551 -- correction/failure scripts, the accumulator,
-# the scrub engine, all possibly missing on a fresh clone) is now structurally
-# impossible: git guarantees every file this hook needs is on disk the moment
-# `.claude/settings.json`/`.codex/hooks.json` itself is. What CAN still drift
-# is the wiring -- a manual settings.json edit that drops an entry, or a
-# project that never ran hooks-setup/evo-auto-enable to wire one in the first
-# place -- so that check stays below; only the file-presence half is gone.
+# working hook immediately IF the gitignore reconciliation in evo-auto-enable
+# Step 3.5.1 actually widened the negation to all five filenames -- but that
+# is a prose-protocol step an LLM interprets, not compiled code, and Step
+# 3.5.1's own install-time verification only runs once, at enable time. A
+# stale/partial negation (an old three-filename block never upgraded, a
+# manual .gitignore edit) can leave evolution_candidates.mjs/scrub.mjs
+# gitignored while the three .sh files land committed -- capture then goes
+# silently dead on any later clone, with nothing surfacing it, which is
+# exactly the class of bug #551 exists to catch. So the file-presence check
+# stays here too, every session, not just at enable time -- narrowed from
+# the pre-#552 version (no separate fallback-copy subdirectory, no split
+# between a dispatcher and its real-logic counterpart -- just a flat
+# presence check on all five installed files).
 #
 # CONTRACT: fail-silent, context-only (SessionStart cannot block startup),
 # ASCII-only additionalContext. NO `set -e`.
@@ -56,6 +61,14 @@ missing=""
 note_missing() {
   [ -z "$missing" ] && missing="$1" || missing="$missing, $1"
 }
+# Flat file-presence check on all five installed files. Deliberately checks
+# all five, not just the two .mjs dependencies: a partial/corrupted install
+# (a manual delete, a bad merge) is just as real a drift case as a stale
+# gitignore, and this is cheap (five stat calls).
+for f in correction-capture.sh evo-analysis-nudge.sh failure-capture.sh evolution_candidates.mjs scrub.mjs; do
+  [ -f ".ievo/hooks/scripts/$f" ] || note_missing "$f"
+done
+
 # Presence-based, not event-placement-based: this confirms the path string
 # is wired SOMEWHERE in the file, not that it sits under the correct event
 # key (UserPromptSubmit/SessionStart/PostToolUseFailure+PermissionDenied on

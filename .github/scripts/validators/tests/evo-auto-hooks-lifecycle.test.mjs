@@ -654,32 +654,50 @@ describe("disable (flag + hook-config entries removed, committed files left in p
   });
 });
 
-// Regression coverage for skills#551, simplified to match the real,
-// post-#552 evo-analysis-nudge.sh: the file-presence half of the original
-// check (vendored copies, sibling *.local.sh companions) is gone by
-// construction now that all five files are committed — git guarantees their
-// presence the moment .claude/settings.json itself is. What survives is the
-// hook-CONFIG-ENTRY half (is the path actually wired into the client's own
-// config file), the pending-candidate count, and the autocommit-failed note
-// (skills#552's own addition, layered on top of the same nudge). This
-// describe executes the REAL file directly — no extraction, no stand-in.
-describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified by skills#552)", () => {
+// Regression coverage for skills#551, re-derived against the real,
+// post-#552 evo-analysis-nudge.sh. The ORIGINAL vendored-copy / sibling
+// *.local.sh-companion presence check is gone -- those concepts no longer
+// exist (skills#552 dropped the vendor/ subdirectory and the shim/companion
+// split entirely). But a flat, five-filename presence check REPLACES it
+// (restored after PR review on skills#552's own follow-up PR): committing
+// the five files only guarantees their presence on a clone whose
+// .gitignore was actually widened to all five negations by evo-auto-enable
+// Step 3.5.1 -- an LLM-interpreted prose step, not compiled code. A stale
+// or partially-applied .gitignore can leave evolution_candidates.mjs/
+// scrub.mjs gitignored while the three .sh files land committed, so
+// capture silently dies on the next clone with nothing surfacing it --
+// unless this check catches it. Alongside that: the hook-CONFIG-ENTRY half
+// (is the path actually wired into the client's own config file), the
+// pending-candidate count, and the autocommit-failed note (skills#552's
+// own earlier addition, layered on top of the same nudge). This describe
+// executes the REAL file directly — no extraction, no stand-in.
+describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, re-derived for skills#552)", () => {
   const NUDGE_SRC = readFileSync(NUDGE_SCRIPT, "utf-8");
 
-  it("the real file matches its documented contract and no longer carries the retired file-presence checks", () => {
+  it("the real file matches its documented contract and no longer carries the RETIRED vendor/companion presence checks", () => {
     assert.ok(NUDGE_SRC.startsWith("#!/bin/sh\n"));
     assert.ok(NUDGE_SRC.includes("evo-auto.flag"));
     assert.ok(NUDGE_SRC.includes("HOOKS_FILE"));
-    // If either string reappears here, someone reintroduced the vendored-
-    // copy / *.local.sh companion-presence logic #552 deliberately removed,
-    // and the tests below no longer reflect what actually ships.
+    // A flat, five-filename presence check DOES still exist (restored after
+    // PR review) -- what must never reappear is the OLD vendor-subdirectory /
+    // *.local.sh-companion-aware version of it. Checked by exact path
+    // fragment, not the bare word "vendor" or the substring ".local.sh" --
+    // this file's own comments legitimately reference the retired design by
+    // name when explaining why the current check is shaped the way it is.
     assert.ok(
-      !NUDGE_SRC.includes("vendor"),
-      "vendored-copy check should no longer exist in evo-analysis-nudge.sh",
+      !NUDGE_SRC.includes("scripts/vendor/"),
+      "the old vendor/-subdirectory path should no longer exist in evo-analysis-nudge.sh",
     );
     assert.ok(
-      !NUDGE_SRC.includes(".local.sh"),
-      "companion-presence check should no longer exist in evo-analysis-nudge.sh",
+      !NUDGE_SRC.includes(".local.sh\""),
+      "no *.local.sh companion filename should be referenced as a real path in evo-analysis-nudge.sh",
+    );
+    // The restored check DOES exist -- pin its presence too, so a future
+    // "simplify this" pass can't silently delete it again without failing
+    // the tests below (which exercise it directly).
+    assert.ok(
+      NUDGE_SRC.includes('for f in correction-capture.sh evo-analysis-nudge.sh failure-capture.sh evolution_candidates.mjs scrub.mjs'),
+      "the flat five-filename presence check must be present",
     );
   });
 
@@ -719,6 +737,20 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
       ? `process.stdout.write("not-a-number");\nprocess.exit(0);\n`
       : `const cmd = process.argv[2];\nif (cmd === "count") process.stdout.write(${JSON.stringify(String(count))});\nprocess.exit(0);\n`;
     writeFileSync(p, body);
+  }
+
+  // Post-#552, the SessionStart nudge checks that all five installed files
+  // are actually present on disk (skills#552 review finding: a stale/partial
+  // .gitignore reconciliation could leave the two .mjs deps ignored while
+  // the three .sh files land committed -- see the restored check in the
+  // real evo-analysis-nudge.sh). Tests that want a "fully wired, no drift"
+  // baseline call this; tests that want a specific file missing pass `omit`.
+  const ALL_HOOK_FILES = ["correction-capture.sh", "evo-analysis-nudge.sh", "failure-capture.sh", "scrub.mjs"];
+  function writeHookFiles(dir, { omit = [] } = {}) {
+    for (const f of ALL_HOOK_FILES) {
+      if (omit.includes(f)) continue;
+      writeFileSync(join(dir, ".ievo/hooks/scripts", f), "#!/bin/sh\nexit 0\n");
+    }
   }
 
   function writeClaudeSettings(dir, { includeFailure = true } = {}) {
@@ -776,14 +808,28 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
     assert.ok(!ctx.includes('"'), "additionalContext must stay double-quote-free (JSON-embedding contract)");
   });
 
-  it("accumulator file genuinely missing -> node's own ENOENT fallback supplies 0, no crash (real, non-stubbed fallback)", () => {
+  it("accumulator file genuinely missing -> node's own ENOENT fallback supplies 0, AND the restored file-presence check reports it as drift (no crash either way)", () => {
+    // Pre-#552-review-fix this asserted total silence: "n falls back to 0,
+    // nothing to report" -- but a genuinely-missing evolution_candidates.mjs
+    // is real drift (the exact partial-gitignore-reconciliation class this
+    // file-presence check exists to catch), and staying silent about it was
+    // itself a blind spot -- a broken accumulator on a real project would
+    // have silently reported "0 candidates" instead of surfacing the break.
+    // What this test still proves: `node "$ACC" count 2>/dev/null || echo 0`
+    // does not crash the whole script when $ACC is absent -- count still
+    // resolves to 0, and the script goes on to run its other checks (which
+    // now correctly flag the same absence as drift) rather than dying.
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir);
     writeClaudeSettings(dir); // fully wired, so the only variable is the accumulator's absence
     stubAccumulator(dir, { missing: true });
     const result = runNudge(dir, { CLAUDECODE: "1" });
-    assert.equal(result.status, 0);
-    assert.equal(result.stdout, "", "wiring is fully present and n falls back to 0 -- nothing to report");
+    assert.equal(result.status, 0, "a missing accumulator must not crash the script");
+    const ctx = additionalContextOf(result.stdout);
+    assert.ok(ctx.includes("drift detected"), "a missing evolution_candidates.mjs is real drift, not silence");
+    assert.ok(ctx.includes("evolution_candidates.mjs"), `expected it named as missing; got: ${ctx}`);
+    assert.ok(!ctx.includes("hook entry"), "settings.json IS fully wired -- only the file itself is missing");
   });
 
   it("accumulator missing AND a hook entry missing -> the drift check still fires despite the accumulator ENOENT", () => {
@@ -809,6 +855,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
     // ordering rule keeps from surfacing mid-run.
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir); // Step 3.5.1 copies all five files up front, before 3.6's entry write
     stubAccumulator(dir, { count: "0" });
     writeClaudeSettings(dir, { includeFailure: false });
     const result = runNudge(dir, { CLAUDECODE: "1" });
@@ -825,6 +872,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
   it("fully wired, zero pending candidates -> silent, no false-positive nudge", () => {
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir);
     writeClaudeSettings(dir);
     stubAccumulator(dir, { count: "0" });
     const result = runNudge(dir, { CLAUDECODE: "1" });
@@ -835,6 +883,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
   it("fully wired, N pending candidates -> ordinary count nudge, no drift language", () => {
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir);
     writeClaudeSettings(dir);
     stubAccumulator(dir, { count: "4" });
     const result = runNudge(dir, { CLAUDECODE: "1" });
@@ -855,6 +904,57 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
     assert.ok(ctx.includes("failure-capture hook entry in .claude/settings.json"));
     assert.ok(ctx.includes("2 evolution candidate(s)"));
     assert.ok(!ctx.includes("correction-capture hook entry"), "only the actually-missing entry should be named");
+  });
+
+  // Regression coverage for the exact gap flagged on PR review after this
+  // file-presence check was first (over-eagerly) deleted, then restored:
+  // committing all five files only guarantees their presence on disk when
+  // evo-auto-enable Step 3.5.1's gitignore reconciliation actually widened
+  // the negation to all five filenames. That reconciliation is an
+  // LLM-interpreted prose step, not compiled code -- a stale/partial
+  // .gitignore (an old three-filename block never upgraded, a hand edit)
+  // can leave scrub.mjs/evolution_candidates.mjs gitignored while the three
+  // .sh files land committed, so capture silently dies on the next clone
+  // with nothing surfacing it -- unless this check catches it.
+  it("scrub.mjs missing on disk (the exact partial-gitignore-reconciliation scenario) -> drift naming it, entries otherwise wired", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeHookFiles(dir, { omit: ["scrub.mjs"] });
+    writeClaudeSettings(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = additionalContextOf(result.stdout);
+    assert.ok(ctx.includes("drift detected"), "a missing dependency file must surface as drift, not silence");
+    assert.ok(ctx.includes("scrub.mjs"), `expected scrub.mjs named as missing; got: ${ctx}`);
+    assert.ok(!ctx.includes("hook entry"), "the hook-config entries ARE wired -- only the file itself is missing");
+    assert.ok(ctx.includes("Re-run /ievo:evo-auto-enable to repair"));
+  });
+
+  it("correction-capture.sh missing on disk -> drift naming it (a corrupted/partial install, not just a gitignore gap)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeHookFiles(dir, { omit: ["correction-capture.sh"] });
+    writeClaudeSettings(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    const ctx = additionalContextOf(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("correction-capture.sh"), `expected correction-capture.sh named as missing; got: ${ctx}`);
+  });
+
+  it("multiple files missing -> all named in one combined drift message", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeHookFiles(dir, { omit: ["scrub.mjs", "failure-capture.sh"] });
+    writeClaudeSettings(dir);
+    stubAccumulator(dir, { count: "0" });
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    const ctx = additionalContextOf(result.stdout);
+    assert.ok(ctx.includes("scrub.mjs"));
+    assert.ok(ctx.includes("failure-capture.sh"));
+    assert.ok(!ctx.includes("correction-capture.sh"), "only the actually-missing files should be named");
+    assert.ok(!ctx.includes("evo-analysis-nudge.sh"), "only the actually-missing files should be named");
   });
 
   it("no hook config file at all -> names the file itself as missing", () => {
@@ -882,6 +982,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
   it("Codex platform, fully wired at .codex/hooks.json -> silent, no drift", () => {
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir);
     writeCodexHooks(dir);
     stubAccumulator(dir, { count: "0" });
     const result = runNudge(dir, { CODEX_CLI: "1" });
@@ -978,6 +1079,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
     it("fresh scaffold (no real entry) -> silent, the exact skills#552 regression this test guards", () => {
       const dir = freshProject();
       writeFlag(dir);
+      writeHookFiles(dir);
       writeClaudeSettings(dir);
       stubAccumulator(dir, { count: "0" });
       writePendingScaffold(dir);
@@ -1027,6 +1129,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
     it("autocommit note appended after the pending-candidate-count message (count-only branch)", () => {
       const dir = freshProject();
       writeFlag(dir);
+      writeHookFiles(dir);
       writeClaudeSettings(dir);
       stubAccumulator(dir, { count: "3" });
       writeAutocommitEntry(dir);
@@ -1064,6 +1167,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, simplified b
     it("no pending.md at all -> autocommit branch stays silent, same as n=0/no-drift", () => {
       const dir = freshProject();
       writeFlag(dir);
+      writeHookFiles(dir);
       writeClaudeSettings(dir);
       stubAccumulator(dir, { count: "0" });
       // Deliberately no writePendingScaffold()/writeAutocommitEntry() call --

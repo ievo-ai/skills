@@ -52,7 +52,7 @@ For each target that passed Step 1's validation, fetch into a staging path — d
 **Never build a `gh api repos/<source.repo>/contents/<source.path>` Bash command line from these values.** `source.path` is a git tree path and can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes) — interpolating it into a command string lets the shell resolve those before the intended command runs, even when quoted. Fetch this way instead — no untrusted byte ever crosses a shell:
 
 1. **Resolve and validate the ref, then the commit.** `gh api "repos/<source.repo>" --jq '.default_branch'` — the returned branch name can legally contain shell metacharacters, so validate it against the same ref allowlist `inspect/SKILL.md` Step 1 uses (`^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`) before any further use. Refuse and report `UPSTREAM MISSING` for this target if it fails. Only then call `gh api "repos/<source.repo>/commits/<default-branch>" --jq '.sha'` and validate the result matches `^[0-9a-f]{7,40}$` — this becomes the new `commit_sha` recorded in Step 4.
-2. **Shallow-clone into a fresh, per-target `mktemp -d` directory** — never a shared checkout path. Also create this target's staging directory now, alongside the checkout dir — sub-steps 4/5 below and Step 2.5's scratch copy write into it, and Step 3.5 removes it whole once the target's outcome is decided:
+2. **Shallow-clone into a fresh, per-target `mktemp -d` directory** — never a shared checkout path. Also create this target's staging directory now, alongside the checkout dir — sub-steps 5/6 below and Step 2.5's scratch copy write into it, and Step 3.5 removes it whole once the target's outcome is decided:
    ```bash
    CHECKOUT_DIR=$(mktemp -d)
    STAGE_DIR=$(mktemp -d)
@@ -61,7 +61,7 @@ For each target that passed Step 1's validation, fetch into a staging path — d
    git -C "$CHECKOUT_DIR" fetch --depth 1 origin <new-commit-sha>
    git -C "$CHECKOUT_DIR" checkout <new-commit-sha>
    ```
-   **Record that echoed path against this target's `<name>` before moving on, and carry it forward as `<stage-dir>`.** Every later reference below — sub-steps 4/5 here, Step 2.5, Step 3.5 — means *that recorded literal path for the target being processed*, substituted in like any other `<...>` placeholder in this file. It is not a `$STAGE_DIR` shell variable read back from an earlier command: each Bash call gets its own shell, and targets are handled as a batch (Step 2.5 dispatches every changed target's audit in one parallel message), so a second target's `mktemp -d` would shadow the first's — leaving target 1's staging dir, possibly holding RED-flagged content, on disk forever and breaking Step 3.5's cleanup guarantee.
+   **Record that echoed path against this target's `<name>` before moving on, and carry it forward as `<stage-dir>`.** Every later reference below — sub-steps 5/6 here, Step 2.5, Step 3.5 — means *that recorded literal path for the target being processed*, substituted in like any other `<...>` placeholder in this file. It is not a `$STAGE_DIR` shell variable read back from an earlier command: each Bash call gets its own shell, and targets are handled as a batch (Step 2.5 dispatches every changed target's audit in one parallel message), so a second target's `mktemp -d` would shadow the first's — leaving target 1's staging dir, possibly holding RED-flagged content, on disk forever and breaking Step 3.5's cleanup guarantee.
 3. **Verify `source.path` stays inside the clone before Glob/Read ever touch it.** `source.path` is raw frontmatter text, not a path obtained by walking the cloned tree — a crafted overlay can set it to `../../../../etc/passwd` or similar. Resolve `$CHECKOUT_DIR/<source.path>` to its canonical form and confirm the result is `$CHECKOUT_DIR` itself or a descendant of it. Do this as a plain path check on the string already in hand from Step 1 — never by writing `<source.path>` into a Bash command line to test it, which would reopen the same CWE-78 this fix closes (it is still unvalidated for shell metacharacters). If containment fails, refuse the target — report `SKIPPED — invalid source metadata` in Step 6, same as a Step 1 validation failure.
 4. **Check for a symlink at, under, or anywhere on the way to `source.path`
    before sub-steps 5-6 read or enumerate anything.** Git preserves a
@@ -134,11 +134,26 @@ For each target that passed Step 1's validation, fetch into a staging path — d
    Then inspect the returned listing yourself (it is data you reason over,
    not a command you build): each line is `<mode> <sha> <stage>`, a TAB,
    then the entry's repo-relative path, so take the path after the TAB
-   (having applied the still-quoted refusal above), strip any trailing `/`
-   from it AND from `source.path` (the skill case writes `source.path` as a
-   directory, the agent case as a single file — normalize both sides before
-   comparing anything), and compare the two as `/`-separated **segment**
-   lists. Refuse the whole target — do NOT run sub-steps 5-6 below — when a
+   (having applied the still-quoted refusal above). Git tree paths never
+   contain a `.` segment or a doubled `/` — the listed entry side of the
+   comparison is always already clean. `source.path` is not: unlike
+   `<source-path-in-repo>` in the sibling fetches (walked from a real
+   cloned tree, so git itself keeps it clean), it is raw overlay
+   frontmatter Step 1 deliberately leaves unvalidated for its exact
+   characters (§ "Do NOT regex-validate `source.path`" above) — a crafted
+   `skills//vendor-skill` or `skills/./vendor-skill` still resolves
+   `$CHECKOUT_DIR/<source.path>` to the identical on-disk location sub-step
+   3's canonicalization and sub-steps 5-6's Glob/Read would each reach, but
+   would segment-split into a spurious empty or `.` component that no
+   longer lines up against the listed entry's clean segments — silently
+   defeating the comparison below on the exact target it exists to catch.
+   So before splitting, also collapse every run of consecutive `/` in
+   `source.path` to a single `/` and drop any `.` segment; then strip any
+   trailing `/` from both `source.path` and the listed entry's path (the
+   skill case writes `source.path` as a directory, the agent case as a
+   single file — normalize both sides before comparing anything), and
+   compare the two as `/`-separated **segment** lists. Refuse the whole
+   target — do NOT run sub-steps 5-6 below — when a
    listed entry is **equal to** `source.path` (the target itself is a
    symlink), **under** `source.path` (its segments begin with
    `source.path`'s — the skill case's whole tree, e.g. a symlinked file

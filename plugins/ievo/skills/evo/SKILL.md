@@ -766,7 +766,7 @@ Otherwise, output a short summary to the user:
 - **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Reusable-practice escalation:** not applicable (Step 5.6 already offered, or lesson classified local) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Extraction offer:** not applicable (no cluster detected) | offered → handed off to `/ievo:consolidate` | offered → skipped
-- **Next:** if Step 5.4 committed: `"Committed locally to branch <name> (not pushed) — push whenever you push the rest of your work on this branch."` else: `"Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."`
+- **Next:** if Step 5.4 committed: `"Committed locally to branch <name> (not pushed) — push whenever you push the rest of your work on this branch."` else: ``"Review with `git diff .ievo/evolution/<scope>/<name>.md` and commit if satisfied."``
 
 ## Rules
 

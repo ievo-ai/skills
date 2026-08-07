@@ -845,17 +845,18 @@ it completes so progress shows live in `tail -f`. Format: [log-format.md §9](re
 Project `.gitignore` should ignore:
 - `.ievo/log/` — diagnostic logs (local-only)
 - `.ievo/cache/` — repo indices (re-derivable)
-- everything under `.ievo/hooks/` **except three named files** — the directory holds ephemeral one-line signal-file timestamps written by Step 11.5 / evo Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state), plus `/ievo:evo-auto-enable`'s machine-local `*.local.sh` hook companions and its vendored script copies
+- everything under `.ievo/hooks/` **except five named files** — the directory holds ephemeral one-line signal-file timestamps written by Step 11.5 / evo Step 5.5 / security-auditor Step 6 (re-created on every pipeline run; only useful as `Write(...)` hook triggers, never as committed state), plus `/ievo:evo-auto-enable`'s fixed-path scratch files under `.ievo/hooks/tmp/`
 
 But NOT ignore (must be committed for team portability):
 - `.ievo/evolution/` — overlay files (project-owned evolution data)
-- `.ievo/hooks/scripts/{correction-capture,evo-analysis-nudge,failure-capture}.sh` — the **tracked, static dispatcher shims** `/ievo:evo-auto-enable` Step 3.5.1b writes. They are committed on purpose: `.claude/settings.json`/`.codex/hooks.json` wire hook entries to those exact paths, so a clean clone that has the settings but not the files exits 127 on every user message (skills#446)
+- `.ievo/hooks/scripts/{correction-capture,evo-analysis-nudge,failure-capture}.sh` and `.ievo/hooks/scripts/{evolution_candidates,scrub}.mjs` — the **hook scripts and their shared dependencies** `/ievo:evo-auto-enable` Step 3.5.1 copies in directly from the plugin. They are committed on purpose: `.claude/settings.json`/`.codex/hooks.json` wire hook entries to the three `.sh` paths, so a clean clone that has the settings but not the files exits 127 on every user message (skills#446); committing all five (not just the three `.sh` files, as an earlier version of this skill did) also means a clean clone gets working hooks immediately, with no separate per-clone regeneration step (skills#552)
 
-**Never write a blanket `.ievo/hooks/` line.** git cannot re-include a file whose parent directory is excluded ("you cannot re-include a file if a parent directory of that file is excluded"), so a bare directory-form entry makes those three shims permanently un-trackable — and it wins over any negation added later, so an init re-run appending it would silently re-ignore shims a previous `/ievo:evo-auto-enable` had already carved out. Use the negation-capable form below; its six `.ievo/hooks/` lines are byte-identical to the block `evo-auto-enable/SKILL.md` Step 3.5.1 writes, so the two skills converge on the same `.gitignore` state in either order.
+**Never write a blanket `.ievo/hooks/` line.** git cannot re-include a file whose parent directory is excluded ("you cannot re-include a file if a parent directory of that file is excluded"), so a bare directory-form entry makes those five files permanently un-trackable — and it wins over any negation added later, so an init re-run appending it would silently re-ignore files a previous `/ievo:evo-auto-enable` had already carved out. Use the negation-capable form below; its eight `.ievo/hooks/` lines are byte-identical to the block `evo-auto-enable/SKILL.md` Step 3.5.1 writes, so the two skills converge on the same `.gitignore` state in either order.
 
 Check project's `.gitignore`:
-- If it already covers `.ievo/log/`, `.ievo/cache/`, and the six `.ievo/hooks/` lines below, nothing to do.
-- If it contains a blanket `.ievo/hooks/` line (a pre-#446 init run, or a hand-written entry), REPLACE that one line with the six `.ievo/hooks/` lines below via the Edit tool, leaving every other line untouched — replace, never append alongside, since a bare `dir/` entry still wins over later negations.
+- If it already covers `.ievo/log/`, `.ievo/cache/`, and the eight `.ievo/hooks/` lines below, nothing to do.
+- If it contains the OLDER six-line block (only the three `.sh` filenames carved out — a pre-skills#552 init run), REPLACE it with the eight-line block below via the Edit tool — the two new negation lines must be added, not left for a later `/ievo:evo-auto-enable` run to discover.
+- If it contains a blanket `.ievo/hooks/` line (a pre-#446 init run, or a hand-written entry), REPLACE that one line with the eight `.ievo/hooks/` lines below via the Edit tool, leaving every other line untouched — replace, never append alongside, since a bare `dir/` entry still wins over later negations.
 - Otherwise append whichever groups are missing:
 ```
 # iEvo local-only artifacts
@@ -867,6 +868,8 @@ Check project's `.gitignore`:
 !.ievo/hooks/scripts/correction-capture.sh
 !.ievo/hooks/scripts/evo-analysis-nudge.sh
 !.ievo/hooks/scripts/failure-capture.sh
+!.ievo/hooks/scripts/evolution_candidates.mjs
+!.ievo/hooks/scripts/scrub.mjs
 ```
 
 If no `.gitignore` exists, do not create one — note in summary.

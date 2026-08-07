@@ -6,6 +6,13 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.79.1
+
+Follow-up to v0.79.0 — drops a dead branch in the auto-commit gate's default-branch resolution, flagged on PR review after v0.79.0 merged.
+
+- **`evo/SKILL.md` Step 5.4 point 2 and `agents/evolution.md` Step 4.4 point 2** — removed the `main`/`master`/`trunk`/`develop` branch-name fallback used when `git symbolic-ref refs/remotes/origin/HEAD` fails. Both outcomes (name matches an assumed default / doesn't) already resolved to the identical "skip auto-commit, fail closed" result, so the name check never changed behavior. No functional change — the fail-closed skip on an unresolved `symbolic-ref` still applies unconditionally.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (dead-code removal, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.79.0 → 0.79.1).
+
 ## v0.79.0
 
 Auto-commit `/ievo:evo` lesson captures onto a feature branch, on both the direct-execution and default sub-agent delegation paths — closes part of #552.

@@ -527,14 +527,30 @@ review of an earlier session's auto-captured candidate.
    the opposite direction.
 
 4. **If the current branch is a confirmed non-default feature branch:**
+   first validate `<overlay-file-path>` (the exact path Step 4 wrote to —
+   `.ievo/evolution/project.md`, `.ievo/evolution/agents/<name>.md`, or
+   `.ievo/evolution/skills/<name>.md`) against
+   `^\.ievo/evolution/(project\.md|(agents|skills)/[A-Za-z0-9._-]+\.md)$`
+   before it reaches a command line. This is required, not optional: for
+   agent/skill scope, `<name>` traces back to a target name Step 1 resolved
+   — either the user's own text, or a match against an existing local
+   agent/skill filename, which a prior vendoring pass (Step 2's "How to
+   fetch source") could have populated from an untrusted plugin repo's own
+   tree, itself documented there as capable of holding almost any byte,
+   including shell metacharacters. If validation fails, treat this like any
+   other "can't proceed" signal in this step: skip auto-commit, fall
+   through to today's behavior, and say so in Step 6's report (`left
+   uncommitted — overlay path failed safety validation, commit manually`).
+   Only once it passes:
    ```
    git add <overlay-file-path>
-   git commit --only <overlay-file-path> -m "docs(evolution): <short title from Step 4>"
+   git commit --only <overlay-file-path> -m "docs(evolution): <overlay-file-path>"
    ```
-   Replace `<overlay-file-path>` with the exact path Step 4 wrote to
-   (`.ievo/evolution/project.md`, `.ievo/evolution/agents/<name>.md`, or
-   `.ievo/evolution/skills/<name>.md`) and `<short title from Step 4>`
-   with the same short title used in that overlay entry's `##` heading.
+   The commit message reuses the now-validated path itself, never the
+   lesson's free-text short title — a title can legally contain shell
+   metacharacters (backticks, `$(...)`) that a double-quoted `-m` string
+   does not neutralize, the same class of hazard Step 2's vendor-fetch
+   validation exists to close.
 
    **`--only` is required, not optional.** Verified empirically: a bare
    `git commit` after `git add <path>` commits the entire index, not just

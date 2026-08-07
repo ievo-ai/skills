@@ -557,17 +557,22 @@ to read a real session identifier.
    branch** → do NOT auto-commit. Fall through to today's behavior.
 
 4. **If the current branch is a confirmed non-default feature branch:**
+   first validate `<overlay-file-path>` (the exact path Step 4 wrote to)
+   against `^\.ievo/evolution/(project\.md|(agents|skills)/[A-Za-z0-9._-]+\.md)$`
+   — see § Bash command allowlist above for why this is required, not
+   optional, before the path reaches a command line. If it fails, treat
+   this like any other "can't proceed" signal in this step: skip
+   auto-commit, fall through to today's behavior, and say so in your
+   Step 5 report (`left uncommitted — overlay path failed safety
+   validation, commit manually`). Only once it passes:
    ```
    git add <overlay-file-path>
-   git commit --only <overlay-file-path> -m "docs(evolution): <short title from Step 4>"
+   git commit --only <overlay-file-path> -m "docs(evolution): <overlay-file-path>"
    ```
-   Replace `<overlay-file-path>` with the exact path Step 4 wrote to and
-   `<short title from Step 4>` with the same short title used in that
-   overlay entry's `##` heading. Neither value is untrusted vendored
-   content — `<overlay-file-path>` is one of the three deterministic paths
-   Step 4 above already computes, and the title comes from the user's own
-   lesson text, the same trust boundary Step 4 already writes unfiltered
-   into the overlay file.
+   The commit message reuses the now-validated path, never the lesson's
+   free-text title — a title can legally contain shell metacharacters
+   (backticks, `$(...)`) that a double-quoted `-m` string does not
+   neutralize.
 
    **`--only` is required, not optional.** A bare `git commit` after
    `git add <path>` commits the entire index, not just the path just

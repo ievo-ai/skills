@@ -526,8 +526,8 @@ review of an earlier session's auto-captured candidate.
    against the current branch — a real confirmation, not a guess from a
    name list.
 
-3. **If the current branch equals the resolved (or assumed) default
-   branch** → do NOT auto-commit. Fall through to today's behavior — this
+3. **If the current branch equals the resolved default branch** → do NOT
+   auto-commit. Fall through to today's behavior — this
    is the protected-`main` case a PR-only repo relies on; auto-committing
    here would recreate the exact pain this feature exists to remove, from
    the opposite direction.

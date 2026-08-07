@@ -563,8 +563,8 @@ to read a real session identifier.
    directly against the current branch — a real confirmation, not a guess
    from a name list.
 
-3. **If the current branch equals the resolved (or assumed) default
-   branch** → do NOT auto-commit. Fall through to today's behavior.
+3. **If the current branch equals the resolved default branch** → do NOT
+   auto-commit. Fall through to today's behavior.
 
 4. **If the current branch is a confirmed non-default feature branch:**
    first validate `<overlay-file-path>` (the exact path Step 4 wrote to)

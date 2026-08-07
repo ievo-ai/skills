@@ -6,6 +6,13 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.79.2
+
+Follow-up to v0.79.1 — clears a stale wording leftover from that fix, flagged on PR review after v0.79.1 merged.
+
+- **`evo/SKILL.md` Step 5.4 point 3 and `agents/evolution.md` Step 4.4 point 3** — "the resolved (or assumed) default branch" → "the resolved default branch". The "assumed" branch referred to the name-list fallback removed in v0.79.1; nothing is assumed anymore once that fallback is gone. Wording only, no functional change.
+- **Version** — `fix:` → patch. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.79.1 → 0.79.2).
+
 ## v0.79.1
 
 Follow-up to v0.79.0 — drops a dead branch in the auto-commit gate's default-branch resolution, flagged on PR review after v0.79.0 merged.

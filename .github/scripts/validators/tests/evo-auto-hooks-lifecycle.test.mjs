@@ -896,6 +896,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, re-derived f
   it("one hook entry missing from an otherwise-wired config -> combined drift + pending-count message", () => {
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir); // isolate the variable under test to the hook ENTRY, not file presence too
     writeClaudeSettings(dir, { includeFailure: false });
     stubAccumulator(dir, { count: "2" });
     const result = runNudge(dir, { CLAUDECODE: "1" });
@@ -969,6 +970,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, re-derived f
   it("Codex platform ($CODEX_CLI set) checks .codex/hooks.json, never .claude/settings.json", () => {
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir); // isolate the variable under test to platform config selection, not file presence too
     writeClaudeSettings(dir); // fully wired on the WRONG (Claude Code) file
     stubAccumulator(dir, { count: "0" });
     const result = runNudge(dir, { CODEX_CLI: "1" });
@@ -992,6 +994,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, re-derived f
   it("$CLAUDECODE set together with $CODEX_CLI set -> Codex wins (Step 1.5 ordering: Claude Code requires CODEX_CLI unset)", () => {
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir); // isolate the variable under test to platform ordering, not file presence too
     writeClaudeSettings(dir); // wired only on the Claude Code side
     stubAccumulator(dir, { count: "0" });
     const result = runNudge(dir, { CLAUDECODE: "1", CODEX_CLI: "1" });
@@ -1006,6 +1009,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, re-derived f
     // report the missing entry.
     const dir = freshProject();
     writeFlag(dir);
+    writeHookFiles(dir); // isolate the variable under test to the broken accumulator, not file presence too
     writeClaudeSettings(dir, { includeFailure: false });
     stubAccumulator(dir, { broken: true });
     const result = runNudge(dir, { CLAUDECODE: "1" });
@@ -1095,6 +1099,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, re-derived f
     it("wired + 0 candidates + a real autocommit-failed entry -> fires (the bare else-branch case)", () => {
       const dir = freshProject();
       writeFlag(dir);
+      writeHookFiles(dir); // without this, all four files read as missing and the DRIFT branch runs instead -- "iEvo auto-evolution:" prefixes both, so a bare startsWith() would pass either way and this test would never actually exercise the bare else-branch it claims to
       writeClaudeSettings(dir);
       stubAccumulator(dir, { count: "0" });
       writeAutocommitEntry(dir);
@@ -1102,6 +1107,7 @@ describe("evo-analysis-nudge.sh wiring-integrity check (skills#551, re-derived f
       assert.equal(result.status, 0);
       assert.notEqual(result.stdout, "", "a real autocommit-failed entry must fire the nudge even with n=0 and no wiring drift");
       const ctx = additionalContextOf(result.stdout);
+      assert.ok(!ctx.includes("drift detected"), "this must be the bare else-branch, not the drift branch");
       assert.ok(ctx.startsWith("iEvo auto-evolution:"), "bare else-branch prefix must still be present");
       assert.ok(ctx.includes("Scope: autocommit-failed"));
       assert.ok(ctx.includes("do NOT re-run it through Step 0/1 classification"));

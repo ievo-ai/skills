@@ -339,6 +339,23 @@ auto-mode's capture hooks can't be configured right now, and skip to Step 4
 (the flag + queue from Steps 2–3 still stand; the user can re-run once
 resolved).
 
+**Clean up orphaned pre-#552 artifacts, if any.** A project that ran an
+older version of this skill has a gitignored `.ievo/hooks/scripts/vendor/`
+directory and up to three `.ievo/hooks/scripts/*.local.sh` companions from
+the retired shim/companion design — safe to remove wholesale now that the
+copy above replaced everything they provided, and leaving them would just
+be orphaned clutter (they were never committed, so this has no git-history
+effect):
+
+```
+rm -rf .ievo/hooks/scripts/vendor
+rm -f .ievo/hooks/scripts/correction-capture.local.sh .ievo/hooks/scripts/evo-analysis-nudge.local.sh .ievo/hooks/scripts/failure-capture.local.sh
+```
+
+Safe to run unconditionally — both are no-ops on a project that never had
+the old design (nothing to remove) and on a re-run of this skill itself
+(idempotent).
+
 The installed copies live at the **fixed, non-versioned, relative** paths
 listed in the table above — every hook script below references its sibling
 `evolution_candidates.mjs`/`scrub.mjs` by that literal relative path as its

@@ -294,10 +294,11 @@ If cloning or resolution fails (private repo, no network), report the
 failure — do NOT fall back to per-file `gh api` fetching, which reintroduces
 the injection this replaces.
 
-## Bash command allowlist (closed set — #400 pattern, #405)
+## Bash command allowlist (closed set — #400 pattern, #405; widened for symlink containment and Step 4.4's auto-commit)
 
-Your entire legitimate Bash surface is the seven command templates in the
-"How to fetch source" list above. These are the ONLY Bash invocations you
+Your entire legitimate Bash surface is the eleven command templates below —
+seven for Step 2's vendor-fetch (including the symlink-containment check),
+four for Step 4.4's auto-commit. These are the ONLY Bash invocations you
 may ever run — same shape, same flags, same argument order, nothing added:
 
 1. `gh api "repos/<owner>/<repo>" --jq '.default_branch'`
@@ -307,21 +308,48 @@ may ever run — same shape, same flags, same argument order, nothing added:
 5. `git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>`
 6. `git -C "$CHECKOUT_DIR" checkout <commit-sha>`
 7. `git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'`
+8. `git branch --show-current`
+9. `git symbolic-ref refs/remotes/origin/HEAD`
+10. `git add <overlay-file-path>`
+11. `git commit --only <overlay-file-path> -m "docs(evolution): <overlay-file-path>"`
 
-`<owner>`/`<repo>`/`<default-branch>`/`<commit-sha>` may hold ONLY values
-that already passed this agent's own Step 2 validation (the owner/repo slug
-regexes, the ref allowlist, the hex-sha regex) — never a value read from the
-vendored target's own content. Template 7 takes no path argument at all —
-not even the already-validated `<path>` — precisely so the symlink check in
-sub-step 4 above never needs to decide whether `<path>` is safe to
-interpolate; it never reaches the shell in the first place. Its
-`-c core.quotePath=false` and its trailing `| grep '^120000'` are both part
-of the template itself, fixed and literal like template 1/2's own `--jq`
-filters — not a compounding pipe or an added flag you chose, and not values
-derived from any untrusted input. Neither may be dropped: without the
-former, git C-quotes exactly the paths an attacker picks and the containment
-match misses them; without the latter, a padded repo can push the symlink
-line past the Bash tool's output truncation.
+`<owner>`/`<repo>`/`<default-branch>`/`<commit-sha>` (templates 1-6) may
+hold ONLY values that already passed this agent's own Step 2 validation
+(the owner/repo slug regexes, the ref allowlist, the hex-sha regex) — never
+a value read from the vendored target's own content. Template 7 takes no
+path argument at all — not even the already-validated `<path>` — precisely
+so the symlink check in sub-step 4 above never needs to decide whether
+`<path>` is safe to interpolate; it never reaches the shell in the first
+place. Its `-c core.quotePath=false` and its trailing `| grep '^120000'`
+are both part of the template itself, fixed and literal like template 1/2's
+own `--jq` filters — not a compounding pipe or an added flag you chose, and
+not values derived from any untrusted input. Neither may be dropped:
+without the former, git C-quotes exactly the paths an attacker picks and
+the containment match misses them; without the latter, a padded repo can
+push the symlink line past the Bash tool's output truncation.
+
+`<overlay-file-path>` (templates 10-11) is NOT exempt from this same
+scrutiny just because Step 4 computes it rather than reading it from
+vendored content: for agent/skill scope it is
+`.ievo/evolution/<agents|skills>/<name>.md`, and `<name>` can itself be a
+value that traces back to a plugin repo's own tree (Step 1 resolves it
+either from the user directly, or by matching an existing local
+agent/skill filename — one that a prior Step 2 vendoring pass could have
+populated from that same untrusted source). That is the identical
+untrusted-byte path template 7 exists to keep off the command line, so it
+gets the identical treatment: before templates 10-11 run, validate the
+full `<overlay-file-path>` against
+`^\.ievo/evolution/(project\.md|(agents|skills)/[A-Za-z0-9._-]+\.md)$` —
+refuse and report if it fails, same as any other "can't proceed" signal in
+Step 4.4 (skip auto-commit, fall through to today's behavior). Once
+validated, the path itself contains no shell metacharacter, so template
+11's commit message reuses the validated path rather than any free-text
+title — `<short title from Step 4>` never reaches a command line. A
+lesson's title can legally contain backticks or `$(...)` (Step 4 places no
+constraint on it), and a double-quoted `-m` string neutralizes neither —
+the same class of gap templates 1-6's validation and template 7's
+no-argument design both close, applied here to the two arguments Step 4.4
+newly introduces.
 
 Everything else is prohibited: interpreter/runtime invocations in any form
 (`python3 -c`, `perl -e`, `node`, `sh`/`bash -c`, or executing a script
@@ -479,6 +507,105 @@ Then append a section:
 <full lesson text — verbatim>
 ```
 
+## Step 4.4: Auto-commit on a feature branch
+
+By this point Step 4 has appended the lesson to the overlay file, with its
+`Trigger` field already filled in the same append — unlike `evo/SKILL.md`,
+which resolves `Trigger` in a separate Step 5, this agent's Step 4 template
+writes the real value in one pass, so there is no placeholder-vs-final
+ordering hazard to guard against here. This step mirrors `evo/SKILL.md`'s
+Step 5.4 exactly (see that file for the full empirical verification behind
+each git behavior claimed below), adapted for two facts specific to this
+sub-agent: it never has an interactive session, and it has no verified way
+to read a real session identifier.
+
+1. **Resolve the current branch:**
+   ```
+   git branch --show-current
+   ```
+   Two distinct "can't proceed" signals — check for both:
+   - Inside a git repo but in detached HEAD: exits **0** with **empty
+     stdout**. Check the output, not the exit code.
+   - Outside a git repo entirely: exits **128** with a
+     `fatal: not a git repository` stderr message.
+
+   Either signal → skip the rest of this step entirely. Fall through to
+   today's behavior: the overlay file stays edited/uncommitted, and your
+   Step 5 report says so.
+
+2. **Resolve the repo's default branch — never hardcode `main`:**
+   ```
+   git symbolic-ref refs/remotes/origin/HEAD
+   ```
+   Strip the `refs/remotes/origin/` prefix from the output. When this
+   succeeds, its result is authoritative — compare it directly against the
+   current branch in point 3.
+
+   When it **fails** (no remote configured, or a detached remote HEAD),
+   check whether the current branch name is one of the common default
+   names: `main`, `master`, `trunk`, `develop`. Either way — name matches or
+   not — treat it as the default branch and skip auto-commit: nothing here
+   positively rules out default-branch status, and `symbolic-ref` gave no
+   answer at all.
+
+   **Fail closed:** whenever default-branch status can't be positively
+   ruled out, skip auto-commit. A missed auto-commit costs the user one
+   manual `git add`/`commit`; a wrong auto-commit on a protected branch is
+   the exact failure this step exists to prevent.
+
+3. **If the current branch equals the resolved (or assumed) default
+   branch** → do NOT auto-commit. Fall through to today's behavior.
+
+4. **If the current branch is a confirmed non-default feature branch:**
+   ```
+   git add <overlay-file-path>
+   git commit --only <overlay-file-path> -m "docs(evolution): <short title from Step 4>"
+   ```
+   Replace `<overlay-file-path>` with the exact path Step 4 wrote to and
+   `<short title from Step 4>` with the same short title used in that
+   overlay entry's `##` heading. Neither value is untrusted vendored
+   content — `<overlay-file-path>` is one of the three deterministic paths
+   Step 4 above already computes, and the title comes from the user's own
+   lesson text, the same trust boundary Step 4 already writes unfiltered
+   into the overlay file.
+
+   **`--only` is required, not optional.** A bare `git commit` after
+   `git add <path>` commits the entire index, not just the path just
+   staged — `git commit --only <path>` commits exactly that path and
+   leaves everything else in the index untouched. Never `git push` (see
+   Rules) — local commit only, always.
+
+5. **If the commit fails** (pre-commit hook rejects it, or any other
+   non-zero exit) — non-fatal. Do not retry. Do not add `--no-verify` (see
+   Rules). You are a dispatched sub-agent with no way to prompt a human
+   mid-run — the same constraint Step 2.5 above already documents and
+   cites. Unlike `evo/SKILL.md`'s own direct-execution path, there is no
+   interactive branch here: **always** take the headless path. Append a
+   new entry to `.ievo/evolution-candidates/pending.md` (create the file
+   with `evo-auto-enable/SKILL.md` Step 3's scaffold first if it doesn't
+   exist yet) in this format:
+   ```markdown
+
+   ## <ISO-8601 UTC> — session <session-id>
+   - Scope: autocommit-failed
+   - Overlay file: <overlay-file-path>
+   - Branch: <branch-name>
+   - Reason: <failure reason, truncated to one line>
+   ```
+   For `<session-id>`: you have no verified way to read the dispatching
+   session's actual identifier — you are a Task-dispatched sub-agent, not
+   a hook (only a hook receives `session_id` on stdin JSON). Use the
+   literal value `unknown`, the same fallback `evo-auto-enable/SKILL.md`'s
+   own hook scripts already use when a session id can't be resolved. Do
+   not fabricate an identifier. Continue immediately after appending; do
+   not wait for the entry to be reviewed. `evo-analysis-nudge.sh`'s
+   SessionStart nudge is what surfaces this to a human, the next time an
+   interactive session starts in this repo.
+
+6. **Report this outcome precisely** — see the updated Step 5 report
+   template below; it now states the auto-commit outcome instead of always
+   pointing at a manual `git diff`.
+
 ## Step 4.5: Signal file for lifecycle hooks
 
 After the overlay append in Step 4 succeeds, write `.ievo/hooks/evolution-captured` (create the directory if absent). The body is a single line: the ISO-8601 UTC timestamp of the capture. This file is the trigger for any `PostToolUse` hook configured via `/ievo:hooks-setup` matching `Write(.ievo/hooks/evolution-captured)`.
@@ -617,7 +744,8 @@ Otherwise, output a short summary to the user:
 - Upstream escalation: not applicable (local lesson) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Reusable-practice escalation: not applicable (upstream escalation already recommended above, or lesson classified local) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Extraction candidate: not applicable | detected (+ one-line cluster description for the caller to hand to `/ievo:consolidate`)
-- Suggested next step: "Review with `git diff` and commit if satisfied."
+- Auto-commit (Step 4.4): committed locally to branch `<name>` (not pushed) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown`)
+- Suggested next step: if Step 4.4 committed: "Committed locally to branch `<name>` (not pushed) — push whenever you push the rest of your work on this branch." else: "Review with `git diff` and commit if satisfied."
 
 ## Rules
 
@@ -632,3 +760,4 @@ Otherwise, output a short summary to the user:
 - **Symlink containment gates reading, not just writing.** Step 2 sub-step 4 checks the git index for a `120000`-mode entry at, under, **or on any ancestor path of** `<path>` before sub-steps 5-6 ever Read/Glob it — a vendored tree can carry a symlink to a local secret outside `$CHECKOUT_DIR`, and the Read tool follows it like any other file. The ancestor half of that match is load-bearing, not belt-and-braces: git indexes a symlinked *directory* as one `120000` entry for the directory itself (no trailing slash, nothing beneath it tracked), so `<plugin>/skills/<name>` shipped as a link to `~/.ssh` is an entry that neither equals nor starts with `<path>` = `<plugin>/skills/<name>/` — which is why the comparison normalizes trailing slashes on both sides and matches by `/`-separated segment in both directions. The check's own `git -c core.quotePath=false ls-files -s | grep '^120000'` form matters as much as its placement, and both fixed pieces are load-bearing: a large or padded upstream repo could otherwise push an unfiltered listing past the Bash tool's own output-truncation limit and hide the one line that matters, so the fixed `grep` filter bounds what you read to symlink entries alone, independent of the repo's total file count; and `core.quotePath` **defaults to on**, so without the `-c` override git C-quotes any path holding a byte over 0x7F (`evil-plügin/skills/foo` prints as `"evil-pl\303\274gin/skills/foo"`) and that entry equals, sits under, and is an ancestor of nothing — the containment match misses precisely the paths an attacker gets to choose. Because double quotes, backslash and control characters stay escaped even with the flag set, the rule also **fails closed on any still-quoted path** (leading `"`): refuse rather than unescape, since a path you cannot reliably reconstruct is one you cannot reliably contain. A match aborts the whole capture before any content is read into context (no overlay write, no marker injection, Step 2.5 never runs) — this is a structural refusal, not a re-audit judgment call, so unlike a YELLOW/RED verdict below it offers no "vendor manually" override in the report.
 - **Re-audit gates vendoring, not every capture.** Step 2.5 only applies when Step 2 is vendoring fresh content from a plugin — an already-local target, or a project-wide lesson, skips it entirely. A YELLOW/RED verdict aborts the whole capture (no overlay write, no marker injection): this is a dispatched sub-agent with no tool to prompt the user, so it cannot offer the "apply anyway" override `update.md`'s Step 2.5 gives a main-session caller. Report the flagged verdict and let the user vendor manually after reviewing the flags — never fabricate a lower verdict to force the write through.
 - **Neutralize both SKIPPED lines before they render.** Step 5's symlink-containment `SKIPPED` line and its re-audit `SKIPPED` line both interpolate an `<owner>/<repo>@<path>` pointer — a tree path that can hold almost any byte — and the re-audit line also interpolates LLM-synthesized flag text; both are rendered as Markdown by whatever session/skill dispatched this agent. See Step 5's "Excerpt containment" note for the fencing rule covering all of it.
+- **Auto-commit (Step 4.4) stays local, scoped, and never forces past a rejection.** Never `git add -A`/`git add .` — stage only the overlay file path. Always `git commit --only <path>`, never a bare `git commit`. Never `git push`. Never `--no-verify` or any other hook-skipping flag — a rejected commit is a real signal, not an obstacle to route around. `<overlay-file-path>` is validated (see § Bash command allowlist) before it ever reaches templates 10-11 — never interpolate it, or the lesson title, unvalidated.

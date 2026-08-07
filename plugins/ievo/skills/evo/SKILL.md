@@ -591,14 +591,34 @@ review of an earlier session's auto-captured candidate.
      - Branch: <branch-name>
      - Reason: <failure reason, truncated to one line>
      ```
+     Write these four field lines flush-left, with no leading or trailing
+     whitespace — `evo-auto-enable/SKILL.md` Step 3.5.3's nudge detector
+     matches `^- Scope: autocommit-failed$` exactly (anchored, no
+     whitespace tolerance), so an indented copy of this fenced example
+     would silently never be picked up.
+
      `Scope: autocommit-failed` is a distinct value from the existing
      `ambiguous`/`user-level-only` scopes — this candidate isn't awaiting
      scope classification, it's already-classified content that just
      needs a manual commit. Continue the calling flow immediately after
      appending; do not wait for the entry to be reviewed.
-     `evo-analysis-nudge.sh`'s SessionStart nudge (`evo-auto-enable`
-     Step 3.5.3) is what surfaces this to a human, the next time an
-     interactive session starts in this repo.
+
+     **This has a precondition.** `evo-analysis-nudge.sh`'s SessionStart
+     nudge (`evo-auto-enable` Step 3.5.3) is what surfaces this to a
+     human, the next time an interactive session starts in this repo —
+     but only in a project where `/ievo:evo-auto-enable` has actually
+     been run: that script's own first line is `[ -f .ievo/evo-auto.flag ]
+     || exit 0`, so a project without the flag never runs the nudge at
+     all, no matter how many `autocommit-failed` entries pile up in
+     `pending.md`. Before finishing this step, check whether
+     `.ievo/evo-auto.flag` exists (Read or Glob tool — this is a fixed,
+     known path, not a value that needs a Bash command):
+     - **Flag present:** nothing else to do here — the next interactive
+       session's nudge will surface this entry.
+     - **Flag absent:** still append the entry (a human may find it
+       manually later, or enable auto-evo mode afterward), but Step 6's
+       report for this capture must say so plainly instead of implying
+       the nudge will catch it — see Step 6's updated template below.
 
 6. **Update what Step 6 reports** — see Step 6's revised template below;
    it now states the auto-commit outcome precisely instead of always
@@ -732,7 +752,7 @@ Otherwise, output a short summary to the user:
 - **Overlay file:** path
 - **Marker injected:** yes (first evolution for this target) | no (already present)
 - **Section title added:** "<title>"
-- **Auto-commit (Step 5.4):** committed locally to branch `<name>` (not pushed) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (interactive: fix and retry yourself; headless: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`)
+- **Auto-commit (Step 5.4):** committed locally to branch `<name>` (not pushed — only the overlay file itself; the marker injection above, if any, is a separate uncommitted change on this branch) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted on branch `<name>` (default-branch status could not be confirmed — `origin/HEAD` unset — skipped per fail-closed) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (interactive: fix and retry yourself; headless with `.ievo/evo-auto.flag` present: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed` — the next SessionStart nudge will surface it; headless with the flag absent: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, but auto-evo mode is off in this project so no SessionStart nudge will surface it — review `.ievo/evolution-candidates/pending.md` manually)
 - **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Reusable-practice escalation:** not applicable (Step 5.6 already offered, or lesson classified local) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Extraction offer:** not applicable (no cluster detected) | offered → handed off to `/ievo:consolidate` | offered → skipped

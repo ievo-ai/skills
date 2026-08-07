@@ -131,12 +131,14 @@ Awaiting scope classification (from earlier auto-capture, reviewed via
 Already captured, only the commit failed (`evo/SKILL.md` Step 5.4's
 headless-invocation fallback — the overlay entry was already written
 successfully; this just needs a manual `git add` + `git commit --only`
-on the noted file, never re-run through Step 0/1 classification). Format:
-a `## <ISO-8601 UTC> — session <session-id>` heading followed by four
-fields — `Scope: autocommit-failed`, `Overlay file: <path>`,
-`Branch: <branch-name>`, `Reason: <failure reason>` — see `evo/SKILL.md`
-Step 5.4 point 5 for the authoritative field list. Deliberately described
-in prose here, not reproduced as a standalone block: a literal
+on the noted file, never re-run through Step 0/1 classification — then
+delete the entry from pending.md once you have committed the file
+manually). Format: a `## <ISO-8601 UTC> — session <session-id>` heading
+followed by four fields — `Scope: autocommit-failed`, `Overlay file:
+<path>`, `Branch: <branch-name>`, `Reason: <failure reason>` — see
+`evo/SKILL.md` Step 5.4 point 5 or `agents/evolution.md` Step 4.4 point 5
+for the authoritative field list. Deliberately described in prose here,
+not reproduced as a standalone block: a literal
 `- Scope: autocommit-failed` line written into this very scaffold would
 itself exact-match the nudge script's detector below (Step 3.5.3) on
 every freshly created `pending.md` — faking a false-positive "commit
@@ -579,7 +581,7 @@ fi
 PENDING=".ievo/evolution-candidates/pending.md"
 autocommit_note=""
 if [ -f "$PENDING" ] && grep -q '^- Scope: autocommit-failed$' "$PENDING" 2>/dev/null; then
-  autocommit_note=" Some entries in .ievo/evolution-candidates/pending.md are Scope: autocommit-failed -- a previous run captured a lesson successfully (the overlay entry is already written) but its auto-commit failed; review the entry for the file/branch/reason and commit it manually, do NOT re-run it through Step 0/1 classification."
+  autocommit_note=" Some entries in .ievo/evolution-candidates/pending.md are Scope: autocommit-failed -- a previous run captured a lesson successfully (the overlay entry is already written) but its auto-commit failed; review the entry for the file/branch/reason and commit it manually, do NOT re-run it through Step 0/1 classification. Delete the entry from pending.md once you have committed the file manually."
 fi
 
 [ "$n" -gt 0 ] || [ -n "$missing" ] || [ -n "$autocommit_note" ] || exit 0

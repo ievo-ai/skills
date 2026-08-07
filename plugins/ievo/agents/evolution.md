@@ -597,15 +597,37 @@ to read a real session identifier.
    - Branch: <branch-name>
    - Reason: <failure reason, truncated to one line>
    ```
+   Write these four field lines flush-left, with no leading or trailing
+   whitespace — `evo-auto-enable/SKILL.md` Step 3.5.3's nudge detector
+   matches `^- Scope: autocommit-failed$` exactly (anchored, no
+   whitespace tolerance), so an indented copy of this fenced example
+   would silently never be picked up.
+
    For `<session-id>`: you have no verified way to read the dispatching
    session's actual identifier — you are a Task-dispatched sub-agent, not
    a hook (only a hook receives `session_id` on stdin JSON). Use the
    literal value `unknown`, the same fallback `evo-auto-enable/SKILL.md`'s
    own hook scripts already use when a session id can't be resolved. Do
    not fabricate an identifier. Continue immediately after appending; do
-   not wait for the entry to be reviewed. `evo-analysis-nudge.sh`'s
-   SessionStart nudge is what surfaces this to a human, the next time an
-   interactive session starts in this repo.
+   not wait for the entry to be reviewed.
+
+   **This has a precondition.** `evo-analysis-nudge.sh`'s SessionStart
+   nudge is what surfaces this to a human, the next time an interactive
+   session starts in this repo — but only in a project where
+   `/ievo:evo-auto-enable` has actually been run: that script's own first
+   line is `[ -f .ievo/evo-auto.flag ] || exit 0`, so a project without
+   the flag never runs the nudge at all, no matter how many
+   `autocommit-failed` entries pile up in `pending.md`. Before finishing
+   this step, check whether `.ievo/evo-auto.flag` exists (Read or Glob
+   tool — this is a fixed, known path, not a value that needs a Bash
+   command; this check is not part of the closed Bash allowlist above and
+   must not be):
+   - **Flag present:** nothing else to do here — the next interactive
+     session's nudge will surface this entry.
+   - **Flag absent:** still append the entry (a human may find it
+     manually later, or enable auto-evo mode afterward), but your Step 5
+     report for this capture must say so plainly instead of implying the
+     nudge will catch it — see Step 5's updated template below.
 
 6. **Report this outcome precisely** — see the updated Step 5 report
    template below; it now states the auto-commit outcome instead of always
@@ -749,7 +771,7 @@ Otherwise, output a short summary to the user:
 - Upstream escalation: not applicable (local lesson) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Reusable-practice escalation: not applicable (upstream escalation already recommended above, or lesson classified local) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Extraction candidate: not applicable | detected (+ one-line cluster description for the caller to hand to `/ievo:consolidate`)
-- Auto-commit (Step 4.4): committed locally to branch `<name>` (not pushed) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown`)
+- Auto-commit (Step 4.4): committed locally to branch `<name>` (not pushed — only the overlay file itself; the marker injection above, if any, is a separate uncommitted change on this branch) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted on branch `<name>` (default-branch status could not be confirmed — `origin/HEAD` unset — skipped per fail-closed) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (`.ievo/evo-auto.flag` present: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown` — the next SessionStart nudge will surface it; flag absent: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, session `unknown`, but auto-evo mode is off in this project so no SessionStart nudge will surface it — review `.ievo/evolution-candidates/pending.md` manually)
 - Suggested next step: if Step 4.4 committed: "Committed locally to branch `<name>` (not pushed) — push whenever you push the rest of your work on this branch." else: "Review with `git diff` and commit if satisfied."
 
 ## Rules

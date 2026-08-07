@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.78.11
+
+Extend `commands/update.md`'s skill-refresh containment check to nested files, not just the top-level `source.path` directory — closes #583.
+
+- **Gap closed (#583)** — Step 2 sub-step 3's containment check canonicalizes and validates only `$CHECKOUT_DIR/<source.path>` (the skill directory itself) before sub-step 5 enumerates it with the Glob tool and Reads/Writes every listed entry into staging. That directory-level check never re-ran per enumerated file: a symlink planted inside an already-vendored skill's upstream directory (upstream now attacker-controlled, or compromised after the original vendor) would pass the one check untouched, and its resolved target's bytes — e.g. a local credential file — would be Read into context and staged under an ordinary-looking filename (CWE-59).
+- **`commands/update.md` Step 2 sub-step 5** — before any enumerated entry is Read, run `find "$CHECKOUT_DIR" -type l` (only `$CHECKOUT_DIR`, `mktemp`-generated and trusted, is embedded in the command line — never `<source.path>` or any enumerated filename, so this carries none of the shell-injection risk the existing containment note warns against) and check whether any returned symlink path falls inside `$CHECKOUT_DIR/<source.path>` as a plain string comparison. If any does, refuse the whole target — same `SKIPPED — invalid source metadata` disposition as a sub-step 3 containment failure — before Read/Write ever touches the directory.
+- **Companion finding** — `agents/evolution.md` (issue #582, filed in the same Eva vuln-scan run) has the identical Glob+Read+Write vendor pattern with no containment check at all, not even at the directory level; that is tracked separately.
+- **Scope** — documentation-only change to the slash command's instructions (`update.md` is a prompt spec, not executable code); no script/test changes.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.78.10 → 0.78.11). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.78.10
 
 Fix `init/SKILL.md` Step 5b's command-injection-prone `discover.mjs` invocation — closes #567.

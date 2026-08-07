@@ -32,6 +32,12 @@ change with no explicit signal that it should ride the current branch,
 and a user working across many short lesson-captures ends up opening a
 fresh branch+PR per lesson instead.
 
+This must also work when `/ievo:evo` runs unattended (an autonomous agent
+loop, a scheduled Routine, or any invocation with nobody reading its
+output synchronously) — a failed auto-commit cannot block or retry-loop
+an autonomous cycle. See the failure-handling branch in step 5 below,
+which touches `evo-analysis-nudge.sh` in addition to `evo/SKILL.md`.
+
 ## Design
 
 Insert a new **Step 4.5** in `evo/SKILL.md`, immediately after Step 4
@@ -79,10 +85,29 @@ Step 4 → 4.5 sequence.
 5. **If the commit fails** (pre-commit hook rejects it, nothing to commit
    because the file was already staged/committed by something else, or any
    other non-zero exit) — this is non-fatal. Do not retry, do not force
-   (`--no-verify` is explicitly out of scope — see Rules). Report the
-   failure reason to the user in Step 6 and leave the file as whatever
-   state the failed commit attempt left it in (git commit is atomic — a
-   failed commit never partially commits).
+   (`--no-verify` is explicitly out of scope — see Rules). `git commit` is
+   atomic — a failed commit never partially commits, so the overlay file's
+   content is never lost, only left uncommitted. What happens next depends
+   on whether a human can read the outcome synchronously:
+   - **Interactive session** — report the failure reason in Step 6 as
+     normal; the user sees it immediately and can fix/retry themselves.
+   - **Headless/autonomous invocation** (same detection convention
+     `evo/SKILL.md` Step 2.5 and other skills already use — no interactive
+     session to present output to, e.g. a scheduled `/ievo:schedule`
+     Routine or any unattended agent loop) — **never block or retry**.
+     Append a durable record to `.ievo/evolution-candidates/pending.md`
+     with `Scope: autocommit-failed` (distinct from the existing
+     ambiguous-scope entries, so it isn't mistaken for a classification
+     question) noting the overlay file path, branch name, failure reason,
+     and timestamp. Continue the calling flow immediately. This reuses the
+     existing pending-queue + `evo-analysis-nudge.sh` SessionStart-nudge
+     mechanism (Step 3.5.3) as the delivery path — extend that nudge to
+     also mention pending `autocommit-failed` entries, so a human is told
+     about it the next time an interactive session starts in this repo,
+     without the autonomous run ever waiting on it. This is the same
+     record-and-continue shape already used elsewhere for "can't resolve
+     autonomously, don't block" cases — no new mechanism, just a new entry
+     type on an existing queue.
 6. Step 6's report is updated to state the outcome precisely: committed
    locally to branch `<name>` (not pushed) / left as an uncommitted change
    on branch `<name>` (default branch or no-git-repo case) / commit
@@ -140,6 +165,12 @@ by:
    again on the default branch (expect no auto-commit, file left edited),
    and a run where a pre-commit hook is set up to reject the file (expect
    a reported failure, no partial state).
+3. A headless-mode dry run: same pre-commit-hook-rejects setup, but
+   invoked via the no-interactive-session convention (Step 2.5's
+   detection) — expect no block/retry, a new `Scope: autocommit-failed`
+   entry in `pending.md`, and the calling flow completing immediately.
+   Then start a fresh interactive session in the same repo and confirm
+   `evo-analysis-nudge.sh`'s SessionStart message mentions it.
 
 ## Out of scope (tracked separately)
 

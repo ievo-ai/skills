@@ -1100,6 +1100,172 @@ describe("evo-analysis-nudge.local.sh wiring-integrity check (skills#551)", () =
     const result = runNudge(dir, { CLAUDECODE: "1" });
     assert.equal(result.status, 0);
   });
+
+  // Branch-aware auto-commit (skills#552): evo/SKILL.md Step 5.4 and
+  // agents/evolution.md Step 4.4 park a `Scope: autocommit-failed` entry in
+  // pending.md on a headless commit failure. This script's independent grep
+  // check surfaces those entries even when the accumulator's own count (n) is
+  // 0 and wiring is intact -- none of the cases above exercise that detector
+  // at all. Nested in this same describe (not a sibling) so it shares this
+  // block's freshProject/writeFlag/writeVendorScrub/writeCompanions/
+  // writeClaudeSettings/writeFullWiring/stubAccumulator/runNudge/
+  // parseAdditionalContext helpers via closure, rather than redefining them.
+  describe("autocommit-failed detection (skills#552)", () => {
+    // Same "verbatim, not templated" extraction principle as extractFencedScript
+  // above, generalized to a plain (unlabeled) fence -- the pending.md scaffold
+  // in Step 3 isn't a `sh` block.
+  function extractPlainFencedBlock(src, afterHeading) {
+    const headingAt = src.indexOf(afterHeading);
+    assert.ok(headingAt > 0, `heading not found in SKILL.md: ${afterHeading}`);
+    const fenceOpenAt = src.indexOf("```\n", headingAt);
+    assert.ok(fenceOpenAt > 0, `no fenced block after heading: ${afterHeading}`);
+    const bodyStart = fenceOpenAt + "```\n".length;
+    const fenceCloseAt = src.indexOf("\n```", bodyStart);
+    assert.ok(fenceCloseAt > 0, `unterminated fenced block after heading: ${afterHeading}`);
+    return src.slice(bodyStart, fenceCloseAt + 1);
+  }
+
+  // The real Step 3 scaffold, extracted from SKILL.md verbatim -- this is
+  // what /ievo:evo-auto-enable actually writes to a fresh pending.md. Pulling
+  // it from source (not a hand-copied duplicate) means a future edit to the
+  // scaffold that reintroduces a self-matching line breaks this test instead
+  // of shipping silently, the same regression skills#552's own fix (a
+  // standalone `- Scope: autocommit-failed` line self-matching this script's
+  // detector) went undetected by until a manual dry-run caught it.
+  const PENDING_SCAFFOLD = extractPlainFencedBlock(
+    ENABLE_SKILL_SRC,
+    "create it with this scaffold",
+  );
+
+  function writePendingScaffold(dir) {
+    mkdirSync(join(dir, ".ievo/evolution-candidates"), { recursive: true });
+    writeFileSync(join(dir, ".ievo/evolution-candidates/pending.md"), PENDING_SCAFFOLD);
+  }
+
+  function writeAutocommitEntry(dir) {
+    mkdirSync(join(dir, ".ievo/evolution-candidates"), { recursive: true });
+    writeFileSync(
+      join(dir, ".ievo/evolution-candidates/pending.md"),
+      [
+        "# Evolution candidates — pending review",
+        "",
+        "## 2026-08-07T12:00:00Z — session test-sess",
+        "- Scope: autocommit-failed",
+        "- Overlay file: .ievo/evolution/project.md",
+        "- Branch: feature/test",
+        "- Reason: pre-commit hook rejected (exit 1)",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  it("fresh scaffold (no real entry) -> silent, the exact skills#552 regression this test guards", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "0" });
+    writePendingScaffold(dir);
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.equal(
+      result.stdout,
+      "",
+      "the scaffold's own doc example must never self-match the autocommit-failed detector",
+    );
+  });
+
+  it("wired + 0 candidates + a real autocommit-failed entry -> fires (the bare else-branch case)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "0" });
+    writeAutocommitEntry(dir);
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.notEqual(result.stdout, "", "a real autocommit-failed entry must fire the nudge even with n=0 and no wiring drift");
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.startsWith("iEvo auto-evolution:"), "bare else-branch prefix must still be present");
+    assert.ok(ctx.includes("Scope: autocommit-failed"));
+    assert.ok(ctx.includes("do NOT re-run it through Step 0/1 classification"));
+    assert.ok(ctx.includes("Delete the entry from pending.md once you have committed the file manually"));
+    assert.ok(!ctx.includes('"'), "additionalContext must stay double-quote-free (JSON-embedding contract)");
+  });
+
+  it("autocommit note appended after the wiring-drift message (missing-only branch)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "0" }); // wiring left incomplete -> drift
+    writeAutocommitEntry(dir);
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"), "drift branch must still fire on its own");
+    assert.ok(
+      ctx.includes("Re-run /ievo:evo-auto-enable to repair"),
+      "drift message body must be intact",
+    );
+    assert.ok(
+      ctx.includes("Scope: autocommit-failed"),
+      "autocommit note must be appended after the drift message, not dropped",
+    );
+    assert.ok(
+      ctx.indexOf("drift detected") < ctx.indexOf("Scope: autocommit-failed"),
+      "drift message must come before the appended autocommit note",
+    );
+  });
+
+  it("autocommit note appended after the pending-candidate-count message (count-only branch)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "3" });
+    writeAutocommitEntry(dir);
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(
+      ctx.includes("3 evolution candidate(s) captured in earlier sessions are pending review"),
+      "count branch must still fire on its own",
+    );
+    assert.ok(
+      ctx.includes("Scope: autocommit-failed"),
+      "autocommit note must be appended after the count message, not dropped",
+    );
+    assert.ok(
+      ctx.indexOf("3 evolution candidate(s)") < ctx.indexOf("Scope: autocommit-failed"),
+      "count message must come before the appended autocommit note",
+    );
+  });
+
+  it("autocommit note appended after the combined drift+count message (both-branch)", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    stubAccumulator(dir, { count: "2" }); // wiring left incomplete -> drift, plus n>0
+    writeAutocommitEntry(dir);
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    const ctx = parseAdditionalContext(result.stdout);
+    assert.ok(ctx.includes("drift detected"));
+    assert.ok(ctx.includes("Separately, 2 evolution candidate(s)"));
+    assert.ok(ctx.includes("Scope: autocommit-failed"));
+    assert.ok(
+      ctx.indexOf("Separately, 2 evolution candidate(s)") < ctx.indexOf("Scope: autocommit-failed"),
+      "combined message must come before the appended autocommit note",
+    );
+  });
+
+  it("no pending.md at all -> autocommit branch stays silent, same as n=0/no-drift", () => {
+    const dir = freshProject();
+    writeFlag(dir);
+    writeFullWiring(dir);
+    stubAccumulator(dir, { count: "0" });
+    // Deliberately no writePendingScaffold()/writeAutocommitEntry() call --
+    // exercises the `[ -f "$PENDING" ]` guard's false branch directly.
+    const result = runNudge(dir, { CLAUDECODE: "1" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+  });
+  });
 });
 
 // The other half of the skills#551 check, and the half that actually reaches a

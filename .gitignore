@@ -12,3 +12,6 @@ __pycache__/
 # Coverage artifacts (produced locally + by .github/workflows/coverage-gate.yml)
 coverage.lcov
 *.lcov
+
+# Local isolated worktrees (superpowers:using-git-worktrees convention)
+.worktrees/

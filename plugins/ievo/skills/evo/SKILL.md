@@ -129,7 +129,7 @@ here: the handoff is **never** delegated to the `evolution` sub-agent — see th
 exception under "On Claude Code with the iEvo plugin" above.
 
 This handoff is **overlay-only**. Go straight to Step 4 (append to
-`.ievo/evolution/skills/<name>.md`), then Steps 5, 5.5, 5.6, 5.7 as usual.
+`.ievo/evolution/skills/<name>.md`), then Steps 5, 5.4, 5.5, 5.6, 5.7 as usual.
 Skip Steps 1.5, 2, and 2.5 **unconditionally** — no user-level copy prompt, no
 vendoring, no security re-audit. Vendoring `init` or `evo-auto-enable` into
 `.claude/skills/`|`.agents/skills/` would shadow the plugin's own live copy
@@ -716,7 +716,7 @@ Otherwise, output a short summary to the user:
 - **Overlay file:** path
 - **Marker injected:** yes (first evolution for this target) | no (already present)
 - **Section title added:** "<title>"
-- **Auto-commit (Step 5.4):** committed locally to branch `<name>` (not pushed) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted (not a git repository) | attempted and failed: `<reason>` (interactive: fix and retry yourself; headless: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`)
+- **Auto-commit (Step 5.4):** committed locally to branch `<name>` (not pushed) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted (not a git repository, or detached HEAD) | attempted and failed: `<reason>` (interactive: fix and retry yourself; headless: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`)
 - **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Reusable-practice escalation:** not applicable (Step 5.6 already offered, or lesson classified local) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Extraction offer:** not applicable (no cluster detected) | offered → handed off to `/ievo:consolidate` | offered → skipped
@@ -733,6 +733,7 @@ Otherwise, output a short summary to the user:
 - **Project-wide overlay is shared.** All project-wide rules accumulate in one `project.md`. No splitting by topic — chronological with `## Trigger` field for context.
 - **Never interpolate a path — `<owner>`, `<repo>`, or the target `<path>` — into a Bash/`gh api` command.** Clone once, enumerate with the Glob tool, and read/write with the Read/Write tools instead — see § "How to fetch source" in Step 2. A git tree entry can legally contain shell metacharacters (backtick, `$()`, `;`, `|`, quotes); only ever passing such values as direct tool parameters, never embedded in a command string, closes that off.
 - **Re-audit gates vendoring, not every capture.** Step 2.5 only applies when Step 2 is vendoring fresh content from a plugin — an already-local target, a project-wide lesson, or a platform-mismatch self-check handoff (Step 1's carve-out, which never vendors) skips it entirely. A YELLOW/RED verdict that isn't explicitly overridden aborts the whole capture (no overlay write, no marker injection) — never fabricate a lower verdict, or silently write anyway, to force the capture through.
+- **Auto-commit (Step 5.4) stays local, scoped, and never forces past a rejection.** Stage only the exact overlay file path Step 4 wrote to — never `git add -A`/`git add .`, which could sweep unrelated in-progress work into a docs-only commit. Never `git push` the commit it makes — committing locally is the whole point (cheap to inspect, trivially reversible); pushing stays the user's own call. Never pass `--no-verify` (or any other bypass) to force a commit past a failing pre-commit hook — a rejected commit is a signal for the user to look at, not an obstacle to route around; report it (Step 6) and stop.
 
 ## Why overlay model
 

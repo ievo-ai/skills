@@ -298,6 +298,15 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter(`---\nname: foo\ndescription: zero\u200bwidth\ufeffbom\n---`);
     assert.equal(fm.description, "zerowidthbom");
   });
+
+  it("{ strip: false } returns raw values, so a check whose verdict the strip flips can see them (skills#600 review)", () => {
+    const content = `---\nname: deep\u200b-review\ndescription: evil\u202edesrever\n---`;
+    const raw = parseFrontmatter(content, { strip: false });
+    assert.equal(raw.name, "deep\u200b-review");
+    assert.equal(raw.description, "evil\u202edesrever");
+    // Same key set as the stripped view: the strip touches values only.
+    assert.deepEqual(Object.keys(raw), Object.keys(parseFrontmatter(content)));
+  });
 });
 
 describe("checkModelField", () => {
@@ -506,6 +515,35 @@ describe("validateSkillContent", () => {
   it("flags name with underscore", () => {
     const v = validateSkillContent("---\nname: under_score\ndescription: ok\n---", "under_score");
     assert.ok(v.some((x) => x.rule === "name-invalid-format"));
+  });
+
+  it("flags a zero-width character in name, which the strip would otherwise normalize away (skills#600 review)", () => {
+    // The mirror image of the name-dir-mismatch fix: parseFrontmatter() strips
+    // CONTROL_CHAR_RE for the CWE-150 sink, so testing NAME_PATTERN against the
+    // stripped value would let `deep<U+200B>-review` lint clean as `deep-review`
+    // — matching a directory of that literal name and shipping a homograph.
+    const zwsp = String.fromCodePoint(0x200b);
+    const v = validateSkillContent(`---\nname: deep${zwsp}-review\ndescription: ok\neffort: low\n---`, "deep-review");
+    const bad = v.find((x) => x.rule === "name-invalid-format");
+    assert.ok(bad, "expected a name-invalid-format violation");
+    assert.ok(!bad.message.includes(zwsp), "message must not carry the raw zero-width character");
+    assert.match(bad.message, /deep-review.*control or invisible characters/);
+  });
+
+  it("flags a bidi override in name (skills#600 review)", () => {
+    const rlo = String.fromCodePoint(0x202e);
+    const v = validateSkillContent(`---\nname: evil${rlo}skill\ndescription: ok\neffort: low\n---`, "evilskill");
+    assert.ok(v.some((x) => x.rule === "name-invalid-format"));
+  });
+
+  it("flags an ESC byte in name (C0 half of the same guard)", () => {
+    const v = validateSkillContent("---\nname: foo\x1bbar\ndescription: ok\neffort: low\n---", "foobar");
+    assert.ok(v.some((x) => x.rule === "name-invalid-format"));
+  });
+
+  it("a clean name is not flagged by the invisible-character branch", () => {
+    const v = validateSkillContent("---\nname: deep-review\ndescription: ok\neffort: low\n---", "deep-review");
+    assert.deepEqual(v, []);
   });
 
   it("flags name-dir mismatch", () => {

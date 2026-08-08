@@ -141,8 +141,15 @@ export function parseArgs(argv) {
  * the agentskills.io spec ever adds a structured field this validator must
  * ENFORCE, replace this function with a proper YAML parser (e.g. the `yaml`
  * npm package) rather than extending it ad hoc.
+ *
+ * Values are CONTROL_CHAR_RE-stripped by default — that strip is the CWE-150
+ * guard every violation message downstream relies on. Pass `{ strip: false }`
+ * to get the RAW values instead: a check whose verdict the strip can flip must
+ * see what the file actually contains, not its normalized display form. Only
+ * the name-format check needs that (skills#600 review) — every value that
+ * reaches a printed message must still come from the stripped view.
  */
-export function parseFrontmatter(content) {
+export function parseFrontmatter(content, { strip = true } = {}) {
   const normalized = content.replace(/\r\n?/g, "\n");
   const match = normalized.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return null;
@@ -175,7 +182,7 @@ export function parseFrontmatter(content) {
     // from a plain single-line scalar.
     if (value) {
       const unquoted = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
-      fm[key] = unquoted.replace(CONTROL_CHAR_RE, "");
+      fm[key] = strip ? unquoted.replace(CONTROL_CHAR_RE, "") : unquoted;
     }
   }
   return fm;
@@ -237,6 +244,19 @@ export function validateSkillContent(content, parentDirName) {
       message: "Missing required frontmatter field: name",
     });
   } else {
+    // The RAW `name:` value, straight off disk. `fm.name` has already been
+    // through CONTROL_CHAR_RE (CWE-150), and every code point that strip
+    // removes — C0/DEL, bidi controls, zero-width — is outside NAME_PATTERN's
+    // `[a-z0-9-]` class, so testing the STRIPPED value normalizes the very
+    // spoof the pattern is meant to reject: `name: deep<U+200B>-review` in a
+    // directory named `deep-review` collapses to a clean `deep-review` and
+    // passes both this check and name-dir-mismatch below, shipping a homograph
+    // name (skills#600 review — the mirror image of the dir-side double-strip
+    // fixed there). Compare on raw, render from the stripped view.
+    // parseFrontmatter() is deterministic over `content` and the strip touches
+    // values only, never the key set, so `name` is present in both views.
+    const rawName = parseFrontmatter(content, { strip: false }).name;
+
     if (fm.name.length > NAME_MAX_LENGTH) {
       violations.push({
         severity: "error",
@@ -249,6 +269,17 @@ export function validateSkillContent(content, parentDirName) {
         severity: "error",
         rule: "name-consecutive-hyphens",
         message: "name contains consecutive hyphens (--) — not allowed by agentskills.io spec",
+      });
+    } else if (rawName !== fm.name) {
+      // Same rule as the pattern check below — a name carrying any of these
+      // code points fails NAME_PATTERN on its raw form by construction. Split
+      // into its own branch purely for the message: interpolating `fm.name`
+      // (mandatory — the raw value must never reach a printed message) would
+      // otherwise render a name that visibly *does* match the pattern.
+      violations.push({
+        severity: "error",
+        rule: "name-invalid-format",
+        message: `name "${fm.name}" (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — which are not lowercase alnum + hyphens`,
       });
     } else if (!NAME_PATTERN.test(fm.name)) {
       violations.push({

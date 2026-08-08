@@ -51,22 +51,36 @@ export const SCRIPT_VERSION = "1.1.6";
 export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
-// Strips C0 control characters (and DEL) from attacker-influenceable input
-// before it reaches an errLog()/console.error message (CWE-117): main()'s
-// format-validation failure below echoes the raw, already-known-invalid
-// args.repo value — a crafted ESC byte (0x1B) or other control byte would
-// otherwise survive untouched and inject ANSI/control sequences into a
-// terminal or CI log viewer. Same character class as escapeMdCell's inline
-// strip below (that one also collapses whitespace and escapes Markdown —
-// this sink is a plain error string, so only the control-char strip
-// applies), including the Unicode Bidi_Control and zero-width ranges added
-// there for the same Trojan-Source-style spoof (CWE-116 follow-up,
-// skills#600) — a crafted `--repo` value carrying one would otherwise reach
-// this error message unstripped, same as the frontmatter/manifest sinks
-// that fix closed. Per-file copy (not a shared import) mirrors
-// validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE — each
-// sink's exact character class is tuned to its own risk model (see
-// .github/scripts/validators/_safe-read.mjs).
+// The one character class this file strips from attacker-influenceable text,
+// shared by BOTH of its sinks — escapeMdCell() below (rendered community-index
+// Markdown) and main()'s `--repo` format-validation error echo. It covers:
+//
+//   - C0 controls and DEL (0x00-0x08, 0x0b-0x0c, 0x0e-0x1f, 0x7f), minus \t
+//     and \n, which escapeMdCell collapses as whitespace anyway. A crafted ESC
+//     byte (0x1B) would otherwise inject ANSI/control sequences into a terminal
+//     or CI log viewer (CWE-117), and JSON strings can carry literal \n/\r that
+//     would span or corrupt output lines.
+//   - Every code point with the Unicode Bidi_Control property — U+061C (ALM),
+//     U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 — plus zero-width
+//     characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates are
+//     widened to the full U+2060-U+2069 invisible-operator block (CWE-116
+//     follow-up, skills#600). Nothing in the ASCII-only range touches these, so
+//     a crafted frontmatter/manifest value or `--repo` argument carrying them
+//     survived untouched into the rendered index or the error line — a
+//     Trojan-Source-style spoof for the human reviewer that `security-auditor`
+//     relies on that rendering for. The Bidi_Control set is closed at those six
+//     ranges: adding a code point outside them means this enumeration is no
+//     longer exhaustive and must say so.
+//
+// Both sinks reference this const rather than re-inlining the literal —
+// duplicating it is exactly how the two copies drifted apart before (a widened
+// escapeMdCell left the CLI echo on the old ASCII-only class, and each fix
+// had to chase the other). Sharing one `/g` regex across call sites is safe:
+// String.prototype.replace resets `lastIndex` for a global pattern.
+//
+// Per-file copy (not a shared import) mirrors validate_skills.mjs /
+// validate_agents.mjs's own CONTROL_CHAR_RE — each FILE's class is tuned to its
+// own risk model (see .github/scripts/validators/_safe-read.mjs).
 export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // Strict GitHub <owner>/<repo> slug: owner is GitHub's actual username charset
@@ -331,21 +345,15 @@ export function truncate(text, limit) {
 // preceding unescaped `[`/`!` carries no Markdown meaning, so nothing else
 // needs escaping. Applied at every renderIndexMd interpolation site so a
 // future field addition can't bypass it by skipping truncate().
-// Also strips every code point with the Unicode Bidi_Control property —
-// U+061C (ALM), U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 — plus
-// zero-width characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates
-// are widened here to the full U+2060-U+2069 invisible-operator block
-// (CWE-116 follow-up, skills#600). None of the ASCII-only range above touches
-// any of these, so a crafted frontmatter/manifest value carrying them
-// survived untouched into the rendered community-index Markdown — a
-// Trojan-Source-style spoof for the human reviewer that `security-auditor`
-// relies on this rendering for. The Bidi_Control set is closed at those six
-// ranges — adding a code point outside them means the enumeration above is no
-// longer exhaustive and the comment must say so.
+// Also strips CONTROL_CHAR_RE (control/DEL bytes, Unicode Bidi_Control, and
+// zero-width characters — see its definition at the top of this file for the
+// full class and the Trojan-Source rationale). Replaced with a space rather
+// than "" so a stripped code point can't silently weld two adjacent words
+// together; the `\s+` collapse on the next line then normalizes it away.
 export function escapeMdCell(text) {
   if (text === null || text === undefined || text === "") return "";
   return String(text)
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, " ")
+    .replace(CONTROL_CHAR_RE, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\\/g, "\\\\")

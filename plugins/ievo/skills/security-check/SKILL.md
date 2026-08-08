@@ -238,21 +238,75 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>
    git -C "$CHECKOUT_DIR" checkout <commit-sha>
    ```
-4. **Enumerate files** under the item's path with the **Glob tool**
+4. **Check for a symlink at, under, or anywhere on the way to `<item-path>`
+   before enumerating or reading anything.** Git preserves a symlink as an
+   ordinary tree entry (mode `120000`); if the checkout materializes it as
+   a real OS-level symlink, step 5's Glob/Read below follows it like any
+   other file — so a candidate under audit (by construction untrusted,
+   unvetted content — exactly what this scan exists to vet) can ship, say,
+   `<item-path>/assets/logo.png` as a symlink to `~/.ssh/id_rsa` or
+   `~/.aws/credentials`, and that secret's *contents* (not the candidate's
+   own file) flow into context and, worse, into the `security-auditor`
+   verdict/report content itself. Check this via the git index, not the
+   filesystem — a no-follow filesystem check (e.g. `find -type l`) would
+   need `<item-path>` interpolated into a Bash command line, exactly as
+   untrusted as any other value drawn from this repo's tree:
+   ```bash
+   git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'
+   ```
+   Run it with **no path argument** — `$CHECKOUT_DIR` alone is
+   `mktemp`-generated and safe to pass to `-C`. `-c core.quotePath=false`
+   is load-bearing: `core.quotePath` defaults to on, and git then C-quotes
+   any path holding a byte over 0x7F, so a symlink at `evil-plügin/foo`
+   would otherwise print as the literal `"evil-pl\303\274gin/foo"` — equal
+   to, under, and an ancestor of nothing, defeating every comparison below.
+   The trailing `| grep '^120000'` is a fixed, literal filter (no
+   injection surface) that bounds the listing to symlink entries alone, so
+   a large candidate repo can't get the relevant lines truncated out of the
+   Bash tool's output before you see them. `grep` printing nothing and
+   exiting 1 IS the pass case, not a failure to retry.
+
+   Double quotes, backslash, and control characters stay escaped
+   regardless of `core.quotePath` — a symlink at `q"dir/bar` or a path
+   containing a TAB/newline still comes back quoted and cannot be reliably
+   compared. **Fail closed:** if the path field of any returned line still
+   begins with `"` after the flag, do not unescape or ignore it — refuse
+   the scan exactly as if it had matched.
+
+   Then inspect the returned listing yourself: each line is
+   `<mode> <sha> <stage>`, a TAB, then the entry's repo-relative path. Take
+   the path after the TAB, strip any trailing `/` from it and from
+   `<item-path>`, and compare the two as `/`-separated **segment** lists.
+   Refuse the whole item — do NOT run steps 5-6 below — when a listed entry
+   is **equal to** `<item-path>` (the target itself is a symlink),
+   **under** `<item-path>` (a symlinked file inside it), or **an ancestor
+   of** `<item-path>` (the link sits on the path you are about to walk
+   *through* — git indexes a symlinked directory as a single `120000` entry
+   with nothing "inside" it tracked, so an ancestor symlink yields a line
+   SHORTER than `<item-path>` that no equals-or-starts-with test alone
+   would catch). Compare by segment, not raw character prefix, so a
+   sibling like `<item-path>-notes` doesn't false-positive. A listing whose
+   lines all fall outside every one of these relations means the checkout
+   has symlinks elsewhere that this item doesn't touch — not a reason to
+   refuse.
+5. **Enumerate files** under the item's path with the **Glob tool**
    (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<item-path>"`) — never a Bash
    `find`/`ls`. The item's own path (e.g. a skill/agent directory name) is
    exactly as untrusted as any file inside it; the Glob tool takes `path` as
    a direct parameter, never shell text, so it can't be exploited even if
    that name contains shell metacharacters.
-5. **Read every listed file with the Read tool**, passing its full path as
-   the `file_path` parameter directly — same reasoning as step 4: a direct
+6. **Read every listed file with the Read tool**, passing its full path as
+   the `file_path` parameter directly — same reasoning as step 5: a direct
    tool parameter is never interpreted as command syntax.
 
-If cloning or resolution fails (private repo, no network) do not fall back
-to per-file `gh api` fetching — that reintroduces the injection this
-replaces. Instead treat the scan as reduced-coverage: note it in
-`reasoning` (Step 5) and let the "no shortcut for low-yield scans" rule
-(Step 4) apply.
+If cloning or resolution fails (private repo, no network), or step 4 above
+refuses the item for a symlink, do not fall back to per-file `gh api`
+fetching — that reintroduces the injection this replaces. Instead treat
+the scan as reduced-coverage: note it in `reasoning` (Step 5) and let the
+"no shortcut for low-yield scans" rule (Step 4: Build verdict) apply. A
+symlink refusal is itself worth a YELLOW at minimum — a candidate that
+ships a symlink resolving outside its own tree is suspicious on its own
+terms, independent of what the link happens to point at.
 
 ### For type=skill
 

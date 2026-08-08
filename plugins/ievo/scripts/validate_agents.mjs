@@ -73,7 +73,17 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 // body (assembled by parseFrontmatter() below) keeps its real line breaks —
 // mirrors scan_repo.mjs's escapeMdCell control-char strip, which excludes the
 // same three codes for the same reason.
-export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+// Also strips every code point with the Unicode Bidi_Control property —
+// U+061C (ALM), U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 — plus
+// zero-width characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates
+// are widened to the full U+2060-U+2069 invisible-operator block (CWE-116
+// follow-up, skills#600). The ASCII-only range above didn't touch any of
+// these, so a crafted `name:`/`description:` value could carry a
+// Trojan-Source-style spoof straight into a violation message unneutralized.
+// The Bidi_Control set is closed at those six ranges — adding a code point
+// outside them means the enumeration above is no longer exhaustive and the
+// comment must say so.
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // Patterns that indicate vendor-specific or version-pinned IDs
 export const FORBIDDEN_MODEL_PATTERNS = [

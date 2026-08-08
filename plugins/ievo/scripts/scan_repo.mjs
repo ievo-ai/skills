@@ -327,10 +327,21 @@ export function truncate(text, limit) {
 // preceding unescaped `[`/`!` carries no Markdown meaning, so nothing else
 // needs escaping. Applied at every renderIndexMd interpolation site so a
 // future field addition can't bypass it by skipping truncate().
+// Also strips every code point with the Unicode Bidi_Control property —
+// U+061C (ALM), U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 — plus
+// zero-width characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates
+// are widened here to the full U+2060-U+2069 invisible-operator block
+// (CWE-116 follow-up, skills#600). None of the ASCII-only range above touches
+// any of these, so a crafted frontmatter/manifest value carrying them
+// survived untouched into the rendered community-index Markdown — a
+// Trojan-Source-style spoof for the human reviewer that `security-auditor`
+// relies on this rendering for. The Bidi_Control set is closed at those six
+// ranges — adding a code point outside them means the enumeration above is no
+// longer exhaustive and the comment must say so.
 export function escapeMdCell(text) {
   if (text === null || text === undefined || text === "") return "";
   return String(text)
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, " ")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\\/g, "\\\\")

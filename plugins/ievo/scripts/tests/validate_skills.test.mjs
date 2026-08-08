@@ -380,6 +380,39 @@ describe("checkModelField", () => {
     assert.equal(v[0].rule, "model-not-allowed");
     assert.match(v[0].message, /not in allowed aliases/);
   });
+
+  it("rejects an allowed alias padded with invisible characters — verdict is on the raw value (skills#600 review)", () => {
+    // One representative per range CONTROL_CHAR_RE covers: ZWSP, RLO, an
+    // invisible-operator isolate, BOM, ALM, and a plain C0 ESC byte. Built via
+    // fromCodePoint rather than embedded literally, so this file stays free of
+    // the very code points it is testing for.
+    for (const cp of [0x200b, 0x202e, 0x2069, 0xfeff, 0x061c, 0x1b]) {
+      const ch = String.fromCodePoint(cp);
+      const v = checkModelField(`opus${ch}`);
+      const label = `U+${cp.toString(16).toUpperCase()}`;
+      assert.equal(v.length, 1, `opus+${label} must not lint clean`);
+      assert.equal(v[0].rule, "model-not-allowed");
+      assert.match(v[0].message, /shown stripped/);
+      assert.ok(!v[0].message.includes(ch), `message must not carry the raw ${label}`);
+      assert.match(v[0].message, /`model: opus`/);
+    }
+  });
+
+  it("rejects a vendor-pinned ID wearing an invisible character, without claiming the stripped form is the offender", () => {
+    const v = checkModelField(`claude-sonnet-4-6${String.fromCodePoint(0x200b)}`);
+    assert.equal(v.length, 1);
+    // Not model-vendor-locked: the raw value is what failed, and the message
+    // says so rather than printing a clean-looking `claude-sonnet-4-6`.
+    assert.equal(v[0].rule, "model-not-allowed");
+    assert.match(v[0].message, /shown stripped/);
+  });
+
+  it("returns unchanged verdicts for values with no invisible characters", () => {
+    // The raw/stripped split must not perturb the ordinary path: a value the
+    // strip does not touch takes exactly the branches it always did.
+    assert.deepEqual(checkModelField("sonnet"), []);
+    assert.equal(checkModelField("claude-sonnet-4-6")[0].rule, "model-vendor-locked");
+  });
 });
 
 describe("checkEffortField", () => {
@@ -434,6 +467,32 @@ describe("checkEffortField", () => {
     assert.equal(v[0].severity, "error");
     assert.equal(v[0].rule, "invalid-effort-value");
     assert.match(v[0].message, /critical/);
+  });
+
+  it("returns error for a valid level padded with invisible characters — verdict is on the raw value (skills#600 review)", () => {
+    for (const cp of [0x200b, 0x202e, 0x2069, 0xfeff, 0x061c, 0x1b]) {
+      const ch = String.fromCodePoint(cp);
+      const v = checkEffortField(`high${ch}`);
+      const label = `U+${cp.toString(16).toUpperCase()}`;
+      assert.equal(v.length, 1, `high+${label} must not lint clean`);
+      assert.equal(v[0].rule, "invalid-effort-value");
+      assert.match(v[0].message, /shown stripped/);
+      assert.ok(!v[0].message.includes(ch), `message must not carry the raw ${label}`);
+      assert.match(v[0].message, /effort: "high"/);
+    }
+  });
+
+  it("still reports an effort value made only of invisible characters as invalid, not missing", () => {
+    // Stripped, this is the empty string — the old code path saw a falsy value
+    // and reported missing-effort-field for a field that is in fact present.
+    const v = checkEffortField(String.fromCodePoint(0x200b));
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "invalid-effort-value");
+  });
+
+  it("returns unchanged verdicts for effort values with no invisible characters", () => {
+    assert.deepEqual(checkEffortField("high"), []);
+    assert.equal(checkEffortField("hight")[0].rule, "invalid-effort-value");
   });
 });
 
@@ -599,6 +658,42 @@ describe("validateSkillContent", () => {
     assert.ok(!v.some((x) => x.rule === "compatibility-too-long"));
   });
 
+  it("measures the description cap on the RAW value, so zero-width padding cannot buy extra chars (skills#600 review)", () => {
+    // 1024 visible chars is exactly at the limit; the zero-width characters
+    // push the real field past it. Counting the stripped view under-reports
+    // and lints this clean.
+    const zwsp = String.fromCodePoint(0x200b);
+    const desc = "x".repeat(1024) + zwsp.repeat(50);
+    const v = validateSkillContent(`---\nname: foo\ndescription: ${desc}\neffort: low\n---`, "foo");
+    const tooLong = v.find((x) => x.rule === "description-too-long");
+    assert.ok(tooLong, "expected description-too-long");
+    assert.match(tooLong.message, /description is 1074 chars/);
+  });
+
+  it("measures the compatibility cap on the RAW value too", () => {
+    // ZWSP, not BOM: U+FEFF is in ECMAScript's WhiteSpace production, so a
+    // trailing one is removed by parseFrontmatter's own .trim() before either
+    // view sees it. U+200B is not, so it survives into the raw value.
+    const zwsp = String.fromCodePoint(0x200b);
+    const compat = "x".repeat(500) + zwsp.repeat(10);
+    const v = validateSkillContent(`---\nname: foo\ndescription: ok\ncompatibility: ${compat}\neffort: low\n---`, "foo");
+    const tooLong = v.find((x) => x.rule === "compatibility-too-long");
+    assert.ok(tooLong, "expected compatibility-too-long");
+    assert.match(tooLong.message, /compatibility is 510 chars/);
+  });
+
+  it("measures the name cap on the RAW value too", () => {
+    // Same under-count, third instance: 64 visible chars is exactly at the
+    // limit, so the invisible padding is what takes it over.
+    const zwsp = String.fromCodePoint(0x200b);
+    const name = "a".repeat(64) + zwsp;
+    const v = validateSkillContent(`---\nname: ${name}\ndescription: ok\neffort: low\n---`, name);
+    const tooLong = v.find((x) => x.rule === "name-too-long");
+    assert.ok(tooLong, "expected name-too-long");
+    assert.match(tooLong.message, /name is 65 chars/);
+    assert.ok(!tooLong.message.includes(zwsp), "message must not carry the raw zero-width character");
+  });
+
   it("flags forbidden model field", () => {
     const v = validateSkillContent("---\nname: foo\ndescription: ok\nmodel: gpt-5\n---", "foo");
     assert.ok(v.some((x) => x.rule === "model-vendor-locked"));
@@ -617,6 +712,26 @@ describe("validateSkillContent", () => {
   it("passes valid effort value in validateSkillContent", () => {
     const v = validateSkillContent("---\nname: foo\ndescription: ok\neffort: high\n---", "foo");
     assert.ok(!v.some((x) => x.rule === "invalid-effort-value" || x.rule === "missing-effort-field"));
+  });
+
+  it("flags a model/effort spoofed with a zero-width character end-to-end (skills#600 review)", () => {
+    // The regression the review named: before the raw/stripped split these
+    // both collapsed to a clean `opus`/`high` inside parseFrontmatter and the
+    // file linted clean.
+    const zwsp = String.fromCodePoint(0x200b);
+    const content = `---\nname: foo\ndescription: ok\nmodel: opus${zwsp}\neffort: high${zwsp}\n---`;
+    const v = validateSkillContent(content, "foo");
+    assert.deepEqual(v.map((x) => x.rule).sort(), ["invalid-effort-value", "model-not-allowed"]);
+    for (const x of v) assert.ok(!x.message.includes(zwsp), "message must not carry the raw ZWSP");
+  });
+
+  it("flags a model: whose value is nothing but invisible characters", () => {
+    // Stripped, this field is the empty string, which the old `if (fm.model)`
+    // guard skipped entirely instead of rejecting it as a non-alias.
+    const content = `---\nname: foo\ndescription: ok\nmodel: ${String.fromCodePoint(0x202e)}\neffort: low\n---`;
+    const v = validateSkillContent(content, "foo");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "model-not-allowed");
   });
 
   it("accumulates multiple violations", () => {

@@ -257,6 +257,15 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter(`---\nname: foo\ndescription: zero\u200bwidth\ufeffbom\n---`);
     assert.equal(fm.description, "zerowidthbom");
   });
+
+  it("{ strip: false } returns raw values, so a check whose verdict the strip flips can see them (skills#600 review)", () => {
+    const content = `---\nname: foo\nmodel: opus\u200b\neffort: high\u202e\n---`;
+    const raw = parseFrontmatter(content, { strip: false });
+    assert.equal(raw.model, "opus\u200b");
+    assert.equal(raw.effort, "high\u202e");
+    // Same key set as the stripped view: the strip touches values only.
+    assert.deepEqual(Object.keys(raw), Object.keys(parseFrontmatter(content)));
+  });
 });
 
 describe("checkModelField", () => {
@@ -316,6 +325,39 @@ describe("checkModelField", () => {
     assert.equal(v.length, 1);
     assert.equal(v[0].rule, "model-not-allowed");
   });
+
+  it("rejects an allowed alias padded with invisible characters \u2014 verdict is on the raw value (skills#600 review)", () => {
+    // One representative per range CONTROL_CHAR_RE covers: ZWSP, RLO, an
+    // invisible-operator isolate, BOM, ALM, and a plain C0 ESC byte. Built via
+    // fromCodePoint rather than embedded literally, so this file stays free of
+    // the very code points it is testing for.
+    for (const cp of [0x200b, 0x202e, 0x2069, 0xfeff, 0x061c, 0x1b]) {
+      const ch = String.fromCodePoint(cp);
+      const v = checkModelField(`opus${ch}`);
+      const label = `U+${cp.toString(16).toUpperCase()}`;
+      assert.equal(v.length, 1, `opus+${label} must not lint clean`);
+      assert.equal(v[0].rule, "model-not-allowed");
+      assert.match(v[0].message, /shown stripped/);
+      assert.ok(!v[0].message.includes(ch), `message must not carry the raw ${label}`);
+      assert.match(v[0].message, /`model: opus`/);
+    }
+  });
+
+  it("rejects a vendor-pinned ID wearing an invisible character, without claiming the stripped form is the offender", () => {
+    const v = checkModelField(`claude-sonnet-4-6${String.fromCodePoint(0x200b)}`);
+    assert.equal(v.length, 1);
+    // Not model-vendor-locked: the raw value is what failed, and the message
+    // says so rather than printing a clean-looking `claude-sonnet-4-6`.
+    assert.equal(v[0].rule, "model-not-allowed");
+    assert.match(v[0].message, /shown stripped/);
+  });
+
+  it("returns unchanged verdicts for values with no invisible characters", () => {
+    // The raw/stripped split must not perturb the ordinary path: a value the
+    // strip does not touch takes exactly the branches it always did.
+    assert.deepEqual(checkModelField("sonnet"), []);
+    assert.equal(checkModelField("claude-sonnet-4-6")[0].rule, "model-vendor-locked");
+  });
 });
 
 describe("checkEffortField", () => {
@@ -341,6 +383,24 @@ describe("checkEffortField", () => {
     assert.match(v[0].message, /medium-high/);
     assert.match(v[0].message, /low, medium, high, xhigh, max/);
   });
+
+  it("errors on a valid level padded with invisible characters — verdict is on the raw value (skills#600 review)", () => {
+    for (const cp of [0x200b, 0x202e, 0x2069, 0xfeff, 0x061c, 0x1b]) {
+      const ch = String.fromCodePoint(cp);
+      const v = checkEffortField(`high${ch}`);
+      const label = `U+${cp.toString(16).toUpperCase()}`;
+      assert.equal(v.length, 1, `high+${label} must not lint clean`);
+      assert.equal(v[0].rule, "invalid-effort-value");
+      assert.match(v[0].message, /shown stripped/);
+      assert.ok(!v[0].message.includes(ch), `message must not carry the raw ${label}`);
+      assert.match(v[0].message, /`effort: high`/);
+    }
+  });
+
+  it("returns unchanged verdicts for effort values with no invisible characters", () => {
+    assert.deepEqual(checkEffortField("high"), []);
+    assert.equal(checkEffortField("hight")[0].rule, "invalid-effort-value");
+  });
 });
 
 describe("validateAgentContent", () => {
@@ -364,6 +424,26 @@ describe("validateAgentContent", () => {
     const v = validateAgentContent(content);
     assert.equal(v.length, 1);
     assert.equal(v[0].rule, "invalid-effort-value");
+  });
+
+  it("flags a model/effort spoofed with a zero-width character end-to-end (skills#600 review)", () => {
+    // The regression the review named: before the raw/stripped split these
+    // both collapsed to a clean `opus`/`high` inside parseFrontmatter and the
+    // file linted clean.
+    const zwsp = String.fromCodePoint(0x200b);
+    const content = `---\nname: foo\ndescription: bar\nmodel: opus${zwsp}\neffort: high${zwsp}\n---`;
+    const v = validateAgentContent(content);
+    assert.deepEqual(v.map((x) => x.rule).sort(), ["invalid-effort-value", "model-not-allowed"]);
+    for (const x of v) assert.ok(!x.message.includes(zwsp), "message must not carry the raw ZWSP");
+  });
+
+  it("flags a model: whose value is nothing but invisible characters", () => {
+    // Stripped, this field is the empty string, which the old `if (fm.model)`
+    // guard skipped entirely instead of rejecting it as a non-alias.
+    const content = `---\nname: foo\ndescription: bar\nmodel: ${String.fromCodePoint(0x202e)}\n---`;
+    const v = validateAgentContent(content);
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "model-not-allowed");
   });
 
   it("flags missing frontmatter", () => {

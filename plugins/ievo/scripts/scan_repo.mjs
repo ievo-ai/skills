@@ -59,11 +59,15 @@ export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 // terminal or CI log viewer. Same character class as escapeMdCell's inline
 // strip below (that one also collapses whitespace and escapes Markdown —
 // this sink is a plain error string, so only the control-char strip
-// applies). Per-file copy (not a shared import) mirrors
+// applies), including the Unicode Bidi_Control and zero-width ranges added
+// there for the same Trojan-Source-style spoof (CWE-116 follow-up,
+// skills#600) — a crafted `--repo` value carrying one would otherwise reach
+// this error message unstripped, same as the frontmatter/manifest sinks
+// that fix closed. Per-file copy (not a shared import) mirrors
 // validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE — each
 // sink's exact character class is tuned to its own risk model (see
 // .github/scripts/validators/_safe-read.mjs).
-export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // Strict GitHub <owner>/<repo> slug: owner is GitHub's actual username charset
 // (alnum + hyphen, <=39 chars); repo allows alnum/./_/- (<=100 chars). Anchored

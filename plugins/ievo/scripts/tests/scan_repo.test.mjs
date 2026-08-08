@@ -1878,6 +1878,16 @@ describe("main (end-to-end)", () => {
     assert.match(errText, /FAKE/);
   });
 
+  it("strips a Unicode bidi-override/zero-width char from an invalid repo arg echoed in the error message (Trojan-Source spoof guard, skills#600 review)", () => {
+    const r = captureRun();
+    main(["node", "scan_repo.mjs", `owner/repo\u202eFAKE\u200b`], undefined, r.log, r.errLog, r.exit);
+    assert.equal(r.exitCode, 1);
+    const errText = r.errs.join("\n");
+    assert.match(errText, /repo must be in <owner>\/<repo> format/);
+    assert.doesNotMatch(errText, /[\u202e\u200b]/);
+    assert.match(errText, /FAKE/);
+  });
+
   it("exits 1 on a CWE-22 traversal payload, without touching git/fs", () => {
     const r = captureRun();
     const fake = makeFakeExec([]); // no git/checkout call should be made

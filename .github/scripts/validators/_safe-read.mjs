@@ -60,16 +60,32 @@ export const MAX_SAFE_READ_FILE_BYTES = 10 * 1024 * 1024;
 // commands are parsed line-anchored on real \n bytes, so this does not
 // forge ::error::/::add-mask:: commands).
 //
-// Deliberately NOT the same character class as validate_skills.mjs /
-// validate_agents.mjs's CONTROL_CHAR_RE (0x00-0x08, 0x0b-0x0c, 0x0e-0x1f,
-// 0x7f) -- that pattern leaves 0x0d (CR) unstripped, which is fine for its
-// own sink (a rendered Markdown table cell) but not here: CR is exactly the
-// cursor-return primitive the log-spoofing scenario above depends on. This
-// class strips every C0 control byte except \t (0x09) and \n (0x0a) -- so
-// 0x00-0x08, 0x0b-0x1f (CR included), 0x7f -- plus the three Unicode
-// line-separator code points (U+2028/U+2029/U+0085) a raw terminal stream
-// can also act on that a Markdown-table sink doesn't need to cover.
-const LOG_UNSAFE_RE = /[\x00-\x08\x0b-\x1f\x7f\u2028\u2029\u0085]/g;
+// This class is a strict SUPERSET of validate_skills.mjs /
+// validate_agents.mjs's CONTROL_CHAR_RE, not a divergent tuning of it:
+//
+//   - Every C0 control byte except \t (0x09) and \n (0x0a) -- 0x00-0x08,
+//     0x0b-0x1f, 0x7f. The widening past their class is 0x0d (CR), which they
+//     leave in because a rendered Markdown table cell cannot act on it; here
+//     CR is exactly the cursor-return primitive the scenario above depends on.
+//   - The same Bidi_Control and zero-width set they strip -- U+061C,
+//     U+200B-U+200F, U+202A-U+202E, U+2060-U+2069, U+FEFF (skills#600). This
+//     sink needs them at least as much as a Markdown cell does, not less: a
+//     raw terminal is where U+202E (RLO) actually re-orders the rest of the
+//     line, so an attacker-chosen path or excerpt carrying one could reverse
+//     the violation message a reviewer reads in `gh run view --log`. Omitting
+//     them here was a real gap, not a deliberate narrowing -- the same defect
+//     e2d03b1 fixed in scan_repo.mjs's second copy.
+//   - Plus the three Unicode line-separator code points (U+2028/U+2029/U+0085)
+//     a raw terminal stream can act on that a Markdown-table sink need not
+//     cover -- the one part of this class with no counterpart in theirs.
+//
+// So the two classes differ ONLY by CR and that line-separator trio, both
+// justified by this sink being a raw log stream rather than a Markdown cell.
+// Any code point added to their CONTROL_CHAR_RE must be added here too, or
+// this superset claim goes stale -- which is precisely how it went stale
+// before (their class was widened for skills#600; this one was not).
+const LOG_UNSAFE_RE =
+  /[\x00-\x08\x0b-\x1f\x7f\u0085\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 export function sanitizeForLog(value) {
   return String(value).replace(LOG_UNSAFE_RE, "");

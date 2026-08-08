@@ -13,6 +13,12 @@ import {
   MAX_SAFE_READ_FILE_BYTES,
 } from "../_safe-read.mjs";
 
+// Imported to mechanically assert the superset relationship sanitizeForLog's
+// own comment claims (skills#600 review) -- both modules guard their CLI entry
+// with isCliEntry(), so importing them here runs no validator.
+import { CONTROL_CHAR_RE as SKILLS_CONTROL_CHAR_RE } from "../../../../plugins/ievo/scripts/validate_skills.mjs";
+import { CONTROL_CHAR_RE as AGENTS_CONTROL_CHAR_RE } from "../../../../plugins/ievo/scripts/validate_agents.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, "tmp-safe-read-test");
 
@@ -144,6 +150,56 @@ describe("sanitizeForLog", () => {
     assert.equal(sanitizeForLog(evil), "bellbackspacedel");
   });
 
+  it("strips every Bidi_Control character (Trojan-Source log spoof, skills#600)", () => {
+    assert.equal(sanitizeForLog(`evil\u202edesrever`), "evildesrever");
+    assert.equal(sanitizeForLog(`a\u2066b\u2069c`), "abc");
+    // A raw terminal is where RLO actually re-orders the line, so this sink
+    // needs the whole Bidi_Control set -- U+061C, U+200E-U+200F, U+202A-U+202E,
+    // U+2066-U+2069 -- not just the ASCII controls it started with. Assert each
+    // one so a narrowing of the class is caught.
+    for (const cp of [0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069]) {
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.equal(sanitizeForLog(`a${String.fromCodePoint(cp)}b`), "ab", `expected ${label} to be stripped`);
+    }
+  });
+
+  it("strips zero-width characters incl. BOM (Trojan-Source log spoof, skills#600)", () => {
+    assert.equal(sanitizeForLog(`zero\u200bwidth`), "zerowidth");
+    assert.equal(sanitizeForLog(`joi\u200dner`), "joiner");
+    assert.equal(sanitizeForLog(`bom\ufeffchar`), "bomchar");
+  });
+
+  it("does not strip Unicode characters just outside the bidi/zero-width ranges", () => {
+    // Boundaries either side of every added range. Unlike escapeMdCell, this
+    // sink does no `\s+` collapse, so the Unicode spaces neighbouring the
+    // ranges (U+200A, U+202F, U+205F) must survive verbatim too.
+    for (const cp of [0x061b, 0x061d, 0x200a, 0x2010, 0x202f, 0x205f, 0x206a, 0xfefe, 0xff00]) {
+      const ch = String.fromCodePoint(cp);
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.equal(sanitizeForLog(`a${ch}b`), `a${ch}b`, `expected ${label} to be preserved`);
+    }
+  });
+
+  it("strips a strict superset of validate_skills/validate_agents' CONTROL_CHAR_RE", () => {
+    // The comment above LOG_UNSAFE_RE claims superset, not divergence. That
+    // claim silently went stale once before (their class was widened for
+    // skills#600, this one was not), so assert it mechanically rather than in
+    // prose: every BMP code point either validator strips must vanish here too.
+    for (const [name, re] of [
+      ["validate_skills.mjs", SKILLS_CONTROL_CHAR_RE],
+      ["validate_agents.mjs", AGENTS_CONTROL_CHAR_RE],
+    ]) {
+      for (let cp = 0; cp <= 0xffff; cp++) {
+        const ch = String.fromCodePoint(cp);
+        // String.replace resets lastIndex on a /g regex, so reusing the
+        // imported pattern across iterations is safe.
+        if (ch.replace(re, "") !== "") continue;
+        const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+        assert.equal(sanitizeForLog(ch), "", `${name} strips ${label} but sanitizeForLog does not`);
+      }
+    }
+  });
+
   it("preserves tab and newline so ordinary multi-line messages read naturally", () => {
     const benign = "line 1: a\tb\nline 2: c";
     assert.equal(sanitizeForLog(benign), benign);
@@ -272,10 +328,11 @@ describe("validators strip control characters from attacker-controlled paths", (
   });
 
   for (const validator of VALIDATORS) {
-    it(`${validator} never echoes a raw ESC byte from a crafted path`, () => {
+    it(`${validator} never echoes a raw ESC byte or bidi-override from a crafted path`, () => {
       const target = resolve(TMP, `secret-ctl-${validator}.txt`);
       writeFileSync(target, "irrelevant");
-      const evilName = "evil-" + String.fromCharCode(0x1b) + "[31m-" + validator + ".md";
+      const evilName =
+        "evil-" + String.fromCharCode(0x1b) + "[31m-\u202edm.-" + validator + ".md";
       const link = resolve(TMP, evilName);
       symlinkSync(target, link);
 
@@ -285,6 +342,7 @@ describe("validators strip control characters from attacker-controlled paths", (
 
       assert.notEqual(r.status, 0);
       assert.doesNotMatch(r.stderr, new RegExp(String.fromCharCode(0x1b)));
+      assert.doesNotMatch(r.stderr, /[\u202e]/);
     });
   }
 });

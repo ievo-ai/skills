@@ -38,7 +38,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.80.4";
+export const SCRIPT_VERSION = "0.80.5";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
@@ -55,11 +55,23 @@ export const DEFAULT_CONCURRENCY = 8;
 // bytes we just sanitized — fs errors quote the offending path verbatim
 // (`ENOENT: ... lstat '<raw path>'`) and V8's JSON.parse message quotes a
 // ~12-char snippet of the raw input (`Unexpected token 'x', "<raw>"... is not
-// valid JSON`). Per-file copy (not a shared import) mirrors
+// valid JSON`).
+// Also strips every code point with the Unicode Bidi_Control property —
+// U+061C (ALM), U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 — plus
+// zero-width characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates
+// are widened to the full U+2060-U+2069 invisible-operator block (CWE-116
+// follow-up, skills#600). The ASCII-only range above didn't touch any of
+// these, and this sink is a raw terminal/CI log stream — exactly where U+202E
+// (RLO) actually re-orders the rest of the line — so a crafted --stack-file
+// path or stdin snippet carrying one could reverse the error message a
+// reviewer reads. The Bidi_Control set is closed at those six ranges — adding
+// a code point outside them means the enumeration above is no longer
+// exhaustive and the comment must say so.
+// Per-file copy (not a shared import) mirrors
 // validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE — each
 // sink's exact character class is tuned to its own risk model (see
 // .github/scripts/validators/_safe-read.mjs).
-export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // Reserved prefix for synthetic source-grouping sentinels (e.g.
 // `__codex-marketplace__`). buildQueries rejects any real query starting with

@@ -124,6 +124,30 @@ describe("constants", () => {
       assert.ok(!CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} not to match`);
     }
   });
+
+  it("CONTROL_CHAR_RE matches every Bidi_Control code point and the zero-width characters incl. BOM (Trojan-Source spoof guard, skills#600)", () => {
+    // The Bidi_Control set is closed: U+061C, U+200E-U+200F, U+202A-U+202E,
+    // U+2066-U+2069. Every one of them is asserted here so a future narrowing
+    // of the character class cannot silently drop one.
+    for (const ch of ["\u061c", "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\u2067", "\u2068", "\u2069"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(CONTROL_CHAR_RE.test(ch), `expected Bidi_Control ${JSON.stringify(ch)} to match`);
+    }
+    // Zero-width characters (U+200B-U+200F, U+FEFF) and the rest of the
+    // U+2060-U+2069 invisible-operator block the isolates were widened to.
+    for (const ch of ["\u200b", "\u200c", "\u200d", "\u2060", "\u2061", "\u2062", "\u2063", "\u2064", "\ufeff"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} to match`);
+    }
+    // The code point immediately below and above each added range stays
+    // untouched. Built from numeric code points, not string escapes, so the
+    // source of a test about invisible characters is itself plainly readable.
+    for (const cp of [0x061b, 0x061d, 0x200a, 0x2010, 0x2029, 0x202f, 0x2059, 0x2070, 0x0061]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.ok(!CONTROL_CHAR_RE.test(String.fromCodePoint(cp)), `expected ${label} not to match`);
+    }
+  });
 });
 
 describe("parseArgs", () => {
@@ -264,6 +288,25 @@ describe("parseFrontmatter", () => {
     const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  line one\x1b bad\n  line two\n---");
     assert.equal(fm.description, "line one bad\nline two");
   });
+
+  it("strips a Unicode bidi-override from a plain scalar value (Trojan-Source spoof guard, skills#600)", () => {
+    const fm = parseFrontmatter(`---\nname: foo\ndescription: evil\u202edesrever\n---`);
+    assert.equal(fm.description, "evildesrever");
+  });
+
+  it("strips zero-width characters incl. BOM from a plain scalar value (Trojan-Source spoof guard, skills#600)", () => {
+    const fm = parseFrontmatter(`---\nname: foo\ndescription: zero\u200bwidth\ufeffbom\n---`);
+    assert.equal(fm.description, "zerowidthbom");
+  });
+
+  it("{ strip: false } returns raw values, so a check whose verdict the strip flips can see them (skills#600 review)", () => {
+    const content = `---\nname: deep\u200b-review\ndescription: evil\u202edesrever\n---`;
+    const raw = parseFrontmatter(content, { strip: false });
+    assert.equal(raw.name, "deep\u200b-review");
+    assert.equal(raw.description, "evil\u202edesrever");
+    // Same key set as the stripped view: the strip touches values only.
+    assert.deepEqual(Object.keys(raw), Object.keys(parseFrontmatter(content)));
+  });
 });
 
 describe("checkModelField", () => {
@@ -337,6 +380,39 @@ describe("checkModelField", () => {
     assert.equal(v[0].rule, "model-not-allowed");
     assert.match(v[0].message, /not in allowed aliases/);
   });
+
+  it("rejects an allowed alias padded with invisible characters — verdict is on the raw value (skills#600 review)", () => {
+    // One representative per range CONTROL_CHAR_RE covers: ZWSP, RLO, an
+    // invisible-operator isolate, BOM, ALM, and a plain C0 ESC byte. Built via
+    // fromCodePoint rather than embedded literally, so this file stays free of
+    // the very code points it is testing for.
+    for (const cp of [0x200b, 0x202e, 0x2069, 0xfeff, 0x061c, 0x1b]) {
+      const ch = String.fromCodePoint(cp);
+      const v = checkModelField(`opus${ch}`);
+      const label = `U+${cp.toString(16).toUpperCase()}`;
+      assert.equal(v.length, 1, `opus+${label} must not lint clean`);
+      assert.equal(v[0].rule, "model-not-allowed");
+      assert.match(v[0].message, /shown stripped/);
+      assert.ok(!v[0].message.includes(ch), `message must not carry the raw ${label}`);
+      assert.match(v[0].message, /`model: opus`/);
+    }
+  });
+
+  it("rejects a vendor-pinned ID wearing an invisible character, without claiming the stripped form is the offender", () => {
+    const v = checkModelField(`claude-sonnet-4-6${String.fromCodePoint(0x200b)}`);
+    assert.equal(v.length, 1);
+    // Not model-vendor-locked: the raw value is what failed, and the message
+    // says so rather than printing a clean-looking `claude-sonnet-4-6`.
+    assert.equal(v[0].rule, "model-not-allowed");
+    assert.match(v[0].message, /shown stripped/);
+  });
+
+  it("returns unchanged verdicts for values with no invisible characters", () => {
+    // The raw/stripped split must not perturb the ordinary path: a value the
+    // strip does not touch takes exactly the branches it always did.
+    assert.deepEqual(checkModelField("sonnet"), []);
+    assert.equal(checkModelField("claude-sonnet-4-6")[0].rule, "model-vendor-locked");
+  });
 });
 
 describe("checkEffortField", () => {
@@ -391,6 +467,32 @@ describe("checkEffortField", () => {
     assert.equal(v[0].severity, "error");
     assert.equal(v[0].rule, "invalid-effort-value");
     assert.match(v[0].message, /critical/);
+  });
+
+  it("returns error for a valid level padded with invisible characters — verdict is on the raw value (skills#600 review)", () => {
+    for (const cp of [0x200b, 0x202e, 0x2069, 0xfeff, 0x061c, 0x1b]) {
+      const ch = String.fromCodePoint(cp);
+      const v = checkEffortField(`high${ch}`);
+      const label = `U+${cp.toString(16).toUpperCase()}`;
+      assert.equal(v.length, 1, `high+${label} must not lint clean`);
+      assert.equal(v[0].rule, "invalid-effort-value");
+      assert.match(v[0].message, /shown stripped/);
+      assert.ok(!v[0].message.includes(ch), `message must not carry the raw ${label}`);
+      assert.match(v[0].message, /effort: "high"/);
+    }
+  });
+
+  it("still reports an effort value made only of invisible characters as invalid, not missing", () => {
+    // Stripped, this is the empty string — the old code path saw a falsy value
+    // and reported missing-effort-field for a field that is in fact present.
+    const v = checkEffortField(String.fromCodePoint(0x200b));
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "invalid-effort-value");
+  });
+
+  it("returns unchanged verdicts for effort values with no invisible characters", () => {
+    assert.deepEqual(checkEffortField("high"), []);
+    assert.equal(checkEffortField("hight")[0].rule, "invalid-effort-value");
   });
 });
 
@@ -474,6 +576,35 @@ describe("validateSkillContent", () => {
     assert.ok(v.some((x) => x.rule === "name-invalid-format"));
   });
 
+  it("flags a zero-width character in name, which the strip would otherwise normalize away (skills#600 review)", () => {
+    // The mirror image of the name-dir-mismatch fix: parseFrontmatter() strips
+    // CONTROL_CHAR_RE for the CWE-150 sink, so testing NAME_PATTERN against the
+    // stripped value would let `deep<U+200B>-review` lint clean as `deep-review`
+    // — matching a directory of that literal name and shipping a homograph.
+    const zwsp = String.fromCodePoint(0x200b);
+    const v = validateSkillContent(`---\nname: deep${zwsp}-review\ndescription: ok\neffort: low\n---`, "deep-review");
+    const bad = v.find((x) => x.rule === "name-invalid-format");
+    assert.ok(bad, "expected a name-invalid-format violation");
+    assert.ok(!bad.message.includes(zwsp), "message must not carry the raw zero-width character");
+    assert.match(bad.message, /deep-review.*control or invisible characters/);
+  });
+
+  it("flags a bidi override in name (skills#600 review)", () => {
+    const rlo = String.fromCodePoint(0x202e);
+    const v = validateSkillContent(`---\nname: evil${rlo}skill\ndescription: ok\neffort: low\n---`, "evilskill");
+    assert.ok(v.some((x) => x.rule === "name-invalid-format"));
+  });
+
+  it("flags an ESC byte in name (C0 half of the same guard)", () => {
+    const v = validateSkillContent("---\nname: foo\x1bbar\ndescription: ok\neffort: low\n---", "foobar");
+    assert.ok(v.some((x) => x.rule === "name-invalid-format"));
+  });
+
+  it("a clean name is not flagged by the invisible-character branch", () => {
+    const v = validateSkillContent("---\nname: deep-review\ndescription: ok\neffort: low\n---", "deep-review");
+    assert.deepEqual(v, []);
+  });
+
   it("flags name-dir mismatch", () => {
     const v = validateSkillContent("---\nname: foo\ndescription: ok\n---", "bar");
     assert.ok(v.some((x) => x.rule === "name-dir-mismatch"));
@@ -527,6 +658,42 @@ describe("validateSkillContent", () => {
     assert.ok(!v.some((x) => x.rule === "compatibility-too-long"));
   });
 
+  it("measures the description cap on the RAW value, so zero-width padding cannot buy extra chars (skills#600 review)", () => {
+    // 1024 visible chars is exactly at the limit; the zero-width characters
+    // push the real field past it. Counting the stripped view under-reports
+    // and lints this clean.
+    const zwsp = String.fromCodePoint(0x200b);
+    const desc = "x".repeat(1024) + zwsp.repeat(50);
+    const v = validateSkillContent(`---\nname: foo\ndescription: ${desc}\neffort: low\n---`, "foo");
+    const tooLong = v.find((x) => x.rule === "description-too-long");
+    assert.ok(tooLong, "expected description-too-long");
+    assert.match(tooLong.message, /description is 1074 chars/);
+  });
+
+  it("measures the compatibility cap on the RAW value too", () => {
+    // ZWSP, not BOM: U+FEFF is in ECMAScript's WhiteSpace production, so a
+    // trailing one is removed by parseFrontmatter's own .trim() before either
+    // view sees it. U+200B is not, so it survives into the raw value.
+    const zwsp = String.fromCodePoint(0x200b);
+    const compat = "x".repeat(500) + zwsp.repeat(10);
+    const v = validateSkillContent(`---\nname: foo\ndescription: ok\ncompatibility: ${compat}\neffort: low\n---`, "foo");
+    const tooLong = v.find((x) => x.rule === "compatibility-too-long");
+    assert.ok(tooLong, "expected compatibility-too-long");
+    assert.match(tooLong.message, /compatibility is 510 chars/);
+  });
+
+  it("measures the name cap on the RAW value too", () => {
+    // Same under-count, third instance: 64 visible chars is exactly at the
+    // limit, so the invisible padding is what takes it over.
+    const zwsp = String.fromCodePoint(0x200b);
+    const name = "a".repeat(64) + zwsp;
+    const v = validateSkillContent(`---\nname: ${name}\ndescription: ok\neffort: low\n---`, name);
+    const tooLong = v.find((x) => x.rule === "name-too-long");
+    assert.ok(tooLong, "expected name-too-long");
+    assert.match(tooLong.message, /name is 65 chars/);
+    assert.ok(!tooLong.message.includes(zwsp), "message must not carry the raw zero-width character");
+  });
+
   it("flags forbidden model field", () => {
     const v = validateSkillContent("---\nname: foo\ndescription: ok\nmodel: gpt-5\n---", "foo");
     assert.ok(v.some((x) => x.rule === "model-vendor-locked"));
@@ -545,6 +712,26 @@ describe("validateSkillContent", () => {
   it("passes valid effort value in validateSkillContent", () => {
     const v = validateSkillContent("---\nname: foo\ndescription: ok\neffort: high\n---", "foo");
     assert.ok(!v.some((x) => x.rule === "invalid-effort-value" || x.rule === "missing-effort-field"));
+  });
+
+  it("flags a model/effort spoofed with a zero-width character end-to-end (skills#600 review)", () => {
+    // The regression the review named: before the raw/stripped split these
+    // both collapsed to a clean `opus`/`high` inside parseFrontmatter and the
+    // file linted clean.
+    const zwsp = String.fromCodePoint(0x200b);
+    const content = `---\nname: foo\ndescription: ok\nmodel: opus${zwsp}\neffort: high${zwsp}\n---`;
+    const v = validateSkillContent(content, "foo");
+    assert.deepEqual(v.map((x) => x.rule).sort(), ["invalid-effort-value", "model-not-allowed"]);
+    for (const x of v) assert.ok(!x.message.includes(zwsp), "message must not carry the raw ZWSP");
+  });
+
+  it("flags a model: whose value is nothing but invisible characters", () => {
+    // Stripped, this field is the empty string, which the old `if (fm.model)`
+    // guard skipped entirely instead of rejecting it as a non-alias.
+    const content = `---\nname: foo\ndescription: ok\nmodel: ${String.fromCodePoint(0x202e)}\neffort: low\n---`;
+    const v = validateSkillContent(content, "foo");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "model-not-allowed");
   });
 
   it("accumulates multiple violations", () => {
@@ -668,6 +855,26 @@ describe("validateSkill (filesystem)", () => {
     assert.ok(mismatch, "expected a name-dir-mismatch violation");
     assert.ok(!mismatch.message.includes("\x1b"), "message must not contain the raw ESC byte");
     assert.match(mismatch.message, /actualdir/);
+  });
+
+  it("compares parentDirName RAW, so a zero-width spoof in the directory name still trips name-dir-mismatch (skills#600 review)", () => {
+    // parseFrontmatter() already strips CONTROL_CHAR_RE from `fm.name`. If the
+    // directory side were stripped too — as it was before this fix — both
+    // sides would collapse to the same value and this directory would
+    // validate clean, which is exactly the on-disk homograph the rule exists
+    // to catch. The rendered message deliberately shows two identical-looking
+    // names: the strip is for the CWE-150 sink, the comparison is on raw
+    // bytes.
+    const zwsp = String.fromCodePoint(0x200b);
+    const skillDir = join(tmpDir, `spoof${zwsp}-skill`);
+    mkdirSync(skillDir, { recursive: true });
+    const filePath = join(skillDir, "SKILL.md");
+    writeFileSync(filePath, "---\nname: spoof-skill\ndescription: ok\neffort: low\n---", "utf-8");
+    const v = validateSkill(filePath);
+    const mismatch = v.find((x) => x.rule === "name-dir-mismatch");
+    assert.ok(mismatch, "expected a name-dir-mismatch violation");
+    assert.equal(mismatch.message, 'name "spoof-skill" does not match parent directory "spoof-skill"');
+    assert.ok(!mismatch.message.includes(zwsp), "message must not contain the raw zero-width character");
   });
 
   after(() => {

@@ -59,15 +59,27 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 // Strips C0 control characters (and DEL) from a parsed frontmatter value
 // before it can ever reach a violation message or console.log (CWE-150).
 // `checkModelField`/`checkEffortField`/the name-mismatch checks interpolate
-// `fm.model`/`fm.effort`/`fm.name` verbatim into messages that `main()`
-// prints to stdout — a raw ESC byte (0x1B) in a crafted frontmatter value
-// survives untouched otherwise and can inject ANSI/control sequences into a
-// CI log or terminal viewer. Excludes tab/LF/CR (\x09/\x0a/\x0d) so a
-// legitimate multi-line block-scalar body (assembled by parseFrontmatter()
-// below) keeps its real line breaks — mirrors scan_repo.mjs's escapeMdCell
-// control-char strip, which excludes the same three codes for the same
-// reason.
-export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+// the `model`/`effort`/`name` values into messages that `main()` prints to
+// stdout — a raw ESC byte (0x1B) in a crafted frontmatter value survives
+// untouched otherwise and can inject ANSI/control sequences into a CI log or
+// terminal viewer. Those three checks read the RAW value for their verdict
+// (the strip would otherwise normalize the spoof away) and apply this regex
+// at the interpolation site instead; see their comments below.
+// Excludes tab/LF/CR (\x09/\x0a/\x0d) so a legitimate multi-line block-scalar
+// body (assembled by parseFrontmatter() below) keeps its real line breaks —
+// mirrors scan_repo.mjs's escapeMdCell control-char strip, which excludes the
+// same three codes for the same reason.
+// Also strips every code point with the Unicode Bidi_Control property —
+// U+061C (ALM), U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 — plus
+// zero-width characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates
+// are widened to the full U+2060-U+2069 invisible-operator block (CWE-116
+// follow-up, skills#600). The ASCII-only range above didn't touch any of
+// these, so a crafted `name:`/`description:` value could carry a
+// Trojan-Source-style spoof straight into a violation message unneutralized.
+// The Bidi_Control set is closed at those six ranges — adding a code point
+// outside them means the enumeration above is no longer exhaustive and the
+// comment must say so.
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // SKILL.md frontmatter is never legitimately larger than this — guards the
 // readFileSync call in validateSkill() below against a multi-GB blob (or a
@@ -131,8 +143,17 @@ export function parseArgs(argv) {
  * the agentskills.io spec ever adds a structured field this validator must
  * ENFORCE, replace this function with a proper YAML parser (e.g. the `yaml`
  * npm package) rather than extending it ad hoc.
+ *
+ * Values are CONTROL_CHAR_RE-stripped by default — that strip is the CWE-150
+ * guard every violation message downstream relies on. Pass `{ strip: false }`
+ * to get the RAW values instead: a check whose verdict the strip can flip must
+ * see what the file actually contains, not its normalized display form. Every
+ * such check reads the raw view (name format, `model:`, `effort:`, and the
+ * `description:`/`compatibility:` length caps — skills#600 review); every
+ * value that reaches a printed message must still come from the stripped view,
+ * or be stripped at the interpolation site.
  */
-export function parseFrontmatter(content) {
+export function parseFrontmatter(content, { strip = true } = {}) {
   const normalized = content.replace(/\r\n?/g, "\n");
   const match = normalized.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return null;
@@ -165,14 +186,36 @@ export function parseFrontmatter(content) {
     // from a plain single-line scalar.
     if (value) {
       const unquoted = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
-      fm[key] = unquoted.replace(CONTROL_CHAR_RE, "");
+      fm[key] = strip ? unquoted.replace(CONTROL_CHAR_RE, "") : unquoted;
     }
   }
   return fm;
 }
 
+// `model` arrives RAW (see validateSkillContent) — the allowlist test below
+// has to see what the file actually contains. Every code point
+// CONTROL_CHAR_RE removes is outside the charset of every allowed alias, so
+// testing the STRIPPED value normalizes the very spoof this check exists to
+// reject: `model: opus<U+200B>` collapses to a clean `opus`, is found in
+// ALLOWED_MODELS, and lints clean — the same verdict-flips-on-strip defect
+// fixed for `name` (skills#600 review). Compare on raw, render stripped.
 export function checkModelField(model) {
   if (ALLOWED_MODELS.has(model)) return [];
+
+  const shown = model.replace(CONTROL_CHAR_RE, "");
+  if (shown !== model) {
+    // Its own branch purely for the message, mirroring name-invalid-format:
+    // interpolating `shown` into either message below (mandatory — the raw
+    // value must never reach a printed message) would render a model that
+    // visibly *is* an allowed alias, or visibly *isn't* vendor-pinned, while
+    // erroring on it. Past this point `model` is strip-identical, so the
+    // remaining interpolations of it are already CWE-150-safe.
+    return [{
+      severity: "error",
+      rule: "model-not-allowed",
+      message: `\`model: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not one of the allowed aliases (${[...ALLOWED_MODELS].join(", ")}). Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
+    }];
+  }
 
   for (const { pattern, why } of FORBIDDEN_MODEL_PATTERNS) {
     if (pattern.test(model)) {
@@ -201,6 +244,19 @@ export function checkEffortField(effort) {
                "inherit the session effort unexpectedly.",
     }];
   }
+  // Same raw-verdict/stripped-render split as checkModelField above: `effort`
+  // arrives RAW, because every code point CONTROL_CHAR_RE removes is outside
+  // the charset of every VALID_EFFORT_VALUES member, so testing the stripped
+  // value would let `effort: high<U+200B>` collapse to a clean `high` and lint
+  // clean (skills#600 review).
+  const shown = effort.replace(CONTROL_CHAR_RE, "");
+  if (shown !== effort) {
+    return [{
+      severity: "error",
+      rule: "invalid-effort-value",
+      message: `effort: "${shown}" (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}`,
+    }];
+  }
   if (!VALID_EFFORT_VALUES.has(effort)) {
     return [{
       severity: "error",
@@ -220,6 +276,15 @@ export function validateSkillContent(content, parentDirName) {
     return violations;
   }
 
+  // The same frontmatter, unstripped. `parseFrontmatter()` is deterministic
+  // over `content` and the strip touches values only, never the key set, so
+  // the two views always carry the same keys and `raw` is non-null whenever
+  // `fm` is. Every check whose verdict CONTROL_CHAR_RE could flip reads from
+  // here (name format, model, effort, and all three length caps); every check
+  // that measures "is this field effectively empty", and every value that
+  // reaches a printed message, still reads from the stripped `fm`.
+  const raw = parseFrontmatter(content, { strip: false });
+
   if (!fm.name) {
     violations.push({
       severity: "error",
@@ -227,11 +292,22 @@ export function validateSkillContent(content, parentDirName) {
       message: "Missing required frontmatter field: name",
     });
   } else {
-    if (fm.name.length > NAME_MAX_LENGTH) {
+    // The RAW `name:` value, straight off disk. `fm.name` has already been
+    // through CONTROL_CHAR_RE (CWE-150), and every code point that strip
+    // removes — C0/DEL, bidi controls, zero-width — is outside NAME_PATTERN's
+    // `[a-z0-9-]` class, so testing the STRIPPED value normalizes the very
+    // spoof the pattern is meant to reject: `name: deep<U+200B>-review` in a
+    // directory named `deep-review` collapses to a clean `deep-review` and
+    // passes both this check and name-dir-mismatch below, shipping a homograph
+    // name (skills#600 review — the mirror image of the dir-side double-strip
+    // fixed there). Compare on raw, render from the stripped view.
+    const rawName = raw.name;
+
+    if (rawName.length > NAME_MAX_LENGTH) {
       violations.push({
         severity: "error",
         rule: "name-too-long",
-        message: `name is ${fm.name.length} chars — exceeds agentskills.io spec limit of ${NAME_MAX_LENGTH}`,
+        message: `name is ${rawName.length} chars — exceeds agentskills.io spec limit of ${NAME_MAX_LENGTH}`,
       });
     }
     if (fm.name.includes("--")) {
@@ -240,6 +316,17 @@ export function validateSkillContent(content, parentDirName) {
         rule: "name-consecutive-hyphens",
         message: "name contains consecutive hyphens (--) — not allowed by agentskills.io spec",
       });
+    } else if (rawName !== fm.name) {
+      // Same rule as the pattern check below — a name carrying any of these
+      // code points fails NAME_PATTERN on its raw form by construction. Split
+      // into its own branch purely for the message: interpolating `fm.name`
+      // (mandatory — the raw value must never reach a printed message) would
+      // otherwise render a name that visibly *does* match the pattern.
+      violations.push({
+        severity: "error",
+        rule: "name-invalid-format",
+        message: `name "${fm.name}" (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — which are not lowercase alnum + hyphens`,
+      });
     } else if (!NAME_PATTERN.test(fm.name)) {
       violations.push({
         severity: "error",
@@ -247,42 +334,62 @@ export function validateSkillContent(content, parentDirName) {
         message: `name "${fm.name}" does not match required pattern: lowercase alnum + hyphens, no leading/trailing hyphens`,
       });
     }
+    // Compared RAW, stripped only where it is interpolated into the message.
+    // `fm.name` is already stripped by parseFrontmatter(), so normalizing this
+    // side too would make both sides collapse to the same value and defeat the
+    // check: a directory literally named `deep<U+200B>-review` alongside
+    // `name: deep-review` would stop tripping this rule, which is precisely
+    // the on-disk spoof it exists to catch (a directory name is filesystem-
+    // controlled and nothing downstream ever strips it). Stripping at the
+    // interpolation still keeps the CWE-150 guarantee that no raw control byte
+    // reaches a message main() prints (skills#495).
     if (parentDirName && fm.name !== parentDirName) {
       violations.push({
         severity: "error",
         rule: "name-dir-mismatch",
-        message: `name "${fm.name}" does not match parent directory "${parentDirName}"`,
+        message: `name "${fm.name}" does not match parent directory "${parentDirName.replace(CONTROL_CHAR_RE, "")}"`,
       });
     }
   }
 
+  // Presence is judged on the STRIPPED view (a value made only of invisible
+  // code points is an empty description, not a one-character one), but every
+  // length cap below is measured on the RAW value: the strip shortens what it
+  // touches, so counting the normalized form under-reports and lets a
+  // description padded past the spec limit with zero-width characters lint
+  // clean (skills#600 review). Only the counts reach the messages, never the
+  // values, so no CWE-150 sink is opened by reading raw here.
   if (!fm.description) {
     violations.push({
       severity: "error",
       rule: "missing-required-field",
       message: "Missing required frontmatter field: description",
     });
-  } else if (fm.description.length > DESCRIPTION_MAX_LENGTH) {
+  } else if (raw.description.length > DESCRIPTION_MAX_LENGTH) {
     violations.push({
       severity: "error",
       rule: "description-too-long",
-      message: `description is ${fm.description.length} chars — exceeds agentskills.io spec limit of ${DESCRIPTION_MAX_LENGTH}`,
+      message: `description is ${raw.description.length} chars — exceeds agentskills.io spec limit of ${DESCRIPTION_MAX_LENGTH}`,
     });
   }
 
-  if (fm.compatibility && fm.compatibility.length > COMPATIBILITY_MAX_LENGTH) {
+  if (fm.compatibility && raw.compatibility.length > COMPATIBILITY_MAX_LENGTH) {
     violations.push({
       severity: "error",
       rule: "compatibility-too-long",
-      message: `compatibility is ${fm.compatibility.length} chars — exceeds agentskills.io spec limit of ${COMPATIBILITY_MAX_LENGTH}`,
+      message: `compatibility is ${raw.compatibility.length} chars — exceeds agentskills.io spec limit of ${COMPATIBILITY_MAX_LENGTH}`,
     });
   }
 
-  if (fm.model) {
-    violations.push(...checkModelField(fm.model));
+  // Both read RAW — see checkModelField/checkEffortField. The `raw.model`
+  // guard matters too: a `model:` whose value is nothing but invisible code
+  // points strips to "", which the stripped view would skip entirely instead
+  // of rejecting as a non-alias.
+  if (raw.model) {
+    violations.push(...checkModelField(raw.model));
   }
 
-  violations.push(...checkEffortField(fm.effort));
+  violations.push(...checkEffortField(raw.effort));
 
   return violations;
 }
@@ -296,12 +403,14 @@ export function validateSkill(filePath) {
     }];
   }
   const content = readFileSync(filePath, "utf-8");
-  // Stripped here (not just at the rel/log() call sites in main()) because a
-  // git tree entry name may contain arbitrary bytes other than `/` and NUL —
-  // an ESC byte in a crafted directory name would otherwise reach the
-  // name-dir-mismatch message unstripped, the same CWE-150 this file's
-  // CONTROL_CHAR_RE already guards frontmatter values against (skills#495).
-  const parentDirName = basename(dirname(filePath)).replace(CONTROL_CHAR_RE, "");
+  // Deliberately RAW. The CWE-150 strip that skills#495 added here (a git tree
+  // entry name may contain arbitrary bytes other than `/` and NUL, and an ESC
+  // byte must never reach the name-dir-mismatch message main() prints) now
+  // happens inside validateSkillContent(), at the message interpolation only —
+  // stripping it *here* would also normalize one side of that function's
+  // equality test against the already-stripped `fm.name`, weakening the spoof
+  // check itself. See the name-dir-mismatch comment there.
+  const parentDirName = basename(dirname(filePath));
   return validateSkillContent(content, parentDirName);
 }
 

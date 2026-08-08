@@ -65,15 +65,28 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 
 // Strips C0 control characters (and DEL) from a parsed frontmatter value
 // before it can ever reach a violation message or console.log (CWE-150).
-// `checkModelField`/`checkEffortField` interpolate `fm.model`/`fm.effort`
-// verbatim into messages that `main()` prints to stdout — a raw ESC byte
+// `checkModelField`/`checkEffortField` interpolate the `model:`/`effort:`
+// values into messages that `main()` prints to stdout — a raw ESC byte
 // (0x1B) in a crafted `model:`/`effort:` value survives untouched otherwise
 // and can inject ANSI/control sequences into a CI log or terminal viewer.
+// Both checks judge the RAW value (the strip would otherwise normalize the
+// spoof away) and apply this regex at the interpolation site instead; see
+// their comments below.
 // Excludes tab/LF/CR (\x09/\x0a/\x0d) so a legitimate multi-line block-scalar
 // body (assembled by parseFrontmatter() below) keeps its real line breaks —
 // mirrors scan_repo.mjs's escapeMdCell control-char strip, which excludes the
 // same three codes for the same reason.
-export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+// Also strips every code point with the Unicode Bidi_Control property —
+// U+061C (ALM), U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 — plus
+// zero-width characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates
+// are widened to the full U+2060-U+2069 invisible-operator block (CWE-116
+// follow-up, skills#600). The ASCII-only range above didn't touch any of
+// these, so a crafted `name:`/`description:` value could carry a
+// Trojan-Source-style spoof straight into a violation message unneutralized.
+// The Bidi_Control set is closed at those six ranges — adding a code point
+// outside them means the enumeration above is no longer exhaustive and the
+// comment must say so.
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // Patterns that indicate vendor-specific or version-pinned IDs
 export const FORBIDDEN_MODEL_PATTERNS = [
@@ -96,7 +109,15 @@ export function parseArgs(argv) {
   return args;
 }
 
-export function parseFrontmatter(content) {
+// Values are CONTROL_CHAR_RE-stripped by default — that strip is the CWE-150
+// guard every violation message downstream relies on. Pass `{ strip: false }`
+// for the RAW values instead: a check whose verdict the strip can flip has to
+// see what the file actually contains, not its normalized display form
+// (`model:`/`effort:` — skills#600 review). Mirrors validate_skills.mjs's
+// parseFrontmatter, which carries the same option for the same reason. Every
+// value that reaches a printed message must still come from the stripped view,
+// or be stripped at the interpolation site.
+export function parseFrontmatter(content, { strip = true } = {}) {
   // Normalize CRLF and CR line endings to LF before parsing.
   // Original regex was \n-only — files with Windows line endings could bypass.
   const normalized = content.replace(/\r\n?/g, "\n");
@@ -140,15 +161,37 @@ export function parseFrontmatter(content) {
     // from a plain single-line scalar.
     if (value) {
       const unquoted = isBlockScalar ? value : value.replace(/^["']|["']$/g, "");
-      fm[key] = unquoted.replace(CONTROL_CHAR_RE, "");
+      fm[key] = strip ? unquoted.replace(CONTROL_CHAR_RE, "") : unquoted;
     }
   }
   return fm;
 }
 
+// `model` arrives RAW (see validateAgentContent) — the allowlist test below
+// has to see what the file actually contains. Every code point
+// CONTROL_CHAR_RE removes is outside the charset of every allowed alias, so
+// testing the STRIPPED value normalizes the very spoof this check exists to
+// reject: `model: opus<U+200B>` collapses to a clean `opus`, is found in
+// ALLOWED_MODELS, and lints clean (skills#600 review — same fix as
+// validate_skills.mjs's copy of this function). Compare raw, render stripped.
 export function checkModelField(model) {
   const violations = [];
   if (ALLOWED_MODELS.has(model)) return [];
+
+  const shown = model.replace(CONTROL_CHAR_RE, "");
+  if (shown !== model) {
+    // Its own branch purely for the message: interpolating `shown` into either
+    // message below (mandatory — the raw value must never reach a printed
+    // message) would render a model that visibly *is* an allowed alias, or
+    // visibly *isn't* vendor-pinned, while erroring on it. Past this point
+    // `model` is strip-identical, so the interpolations below are CWE-150-safe.
+    violations.push({
+      severity: "error",
+      rule: "model-not-allowed",
+      message: `\`model: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not an allowed alias. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
+    });
+    return violations;
+  }
 
   for (const { pattern, why } of FORBIDDEN_MODEL_PATTERNS) {
     if (pattern.test(model)) {
@@ -172,6 +215,19 @@ export function checkModelField(model) {
 
 export function checkEffortField(effort) {
   if (!effort) return [];
+  // Same raw-verdict/stripped-render split as checkModelField above: `effort`
+  // arrives RAW, because every code point CONTROL_CHAR_RE removes is outside
+  // the charset of every VALID_EFFORT_VALUES member, so testing the stripped
+  // value would let `effort: high<U+200B>` collapse to a clean `high` and lint
+  // clean (skills#600 review).
+  const shown = effort.replace(CONTROL_CHAR_RE, "");
+  if (shown !== effort) {
+    return [{
+      severity: "error",
+      rule: "invalid-effort-value",
+      message: `\`effort: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
+    }];
+  }
   if (!VALID_EFFORT_VALUES.has(effort)) {
     return [{
       severity: "error",
@@ -204,6 +260,13 @@ export function validateAgentContent(content) {
     return violations;
   }
 
+  // The same frontmatter, unstripped. parseFrontmatter() is deterministic over
+  // `content` and the strip touches values only, never the key set, so the two
+  // views always carry the same keys and `raw` is non-null whenever `fm` is.
+  const raw = parseFrontmatter(content, { strip: false });
+
+  // Presence stays on the STRIPPED view: a value made only of invisible code
+  // points is an absent field, not a one-character one.
   for (const field of REQUIRED_FIELDS) {
     if (!fm[field]) {
       violations.push({
@@ -214,11 +277,15 @@ export function validateAgentContent(content) {
     }
   }
 
-  if (fm.model) {
-    violations.push(...checkModelField(fm.model));
+  // Both read RAW — see checkModelField/checkEffortField. The `raw.model`
+  // guard matters too: a `model:` whose value is nothing but invisible code
+  // points strips to "", which the stripped view would skip entirely instead
+  // of rejecting as a non-alias.
+  if (raw.model) {
+    violations.push(...checkModelField(raw.model));
   }
 
-  violations.push(...checkEffortField(fm.effort));
+  violations.push(...checkEffortField(raw.effort));
 
   return violations;
 }

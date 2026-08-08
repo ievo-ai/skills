@@ -51,6 +51,20 @@ export const SCRIPT_VERSION = "1.1.6";
 export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
+// Strips C0 control characters (and DEL) from attacker-influenceable input
+// before it reaches an errLog()/console.error message (CWE-117): main()'s
+// format-validation failure below echoes the raw, already-known-invalid
+// args.repo value — a crafted ESC byte (0x1B) or other control byte would
+// otherwise survive untouched and inject ANSI/control sequences into a
+// terminal or CI log viewer. Same character class as escapeMdCell's inline
+// strip below (that one also collapses whitespace and escapes Markdown —
+// this sink is a plain error string, so only the control-char strip
+// applies). Per-file copy (not a shared import) mirrors
+// validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE — each
+// sink's exact character class is tuned to its own risk model (see
+// .github/scripts/validators/_safe-read.mjs).
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
 // Strict GitHub <owner>/<repo> slug: owner is GitHub's actual username charset
 // (alnum + hyphen, <=39 chars); repo allows alnum/./_/- (<=100 chars). Anchored
 // so the whole string must be exactly one slug — no extra `/` segments.
@@ -814,7 +828,7 @@ export function parseArgs(argv) {
 export function main(argv = process.argv, execImpl = execFileSync, log = console.log, errLog = console.error, exit = process.exit) {
   const args = parseArgs(argv);
   if (!isValidOwnerRepo(args.repo)) {
-    errLog(`Error: repo must be in <owner>/<repo> format, got '${args.repo ?? ""}'`);
+    errLog(`Error: repo must be in <owner>/<repo> format, got '${(args.repo ?? "").replace(CONTROL_CHAR_RE, "")}'`);
     return exit(1);
   }
 

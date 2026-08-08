@@ -38,11 +38,28 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.80.3";
+export const SCRIPT_VERSION = "0.80.4";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
 export const DEFAULT_CONCURRENCY = 8;
+
+// Strips C0 control characters (and DEL) from attacker-influenceable input
+// before it reaches an errLog()/console.error message (CWE-117): the
+// --stack-file read/parse-failure messages below echo the raw args.stackFile
+// value, and the stdin parse-failure branch echoes a raw stdinText slice — a
+// crafted ESC byte (0x1B) or other control byte in either would otherwise
+// survive untouched and inject ANSI/control sequences into a terminal or CI
+// log viewer. Every echoed `err.message` is stripped too, not just the value
+// we interpolate ourselves: an Error raised BY the runtime re-embeds the raw
+// bytes we just sanitized — fs errors quote the offending path verbatim
+// (`ENOENT: ... lstat '<raw path>'`) and V8's JSON.parse message quotes a
+// ~12-char snippet of the raw input (`Unexpected token 'x', "<raw>"... is not
+// valid JSON`). Per-file copy (not a shared import) mirrors
+// validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE — each
+// sink's exact character class is tuned to its own risk model (see
+// .github/scripts/validators/_safe-read.mjs).
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 
 // Reserved prefix for synthetic source-grouping sentinels (e.g.
 // `__codex-marketplace__`). buildQueries rejects any real query starting with
@@ -520,7 +537,9 @@ export function rankCandidates(allResults) {
 function parsePositiveInt(value, flagName, fallback) {
   const n = parseInt(value, 10);
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`${flagName} requires a positive integer, got '${value}' — falling back to ${fallback} would mask the input error`);
+    // CWE-117: value is an attacker-influenceable CLI arg (same threat model
+    // as --stack-file above), and main()'s catch echoes err.message verbatim.
+    throw new Error(`${flagName} requires a positive integer, got '${value.replace(CONTROL_CHAR_RE, "")}' — falling back to ${fallback} would mask the input error`);
   }
   return n;
 }
@@ -531,7 +550,9 @@ function requireValue(argv, i, flagName) {
     throw new Error(`${flagName} requires a value, got end of arguments`);
   }
   if (v.startsWith("--")) {
-    throw new Error(`${flagName} requires a value, got flag '${v}' — looks like the value was forgotten`);
+    // CWE-117: v is an attacker-influenceable CLI arg echoed via main()'s
+    // parseArgs catch — strip before it reaches that errLog() message.
+    throw new Error(`${flagName} requires a value, got flag '${v.replace(CONTROL_CHAR_RE, "")}' — looks like the value was forgotten`);
   }
   return v;
 }
@@ -659,25 +680,36 @@ Notes:
   let stack;
   let inputSource;
   if (args.stackFile) {
-    inputSource = `--stack-file ${args.stackFile}`;
+    // Strip control characters before this value can ever reach an errLog()
+    // message (CWE-117) — the raw args.stackFile is still used below for the
+    // actual containment/read checks, only the echoed copy is sanitized.
+    const safeStackFile = args.stackFile.replace(CONTROL_CHAR_RE, "");
+    inputSource = `--stack-file ${safeStackFile}`;
     let raw;
     try {
       const allowedPath = assertStackFileAllowed(args.stackFile, args.project);
       assertStackFileReadable(allowedPath, args.project);
       raw = readFileSync(allowedPath, "utf-8");
     } catch (err) {
-      errLog(`Error: cannot read stack file '${args.stackFile}': ${err.message}`);
+      // err.message is stripped as well as safeStackFile: a path that clears
+      // the lexical containment check but does not exist reaches lstat, whose
+      // ENOENT message quotes the raw path — re-injecting the exact bytes
+      // safeStackFile just removed.
+      errLog(`Error: cannot read stack file '${safeStackFile}': ${err.message.replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }
     try {
       stack = JSON.parse(raw);
     } catch (err) {
-      // Unlike the stdin path below, never echo raw file content here: an
+      // Unlike the stdin path below, no `First 200 chars:` echo here: an
       // attacker-influenced --stack-file could point at any regular file
       // inside .ievo/, including a credential accidentally dropped there
       // (skills#543) — the parse-failure message alone is enough to debug a
-      // malformed stack file without also disclosing its content.
-      errLog(`Error: invalid JSON in ${inputSource}: ${err.message}`);
+      // malformed stack file without also disclosing its content. That
+      // message is not content-free, though: V8 quotes a ~12-char snippet of
+      // the file, so strip control characters out of it (too short to leak a
+      // credential, long enough to carry an ANSI escape).
+      errLog(`Error: invalid JSON in ${inputSource}: ${err.message.replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }
   } else {
@@ -690,8 +722,11 @@ Notes:
     try {
       stack = JSON.parse(stdinText);
     } catch (err) {
-      errLog(`Error: invalid JSON in stdin: ${err.message}`);
-      errLog(`First 200 chars: ${stdinText.slice(0, 200)}`);
+      // Both lines carry raw stdin: V8's message quotes a ~12-char snippet of
+      // it, so sanitizing only the `First 200 chars:` line below would leave
+      // the injection window open one line above it.
+      errLog(`Error: invalid JSON in stdin: ${err.message.replace(CONTROL_CHAR_RE, "")}`);
+      errLog(`First 200 chars: ${stdinText.slice(0, 200).replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }
   }
@@ -720,7 +755,13 @@ Notes:
   }
   if (errorCount > 0) {
     // Partial failure — warn but continue. Candidates may still be useful.
-    const failedQueries = (skillsSh?.error_details ?? []).map((e) => e.query).join(", ");
+    // The queries are built by buildQueries() straight from the stack's
+    // languages/deps/categories/frameworks strings — i.e. from the same
+    // stdin/--stack-file input sanitized at the parse-failure echoes above —
+    // so this echo is the same CWE-117 sink and needs the same strip. Only
+    // `.query` is echoed (the joining `, ` and the two counts are ours), so
+    // stripping the joined string covers every attacker-supplied byte in it.
+    const failedQueries = (skillsSh?.error_details ?? []).map((e) => e.query).join(", ").replace(CONTROL_CHAR_RE, "");
     errLog(`[discover.mjs] WARN: ${errorCount}/${queryCount} skills.sh queries failed: ${failedQueries}`);
   }
   // Surface a codex error (e.g. unparseable output) on stderr too — symmetric

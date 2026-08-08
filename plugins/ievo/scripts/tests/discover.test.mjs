@@ -730,6 +730,33 @@ describe("parseArgs", () => {
       /--limit requires a value, got flag '--concurrency'/,
     );
   });
+
+  // --- skills#601: strip control characters from attacker-influenceable
+  // CLI-arg values before they reach a thrown Error's message (CWE-117) ---
+
+  it("strips control characters from an invalid --limit value in the thrown message (skills#601)", () => {
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--limit", "abc\x1b[31mFAKE\x1b[0m"]),
+      (err) => {
+        assert.match(err.message, /--limit requires a positive integer/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
+    );
+  });
+
+  it("strips control characters from a forgotten-value flag echoed in the thrown message (skills#601)", () => {
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--stack-file", "--\x1b[31mFAKE\x1b[0m"]),
+      (err) => {
+        assert.match(err.message, /--stack-file requires a value, got flag/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1206,6 +1233,32 @@ describe("main", () => {
     }
   });
 
+  it("strips control characters from the partial-failure WARN's echoed queries (skills#601)", async () => {
+    const run = makeRun();
+    // The query text comes from the stack's own languages[] — attacker-
+    // influenceable via stdin/--stack-file, exactly like the parse-failure
+    // echoes. Two languages so only ONE query fails: an all-fail run takes the
+    // FATAL/exit-4 branch instead, whose message carries no query text at all
+    // and would pass against unsanitized code.
+    const stream = Readable.from(['{"languages":["py\\u001b[31mFAKE","python"]}']);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const q = new URL(url).searchParams.get("q");
+      if (q.includes("FAKE")) throw new Error("transient");
+      return { ok: true, json: async () => ({ skills: [] }) };
+    };
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
+      assert.equal(run.exitCode, 0);
+      const errText = run.errs.join("\n");
+      assert.match(errText, /WARN.*1\/\d+.*skills\.sh queries failed/);
+      assert.doesNotMatch(errText, /\x1b/);
+      assert.match(errText, /FAKE/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
   it("exits 5 when stack has no derivable queries", async () => {
     const run = makeRun();
     const stream = Readable.from(['{}']);
@@ -1223,6 +1276,20 @@ describe("main", () => {
     assert.match(run.errs.join("\n"), /First 200 chars/);
   });
 
+  // --- skills#601: strip control characters from attacker-influenceable
+  // input before it reaches an errLog() message (CWE-117) ---
+
+  it("strips control characters from the stdin 'First 200 chars' echo (skills#601)", async () => {
+    const run = makeRun();
+    const stream = Readable.from(["{this is not json\x1b[31mFAKE\x1b[0m"]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /First 200 chars/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
+
   it("exits 3 on invalid --stack-file JSON with source-aware error", async () => {
     const stackPath = allowedStackFile(tmpDir, "invalid.json", "not json at all");
     const run = makeRun();
@@ -1236,6 +1303,71 @@ describe("main", () => {
     await main(["node", "discover.mjs", "--stack-file", "/nope/missing.json"], Readable.from([""]), run.log, run.errLog, run.exit);
     assert.equal(run.exitCode, 3);
     assert.match(run.errs.join("\n"), /cannot read stack file/);
+  });
+
+  it("strips control characters from an echoed --stack-file path (skills#601)", async () => {
+    const outside = join(tmpDir, "outside-\x1b[31msecret\x1b[0m.json");
+    writeFileSync(outside, JSON.stringify({ languages: ["go"] }), "utf-8");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", outside, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /cannot read stack file/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /outside-.*secret.*\.json/);
+  });
+
+  // The three tests below cover the `err.message` half of each echo — the
+  // runtime re-embeds the raw bytes the sanitized interpolations above
+  // already stripped, so a fix that touches only our own interpolation is
+  // bypassed. Each input is chosen to actually REACH the leaking branch:
+  // containment/`{`-prefixed inputs fail earlier with a control-char-free
+  // message and would pass even against unsanitized code.
+
+  it("strips control characters from a missing --stack-file's ENOENT message (skills#601)", async () => {
+    // Lexically inside .ievo/ so containment passes and lstat is reached —
+    // unlike the containment test above, whose "must be inside ..." message
+    // never carries the path. ENOENT quotes the raw path back at us.
+    const ghost = join(tmpDir, IEVO_DIR, "ghost-\x1b[31mFAKE\x1b[0m.json");
+    mkdirSync(join(tmpDir, IEVO_DIR), { recursive: true });
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", ghost, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /cannot read stack file/);
+    assert.match(errText, /ENOENT/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
+
+  it("strips control characters from the --stack-file JSON.parse message (skills#601)", async () => {
+    // Content must not start with `{`/`[`, or V8 reports a position-only
+    // message with no snippet and nothing leaks. The control byte also has to
+    // land inside V8's ~12-char snippet window.
+    const stackPath = allowedStackFile(tmpDir, "ctl-parse.json", "\x1b[31mFAKE not json");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", stackPath, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /invalid JSON in --stack-file/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+    // The no-raw-content contract (skills#543) still holds alongside the strip.
+    assert.doesNotMatch(errText, /First 200 chars/);
+  });
+
+  it("strips control characters from the stdin JSON.parse message (skills#601)", async () => {
+    // Same snippet-window constraint as above. Distinct from the
+    // 'First 200 chars' test, whose `{`-prefixed input leaves err.message
+    // clean — this asserts the line ABOVE that echo is sanitized too.
+    const run = makeRun();
+    const stream = Readable.from(["\x1b[31mFAKE not json"]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /invalid JSON in stdin/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
   });
 
   it("exits 3 on invalid CLI args (NaN limit)", async () => {

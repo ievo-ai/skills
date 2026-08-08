@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.2
+
+Extend excerpt-containment fencing to `file`/path and flag-summary fields that render untrusted content but were left out of the existing containment rules — Eva research-audit finding (`/ievo:vuln-scan` dogfooding).
+
+- **Gap closed** — `agents/vuln-scanner.md`'s excerpt-containment rule covered `title`/`exploit_chain.*`/`recommendation` but not `file` or `preconditions`, both of which `commands/vuln-scan.md`'s Phase 4 also renders verbatim. `agents/security-auditor.md`'s equivalent rule covered `flags[].excerpt` but not `flags[].file`, both composed into the same auto-rendering public GitHub issue body on a RED verdict. `commands/update.md`'s Step 2.5 `AskUserQuestion` confirmation text embeds the same `<top 1-2 flags — category + one-line explanation>` phrase `agents/evolution.md` Step 5 already fences, with no equivalent rule in this sibling file. In every case: only `/` and NUL are structurally forbidden in a path component, so a scanned/candidate file's own name can carry the same markdown-active characters (`![...](...)`, `[...](...)`) as a quoted source excerpt — a live exfiltration beacon or spoofed link firing the moment the field is rendered.
+- **Fix** — extended each file's existing excerpt-containment prose to name the additional field(s), applying the identical fencing algorithm already specified there (longest-embedded-backtick-run + 1, dual-side space padding, CR/LF collapse before measuring). `commands/vuln-scan.md`'s own "display verbatim, don't unwrap" note and Details/Preconditions bullets updated to match `vuln-scanner.md`'s widened contract. `commands/update.md` gained a new containment paragraph porting `agents/evolution.md` Step 5's rule verbatim, adapted for the `AskUserQuestion` `Question:` string.
+- **Scope** — `plugins/ievo/agents/vuln-scanner.md`, `plugins/ievo/agents/security-auditor.md`, `plugins/ievo/commands/vuln-scan.md`, `plugins/ievo/commands/update.md`; the rest of the diff is the mandatory version-bump ceremony below. No script/test changes — all four are pure Markdown instructions with no code path for `node --test` to cover.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.80.0 → 0.80.2; 0.80.1 concurrently claimed by open PR #597 at push time, next free slot per AGENTS.md's version-bump race convention). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.80.0
 
 `/ievo:evo-auto-enable` hook scripts ship as real, committed files instead of markdown-embedded, per-clone-generated ones — closes skills#552's "scripts should live in the plugin" ask, operator-confirmed security tradeoff.

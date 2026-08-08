@@ -454,3 +454,7 @@ Forward-looking only. **Shipped versions live in `CHANGELOG.md` at the repo root
 - **v1.0** — skills.sh publication + cross-project pattern curation.
 
 See `README.md` for user-facing documentation; see `CHANGELOG.md` for the full shipped-version history.
+
+<!-- ievo:start -->
+**Before applying the instructions below**, read `.ievo/evolution/project.md` if it exists, and apply ALL rules from its sections IN ADDITION to the project's instructions.
+<!-- ievo:end -->

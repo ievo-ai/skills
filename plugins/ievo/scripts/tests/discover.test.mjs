@@ -13,6 +13,7 @@ import { Readable } from "node:stream";
 import {
   SCRIPT_VERSION,
   SKILLS_SH_API,
+  CONTROL_CHAR_RE,
   DEFAULT_PER_QUERY_LIMIT,
   DEFAULT_TOTAL_LIMIT,
   DEFAULT_CONCURRENCY,
@@ -101,6 +102,54 @@ describe("constants", () => {
   it("IEVO_DIR / MAX_STACK_FILE_BYTES are sensible (skills#543)", () => {
     assert.equal(IEVO_DIR, ".ievo");
     assert.equal(MAX_STACK_FILE_BYTES, 256 * 1024);
+  });
+
+  it("CONTROL_CHAR_RE matches C0 controls and DEL, excludes tab/LF/CR (CWE-117)", () => {
+    // CONTROL_CHAR_RE carries the `g` flag (needed for its .replace() call
+    // sites in parseArgs/main) — reset lastIndex before each .test() call so
+    // this loop isn't tripped up by the stateful global-regex gotcha.
+    for (const ch of ["\x00", "\x1b", "\x07", "\x7f"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} to match`);
+    }
+    for (const ch of ["\t", "\n", "\r", "a"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(!CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} not to match`);
+    }
+  });
+
+  it("CONTROL_CHAR_RE matches every Bidi_Control code point and the zero-width characters incl. BOM (Trojan-Source spoof guard, skills#600)", () => {
+    // The comment above this constant claims it mirrors
+    // validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE. That
+    // claim went stale once already — those two were widened for skills#600
+    // while this copy stayed ASCII-only — so pin the widened half here rather
+    // than leaving parity to prose. Code points are written numerically, not
+    // as string escapes, so the source of a test about invisible characters
+    // is itself plainly readable.
+    //
+    // Bidi_Control is a closed set: U+061C, U+200E-U+200F, U+202A-U+202E,
+    // U+2066-U+2069. Every one is asserted so a future narrowing of the class
+    // cannot silently drop one. The zero-width characters (U+200B-U+200F,
+    // U+FEFF) and the rest of the U+2060-U+2069 invisible-operator block the
+    // isolates were widened to follow.
+    const stripped = [
+      0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
+      0x2066, 0x2067, 0x2068, 0x2069,
+      0x200b, 0x200c, 0x200d, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xfeff,
+    ];
+    for (const cp of stripped) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.ok(CONTROL_CHAR_RE.test(String.fromCodePoint(cp)), `expected ${label} to match`);
+    }
+    // The code point immediately below and above each added range stays
+    // untouched — a widening that overshoots is as much a defect as one that
+    // falls short.
+    for (const cp of [0x061b, 0x061d, 0x200a, 0x2010, 0x2029, 0x202f, 0x205f, 0x206a, 0xfefe, 0xff00, 0x0061]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.ok(!CONTROL_CHAR_RE.test(String.fromCodePoint(cp)), `expected ${label} not to match`);
+    }
   });
 
 });
@@ -757,6 +806,41 @@ describe("parseArgs", () => {
       },
     );
   });
+
+  // --- skills#600: the same CLI-arg sinks, for the Unicode bidi-override /
+  // zero-width half of the character class. A thrown parseArgs message is
+  // printed to a raw terminal by main()'s catch, which is exactly where
+  // U+202E (RLO) re-orders the rest of the line. ---
+
+  it("strips bidi-override and zero-width characters from an invalid --limit value in the thrown message (skills#600)", () => {
+    const RLO = String.fromCodePoint(0x202e);
+    const ZWSP = String.fromCodePoint(0x200b);
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--limit", `abc${RLO}FAKE${ZWSP}`]),
+      (err) => {
+        assert.match(err.message, /--limit requires a positive integer/);
+        assert.ok(!err.message.includes(RLO), "U+202E survived into the thrown message");
+        assert.ok(!err.message.includes(ZWSP), "U+200B survived into the thrown message");
+        assert.match(err.message, /abcFAKE/);
+        return true;
+      },
+    );
+  });
+
+  it("strips bidi-override and zero-width characters from a forgotten-value flag echoed in the thrown message (skills#600)", () => {
+    const RLO = String.fromCodePoint(0x202e);
+    const ZWSP = String.fromCodePoint(0x200b);
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--stack-file", `--${RLO}FAKE${ZWSP}`]),
+      (err) => {
+        assert.match(err.message, /--stack-file requires a value, got flag/);
+        assert.ok(!err.message.includes(RLO), "U+202E survived into the thrown message");
+        assert.ok(!err.message.includes(ZWSP), "U+200B survived into the thrown message");
+        assert.match(err.message, /'--FAKE'/);
+        return true;
+      },
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1290,6 +1374,24 @@ describe("main", () => {
     assert.match(errText, /FAKE/);
   });
 
+  it("strips bidi-override and zero-width characters from the stdin 'First 200 chars' echo (skills#600)", async () => {
+    // Covers both echoes on this path at once: the V8 JSON.parse message
+    // (which quotes a snippet of the raw input back) on the line above, and
+    // our own `First 200 chars:` slice. stderr here is a raw terminal stream,
+    // so an unstripped U+202E would reverse the rest of the reported line.
+    const RLO = String.fromCodePoint(0x202e);
+    const ZWSP = String.fromCodePoint(0x200b);
+    const run = makeRun();
+    const stream = Readable.from([`{this is not json${RLO}FAKE${ZWSP}`]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /First 200 chars/);
+    assert.ok(!errText.includes(RLO), "U+202E survived into the stderr echo");
+    assert.ok(!errText.includes(ZWSP), "U+200B survived into the stderr echo");
+    assert.match(errText, /FAKE/);
+  });
+
   it("exits 3 on invalid --stack-file JSON with source-aware error", async () => {
     const stackPath = allowedStackFile(tmpDir, "invalid.json", "not json at all");
     const run = makeRun();
@@ -1315,6 +1417,26 @@ describe("main", () => {
     assert.match(errText, /cannot read stack file/);
     assert.doesNotMatch(errText, /\x1b/);
     assert.match(errText, /outside-.*secret.*\.json/);
+  });
+
+  it("strips bidi-override and zero-width characters from an echoed --stack-file path (skills#600)", async () => {
+    // The path half of the sink the ESC test above covers. A path is
+    // attacker-influenceable (a prompt-injected turn can pass any
+    // --stack-file value), and the containment rejection echoes it back to a
+    // raw terminal — the `.json` suffix a reviewer scans for is exactly what
+    // an unstripped U+202E would relocate.
+    const RLO = String.fromCodePoint(0x202e);
+    const ZWSP = String.fromCodePoint(0x200b);
+    const outside = join(tmpDir, `outside-${RLO}secret${ZWSP}.json`);
+    writeFileSync(outside, JSON.stringify({ languages: ["go"] }), "utf-8");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", outside, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /cannot read stack file/);
+    assert.ok(!errText.includes(RLO), "U+202E survived into the echoed path");
+    assert.ok(!errText.includes(ZWSP), "U+200B survived into the echoed path");
+    assert.match(errText, /outside-secret\.json/);
   });
 
   // The three tests below cover the `err.message` half of each echo — the

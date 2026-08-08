@@ -64,6 +64,7 @@ import {
   getDefaultBranch,
   countRecentCommits,
   main,
+  mainSafe,
 } from "../scan_repo.mjs";
 
 // ---------------------------------------------------------------------------
@@ -2057,15 +2058,80 @@ describe("main (end-to-end)", () => {
   after(() => rmSync(root, { recursive: true, force: true }));
 });
 
+// ---------------------------------------------------------------------------
+// mainSafe — defensive wrapper around main() (mirrors discover.mjs /
+// evolution_candidates.mjs's mainSafe pattern; regression coverage for #599)
+// ---------------------------------------------------------------------------
 
+describe("mainSafe", () => {
+  const root = join(tmpdir(), `scan-repo-mainsafe-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+
+  function captureRun() {
+    const logs = [];
+    const errs = [];
+    let exitCode = null;
+    const exit = (c) => { exitCode = c; };
+    const log = (m) => logs.push(m);
+    const errLog = (m) => errs.push(m);
+    return { logs, errs, exit, log, errLog, get exitCode() { return exitCode; } };
+  }
+
+  it("forwards a successful (non-throwing) run's outcome unchanged", () => {
+    const r = captureRun();
+    // Missing repo arg is a legitimate main() outcome (exit 1), not a throw —
+    // mainSafe's try succeeds and must forward it as-is, never touching catch.
+    mainSafe(["node", "scan_repo.mjs"], undefined, r.log, r.errLog, r.exit);
+    assert.equal(r.exitCode, 1);
+    assert.doesNotMatch(r.errs.join("\n"), /^fatal:/);
+  });
+
+  it("zero-commit / unborn-HEAD repo: getCommitSha's uncaught throw is caught gracefully instead of crashing (regression, #599)", () => {
+    const outDir = join(root, "out-zero-commit");
+    const coDir = join(root, "co-zero-commit");
+    // Pre-populate the checkout so checkoutOrRefresh skips the clone path —
+    // a zero-commit repo clones successfully (there's simply no ref to check
+    // out), so main() reaches getCommitSha/getLastCommitDate regardless of
+    // how the checkout got there.
+    const target = join(coDir, checkoutCacheKey("owner/unborn"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    const unbornErr = () => new Error("fatal: your current branch 'main' does not have any commits yet");
+
+    // Sanity check: main() itself has no guard around this call site — it
+    // really does throw uncaught, confirming the reported gap is real.
+    const r1 = captureRun();
+    const fakeRaw = makeFakeExec([
+      { stdout: "https://github.com/owner/unborn.git\n" }, // remote get-url origin (identity check)
+      { throw: unbornErr() },                               // rev-parse --short HEAD
+    ]);
+    assert.throws(
+      () => main(["node", "scan_repo.mjs", "owner/unborn", "--output-dir", outDir, "--checkout-dir", coDir], fakeRaw, r1.log, r1.errLog, r1.exit),
+      /does not have any commits yet/,
+    );
+
+    // Through mainSafe, the identical throw is caught and reported as a
+    // graceful exit(2) instead of crashing the process.
+    const r2 = captureRun();
+    const fakeSafe = makeFakeExec([
+      { stdout: "https://github.com/owner/unborn.git\n" },
+      { throw: unbornErr() },
+    ]);
+    mainSafe(["node", "scan_repo.mjs", "owner/unborn", "--output-dir", outDir, "--checkout-dir", coDir], fakeSafe, r2.log, r2.errLog, r2.exit);
+    assert.equal(r2.exitCode, 2);
+    assert.match(r2.errs.join("\n"), /fatal:.*does not have any commits yet/);
+  });
+
+  after(() => rmSync(root, { recursive: true, force: true }));
+});
 
 // ---------------------------------------------------------------------------
-// Phase E — CLI subprocess (covers the module-load entry guard at line 665)
+// Phase E — CLI subprocess (covers the module-load entry guard)
 //
-// The `if (isCliEntry(...)) { main(); }` block only executes when the module
-// loads as the entry script. Importing it (as the tests above do) leaves
-// that block unexercised. spawnSync launches scan_repo.mjs as the entry
-// script so the guard's true branch is covered.
+// The `if (isCliEntry(...)) { mainSafe(); }` block only executes when the
+// module loads as the entry script. Importing it (as the tests above do)
+// leaves that block unexercised. spawnSync launches scan_repo.mjs as the
+// entry script so the guard's true branch is covered.
 // ---------------------------------------------------------------------------
 
 describe("CLI invocation (subprocess — covers entry guard)", () => {

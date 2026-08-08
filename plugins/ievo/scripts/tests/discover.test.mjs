@@ -1291,6 +1291,59 @@ describe("main", () => {
     assert.match(errText, /outside-.*secret.*\.json/);
   });
 
+  // The three tests below cover the `err.message` half of each echo — the
+  // runtime re-embeds the raw bytes the sanitized interpolations above
+  // already stripped, so a fix that touches only our own interpolation is
+  // bypassed. Each input is chosen to actually REACH the leaking branch:
+  // containment/`{`-prefixed inputs fail earlier with a control-char-free
+  // message and would pass even against unsanitized code.
+
+  it("strips control characters from a missing --stack-file's ENOENT message (skills#601)", async () => {
+    // Lexically inside .ievo/ so containment passes and lstat is reached —
+    // unlike the containment test above, whose "must be inside ..." message
+    // never carries the path. ENOENT quotes the raw path back at us.
+    const ghost = join(tmpDir, IEVO_DIR, "ghost-\x1b[31mFAKE\x1b[0m.json");
+    mkdirSync(join(tmpDir, IEVO_DIR), { recursive: true });
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", ghost, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /cannot read stack file/);
+    assert.match(errText, /ENOENT/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
+
+  it("strips control characters from the --stack-file JSON.parse message (skills#601)", async () => {
+    // Content must not start with `{`/`[`, or V8 reports a position-only
+    // message with no snippet and nothing leaks. The control byte also has to
+    // land inside V8's ~12-char snippet window.
+    const stackPath = allowedStackFile(tmpDir, "ctl-parse.json", "\x1b[31mFAKE not json");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", stackPath, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /invalid JSON in --stack-file/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+    // The no-raw-content contract (skills#543) still holds alongside the strip.
+    assert.doesNotMatch(errText, /First 200 chars/);
+  });
+
+  it("strips control characters from the stdin JSON.parse message (skills#601)", async () => {
+    // Same snippet-window constraint as above. Distinct from the
+    // 'First 200 chars' test, whose `{`-prefixed input leaves err.message
+    // clean — this asserts the line ABOVE that echo is sanitized too.
+    const run = makeRun();
+    const stream = Readable.from(["\x1b[31mFAKE not json"]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /invalid JSON in stdin/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
+
   it("exits 3 on invalid CLI args (NaN limit)", async () => {
     const run = makeRun();
     await main(["node", "discover.mjs", "--limit", "abc"], Readable.from([""]), run.log, run.errLog, run.exit);

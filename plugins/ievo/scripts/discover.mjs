@@ -50,7 +50,12 @@ export const DEFAULT_CONCURRENCY = 8;
 // value, and the stdin parse-failure branch echoes a raw stdinText slice — a
 // crafted ESC byte (0x1B) or other control byte in either would otherwise
 // survive untouched and inject ANSI/control sequences into a terminal or CI
-// log viewer. Per-file copy (not a shared import) mirrors
+// log viewer. Every echoed `err.message` is stripped too, not just the value
+// we interpolate ourselves: an Error raised BY the runtime re-embeds the raw
+// bytes we just sanitized — fs errors quote the offending path verbatim
+// (`ENOENT: ... lstat '<raw path>'`) and V8's JSON.parse message quotes a
+// ~12-char snippet of the raw input (`Unexpected token 'x', "<raw>"... is not
+// valid JSON`). Per-file copy (not a shared import) mirrors
 // validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE — each
 // sink's exact character class is tuned to its own risk model (see
 // .github/scripts/validators/_safe-read.mjs).
@@ -686,18 +691,25 @@ Notes:
       assertStackFileReadable(allowedPath, args.project);
       raw = readFileSync(allowedPath, "utf-8");
     } catch (err) {
-      errLog(`Error: cannot read stack file '${safeStackFile}': ${err.message}`);
+      // err.message is stripped as well as safeStackFile: a path that clears
+      // the lexical containment check but does not exist reaches lstat, whose
+      // ENOENT message quotes the raw path — re-injecting the exact bytes
+      // safeStackFile just removed.
+      errLog(`Error: cannot read stack file '${safeStackFile}': ${err.message.replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }
     try {
       stack = JSON.parse(raw);
     } catch (err) {
-      // Unlike the stdin path below, never echo raw file content here: an
+      // Unlike the stdin path below, no `First 200 chars:` echo here: an
       // attacker-influenced --stack-file could point at any regular file
       // inside .ievo/, including a credential accidentally dropped there
       // (skills#543) — the parse-failure message alone is enough to debug a
-      // malformed stack file without also disclosing its content.
-      errLog(`Error: invalid JSON in ${inputSource}: ${err.message}`);
+      // malformed stack file without also disclosing its content. That
+      // message is not content-free, though: V8 quotes a ~12-char snippet of
+      // the file, so strip control characters out of it (too short to leak a
+      // credential, long enough to carry an ANSI escape).
+      errLog(`Error: invalid JSON in ${inputSource}: ${err.message.replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }
   } else {
@@ -710,7 +722,10 @@ Notes:
     try {
       stack = JSON.parse(stdinText);
     } catch (err) {
-      errLog(`Error: invalid JSON in stdin: ${err.message}`);
+      // Both lines carry raw stdin: V8's message quotes a ~12-char snippet of
+      // it, so sanitizing only the `First 200 chars:` line below would leave
+      // the injection window open one line above it.
+      errLog(`Error: invalid JSON in stdin: ${err.message.replace(CONTROL_CHAR_RE, "")}`);
       errLog(`First 200 chars: ${stdinText.slice(0, 200).replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }

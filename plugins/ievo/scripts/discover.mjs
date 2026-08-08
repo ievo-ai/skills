@@ -755,7 +755,13 @@ Notes:
   }
   if (errorCount > 0) {
     // Partial failure — warn but continue. Candidates may still be useful.
-    const failedQueries = (skillsSh?.error_details ?? []).map((e) => e.query).join(", ");
+    // The queries are built by buildQueries() straight from the stack's
+    // languages/deps/categories/frameworks strings — i.e. from the same
+    // stdin/--stack-file input sanitized at the parse-failure echoes above —
+    // so this echo is the same CWE-117 sink and needs the same strip. Only
+    // `.query` is echoed (the joining `, ` and the two counts are ours), so
+    // stripping the joined string covers every attacker-supplied byte in it.
+    const failedQueries = (skillsSh?.error_details ?? []).map((e) => e.query).join(", ").replace(CONTROL_CHAR_RE, "");
     errLog(`[discover.mjs] WARN: ${errorCount}/${queryCount} skills.sh queries failed: ${failedQueries}`);
   }
   // Surface a codex error (e.g. unparseable output) on stderr too — symmetric

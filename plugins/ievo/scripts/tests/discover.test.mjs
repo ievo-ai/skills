@@ -1233,6 +1233,32 @@ describe("main", () => {
     }
   });
 
+  it("strips control characters from the partial-failure WARN's echoed queries (skills#601)", async () => {
+    const run = makeRun();
+    // The query text comes from the stack's own languages[] — attacker-
+    // influenceable via stdin/--stack-file, exactly like the parse-failure
+    // echoes. Two languages so only ONE query fails: an all-fail run takes the
+    // FATAL/exit-4 branch instead, whose message carries no query text at all
+    // and would pass against unsanitized code.
+    const stream = Readable.from(['{"languages":["py\\u001b[31mFAKE","python"]}']);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const q = new URL(url).searchParams.get("q");
+      if (q.includes("FAKE")) throw new Error("transient");
+      return { ok: true, json: async () => ({ skills: [] }) };
+    };
+    try {
+      await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit, noCodex);
+      assert.equal(run.exitCode, 0);
+      const errText = run.errs.join("\n");
+      assert.match(errText, /WARN.*1\/\d+.*skills\.sh queries failed/);
+      assert.doesNotMatch(errText, /\x1b/);
+      assert.match(errText, /FAKE/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
   it("exits 5 when stack has no derivable queries", async () => {
     const run = makeRun();
     const stream = Readable.from(['{}']);

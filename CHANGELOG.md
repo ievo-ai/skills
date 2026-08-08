@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.3
+
+Guard `scan_repo.mjs`'s `main()` against an uncaught throw on a zero-commit / unborn-HEAD repo (CWE-20) — closes #599.
+
+- **Adds `mainSafe()` to `plugins/ievo/scripts/scan_repo.mjs`**, mirroring the existing `mainSafe()` pattern already used by `discover.mjs` and `evolution_candidates.mjs` in the same directory. `main()` already guards `checkoutOrRefresh` and `assertCheckoutContained` with their own try/catch, but the calls right after them — `getCommitSha`/`getLastCommitDate` — run through the module's `run()` helper with its default `check: true`, so a non-zero git exit throws uncaught. A zero-commit/unborn-HEAD public repo clones successfully (nothing for `checkoutOrRefresh` to fail on) and then crashes the scan process at that point.
+- **CLI entry guard now calls `mainSafe()` instead of `main()` directly.** `main()` itself — its exported signature and its two pre-existing try/catch blocks — is unchanged.
+- **Regression test** (`scan_repo.test.mjs`) reproduces the zero-commit scenario end-to-end: first proves `main()` still throws uncaught (documenting the gap the fix closes), then proves `mainSafe()` catches the identical throw and exits 2 with a `fatal: ...` message instead of crashing.
+- **Self-filed security finding** — Eva `/ievo:vuln-scan` dogfooding run (eva#165), self-approved per eva#132's skeptic-mode trust matrix (surface confined to `plugins/ievo/**`).
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger jump 0.80.0 → 0.80.3 (next free slot per AGENTS.md's parallel-PR race guidance, not a skipped/reserved range) rather than 0.80.1, since other open PRs already claimed the intervening versions at bump time. `scan_repo.mjs`'s own `SCRIPT_VERSION` is exempt — it's an intentionally decoupled scanner-output-format version (v0.6.6/#47), unrelated to this fix.
+
 ## v0.80.0
 
 `/ievo:evo-auto-enable` hook scripts ship as real, committed files instead of markdown-embedded, per-clone-generated ones — closes skills#552's "scripts should live in the plugin" ask, operator-confirmed security tradeoff.

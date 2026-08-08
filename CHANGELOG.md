@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.3
+
+Closes an Eva vuln-scan finding (skills#600): the C0-control-character strippers shared across `scan_repo.mjs`/`validate_agents.mjs`/`validate_skills.mjs` didn't strip Unicode bidi-override/isolate or zero-width characters.
+
+- **`escapeMdCell()` (`scan_repo.mjs`) and `CONTROL_CHAR_RE` (`validate_agents.mjs`, `validate_skills.mjs`)** — all three identical strippers previously matched only the ASCII C0 control range plus DEL (`/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g`), leaving Unicode bidirectional-override/isolate characters (U+202A-U+202E, U+2066-U+2069, widened to the full U+2060-U+2069 invisible-operator block) and zero-width characters (U+200B-U+200F, U+FEFF) untouched. Attacker-controlled frontmatter/manifest fields carrying these code points survived into rendered community-index Markdown (`scan_repo.mjs`) or CI/pre-commit violation output (`validate_agents.mjs`/`validate_skills.mjs`) — a Trojan-Source-style visual spoof for the human reviewer `security-auditor` relies on that rendering for. All three definitions extended in lockstep, same as their existing ASCII-range parity.
+- **Tests** — `scan_repo.test.mjs` gained `escapeMdCell` coverage for bidi-override/isolate and zero-width/BOM collapsing plus a just-outside-the-range boundary check; `validate_agents.test.mjs`/`validate_skills.test.mjs` extended the existing `CONTROL_CHAR_RE` unit test with the new matched/non-matched code points and added `parseFrontmatter` integration tests mirroring the existing ESC-byte regression tests.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.0 → 0.80.3, next free slot — 0.80.1/0.80.2 concurrently claimed by open PRs #597/#598 at push time).
+
 ## v0.80.0
 
 `/ievo:evo-auto-enable` hook scripts ship as real, committed files instead of markdown-embedded, per-clone-generated ones — closes skills#552's "scripts should live in the plugin" ask, operator-confirmed security tradeoff.

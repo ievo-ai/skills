@@ -188,6 +188,19 @@ describe("escapeMdCell", () => {
   it("preserves a literal 0 (falsy but meaningful) instead of treating it as absent", () => {
     assert.equal(escapeMdCell(0), "0");
   });
+  it("collapses Unicode bidi-override/isolate characters (Trojan-Source spoof guard, skills#600)", () => {
+    assert.equal(escapeMdCell(`evil\u202edesrever`), "evil desrever");
+    assert.equal(escapeMdCell(`a\u2066b\u2069c`), "a b c");
+  });
+  it("collapses zero-width characters incl. BOM (Trojan-Source spoof guard, skills#600)", () => {
+    assert.equal(escapeMdCell(`zero\u200bwidth`), "zero width");
+    assert.equal(escapeMdCell(`joi\u200dner`), "joi ner");
+    assert.equal(escapeMdCell(`bom\ufeffchar`), "bom char");
+  });
+  it("does not strip Unicode characters just outside the bidi/zero-width ranges", () => {
+    assert.equal(escapeMdCell(`super\u2070script`), `super\u2070script`);
+    assert.equal(escapeMdCell(`fract\u2059ion`), `fract\u2059ion`);
+  });
 });
 
 // ---------------------------------------------------------------------------

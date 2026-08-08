@@ -67,7 +67,13 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 // below) keeps its real line breaks — mirrors scan_repo.mjs's escapeMdCell
 // control-char strip, which excludes the same three codes for the same
 // reason.
-export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+// Also strips Unicode bidi-override/isolate (U+202A-U+202E, widened to the
+// full U+2060-U+2069 invisible-operator block) and zero-width characters
+// (U+200B-U+200F, U+FEFF) (CWE-116 follow-up, skills#600): the ASCII-only
+// range above didn't touch these, so a crafted `name:`/`description:` value
+// could carry a Trojan-Source-style spoof straight into a violation message
+// unneutralized.
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // SKILL.md frontmatter is never legitimately larger than this — guards the
 // readFileSync call in validateSkill() below against a multi-GB blob (or a

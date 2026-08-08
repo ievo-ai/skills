@@ -87,6 +87,17 @@ describe("constants", () => {
       assert.ok(!CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} not to match`);
     }
   });
+
+  it("CONTROL_CHAR_RE matches Unicode bidi-override/isolate and zero-width characters incl. BOM (Trojan-Source spoof guard, skills#600)", () => {
+    for (const ch of ["\u200b", "\u200d", "\u200f", "\u202a", "\u202e", "\u2060", "\u2066", "\u2069", "\ufeff"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} to match`);
+    }
+    for (const ch of ["\u2059", "\u2070", "a"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(!CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} not to match`);
+    }
+  });
 });
 
 describe("parseArgs", () => {
@@ -222,6 +233,16 @@ describe("parseFrontmatter", () => {
   it("strips C0 control characters from a block scalar body while preserving real newlines", () => {
     const fm = parseFrontmatter("---\nname: foo\ndescription: |\n  line one\x1b bad\n  line two\n---");
     assert.equal(fm.description, "line one bad\nline two");
+  });
+
+  it("strips a Unicode bidi-override from a plain scalar value (Trojan-Source spoof guard, skills#600)", () => {
+    const fm = parseFrontmatter(`---\nname: foo\ndescription: evil\u202edesrever\n---`);
+    assert.equal(fm.description, "evildesrever");
+  });
+
+  it("strips zero-width characters incl. BOM from a plain scalar value (Trojan-Source spoof guard, skills#600)", () => {
+    const fm = parseFrontmatter(`---\nname: foo\ndescription: zero\u200bwidth\ufeffbom\n---`);
+    assert.equal(fm.description, "zerowidthbom");
   });
 });
 

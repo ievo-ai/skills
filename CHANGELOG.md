@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.3
+
+Strip control characters from attacker-influenceable CLI/stdin input before it reaches `discover.mjs`/`scan_repo.mjs` error messages — closes skills#601, Eva `/ievo:vuln-scan` dogfooding finding (CWE-117).
+
+- **Gap closed** — four `errLog()`/`console.error` call sites echoed raw, attacker-influenceable input with no control-character stripping: `discover.mjs`'s `--stack-file` read-failure and parse-failure messages (raw `args.stackFile`), its stdin parse-failure "First 200 chars" echo (raw `stdinText` slice), and `scan_repo.mjs`'s `args.repo` format-validation failure message (the value most likely to carry attacker-chosen characters, since it just failed the owner/repo charset check). A crafted ESC byte (`0x1B`) or other C0 control byte in any of the four would survive untouched and inject ANSI/control sequences into a terminal or CI log viewer. `validate_skills.mjs`/`validate_agents.mjs` already guard their own frontmatter-value/path echoes with a `CONTROL_CHAR_RE`-style filter; these two scripts had no equivalent.
+- **Fix** — added a local `CONTROL_CHAR_RE` constant (`/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g`) to each file, per-file copy rather than a shared import (mirrors the existing convention — each sink's exact character class is tuned to its own risk model), and applied `.replace(CONTROL_CHAR_RE, "")` at all four echo sites. `discover.mjs`'s `--stack-file` path is sanitized once into a `safeStackFile` local before either error message uses it; the underlying raw `args.stackFile` is still used for the actual containment/read checks — only the echoed copy changes. Output-only change: no behavior/exit-code change.
+- **Tests** — added coverage in `tests/discover.test.mjs` (stdin "First 200 chars" echo, `--stack-file` containment-error echo) and `tests/scan_repo.test.mjs` (invalid `args.repo` echo), each asserting the raw control byte is stripped while the surrounding text survives. 100/100/100 coverage maintained on both scripts.
+- **Scope** — `plugins/ievo/scripts/discover.mjs`, `plugins/ievo/scripts/scan_repo.mjs`, and their existing test files. `scan_repo.mjs`'s `SCRIPT_VERSION` is intentionally NOT bumped (decoupled scanner-output-format version, unrelated to this change).
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.80.0 → 0.80.3; 0.80.1/0.80.2 concurrently claimed by open PRs #597/#598 at push time, next free slot per AGENTS.md's version-bump race convention). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.80.0
 
 `/ievo:evo-auto-enable` hook scripts ship as real, committed files instead of markdown-embedded, per-clone-generated ones — closes skills#552's "scripts should live in the plugin" ask, operator-confirmed security tradeoff.

@@ -38,11 +38,23 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.80.0";
+export const SCRIPT_VERSION = "0.80.3";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
 export const DEFAULT_CONCURRENCY = 8;
+
+// Strips C0 control characters (and DEL) from attacker-influenceable input
+// before it reaches an errLog()/console.error message (CWE-117): the
+// --stack-file read/parse-failure messages below echo the raw args.stackFile
+// value, and the stdin parse-failure branch echoes a raw stdinText slice — a
+// crafted ESC byte (0x1B) or other control byte in either would otherwise
+// survive untouched and inject ANSI/control sequences into a terminal or CI
+// log viewer. Per-file copy (not a shared import) mirrors
+// validate_skills.mjs/validate_agents.mjs's own CONTROL_CHAR_RE — each
+// sink's exact character class is tuned to its own risk model (see
+// .github/scripts/validators/_safe-read.mjs).
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 
 // Reserved prefix for synthetic source-grouping sentinels (e.g.
 // `__codex-marketplace__`). buildQueries rejects any real query starting with
@@ -659,14 +671,18 @@ Notes:
   let stack;
   let inputSource;
   if (args.stackFile) {
-    inputSource = `--stack-file ${args.stackFile}`;
+    // Strip control characters before this value can ever reach an errLog()
+    // message (CWE-117) — the raw args.stackFile is still used below for the
+    // actual containment/read checks, only the echoed copy is sanitized.
+    const safeStackFile = args.stackFile.replace(CONTROL_CHAR_RE, "");
+    inputSource = `--stack-file ${safeStackFile}`;
     let raw;
     try {
       const allowedPath = assertStackFileAllowed(args.stackFile, args.project);
       assertStackFileReadable(allowedPath, args.project);
       raw = readFileSync(allowedPath, "utf-8");
     } catch (err) {
-      errLog(`Error: cannot read stack file '${args.stackFile}': ${err.message}`);
+      errLog(`Error: cannot read stack file '${safeStackFile}': ${err.message}`);
       return exit(3);
     }
     try {
@@ -691,7 +707,7 @@ Notes:
       stack = JSON.parse(stdinText);
     } catch (err) {
       errLog(`Error: invalid JSON in stdin: ${err.message}`);
-      errLog(`First 200 chars: ${stdinText.slice(0, 200)}`);
+      errLog(`First 200 chars: ${stdinText.slice(0, 200).replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }
   }

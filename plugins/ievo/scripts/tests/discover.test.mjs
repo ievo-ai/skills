@@ -1223,6 +1223,20 @@ describe("main", () => {
     assert.match(run.errs.join("\n"), /First 200 chars/);
   });
 
+  // --- skills#601: strip control characters from attacker-influenceable
+  // input before it reaches an errLog() message (CWE-117) ---
+
+  it("strips control characters from the stdin 'First 200 chars' echo (skills#601)", async () => {
+    const run = makeRun();
+    const stream = Readable.from(["{this is not json\x1b[31mFAKE\x1b[0m"]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /First 200 chars/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
+
   it("exits 3 on invalid --stack-file JSON with source-aware error", async () => {
     const stackPath = allowedStackFile(tmpDir, "invalid.json", "not json at all");
     const run = makeRun();
@@ -1236,6 +1250,18 @@ describe("main", () => {
     await main(["node", "discover.mjs", "--stack-file", "/nope/missing.json"], Readable.from([""]), run.log, run.errLog, run.exit);
     assert.equal(run.exitCode, 3);
     assert.match(run.errs.join("\n"), /cannot read stack file/);
+  });
+
+  it("strips control characters from an echoed --stack-file path (skills#601)", async () => {
+    const outside = join(tmpDir, "outside-\x1b[31msecret\x1b[0m.json");
+    writeFileSync(outside, JSON.stringify({ languages: ["go"] }), "utf-8");
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--stack-file", outside, "--project", tmpDir], Readable.from([""]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /cannot read stack file/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /outside-.*secret.*\.json/);
   });
 
   it("exits 3 on invalid CLI args (NaN limit)", async () => {

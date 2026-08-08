@@ -925,10 +925,28 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
   return exit(0);
 }
 
+// Defensive wrapper — main() has its own try/catch around checkoutOrRefresh
+// and assertCheckoutContained, but calls made after those (getCommitSha,
+// getLastCommitDate, and anything future code adds) are not individually
+// guarded. A zero-commit / unborn-HEAD repo clones successfully (checkoutOrRefresh
+// has nothing to fail on) but then throws on `git rev-parse`/`git log`
+// (run()'s default check: true) with no catch anywhere in main() — this is
+// the last line of defense against that and any similar unguarded throw.
+// Mirrors discover.mjs / evolution_candidates.mjs's mainSafe() in this same
+// directory.
+export function mainSafe(argv = process.argv, execImpl = execFileSync, log = console.log, errLog = console.error, exit = process.exit) {
+  try {
+    return main(argv, execImpl, log, errLog, exit);
+  } catch (err) {
+    errLog(`fatal: ${err.message}`);
+    return exit(2);
+  }
+}
+
 export function isCliEntry(metaUrl, argv) {
   return fileURLToPath(metaUrl) === resolve(argv[1] ?? "");
 }
 
 if (isCliEntry(import.meta.url, process.argv)) {
-  main();
+  mainSafe();
 }

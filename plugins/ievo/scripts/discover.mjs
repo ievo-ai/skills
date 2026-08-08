@@ -532,7 +532,9 @@ export function rankCandidates(allResults) {
 function parsePositiveInt(value, flagName, fallback) {
   const n = parseInt(value, 10);
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`${flagName} requires a positive integer, got '${value}' — falling back to ${fallback} would mask the input error`);
+    // CWE-117: value is an attacker-influenceable CLI arg (same threat model
+    // as --stack-file above), and main()'s catch echoes err.message verbatim.
+    throw new Error(`${flagName} requires a positive integer, got '${value.replace(CONTROL_CHAR_RE, "")}' — falling back to ${fallback} would mask the input error`);
   }
   return n;
 }
@@ -543,7 +545,9 @@ function requireValue(argv, i, flagName) {
     throw new Error(`${flagName} requires a value, got end of arguments`);
   }
   if (v.startsWith("--")) {
-    throw new Error(`${flagName} requires a value, got flag '${v}' — looks like the value was forgotten`);
+    // CWE-117: v is an attacker-influenceable CLI arg echoed via main()'s
+    // parseArgs catch — strip before it reaches that errLog() message.
+    throw new Error(`${flagName} requires a value, got flag '${v.replace(CONTROL_CHAR_RE, "")}' — looks like the value was forgotten`);
   }
   return v;
 }

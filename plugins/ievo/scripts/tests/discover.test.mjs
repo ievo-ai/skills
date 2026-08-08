@@ -730,6 +730,33 @@ describe("parseArgs", () => {
       /--limit requires a value, got flag '--concurrency'/,
     );
   });
+
+  // --- skills#601: strip control characters from attacker-influenceable
+  // CLI-arg values before they reach a thrown Error's message (CWE-117) ---
+
+  it("strips control characters from an invalid --limit value in the thrown message (skills#601)", () => {
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--limit", "abc\x1b[31mFAKE\x1b[0m"]),
+      (err) => {
+        assert.match(err.message, /--limit requires a positive integer/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
+    );
+  });
+
+  it("strips control characters from a forgotten-value flag echoed in the thrown message (skills#601)", () => {
+    assert.throws(
+      () => parseArgs(["node", "discover.mjs", "--stack-file", "--\x1b[31mFAKE\x1b[0m"]),
+      (err) => {
+        assert.match(err.message, /--stack-file requires a value, got flag/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

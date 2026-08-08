@@ -188,9 +188,15 @@ describe("escapeMdCell", () => {
   it("preserves a literal 0 (falsy but meaningful) instead of treating it as absent", () => {
     assert.equal(escapeMdCell(0), "0");
   });
-  it("collapses Unicode bidi-override/isolate characters (Trojan-Source spoof guard, skills#600)", () => {
+  it("collapses every Bidi_Control character (Trojan-Source spoof guard, skills#600)", () => {
     assert.equal(escapeMdCell(`evil\u202edesrever`), "evil desrever");
     assert.equal(escapeMdCell(`a\u2066b\u2069c`), "a b c");
+    // The Bidi_Control set is closed at U+061C, U+200E-U+200F, U+202A-U+202E,
+    // U+2066-U+2069 \u2014 assert each one so a narrowing of the class is caught.
+    for (const cp of [0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069]) {
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.equal(escapeMdCell(`a${String.fromCodePoint(cp)}b`), "a b", `expected ${label} to be collapsed`);
+    }
   });
   it("collapses zero-width characters incl. BOM (Trojan-Source spoof guard, skills#600)", () => {
     assert.equal(escapeMdCell(`zero\u200bwidth`), "zero width");
@@ -200,6 +206,14 @@ describe("escapeMdCell", () => {
   it("does not strip Unicode characters just outside the bidi/zero-width ranges", () => {
     assert.equal(escapeMdCell(`super\u2070script`), `super\u2070script`);
     assert.equal(escapeMdCell(`fract\u2059ion`), `fract\u2059ion`);
+    // Boundaries either side of the single-code-point U+061C addition. (Only
+    // non-whitespace neighbours are asserted here \u2014 U+200A/U+202F are spaces,
+    // which the `\s+` collapse below the strip would fold regardless.)
+    for (const cp of [0x061b, 0x061d, 0x2010]) {
+      const ch = String.fromCodePoint(cp);
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.equal(escapeMdCell(`a${ch}b`), `a${ch}b`, `expected ${label} to survive`);
+    }
   });
 });
 

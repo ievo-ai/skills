@@ -67,13 +67,17 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 // below) keeps its real line breaks — mirrors scan_repo.mjs's escapeMdCell
 // control-char strip, which excludes the same three codes for the same
 // reason.
-// Also strips Unicode bidi-override/isolate (U+202A-U+202E, widened to the
-// full U+2060-U+2069 invisible-operator block) and zero-width characters
-// (U+200B-U+200F, U+FEFF) (CWE-116 follow-up, skills#600): the ASCII-only
-// range above didn't touch these, so a crafted `name:`/`description:` value
-// could carry a Trojan-Source-style spoof straight into a violation message
-// unneutralized.
-export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
+// Also strips every code point with the Unicode Bidi_Control property \u2014
+// U+061C (ALM), U+200E-U+200F (LRM/RLM), U+202A-U+202E, U+2066-U+2069 \u2014 plus
+// zero-width characters (U+200B-U+200F, U+FEFF); the U+2066-U+2069 isolates
+// are widened to the full U+2060-U+2069 invisible-operator block (CWE-116
+// follow-up, skills#600). The ASCII-only range above didn't touch any of
+// these, so a crafted `name:`/`description:` value could carry a
+// Trojan-Source-style spoof straight into a violation message unneutralized.
+// The Bidi_Control set is closed at those six ranges \u2014 adding a code point
+// outside them means the enumeration above is no longer exhaustive and the
+// comment must say so.
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
 // SKILL.md frontmatter is never legitimately larger than this — guards the
 // readFileSync call in validateSkill() below against a multi-GB blob (or a
@@ -253,11 +257,20 @@ export function validateSkillContent(content, parentDirName) {
         message: `name "${fm.name}" does not match required pattern: lowercase alnum + hyphens, no leading/trailing hyphens`,
       });
     }
+    // Compared RAW, stripped only where it is interpolated into the message.
+    // `fm.name` is already stripped by parseFrontmatter(), so normalizing this
+    // side too would make both sides collapse to the same value and defeat the
+    // check: a directory literally named `deep<U+200B>-review` alongside
+    // `name: deep-review` would stop tripping this rule, which is precisely
+    // the on-disk spoof it exists to catch (a directory name is filesystem-
+    // controlled and nothing downstream ever strips it). Stripping at the
+    // interpolation still keeps the CWE-150 guarantee that no raw control byte
+    // reaches a message main() prints (skills#495).
     if (parentDirName && fm.name !== parentDirName) {
       violations.push({
         severity: "error",
         rule: "name-dir-mismatch",
-        message: `name "${fm.name}" does not match parent directory "${parentDirName}"`,
+        message: `name "${fm.name}" does not match parent directory "${parentDirName.replace(CONTROL_CHAR_RE, "")}"`,
       });
     }
   }
@@ -302,12 +315,14 @@ export function validateSkill(filePath) {
     }];
   }
   const content = readFileSync(filePath, "utf-8");
-  // Stripped here (not just at the rel/log() call sites in main()) because a
-  // git tree entry name may contain arbitrary bytes other than `/` and NUL —
-  // an ESC byte in a crafted directory name would otherwise reach the
-  // name-dir-mismatch message unstripped, the same CWE-150 this file's
-  // CONTROL_CHAR_RE already guards frontmatter values against (skills#495).
-  const parentDirName = basename(dirname(filePath)).replace(CONTROL_CHAR_RE, "");
+  // Deliberately RAW. The CWE-150 strip that skills#495 added here (a git tree
+  // entry name may contain arbitrary bytes other than `/` and NUL, and an ESC
+  // byte must never reach the name-dir-mismatch message main() prints) now
+  // happens inside validateSkillContent(), at the message interpolation only —
+  // stripping it *here* would also normalize one side of that function's
+  // equality test against the already-stripped `fm.name`, weakening the spoof
+  // check itself. See the name-dir-mismatch comment there.
+  const parentDirName = basename(dirname(filePath));
   return validateSkillContent(content, parentDirName);
 }
 

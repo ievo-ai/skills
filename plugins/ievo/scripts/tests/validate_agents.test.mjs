@@ -88,14 +88,27 @@ describe("constants", () => {
     }
   });
 
-  it("CONTROL_CHAR_RE matches Unicode bidi-override/isolate and zero-width characters incl. BOM (Trojan-Source spoof guard, skills#600)", () => {
-    for (const ch of ["\u200b", "\u200d", "\u200f", "\u202a", "\u202e", "\u2060", "\u2066", "\u2069", "\ufeff"]) {
+  it("CONTROL_CHAR_RE matches every Bidi_Control code point and the zero-width characters incl. BOM (Trojan-Source spoof guard, skills#600)", () => {
+    // The Bidi_Control set is closed: U+061C, U+200E-U+200F, U+202A-U+202E,
+    // U+2066-U+2069. Every one of them is asserted here so a future narrowing
+    // of the character class cannot silently drop one.
+    for (const ch of ["\u061c", "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\u2067", "\u2068", "\u2069"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(CONTROL_CHAR_RE.test(ch), `expected Bidi_Control ${JSON.stringify(ch)} to match`);
+    }
+    // Zero-width characters (U+200B-U+200F, U+FEFF) and the rest of the
+    // U+2060-U+2069 invisible-operator block the isolates were widened to.
+    for (const ch of ["\u200b", "\u200c", "\u200d", "\u2060", "\u2061", "\u2062", "\u2063", "\u2064", "\ufeff"]) {
       CONTROL_CHAR_RE.lastIndex = 0;
       assert.ok(CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} to match`);
     }
-    for (const ch of ["\u2059", "\u2070", "a"]) {
+    // The code point immediately below and above each added range stays
+    // untouched. Built from numeric code points, not string escapes, so the
+    // source of a test about invisible characters is itself plainly readable.
+    for (const cp of [0x061b, 0x061d, 0x200a, 0x2010, 0x2029, 0x202f, 0x2059, 0x2070, 0x0061]) {
       CONTROL_CHAR_RE.lastIndex = 0;
-      assert.ok(!CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} not to match`);
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.ok(!CONTROL_CHAR_RE.test(String.fromCodePoint(cp)), `expected ${label} not to match`);
     }
   });
 });

@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.1
+
+Close a CWE-59 symlink-containment gap in `security-check/SKILL.md`'s "How to fetch files" — Eva research-audit finding, resolves the gap tracked (and prematurely rejected) in skills#589.
+
+- **Gap closed** — `security-check/SKILL.md` Step 2's "How to fetch files" is this repo's most-reused vendor-fetch recipe (shared by `security-auditor.md`'s dispatch and referenced by `init/SKILL.md` Step 8, `update.md` Step 2.5, `vuln-scanner.md`). Its clone-then-Glob-then-Read sequence had no check for whether a Glob-enumerated tree entry was itself a symlink (mode `120000`) before Reading it — an audited candidate (by construction untrusted, unvetted content) could ship a symlink resolving outside the shallow-clone checkout to a local secret (e.g. `~/.ssh/id_rsa`, `~/.aws/credentials`), whose contents would then flow into the security-auditor's own verdict/report.
+- **New Step 2 sub-step 4** ports the review-hardened, now 3×-landed pattern from `agents/evolution.md` (v0.78.11, #587), `init/references/install-protocol.md` (v0.78.12, #590), and `commands/update.md` (v0.78.13, #583): `git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'` (no path interpolation) between the clone and the Glob-enumerate steps, refusing the item on any symlink entry equal to, under, or an ancestor of `<item-path>` — segment-compared, fail-closed on any still-quoted (non-ASCII/control-char) path. A refused item degrades to the existing "reduced-coverage scan" path (note in `reasoning`, YELLOW at minimum) rather than blocking the whole audit.
+- **Closes skills#589 by substance, not by reopening it** — #589 was rejected 2026-08-0x for citing PR #587 as merged when it was still open with an unresolved `CHANGES_REQUESTED` review (the ancestor-symlink match-rule gap). #587 has since merged with that gap fixed, and the corrected pattern has landed in two more sibling files since. This PR ports the final, corrected pattern directly rather than re-filing an issue for a fix this session could implement immediately (push access confirmed this run).
+- **Scope** — `plugins/ievo/skills/security-check/SKILL.md` only (Step 2 sub-step renumbering 4→5, 5→6, plus the "If cloning or resolution fails" fallback paragraph updated to cover a symlink refusal); the rest of the diff is the mandatory version-bump ceremony below. No script/test changes — this file is pure Markdown instructions with no code path for `node --test` to cover. `security-auditor.md`'s own Bash-allowlist explicitly delegates to this file's recipe, so fixing it here closes the gap for that caller too, no separate port needed.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (0.80.0 → 0.80.1). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep.
+
 ## v0.80.0
 
 `/ievo:evo-auto-enable` hook scripts ship as real, committed files instead of markdown-embedded, per-clone-generated ones — closes skills#552's "scripts should live in the plugin" ask, operator-confirmed security tradeoff.

@@ -12,10 +12,11 @@
 //
 // Order matters (the LAST step is why): redact PEM private-key blocks, then
 // provider-shaped secrets, then named assignment values, then HTTP
-// credential-header values, then URL-embedded credentials, then rewrite
-// $HOME paths, then truncate LAST — so a secret sitting inside an oversized
-// blob is redacted before truncation could slice through its signature and
-// leave an unredacted fragment. The PEM pass runs FIRST because
+// credential-header values, then URL-embedded credentials, then Slack
+// incoming-webhook URLs, then rewrite $HOME paths, then truncate LAST — so a
+// secret sitting inside an oversized blob is redacted before truncation
+// could slice through its signature and leave an unredacted fragment. The
+// PEM pass runs FIRST because
 // redactNamedSecrets is line-scoped: on a `TLS_KEY: -----BEGIN ...` line it
 // would take just the marker line as the assignment's value, decapitating
 // the armor so a later PEM pass could no longer recognise the block while
@@ -42,7 +43,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.80.5";
+export const SCRIPT_VERSION = "0.80.6";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -55,14 +56,16 @@ Usage:
   node scrub.mjs --help
 
 Redacts PEM-armored private-key blocks, provider-shaped secret values
-(GitHub/OpenAI/Slack/AWS/Stripe tokens, JWTs), secret-shaped NAME=value / NAME: value
-assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, camelCase equivalents
-like authToken/clientSecret/accessKeyId, bare PASSWORD/SECRET/TOKEN/APIKEY/
-API_KEY), HTTP credential-header values (Authorization/Cookie/
-Set-Cookie), URL-embedded credentials (scheme://user:pass@host), rewrites
-$HOME-absolute paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
-Unicode code points. Never writes a file; on any internal error emits nothing
-and exits 0 (fail-closed for content).`;
+(GitHub/OpenAI/Slack/AWS/Stripe/Google/npm/SendGrid tokens, JWTs), secret-shaped
+NAME=value / NAME: value assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID,
+camelCase equivalents like authToken/clientSecret/accessKeyId, bare
+PASSWORD/SECRET/TOKEN/APIKEY/API_KEY), HTTP credential-header values
+(Authorization/Cookie/Set-Cookie), URL-embedded credentials
+(scheme://user:pass@host), Slack incoming-webhook URLs
+(hooks.slack.com/services|workflows|triggers/...), rewrites $HOME-absolute
+paths to ~-relative, and caps output at ${MAX_CODEPOINTS} Unicode code
+points. Never writes a file; on any internal error emits nothing and exits 0
+(fail-closed for content).`;
 
 // ---------------------------------------------------------------------------
 // 1. PEM-armored private-key blocks (redacted wholesale, markers included)
@@ -143,6 +146,20 @@ export function redactPemBlocks(text) {
 // tokens are case-exact by their own spec) and bounded at 255 chars to keep
 // matching linear on pathological input. Order is irrelevant — the prefixes
 // are mutually exclusive.
+//
+// The Google/npm/SendGrid alternatives below are each a FIXED length rather
+// than a bounded range, unlike the open-ended tokens above — their formats
+// specify an exact size (verified against gitleaks/gitleaks's
+// `config/gitleaks.toml`, a primary/reputable secret-scanning reference, and
+// — for SendGrid — the documented 69-char total key length, `SG.` + 22 + `.`
+// + 43): `AIza[\w-]{35}` (GCP), `npm_[a-z0-9]{36}` (npm, case-insensitive —
+// covered here without an "i" flag since `[A-Za-z0-9]` already spans both
+// cases), `SG\.[a-z0-9=_\-\.]{66}` (SendGrid, gitleaks treats id+dot+secret
+// as one 66-char blob; split here into its documented id/secret segments for
+// a tighter, less accidentally-matchy pattern). A fixed length needs no
+// linear-time bound the way the other alternatives' open-ended runs do — a
+// literal-length class costs the same constant work per scan position
+// regardless of input size, so none of the three carry a `{n,255}` range.
 const PROVIDER_SECRET_RE = new RegExp(
   [
     String.raw`\bgh[pousr]_[A-Za-z0-9]{36,255}\b`, // GitHub classic/app-style tokens (ghp_/gho_/ghu_/ghs_/ghr_)
@@ -153,6 +170,9 @@ const PROVIDER_SECRET_RE = new RegExp(
     String.raw`\beyJ[A-Za-z0-9_-]{5,255}\.[A-Za-z0-9_-]{5,255}\.[A-Za-z0-9_-]{5,255}\b`, // JWT (header.payload.signature)
     String.raw`\b[sp]k_(?:live|test)_[A-Za-z0-9]{16,255}\b`, // Stripe secret/publishable key
     String.raw`\brk_(?:live|test)_[A-Za-z0-9]{16,255}\b`, // Stripe restricted key (both live and test mode, docs.stripe.com/keys)
+    String.raw`\bAIza[0-9A-Za-z_-]{35}\b`, // Google/GCP/Firebase API key
+    String.raw`\bnpm_[A-Za-z0-9]{36}\b`, // npm automation/publish token
+    String.raw`\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b`, // SendGrid API key (id.secret)
   ].join("|"),
   "g",
 );
@@ -522,7 +542,50 @@ export function redactUrlCredentials(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. $HOME-absolute paths → ~-relative (never leak the username)
+// 6. Slack incoming-webhook URLs — a bearer-in-path secret
+//    URL_CREDENTIAL_RE structurally cannot reach
+// ---------------------------------------------------------------------------
+
+// A Slack webhook URL (incoming `/services/`, workflow `/workflows/`, or
+// legacy `/triggers/` — the same three route types gitleaks' own
+// `slack-webhook-url` rule matches) IS the credential: whoever holds the URL
+// can post to it, with no separate userinfo, header, or NAME= assignment
+// riding alongside it for the earlier passes to key off. URL_CREDENTIAL_RE
+// above only fires on a `user:pass@host` userinfo segment; a webhook URL has
+// none, so it rides through that pass untouched no matter where in the
+// pipeline it runs.
+//
+// The host and route-type segment are diagnostic (confirms this was a Slack
+// webhook without saying which one) and dropped along with the secret path
+// rather than preserved piecemeal — unlike URL_CREDENTIAL_RE's host, which
+// stays because it is never part of the credential, every segment after
+// `hooks.slack.com/` here (team, channel/workflow id, and the trailing
+// token) is part of the same bearer capability, so keeping any of it would
+// be a partial leak.
+//
+// Case-exact on the fixed `hooks.slack.com` host (real Slack webhook URLs are
+// always lowercase). The trailing path run is a plain, UNBOUNDED `+` — unlike
+// PROVIDER_SECRET_RE's open-ended alternatives and QUOTED_VALUE_INNER above,
+// which cap length to bound the cost of a NEXT_ASSIGNMENT_LOOKAHEAD-style
+// backtracking retry, nothing follows this character class in the pattern
+// for the engine to backtrack for: a greedy run with no trailing constraint
+// costs exactly one linear consume per match attempt regardless of length,
+// so a length cap here would buy no linearity. It would instead risk the
+// exact partial-leak class this file's other bounds are designed to avoid:
+// capping the run would make it stop redacting partway through a genuinely
+// long webhook path, leaving an unredacted tail with no marker to hint the
+// rest was missed.
+const SLACK_WEBHOOK_RE = new RegExp(
+  String.raw`\bhttps://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9/]+`,
+  "g",
+);
+
+export function redactSlackWebhooks(text) {
+  return text.replace(SLACK_WEBHOOK_RE, `https://hooks.slack.com/${REDACTED}`);
+}
+
+// ---------------------------------------------------------------------------
+// 7. $HOME-absolute paths → ~-relative (never leak the username)
 // ---------------------------------------------------------------------------
 
 function escapeRegExp(literal) {
@@ -539,7 +602,7 @@ export function rewriteHomePaths(text, home) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Cap at MAX_CODEPOINTS Unicode code points — LAST (see header comment)
+// 8. Cap at MAX_CODEPOINTS Unicode code points — LAST (see header comment)
 // ---------------------------------------------------------------------------
 
 export function truncateScrubbed(text, limit = MAX_CODEPOINTS) {
@@ -566,6 +629,7 @@ export function scrub(text, opts = {}) {
   out = redactNamedSecrets(out);
   out = redactHttpCredentialHeaders(out);
   out = redactUrlCredentials(out);
+  out = redactSlackWebhooks(out);
   out = rewriteHomePaths(out, home);
   out = truncateScrubbed(out);
   return out;

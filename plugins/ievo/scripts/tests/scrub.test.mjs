@@ -18,6 +18,7 @@ import {
   redactNamedSecrets,
   redactHttpCredentialHeaders,
   redactUrlCredentials,
+  redactSlackWebhooks,
   rewriteHomePaths,
   truncateScrubbed,
   scrub,
@@ -242,6 +243,35 @@ describe("redactProviderSecrets", () => {
       const token = `${prefix}_51H8xJ2GZ${"a".repeat(16)}`;
       assert.equal(redactProviderSecrets(`key=${token}`), `key=${REDACTED}`);
     }
+  });
+
+  it("redacts a Google/GCP/Firebase API key (AIza...)", () => {
+    const key = `AIza${"a".repeat(35)}`;
+    assert.equal(
+      redactProviderSecrets(`gcloud error: invalid API key: ${key}`),
+      `gcloud error: invalid API key: ${REDACTED}`,
+    );
+  });
+
+  it("redacts an npm automation/publish token (npm_...)", () => {
+    const token = `npm_${"a".repeat(36)}`;
+    assert.equal(redactProviderSecrets(`npm publish failed, token ${token}`), `npm publish failed, token ${REDACTED}`);
+  });
+
+  it("redacts a SendGrid API key (SG.id.secret)", () => {
+    const key = `SG.${"a".repeat(22)}.${"b".repeat(43)}`;
+    assert.equal(redactProviderSecrets(`Authorization failed for key=${key}`), `Authorization failed for key=${REDACTED}`);
+  });
+
+  it("does not redact a Google/npm/SendGrid key one character short of the required length", () => {
+    // Fixed-length alternatives — unlike the bounded-range ones above, a
+    // key even one char short of spec must not match at all.
+    assert.equal(redactProviderSecrets(`AIza${"a".repeat(34)}`), `AIza${"a".repeat(34)}`);
+    assert.equal(redactProviderSecrets(`npm_${"a".repeat(35)}`), `npm_${"a".repeat(35)}`);
+    assert.equal(
+      redactProviderSecrets(`SG.${"a".repeat(21)}.${"b".repeat(43)}`),
+      `SG.${"a".repeat(21)}.${"b".repeat(43)}`,
+    );
   });
 
   it("redacts multiple occurrences in one blob (global replace)", () => {
@@ -1003,6 +1033,89 @@ describe("redactUrlCredentials", () => {
 });
 
 // ---------------------------------------------------------------------------
+// redactSlackWebhooks — bearer-in-path Slack incoming-webhook URLs
+// ---------------------------------------------------------------------------
+
+describe("redactSlackWebhooks", () => {
+  it("redacts an incoming-webhook URL, keeping scheme and host", () => {
+    assert.equal(
+      redactSlackWebhooks(
+        "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+      ),
+      `https://hooks.slack.com/${REDACTED}`,
+    );
+  });
+
+  it("redacts the workflow and trigger route variants (gitleaks' own three types)", () => {
+    for (const kind of ["services", "workflows", "triggers"]) {
+      assert.equal(
+        redactSlackWebhooks(`https://hooks.slack.com/${kind}/T00/B00/XXXXXXXXXXXXXXXXXXXXXXXX`),
+        `https://hooks.slack.com/${REDACTED}`,
+        kind,
+      );
+    }
+  });
+
+  it("redacts inside prose with no name/header/userinfo alongside it (the exploit shape)", () => {
+    // No NAME= prefix, no Authorization/Cookie header, no user:pass@
+    // userinfo — the shape none of the other passes can reach.
+    const out = redactSlackWebhooks(
+      "posting failed: https://hooks.slack.com/services/T1A2B3C4D/B5E6F7G8H/abcdefghijklmnopqrstuvwx and retrying",
+    );
+    assert.equal(out, `posting failed: https://hooks.slack.com/${REDACTED} and retrying`);
+    assert.doesNotMatch(out, /T1A2B3C4D|abcdefghijklmnopqrstuvwx/);
+  });
+
+  it("redacts every occurrence in one blob (global replace)", () => {
+    assert.equal(
+      redactSlackWebhooks(
+        "https://hooks.slack.com/services/T1/B1/aaa and https://hooks.slack.com/workflows/T2/B2/bbb",
+      ),
+      `https://hooks.slack.com/${REDACTED} and https://hooks.slack.com/${REDACTED}`,
+    );
+  });
+
+  it("redacts inside JSON-encoded tool output", () => {
+    assert.equal(
+      redactSlackWebhooks('{"webhook":"https://hooks.slack.com/services/T1/B1/aaa"}'),
+      `{"webhook":"https://hooks.slack.com/${REDACTED}"}`,
+    );
+  });
+
+  it("leaves a non-webhook hooks.slack.com URL untouched (wrong route segment)", () => {
+    const text = "https://hooks.slack.com/other/T1/B1/aaa";
+    assert.equal(redactSlackWebhooks(text), text);
+  });
+
+  it("leaves an unrelated host untouched, including a slack.com URL that isn't hooks", () => {
+    for (const text of [
+      "https://slack.com/services/T1/B1/aaa",
+      "https://api.slack.com/methods/chat.postMessage",
+      "https://example.com/hooks.slack.com/services/T1/B1/aaa",
+    ]) {
+      assert.equal(redactSlackWebhooks(text), text, text);
+    }
+  });
+
+  it("leaves plain http (not https) untouched — real Slack webhooks are always https", () => {
+    const text = "http://hooks.slack.com/services/T1/B1/aaa";
+    assert.equal(redactSlackWebhooks(text), text);
+  });
+
+  it("stays linear on adversarial input (no quadratic blowup)", () => {
+    const noMatch = "x".repeat(100_000);
+    const longPath = `https://hooks.slack.com/services/${"a".repeat(50_000)}`;
+    const started = process.hrtime.bigint();
+    const noMatchOut = redactSlackWebhooks(noMatch);
+    const longPathOut = redactSlackWebhooks(longPath);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(noMatchOut, noMatch);
+    assert.equal(longPathOut, `https://hooks.slack.com/${REDACTED}`);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // rewriteHomePaths — $HOME-absolute paths → ~-relative
 // ---------------------------------------------------------------------------
 
@@ -1198,6 +1311,22 @@ describe("scrub", () => {
     assert.equal(
       scrub("Cookie: session=abc123; csrftoken=xyz789\ndone", { home: FAKE_HOME }),
       `Cookie: ${REDACTED}\ndone`,
+    );
+  });
+
+  it("redacts a Slack incoming-webhook URL via the composite pipeline (skills#607)", () => {
+    // The issue's exploit shape: a bare webhook URL with no adjacent
+    // NAME=/header/userinfo for any earlier pass to key off — none of
+    // redactProviderSecrets/redactNamedSecrets/redactHttpCredentialHeaders/
+    // redactUrlCredentials touch it (see PROVIDER_SECRET_RE's/
+    // URL_CREDENTIAL_RE's own comments); redactSlackWebhooks is the only
+    // pass that closes this gap.
+    assert.equal(
+      scrub(
+        "notify failed: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+        { home: FAKE_HOME },
+      ),
+      `notify failed: https://hooks.slack.com/${REDACTED}`,
     );
   });
 

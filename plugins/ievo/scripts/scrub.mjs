@@ -11,16 +11,19 @@
 // command printed).
 //
 // Order matters (the LAST step is why): redact PEM private-key blocks, then
-// provider-shaped secrets, then named assignment values, then HTTP
-// credential-header values, then URL-embedded credentials, then Slack
-// incoming-webhook URLs, then rewrite $HOME paths, then truncate LAST — so a
-// secret sitting inside an oversized blob is redacted before truncation
-// could slice through its signature and leave an unredacted fragment. The
-// PEM pass runs FIRST because
+// Slack incoming-webhook URLs, then provider-shaped secrets, then named
+// assignment values, then HTTP credential-header values, then URL-embedded
+// credentials, then rewrite $HOME paths, then truncate LAST — so a secret
+// sitting inside an oversized blob is redacted before truncation could slice
+// through its signature and leave an unredacted fragment. The PEM pass runs
+// FIRST because
 // redactNamedSecrets is line-scoped: on a `TLS_KEY: -----BEGIN ...` line it
 // would take just the marker line as the assignment's value, decapitating
 // the armor so a later PEM pass could no longer recognise the block while
-// every body line below it still leaked.
+// every body line below it still leaked. redactSlackWebhooks runs SECOND,
+// before redactProviderSecrets — see its own comment below for why running
+// it any later lets a directly-adjacent, no-delimiter provider-token-shaped
+// decoy consume through the `https` literal its match anchors on.
 //
 // Stdlib only (Node 18+, bundled with Claude Code / Codex) — no dependencies.
 //
@@ -55,17 +58,17 @@ Usage:
   node scrub.mjs --version
   node scrub.mjs --help
 
-Redacts PEM-armored private-key blocks, provider-shaped secret values
-(GitHub/OpenAI/Slack/AWS/Stripe/Google/npm/SendGrid tokens, JWTs), secret-shaped
-NAME=value / NAME: value assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID,
-camelCase equivalents like authToken/clientSecret/accessKeyId, bare
-PASSWORD/SECRET/TOKEN/APIKEY/API_KEY), HTTP credential-header values
-(Authorization/Cookie/Set-Cookie), URL-embedded credentials
-(scheme://user:pass@host), Slack incoming-webhook URLs
-(hooks.slack.com/services|workflows|triggers/...), rewrites $HOME-absolute
-paths to ~-relative, and caps output at ${MAX_CODEPOINTS} Unicode code
-points. Never writes a file; on any internal error emits nothing and exits 0
-(fail-closed for content).`;
+Redacts PEM-armored private-key blocks, Slack incoming-webhook URLs
+(hooks.slack.com/services|workflows|triggers/...), provider-shaped secret
+values (GitHub/OpenAI/Slack/AWS/Stripe/Google/npm/SendGrid tokens, JWTs),
+secret-shaped NAME=value / NAME: value assignments
+(*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, camelCase equivalents like
+authToken/clientSecret/accessKeyId, bare PASSWORD/SECRET/TOKEN/APIKEY/
+API_KEY), HTTP credential-header values (Authorization/Cookie/Set-Cookie),
+and URL-embedded credentials (scheme://user:pass@host), rewrites
+$HOME-absolute paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
+Unicode code points. Never writes a file; on any internal error emits nothing
+and exits 0 (fail-closed for content).`;
 
 // ---------------------------------------------------------------------------
 // 1. PEM-armored private-key blocks (redacted wholesale, markers included)
@@ -139,7 +142,74 @@ export function redactPemBlocks(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Provider-shaped secret VALUES (redacted regardless of surrounding name)
+// 2. Slack incoming-webhook URLs — a bearer-in-path secret
+//    URL_CREDENTIAL_RE (section 6 below) structurally cannot reach
+// ---------------------------------------------------------------------------
+
+// A Slack webhook URL (incoming `/services/`, workflow `/workflows/`, or
+// legacy `/triggers/` — the same three route types gitleaks' own
+// `slack-webhook-url` rule matches) IS the credential: whoever holds the URL
+// can post to it, with no separate userinfo, header, or NAME= assignment
+// riding alongside it for the other passes to key off. URL_CREDENTIAL_RE
+// (section 6) only fires on a `user:pass@host` userinfo segment; a webhook
+// URL has none, so it rides through that pass untouched no matter where in
+// the pipeline it runs.
+//
+// The host and route-type segment are diagnostic (confirms this was a Slack
+// webhook without saying which one) and dropped along with the secret path
+// rather than preserved piecemeal — unlike URL_CREDENTIAL_RE's host, which
+// stays because it is never part of the credential, every segment after
+// `hooks.slack.com/` here (team, channel/workflow id, and the trailing
+// token) is part of the same bearer capability, so keeping any of it would
+// be a partial leak.
+//
+// Case-exact on the fixed `hooks.slack.com` host (real Slack webhook URLs are
+// always lowercase). The trailing path run is a plain, UNBOUNDED `+` — unlike
+// PROVIDER_SECRET_RE's open-ended alternatives and QUOTED_VALUE_INNER below,
+// which cap length to bound the cost of a NEXT_ASSIGNMENT_LOOKAHEAD-style
+// backtracking retry, nothing follows this character class in the pattern
+// for the engine to backtrack for: a greedy run with no trailing constraint
+// costs exactly one linear consume per match attempt regardless of length,
+// so a length cap here would buy no linearity. It would instead risk the
+// exact partial-leak class this file's other bounds are designed to avoid:
+// capping the run would make it stop redacting partway through a genuinely
+// long webhook path, leaving an unredacted tail with no marker to hint the
+// rest was missed.
+//
+// Deliberately NO leading `\b` (unlike PROVIDER_SECRET_RE's alternatives
+// below, and unlike this pass's own first draft) — matching URL_CREDENTIAL_RE
+// (section 6)'s own convention, which anchors on its scheme's first
+// character alone rather than a word boundary. A leading `\b` here is not
+// just redundant, it is actively unsafe: `PROVIDER_SECRET_RE`'s open-ended
+// alternatives (`gh[pousr]_[A-Za-z0-9]{36,255}`, etc.) accept every letter of
+// `https` as valid body characters, so a provider-token-shaped decoy
+// directly abutting a webhook URL with NO delimiter (`ghp_<36+ alnum
+// chars>https://hooks.slack.com/services/...`) makes that alternative's
+// greedy run consume straight through the literal `https`, and the `\b`
+// this pattern used to require right before it is satisfied at the
+// resulting `s`/`:` boundary — so the FULL decoy-plus-`https` span gets
+// redacted as one token, permanently destroying the literal text this
+// pattern anchors on before it ever gets a chance to run. No later pass
+// recognises the surviving `://hooks.slack.com/services/...` residual
+// either. Verified empirically (found by the vuln-scan pass on this diff,
+// not by the original #607 report) — `node -e` reproduction:
+// `"ghp_" + "a".repeat(36) + "https://hooks.slack.com/services/T0/B0/X"`
+// redacts to `[REDACTED]://hooks.slack.com/services/T0/B0/X`, a complete,
+// silent bypass of this entire pass. Dropping the leading `\b` and running
+// this pass BEFORE redactProviderSecrets (see the composite pipeline below)
+// closes it: the webhook URL is claimed on the ORIGINAL text, before any
+// generic bounded-alnum alternative gets a chance to eat into its anchor.
+const SLACK_WEBHOOK_RE = new RegExp(
+  String.raw`https://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9/]+`,
+  "g",
+);
+
+export function redactSlackWebhooks(text) {
+  return text.replace(SLACK_WEBHOOK_RE, `https://hooks.slack.com/${REDACTED}`);
+}
+
+// ---------------------------------------------------------------------------
+// 3. Provider-shaped secret VALUES (redacted regardless of surrounding name)
 // ---------------------------------------------------------------------------
 
 // Each alternative is anchored with a fixed, case-exact provider prefix (real
@@ -182,7 +252,7 @@ export function redactProviderSecrets(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Assignment VALUES for secret-shaped NAMES (name kept, value redacted)
+// 4. Assignment VALUES for secret-shaped NAMES (name kept, value redacted)
 // ---------------------------------------------------------------------------
 
 // Snake form: any identifier ending in _TOKEN / _KEY / _SECRET / _PASSWORD /
@@ -431,7 +501,7 @@ export function redactNamedSecrets(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. HTTP credential-header VALUES — Authorization / Cookie / Set-Cookie
+// 5. HTTP credential-header VALUES — Authorization / Cookie / Set-Cookie
 // ---------------------------------------------------------------------------
 
 // NAME_ALT above never fires on these: the literal identifiers
@@ -492,7 +562,7 @@ export function redactHttpCredentialHeaders(text) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. URL-embedded credentials — the userinfo of scheme://user:pass@host
+// 6. URL-embedded credentials — the userinfo of scheme://user:pass@host
 // ---------------------------------------------------------------------------
 
 // Fires only when the userinfo carries a `:` — i.e. a password component
@@ -501,7 +571,7 @@ export function redactHttpCredentialHeaders(text) {
 // overwhelmingly a plain, non-secret username in real tool output, and
 // redacting it would destroy routing diagnostics for no secrecy gain; a
 // provider-shaped token riding there alone is already PROVIDER_SECRET_RE's
-// job, which ran just above.
+// job, which ran earlier.
 //
 // The username run is `*`, not `+` — `redis://:pass@host` has an EMPTY
 // username, and requiring one leaks that whole shape (the issue's own
@@ -539,49 +609,6 @@ const URL_CREDENTIAL_RE = new RegExp(
 
 export function redactUrlCredentials(text) {
   return text.replace(URL_CREDENTIAL_RE, `$1${REDACTED}@`);
-}
-
-// ---------------------------------------------------------------------------
-// 6. Slack incoming-webhook URLs — a bearer-in-path secret
-//    URL_CREDENTIAL_RE structurally cannot reach
-// ---------------------------------------------------------------------------
-
-// A Slack webhook URL (incoming `/services/`, workflow `/workflows/`, or
-// legacy `/triggers/` — the same three route types gitleaks' own
-// `slack-webhook-url` rule matches) IS the credential: whoever holds the URL
-// can post to it, with no separate userinfo, header, or NAME= assignment
-// riding alongside it for the earlier passes to key off. URL_CREDENTIAL_RE
-// above only fires on a `user:pass@host` userinfo segment; a webhook URL has
-// none, so it rides through that pass untouched no matter where in the
-// pipeline it runs.
-//
-// The host and route-type segment are diagnostic (confirms this was a Slack
-// webhook without saying which one) and dropped along with the secret path
-// rather than preserved piecemeal — unlike URL_CREDENTIAL_RE's host, which
-// stays because it is never part of the credential, every segment after
-// `hooks.slack.com/` here (team, channel/workflow id, and the trailing
-// token) is part of the same bearer capability, so keeping any of it would
-// be a partial leak.
-//
-// Case-exact on the fixed `hooks.slack.com` host (real Slack webhook URLs are
-// always lowercase). The trailing path run is a plain, UNBOUNDED `+` — unlike
-// PROVIDER_SECRET_RE's open-ended alternatives and QUOTED_VALUE_INNER above,
-// which cap length to bound the cost of a NEXT_ASSIGNMENT_LOOKAHEAD-style
-// backtracking retry, nothing follows this character class in the pattern
-// for the engine to backtrack for: a greedy run with no trailing constraint
-// costs exactly one linear consume per match attempt regardless of length,
-// so a length cap here would buy no linearity. It would instead risk the
-// exact partial-leak class this file's other bounds are designed to avoid:
-// capping the run would make it stop redacting partway through a genuinely
-// long webhook path, leaving an unredacted tail with no marker to hint the
-// rest was missed.
-const SLACK_WEBHOOK_RE = new RegExp(
-  String.raw`\bhttps://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9/]+`,
-  "g",
-);
-
-export function redactSlackWebhooks(text) {
-  return text.replace(SLACK_WEBHOOK_RE, `https://hooks.slack.com/${REDACTED}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -625,11 +652,11 @@ export function scrub(text, opts = {}) {
   const home = opts.home ?? homedir();
   let out = text;
   out = redactPemBlocks(out);
+  out = redactSlackWebhooks(out);
   out = redactProviderSecrets(out);
   out = redactNamedSecrets(out);
   out = redactHttpCredentialHeaders(out);
   out = redactUrlCredentials(out);
-  out = redactSlackWebhooks(out);
   out = rewriteHomePaths(out, home);
   out = truncateScrubbed(out);
   return out;

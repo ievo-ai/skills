@@ -1330,6 +1330,29 @@ describe("scrub", () => {
     );
   });
 
+  it("redacts a webhook URL directly abutting a provider-token decoy with no delimiter (skills#610)", () => {
+    // /ievo:vuln-scan finding on this diff: PROVIDER_SECRET_RE's open-ended
+    // alternatives (e.g. gh[pousr]_[A-Za-z0-9]{36,255}) accept every letter
+    // of "https" as a body character, so a decoy token glued directly to a
+    // webhook URL with NO delimiter used to let redactProviderSecrets
+    // consume straight through the "https" literal SLACK_WEBHOOK_RE anchors
+    // on — destroying the anchor before redactSlackWebhooks ever saw it,
+    // regardless of pipeline order, since SLACK_WEBHOOK_RE used to require a
+    // leading \b right before "https" too. Fixed by (a) dropping that
+    // leading \b (SLACK_WEBHOOK_RE now anchors purely on the literal
+    // "https://hooks.slack.com/..." text, matching URL_CREDENTIAL_RE's own
+    // no-\b convention) and (b) running redactSlackWebhooks BEFORE
+    // redactProviderSecrets in the composite pipeline, so the webhook claims
+    // its match on the original text first.
+    const decoy = `ghp_${"a".repeat(36)}`;
+    const out = scrub(
+      `${decoy}https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+      { home: FAKE_HOME },
+    );
+    assert.equal(out, `${REDACTED}://hooks.slack.com/${REDACTED}`);
+    assert.doesNotMatch(out, /T00000000|B00000000|X{5}/);
+  });
+
   it("redacts a PEM block fully even when it straddles the truncation boundary", () => {
     // Redaction runs before truncation (see the pipeline-order test above),
     // so no armor fragment — marker or body — can survive the cutoff.

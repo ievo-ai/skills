@@ -89,6 +89,7 @@ positive integer, so validate strictly and refuse rather than build the
 `gh pr diff` command from an unchecked value:
 
 ```bash
+PR_NUMBER="<N>"
 if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
   echo "Error: PR number must be a positive integer — got '$PR_NUMBER'." >&2
   exit 1

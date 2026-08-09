@@ -79,8 +79,21 @@ If no diff exists (clean branch), inform the user and suggest `--module` or `--f
 
 **--pr N**:
 
+**Validate the PR number before it is interpolated into the command.** This
+mirrors the `BASE_BRANCH` validation above: whatever supplies `<N>` — a human
+typing it directly, or a scripted/automated trigger extracting a PR number
+out of a less-trusted source such as an issue or comment body — must not be
+able to smuggle shell syntax into a literal Bash command line. Unlike a git
+ref, a PR number has no legitimate reason to be anything other than a bare
+positive integer, so validate strictly and refuse rather than build the
+`gh pr diff` command from an unchecked value:
+
 ```bash
-gh pr diff <N> --name-only
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+  echo "Error: PR number must be a positive integer — got '$PR_NUMBER'." >&2
+  exit 1
+fi
+gh pr diff "$PR_NUMBER" --name-only
 ```
 
 **--module path**: use the path directly. Verify it exists.

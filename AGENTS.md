@@ -183,7 +183,7 @@ Every shipped version gets an entry in **`CHANGELOG.md` at the repo root** — r
 
 If a function is genuinely impossible to test in isolation (e.g., network call to live skills.sh API), mock it in tests + add an integration test gated behind `INTEGRATION=1` env var.
 
-**Current compliance ledger (v0.80.5):**
+**Current compliance ledger (v0.80.6):**
 - ✅ `validate_agents.mjs` — 100 / 100 / 100. Literal coverage on every axis is enforced by `.github/workflows/coverage-gate.yml`.
 - ✅ `discover.mjs` — 100 / 100 / 100. Same gate as above.
 - ✅ `scan_repo.mjs` — 100 / 100 / 100. Carve-out cleared in v0.6.7 (the HARD STOP from v0.6.6). The 6-phase test landing followed the v0.6.1 isCliEntry / execImpl pattern from `discover.mjs`: `export` refactor, pure-function tests, execImpl-injected git-call tests, integration tests with on-disk fixtures, main() end-to-end, then gap-fill nullish-coalescing and ternary false-branches.
@@ -253,8 +253,11 @@ elsewhere) that opens one, not a retroactive fix for PRs already merged without
 the footer. The PR-facing paths that do exist only *read* PR data — e.g.
 `review-retrospective` (`gh pr view`, then read-only `gh api .../pulls/<n>/…`
 calls in the sub-agent; it stops unless the PR is `MERGED`) and
-`/ievo:vuln-scan --pr <N>` (`gh pr diff <N> --name-only`, `commands/vuln-scan.md`,
-which resolves an *open* PR's changed files). Treat that list as illustrative,
+`/ievo:vuln-scan --pr <N>` (checks `<N>` against `^[0-9]+$` *before emitting
+any Bash*, then inlines the literal digits into `gh pr diff <N> --name-only`,
+`commands/vuln-scan.md`, which resolves an *open* PR's changed files —
+a bash-side guard would be too late, since a double-quoted assignment expands
+`$(…)` before the regex on the next line runs). Treat that list as illustrative,
 not exhaustive: re-grep for `gh pr `/`gh api .*pulls` before relying on it.
 
 ### Issue lifecycle — Eva-brokered (D-004 Phase 2, skills#271/#277)

@@ -253,9 +253,11 @@ elsewhere) that opens one, not a retroactive fix for PRs already merged without
 the footer. The PR-facing paths that do exist only *read* PR data — e.g.
 `review-retrospective` (`gh pr view`, then read-only `gh api .../pulls/<n>/…`
 calls in the sub-agent; it stops unless the PR is `MERGED`) and
-`/ievo:vuln-scan --pr <N>` (validates `<N>` against `^[0-9]+$` before running
-`gh pr diff "$PR_NUMBER" --name-only`, `commands/vuln-scan.md`, which resolves
-an *open* PR's changed files). Treat that list as illustrative,
+`/ievo:vuln-scan --pr <N>` (checks `<N>` against `^[0-9]+$` *before emitting
+any Bash*, then inlines the literal digits into `gh pr diff <N> --name-only`,
+`commands/vuln-scan.md`, which resolves an *open* PR's changed files —
+a bash-side guard would be too late, since a double-quoted assignment expands
+`$(…)` before the regex on the next line runs). Treat that list as illustrative,
 not exhaustive: re-grep for `gh pr `/`gh api .*pulls` before relying on it.
 
 ### Issue lifecycle — Eva-brokered (D-004 Phase 2, skills#271/#277)

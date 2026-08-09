@@ -111,7 +111,14 @@ regex on the next line then dutifully rejects a value the attacker no longer
 needs. That is what distinguishes `<N>` from `BASE_BRANCH` above — that value
 is *produced* at runtime by `$(git …)`/`$(gh …)` and lands in a variable, and
 bash does not re-expand a variable's value, so a guard on it does run before
-the value is ever used as syntax.
+the value is ever used as syntax **for as long as it stays a variable, inside
+the one Bash call that produced it**. Split that call and the distinction
+disappears: as the `--diff` block above warns, the variable does not survive,
+the branch name has to be re-embedded as literal text, and it is then command
+text parsed before any guard in the new call can run — "exactly as dangerous
+as it was in the first", i.e. exactly `<N>`'s problem. So keep `BASE_BRANCH`'s
+guard and the `"origin/$BASE_BRANCH"` use it protects in a single call, as the
+block above does.
 
 **--module path**: use the path directly. Verify it exists.
 

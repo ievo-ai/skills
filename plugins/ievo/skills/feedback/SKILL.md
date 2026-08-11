@@ -196,7 +196,23 @@ If a recent `.ievo/log/init-*.md` exists, ask the user once:
 If user picks `Attach`:
 - Read the most recent `.ievo/log/init-*.md` (sort filenames lexicographically, take last).
 - Cap at 16KB. If the log is larger, truncate from the middle with a `... <truncated N bytes> ...` marker so head + tail are preserved.
-- Hold the log content for inclusion in the body in step 4.
+- **Fence containment.** The log's "Candidates after dedup + ranking" table
+  (`init/references/log-format.md` § Section 5) embeds a discovered
+  candidate's `name`/`description` verbatim — untrusted content sourced from
+  the public, externally-writable skills.sh API / Codex marketplace catalog
+  (see `index-repos/SKILL.md` Step 2's own reasoning for why that source is
+  untrusted), not charset-validated until actual install time
+  (`init/references/install-protocol.md`), so the log can still plausibly
+  contain a literal triple-backtick run. Since Step 4 embeds the log content
+  inside a fenced code span, before writing it: scan the log content for the
+  longest run of consecutive backticks it contains, and fence the block with
+  a backtick run **one character longer** than that (minimum 3, i.e. plain
+  ` ``` ` when no backtick run is present) — so an embedded triple-backtick
+  can never close the fence early and let the remainder render as live
+  Markdown/HTML in the public issue. Same containment principle as Step
+  3.9's own "Fence containment" note below, applied to this block.
+- Hold the log content, and the fence length it needs, for inclusion in the
+  body in step 4.
 
 If user picks `Don't attach` or no log exists, skip.
 
@@ -303,9 +319,11 @@ removes Step 5's Submit/Cancel confirmation, on this report or any other.
 <details>
 <summary>Attached: /ievo:init run log</summary>
 
-```markdown
+<fence with a `markdown` language tag, using a backtick run one character
+longer than the longest backtick run found in the log content below — plain
+triple backtick when none is found (Step 3.85's "Fence containment" rule)>
 <contents of the latest .ievo/log/init-*.md, truncated to 16KB if needed>
-```
+<matching closing fence>
 
 </details>
 
@@ -362,9 +380,11 @@ recommendation quality (both for iEvo and upstream skills.sh).
 <details>
 <summary>Attached: /ievo:init run log</summary>
 
-```markdown
+<fence with a `markdown` language tag, using a backtick run one character
+longer than the longest backtick run found in the log content below — plain
+triple backtick when none is found (Step 3.85's "Fence containment" rule)>
 <contents of the latest .ievo/log/init-*.md, truncated to 16KB if needed>
-```
+<matching closing fence>
 
 </details>
 ````

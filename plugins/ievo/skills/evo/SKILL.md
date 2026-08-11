@@ -36,7 +36,7 @@ If the `evolution` sub-agent is available, delegate via Task tool with `subagent
 
 When the capture is one of the **first-party programmatic hand-offs** Step 1's verbatim-authorship carve-out names (`/ievo:feedback` Step 7.5, `/ievo:extract-best-practices` Step 6), say so in the dispatch — name the calling skill and step alongside the lesson. The sub-agent sees only the text, so it cannot otherwise tell iEvo-generated content from something the user pasted in, and its own copy of that carve-out is fail-closed: an unattributed dispatch is gated as user-supplied text.
 
-**When the sub-agent reports an authorship `SKIPPED`,** run Step 1's own "If flagged" branch here, in the main session, on its behalf. Its Step 1 gate flags the same signals yours would, but it holds no `AskUserQuestion`, so all it can do is report the verdict and stop — you have that tool, and the false-positive argument for asking rather than refusing is identical on this path. Put the same one question to the user, naming the signals the sub-agent reported (it names them from the same fixed list, never quoting the lesson text). On `Capture anyway`, **re-dispatch** the same lesson, stating in the dispatch that the user was shown the authorship flag and confirmed the wording is their own — the same way first-party hand-off provenance is stated above. Because that gate runs at the end of the sub-agent's Step 1, before it vendors anything or injects any marker, the refused dispatch left nothing on disk, so the re-dispatch is a clean start and not a resumption. On `Skip`, pass the sub-agent's `SKIPPED` line through as Step 6's report. This mirrors Steps 5.6/5.65/5.7, where the sub-agent judges and you run the main-session interaction on its verdict.
+**When the sub-agent reports an authorship `SKIPPED`,** run Step 1's own "If flagged" branch here, in the main session, on its behalf. Its Step 1 gate flags the same signals yours would, but it holds no `AskUserQuestion`, so all it can do is report the verdict and stop — you have that tool, and the false-positive argument for asking rather than refusing is identical on this path. Put the same one question to the user, naming the signals the sub-agent reported (it names them from the same fixed list, never quoting the lesson text) — except on Step 0's backlog path, where that branch's "park and consume, don't ask" rule governs instead and the sub-agent's flag needs no question at all. On `Capture anyway`, **re-dispatch** the same lesson, stating in the dispatch that the user was shown the authorship flag and confirmed the wording is their own — the same way first-party hand-off provenance is stated above. Because that gate runs at the end of the sub-agent's Step 1, before it vendors anything or injects any marker, the refused dispatch left nothing on disk, so the re-dispatch is a clean start and not a resumption. On `Skip`, pass the sub-agent's `SKIPPED` line through as Step 6's report. This mirrors Steps 5.6/5.65/5.7, where the sub-agent judges and you run the main-session interaction on its verdict.
 
 **One exception — never delegate a platform-mismatch self-check handoff.** When
 the caller passed Trigger `agent self-correction: platform-detection mismatch`
@@ -202,7 +202,8 @@ not this one).
 **Carve-out — first-party programmatic hand-offs.** The heuristic above reads
 *register* as a proxy for *provenance*, which only holds when the lesson text
 reached this skill as the user's own input — typed in this session, or taken
-from an auto-evolution candidate (Step 0) that captured their words. Four
+from an auto-evolution **correction** candidate (Step 0) that captured their
+words verbatim (`correction-capture.sh`). Four
 bundled call sites, on the three hand-off paths below, instead **generate**
 the lesson text themselves and hand it over pre-filled; their provenance is
 already known first-party, so the proxy misfires on all of them. Skip this
@@ -241,6 +242,22 @@ including one added later, is treated as user-supplied text and gated
 normally. A caller does not exempt itself by asserting its own
 trustworthiness — being named here is the only exemption, so the default for
 anything unrecognized is to gate.
+
+**Step 0's backlog path — park and consume, don't ask.** Not a fifth call
+site: Step 0's own reconciliation constraint already fixes the disposition of
+an **agent/skill-scoped** auto-evolution candidate — park it in
+`.ievo/evolution-candidates/pending.md` rather than write the overlay — so
+this gate's verdict cannot change what lands on disk there, and there is no
+question worth putting to the user. Do not run the `AskUserQuestion` below for
+one; on a flag, park **and consume** the candidate exactly as Step 0 says,
+rather than treating it as a bare skip that leaves the entry in its session
+`.jsonl` for every later SessionStart nudge to re-count. The human restates it
+when they act on the parked entry, and *that* capture is gated normally. A
+`scope: tool-failure` candidate is the case that makes this concrete:
+`failure-capture.sh` writes a scrubbed one-line machine record of a tool
+failure or denial, so it reads as pasted log output every time — it is neither
+the user's words nor a third party's, and flagging it costs nothing because
+the disposition is the same either way.
 
 **If flagged, for agent/skill scope: ask, don't refuse.** A heuristic over
 *register* has a real false-positive rate, and the input it misjudges most is

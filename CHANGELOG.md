@@ -6,6 +6,13 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.7
+
+Closes an Eva vuln-scan finding (skills#614): `feedback/SKILL.md`'s init-log attachment (Step 3.85 / Step 4) embedded the attached `.ievo/log/init-*.md` content inside a fixed ` ```markdown ` fence, with no dynamic backtick-run sizing (CWE-79, rendering-only — GitHub Issues renders Markdown, not stored XSS into app state).
+
+- **`feedback/SKILL.md`** — Step 3.85 now carries the same "Fence containment" rule Step 3.9 already applies to the sibling tool-failure-record attachment: before writing the log content, scan it for the longest run of consecutive backticks and fence the block with a run one character longer than that (minimum 3), holding the computed fence length for Step 4. Both Step 4 templates that embed the attached log — Flow A (bug reports) and Flow B (skill-rejection feedback, the primary trigger route per Step 3.85's own header) — now describe this dynamic fence instead of a hardcoded ` ```markdown ` literal, closing the vulnerability in both flows rather than only the one the issue's file:line citation pointed at.
+- **Why this mattered:** the log's "Candidates after dedup + ranking" table embeds a discovered skill/plugin candidate's `name`/`description` verbatim — untrusted text sourced from the public, externally-writable skills.sh API / Codex marketplace catalog, not charset-validated until actual install time. A backtick run of length ≥3 in a crafted candidate name could prematurely close the fixed fence once the log was attached and the resulting issue filed publicly via `gh issue create`, letting the remainder render as live Markdown/HTML (an exfiltration beacon or spoofed link) the moment anyone viewed the issue.
+
 ## v0.80.6
 
 Closes an Eva vuln-scan finding (skills#606): `commands/vuln-scan.md`'s `--pr N` scope resolution built `gh pr diff <N> --name-only` straight from the user-supplied PR number, with no validation (CWE-78).

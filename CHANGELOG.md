@@ -6,6 +6,18 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.9
+
+Closes an Eva vuln-scan finding (skills#613): `evolution.md`'s Step 4 overlay-append and Step 4.6/4.65 upstream-escalation reporting captured lesson text with no excerpt-containment fencing or third-party-provenance check (CWE-1427, plus a CWE-79-class public-issue-posting risk on the escalation path).
+
+- **New Step 3.5 — lesson-text provenance classification** — before Step 4 appends anything, a cheap signal-word heuristic (blockquote markers, attribution phrasing, "quoting the review/comment" framing) classifies the incoming lesson text as human-authored or a copy/pasted third-party excerpt. A third-party excerpt is refused outright — no overlay write, no Step 4.4-4.7 — since the overlay is read live as authoritative instructions on every future dispatch of the target agent/skill, and a fenced excerpt is still text an LLM reading raw Markdown source can act on. This closes the "standing instruction" half of the finding; excerpt-containment fencing alone (below) does not.
+- **Step 4's `<full lesson text — verbatim>` template** — scans the (now provenance-cleared) lesson text for Markdown link/image syntax (`![...](...)`/`[...](...)`) and wraps each matched span in its own backtick-run code fence — same sizing/padding/CR-LF-collapse mechanics as Step 5's existing "Excerpt containment" note, applied per-span rather than to a whole excerpt — before writing to `.ievo/evolution/<scope>/<name>.md`, since the overlay file itself can later be rendered as Markdown wherever it's viewed (a GitHub file view, `/ievo:overlay-status`, a `/ievo:consolidate` pass).
+- **Step 4.6/4.65's `verbatim lesson text` report fields** — same per-span wrapping applied before the text is handed back to the caller for a possible `/ievo:feedback` hand-off, which posts to a public GitHub issue — the same posting-surface risk `security-auditor.md` already fences for its own `report_template.body`.
+- **Step 5 report** — new `SKIPPED` template for the Step 3.5 refusal case, alongside the existing symlink- and re-audit-refusal templates.
+- **Rules** — "Verbatim user text" now scoped to lesson text Step 3.5 actually classified as human-authored; a new rule states that the provenance check and the excerpt-containment fencing guard different halves of the same risk (standing-instruction injection vs. live-render exfiltration) and neither substitutes for the other.
+- **Scope** — `plugins/ievo/agents/evolution.md` only, per the issue's own scoping. The issue's secondary suggestion (have `evo/SKILL.md`'s escalation offer warn when a lesson traces back to a `review-retrospective` cluster finding) is left as optional follow-up, not required for the core fix.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.8 → 0.80.9, next free slot per AGENTS.md's version-bump race convention).
+
 ## v0.80.8
 
 Closes an Eva vuln-scan finding (skills#612): `scrub.mjs`'s `ASSIGNMENT_RE` and `HTTP_CRED_HEADER_RE` completely skipped an underscore-prefixed secret-shaped name (CWE-184, closely related to CWE-522/CWE-200 for impact).

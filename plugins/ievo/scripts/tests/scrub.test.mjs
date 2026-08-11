@@ -329,6 +329,39 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
   });
 
+  it("redacts an underscore-prefixed secret-shaped NAME (skills#612)", () => {
+    // \b treats `_` as the same word class as a letter/digit, so the old
+    // leading `\b(${NAME_ALT})\b` never fired a boundary between a leading
+    // `_` and the secret-shaped name right after it — the whole assignment
+    // rode through unredacted. NAME_ALT's own leading character class
+    // already excludes `_` from the matched name itself, so this is purely a
+    // boundary gap, not a name-grammar one.
+    assert.equal(redactNamedSecrets("_authToken=hunter2superSecret"), "_authToken=[REDACTED]");
+    assert.equal(
+      redactNamedSecrets('_password = "hunter2superSecret"'),
+      '_password = "[REDACTED]"',
+    );
+    assert.equal(redactNamedSecrets("__SECRET_KEY=abcdef123456"), "__SECRET_KEY=[REDACTED]");
+
+    // The real .npmrc shape the issue was filed against — a live
+    // reproduction against the pre-fix source returned this byte-for-byte
+    // unredacted.
+    const npmrc = `//registry.npmjs.org/:_authToken=npm_${"X".repeat(36)}`;
+    const out = redactNamedSecrets(npmrc);
+    assert.equal(out, "//registry.npmjs.org/:_authToken=[REDACTED]");
+    assert.doesNotMatch(out, /npm_X/);
+  });
+
+  it("does not widen the trailing boundary for an underscore-prefixed run (skills#612)", () => {
+    // The fix only touches the LEADING edge. An underscore-prefixed run
+    // whose suffix still isn't terminal (more identifier characters follow
+    // the secret-shaped suffix word) must stay a non-match, exactly as the
+    // un-prefixed form already does (see "does not treat a camel suffix
+    // followed by more identifier characters as secret-shaped" above).
+    const text = "_authTokenValue=diagnostic";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
   it("redacts a camelCase suffix-shaped name at a lower→upper transition (skills#557)", () => {
     assert.equal(redactNamedSecrets("authToken=abc123def456xyz789"), "authToken=[REDACTED]");
     assert.equal(redactNamedSecrets("refreshToken=abcdefghijklmnop1234567890"), "refreshToken=[REDACTED]");
@@ -833,6 +866,23 @@ describe("redactHttpCredentialHeaders", () => {
     assert.equal(
       redactHttpCredentialHeaders("authorization_token=abc123"),
       "authorization_token=abc123",
+    );
+  });
+
+  it("redacts an underscore-prefixed header name — same leading-boundary fix as ASSIGNMENT_RE (skills#612)", () => {
+    // Applied for consistency alongside ASSIGNMENT_RE's fix, even though none
+    // of Authorization/Cookie/Set-Cookie has a common underscore-prefixed
+    // spelling in the wild — the same `\b`-treats-`_`-as-a-word-char gap
+    // applied here too.
+    assert.equal(
+      redactHttpCredentialHeaders("_Authorization: Bearer abc123"),
+      "_Authorization: [REDACTED]",
+    );
+    // The preceding-letter/digit block (MyAuthorization above) is unchanged —
+    // only a literal underscore right before the name is now a real separator.
+    assert.equal(
+      redactHttpCredentialHeaders("MyAuthorization: Bearer abc123"),
+      "MyAuthorization: Bearer abc123",
     );
   });
 

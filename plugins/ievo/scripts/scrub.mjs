@@ -42,7 +42,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.80.7";
+export const SCRIPT_VERSION = "0.80.8";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -397,8 +397,25 @@ const QUOTED_VALUE_INNER = String.raw`(?:[^\r\n\\]|\\[^\r\n]){0,${QUOTED_VALUE_M
 // assignments on one line ("A_TOKEN=\"one\" B_SECRET=\"two\"") still redact
 // independently instead of the first value's match spanning into the second,
 // while a quote interior to the value no longer ends it early.
+//
+// The LEADING boundary is `(?<![A-Za-z0-9])`, not `\b`: `\b` treats `_` as
+// the same word class as a letter/digit, so it never fires between a
+// preceding `_` and the secret-shaped name that follows — an underscore-
+// prefixed identifier (`_authToken=`, `_password=`, `__SECRET_KEY=`, the real
+// `.npmrc` shape `//registry.npmjs.org/:_authToken=npm_xxxx`) skipped
+// ASSIGNMENT_RE entirely, even though NAME_ALT's own leading character class
+// already excludes `_` from the matched name itself (skills#612). This only
+// changes behaviour when the identifier-shaped run NAME_ALT is scanning
+// STARTS with one or more underscores: every such run's first character is
+// otherwise either a letter/digit (where `\b` already fired trivially, same
+// as the lookbehind does, so ordinary prose and every other existing case
+// are unaffected) or the very start of the input. The trailing `\b` and
+// every suffix-grammar rule above (case-exactness, the lower→upper camel
+// transition, the acronym-run exclusion) are untouched — this widens only
+// which character may precede the match, never what the match itself may
+// contain.
 const ASSIGNMENT_RE = new RegExp(
-  String.raw`\b(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])(${QUOTED_VALUE_INNER})\4${QUOTED_VALUE_CLOSE}|(${UNQUOTED_VALUE})|(${MALFORMED_QUOTED_VALUE}))`,
+  String.raw`(?<![A-Za-z0-9])(${NAME_ALT})\b(["']?)(\s*[:=]\s*)(?:(["'])(${QUOTED_VALUE_INNER})\4${QUOTED_VALUE_CLOSE}|(${UNQUOTED_VALUE})|(${MALFORMED_QUOTED_VALUE}))`,
   "g",
 );
 
@@ -458,8 +475,15 @@ const HTTP_CRED_HEADER_NAME = String.raw`Authorization|Set-Cookie|Cookie`;
 // once per header occurrence, for O(line length) each, with no per-position
 // re-scan the way the pre-fix MALFORMED_QUOTED_VALUE had. Pinned by its own
 // linearity test alongside the existing ones.
+//
+// Same underscore-boundary fix as ASSIGNMENT_RE's leading edge above
+// (skills#612), applied here for consistency even though none of the three
+// header names has a common underscore-prefixed spelling in the wild: the
+// leading `(?<![A-Za-z0-9])` still blocks an immediately-preceding
+// letter/digit (MyAuthorization stays a non-match, same as `\b` gave), but no
+// longer misses a name reachable only past a preceding `_`.
 const HTTP_CRED_HEADER_RE = new RegExp(
-  String.raw`\b(${HTTP_CRED_HEADER_NAME})\b(["']?)(\s*:\s*)(?:(["'])(${QUOTED_VALUE_INNER})\4${QUOTED_VALUE_CLOSE}|([^\r\n]+))`,
+  String.raw`(?<![A-Za-z0-9])(${HTTP_CRED_HEADER_NAME})\b(["']?)(\s*:\s*)(?:(["'])(${QUOTED_VALUE_INNER})\4${QUOTED_VALUE_CLOSE}|([^\r\n]+))`,
   "gi",
 );
 

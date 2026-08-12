@@ -329,6 +329,58 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
   });
 
+  it("redacts a kebab-case suffix-shaped NAME (skills#620)", () => {
+    // Azure OpenAI/Cognitive Services' real, documented auth header is
+    // exactly this shape — lowercase, hyphenated, no underscore or
+    // camelCase case-transition for the snake/camelCase alternatives to
+    // catch. Verified against the shipped pre-fix source: none of the three
+    // prior NAME_ALT alternatives matched `api-key`.
+    assert.equal(redactNamedSecrets("api-key=1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"), "api-key=[REDACTED]");
+    assert.equal(redactNamedSecrets("client-secret: xyz"), "client-secret: [REDACTED]");
+    assert.equal(redactNamedSecrets("access-token=abc123"), "access-token=[REDACTED]");
+    assert.equal(redactNamedSecrets("db-password=hunter2"), "db-password=[REDACTED]");
+    assert.equal(redactNamedSecrets("user-id=42"), "user-id=[REDACTED]");
+  });
+
+  it("is case-insensitive on a kebab-case NAME (skills#620)", () => {
+    assert.equal(redactNamedSecrets("API-KEY=hunter2"), "API-KEY=[REDACTED]");
+    assert.equal(redactNamedSecrets("Api-Key=hunter2"), "Api-Key=[REDACTED]");
+  });
+
+  it("redacts the whole compound identifier on a multi-hyphen kebab NAME (skills#620)", () => {
+    // Mirrors the multi-underscore snake case (AWS_SECRET_ACCESS_KEY): the
+    // repeated `[A-Za-z0-9-]*` run lets the name span several hyphenated
+    // words before the terminal suffix.
+    assert.equal(
+      redactNamedSecrets("my-api-secret-key=abc123def456"),
+      "my-api-secret-key=[REDACTED]",
+    );
+  });
+
+  it("fires on the api-key tail of a compound header name like x-api-key (skills#620)", () => {
+    // Same non-word-character boundary that lets `Proxy-Authorization` match
+    // on its `Authorization` tail (see redactHttpCredentialHeaders below) —
+    // a hyphen isn't a word character, so the leading `(?<![A-Za-z0-9])`
+    // check is satisfied right before `api-key` inside `x-api-key` too. This
+    // incidentally also closes the common `x-api-key` header shape (AWS API
+    // Gateway and many SaaS providers' default), not just bare `api-key`.
+    assert.equal(redactNamedSecrets("x-api-key: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"), "x-api-key: [REDACTED]");
+  });
+
+  it("does not treat a kebab suffix followed by more identifier characters as secret-shaped", () => {
+    // Parity with the snake/camel forms — the suffix must be terminal.
+    const text = "api-key-name=diagnostic client-secret-name: rotation";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
+  it("does not redact an ordinary hyphenated word that merely ends in a suffix word (accepted trade-off)", () => {
+    // Same class of over-redaction trade-off the snake/camel alternatives
+    // already accept (e.g. USER_ID) — a compound identifier that happens to
+    // end in a suffix word gets its value redacted even when it isn't a
+    // secret. Fail-closed by design, not a regression specific to kebab.
+    assert.equal(redactNamedSecrets("primary-key=42"), "primary-key=[REDACTED]");
+  });
+
   it("redacts an underscore-prefixed secret-shaped NAME (skills#612)", () => {
     // \b treats `_` as the same word class as a letter/digit, so the old
     // leading `\b(${NAME_ALT})\b` never fired a boundary between a leading
@@ -402,6 +454,19 @@ describe("redactNamedSecrets", () => {
     assert.equal(
       redactNamedSecrets("authToken=one AUTH_TOKEN=two"),
       "authToken=[REDACTED] AUTH_TOKEN=[REDACTED]",
+    );
+  });
+
+  it("splits back-to-back kebab-case assignments on one line independently (skills#620)", () => {
+    // Same NEXT_ASSIGNMENT_LOOKAHEAD requirement as the camelCase case above,
+    // now for the kebab grammar, including a mixed snake/kebab pairing.
+    assert.equal(
+      redactNamedSecrets("api-key=one client-secret=two"),
+      "api-key=[REDACTED] client-secret=[REDACTED]",
+    );
+    assert.equal(
+      redactNamedSecrets("AUTH_TOKEN=one api-key=two"),
+      "AUTH_TOKEN=[REDACTED] api-key=[REDACTED]",
     );
   });
 
@@ -903,6 +968,32 @@ describe("redactHttpCredentialHeaders", () => {
     );
   });
 
+  it("redacts Azure's real api-key header, its own value grammar (skills#620)", () => {
+    // The exploit chain the issue reports: `curl -H "api-key: <value>"` —
+    // Azure OpenAI/Cognitive Services' documented, lowercase, hyphenated
+    // auth header. Previously matched neither NAME_ALT (fixed above, for the
+    // redactNamedSecrets pass) nor HTTP_CRED_HEADER_NAME.
+    assert.equal(
+      redactHttpCredentialHeaders("api-key: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"),
+      "api-key: [REDACTED]",
+    );
+    assert.equal(redactHttpCredentialHeaders("API-Key: abc123"), "API-Key: [REDACTED]");
+    assert.equal(
+      redactHttpCredentialHeaders('{"api-key": "abc123", "other": "value"}'),
+      '{"api-key": "[REDACTED]", "other": "value"}',
+    );
+  });
+
+  it("redacts the api-key tail of a compound header name like x-api-key (skills#620)", () => {
+    // Same non-word-character boundary as the Proxy-Authorization case
+    // above — `-` isn't a word character, so the leading boundary check is
+    // satisfied right before `api-key` inside `x-api-key` too.
+    assert.equal(
+      redactHttpCredentialHeaders("x-api-key: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"),
+      "x-api-key: [REDACTED]",
+    );
+  });
+
   it("stays linear on a long whitespace-free unquoted value (no quadratic blowup)", () => {
     const input = `Authorization: ${"a".repeat(50_000)}`;
     const started = process.hrtime.bigint();
@@ -1248,6 +1339,30 @@ describe("scrub", () => {
     assert.equal(
       scrub("Cookie: session=abc123; csrftoken=xyz789\ndone", { home: FAKE_HOME }),
       `Cookie: ${REDACTED}\ndone`,
+    );
+  });
+
+  it("redacts the issue's exact exploit chain via the composite pipeline (skills#620)", () => {
+    // A captured `curl -H "api-key: <value>"` call — Azure OpenAI/Cognitive
+    // Services' real, documented auth header — previously survived scrub()'s
+    // full pipeline unredacted (verified against the pre-fix source: none of
+    // redactPemBlocks/redactProviderSecrets/redactNamedSecrets/
+    // redactHttpCredentialHeaders/redactUrlCredentials matched it).
+    const azureKey = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d";
+    const out = scrub(`curl -H "api-key: ${azureKey}"\ndone`, { home: FAKE_HOME });
+    // The trailing curl-quote is swallowed into the redacted span — same
+    // documented "undelimited trailing tail" trade-off as every other
+    // unquoted-value case in this file (no comma/semicolon/CRLF between the
+    // value and the closing `"` for UNQUOTED_VALUE to stop at). What matters
+    // for this fix is that the real secret is gone.
+    assert.equal(out, `curl -H "api-key: ${REDACTED}\ndone`);
+    assert.doesNotMatch(out, new RegExp(azureKey));
+
+    // The issue's second exploit shape: a JSON body carrying an `api-key`
+    // field.
+    assert.equal(
+      scrub(`{"api-key": "${azureKey}"}`, { home: FAKE_HOME }),
+      `{"api-key": "${REDACTED}"}`,
     );
   });
 

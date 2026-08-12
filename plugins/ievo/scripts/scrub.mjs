@@ -42,7 +42,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.80.9";
+export const SCRIPT_VERSION = "0.80.10";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -56,10 +56,11 @@ Usage:
 
 Redacts PEM-armored private-key blocks, provider-shaped secret values
 (GitHub/OpenAI/Slack/AWS/Stripe tokens, JWTs), secret-shaped NAME=value / NAME: value
-assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, camelCase equivalents
-like authToken/clientSecret/accessKeyId, bare PASSWORD/SECRET/TOKEN/APIKEY/
-API_KEY), HTTP credential-header values (Authorization/Cookie/
-Set-Cookie), URL-embedded credentials (scheme://user:pass@host), rewrites
+assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, kebab-case equivalents
+like api-key/client-secret/access-token, camelCase equivalents like
+authToken/clientSecret/accessKeyId, bare PASSWORD/SECRET/TOKEN/APIKEY/
+API_KEY), HTTP credential-header values (Authorization/Cookie/Set-Cookie/
+api-key), URL-embedded credentials (scheme://user:pass@host), rewrites
 $HOME-absolute paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
 Unicode code points. Never writes a file; on any internal error emits nothing
 and exits 0 (fail-closed for content).`;
@@ -166,9 +167,16 @@ export function redactProviderSecrets(text) {
 // ---------------------------------------------------------------------------
 
 // Snake form: any identifier ending in _TOKEN / _KEY / _SECRET / _PASSWORD /
-// _ID, any casing (e.g. AWS_SECRET_ACCESS_KEY, db_password). camelCase form:
-// the same suffix words as a capitalized word at a lower→upper case
-// transition instead of an underscore (authToken, clientSecret, accessKeyId,
+// _ID, any casing (e.g. AWS_SECRET_ACCESS_KEY, db_password). Kebab form: the
+// same suffix words with a hyphen in place of the underscore, any casing
+// (api-key, client-secret, access-token, db-password) — Azure OpenAI/
+// Cognitive Services' real, documented `api-key` auth header is exactly this
+// shape, and previously matched neither the snake form (a hyphen isn't in
+// its `[A-Za-z0-9_]` character class) nor the camelCase form below (no
+// lower→upper case transition in an all-lowercase hyphenated name); found by
+// Eva's `/ievo:vuln-scan` dogfooding (skills#620). camelCase form: the same
+// suffix words as a capitalized word at a lower→upper case transition
+// instead of an underscore (authToken, clientSecret, accessKeyId,
 // secretAccessKey — the JS/Node SDK spelling of the same secret-shaped
 // names; skills#557). Bare form: the handful of unsuffixed names that are
 // secret-shaped on their own, any casing (APIKEY has no underscore before
@@ -176,8 +184,8 @@ export function redactProviderSecrets(text) {
 // listed for clarity) — this is also what covers plain camelCase `apiKey`:
 // the whole identifier case-folds to APIKEY, no case transition needed.
 //
-// One suffix list drives both the snake and camelCase spellings so the two
-// alternatives cannot drift apart.
+// One suffix list drives the snake, kebab, and camelCase spellings so the
+// three alternatives cannot drift apart.
 const SECRET_SUFFIXES = ["TOKEN", "KEY", "SECRET", "PASSWORD", "ID"];
 const BARE_SECRET_NAMES = ["PASSWORD", "SECRET", "TOKEN", "APIKEY", "API_KEY"];
 
@@ -200,7 +208,7 @@ function titleCase(literal) {
   return literal[0] + literal.slice(1).toLowerCase();
 }
 
-// The snake and camelCase alternatives' leading character class is
+// The snake, kebab, and camelCase alternatives' leading character class is
 // [A-Za-z0-9], not just [A-Za-z] — a digit-leading name (2FA_TOKEN,
 // 1PASSWORD_SERVICE_ACCOUNT_TOKEN) is a realistic secret-shaped identifier,
 // and ASSIGNMENT_RE's \b can't recover a match starting mid-identifier:
@@ -229,6 +237,15 @@ function titleCase(literal) {
 const CAMEL_SUFFIXES = [...SECRET_SUFFIXES.map(titleCase), "ID"];
 const NAME_ALT = [
   String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
+  // Kebab form: same suffix list, hyphen in place of underscore. No boundary
+  // changes needed of its own — ASSIGNMENT_RE's leading edge is already
+  // `(?<![A-Za-z0-9])` (skills#612), which already treats a hyphen exactly
+  // like the underscore case it was fixed for, so a hyphen-prefixed name
+  // (`-api-key=`) is caught for free, and the same non-word-character
+  // boundary lets a compound header like `x-api-key` match on its `api-key`
+  // tail the same way `Proxy-Authorization` matches on `Authorization`
+  // below (skills#620).
+  String.raw`[A-Za-z0-9][A-Za-z0-9-]*-(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
   String.raw`[A-Za-z0-9][A-Za-z0-9_]*(?<=[a-z0-9])(?:${CAMEL_SUFFIXES.join("|")})`,
   ...BARE_SECRET_NAMES.map(anyCase),
 ].join("|");
@@ -431,12 +448,22 @@ export function redactNamedSecrets(text) {
 // 4. HTTP credential-header VALUES — Authorization / Cookie / Set-Cookie
 // ---------------------------------------------------------------------------
 
-// NAME_ALT above never fires on these: the literal identifiers
-// `Authorization` and `Cookie`/`Set-Cookie` don't end in `_TOKEN`/`_KEY`/
-// `_SECRET`/`_PASSWORD`/`_ID` and aren't among the bare keywords, so a
-// `curl -H "Authorization: Bearer <token>"` or a fetch/HTTP tool call's
-// `Cookie:`/`Set-Cookie:` header rides through redactNamedSecrets untouched.
-const HTTP_CRED_HEADER_NAME = String.raw`Authorization|Set-Cookie|Cookie`;
+// NAME_ALT above never fires on `Authorization`/`Cookie`/`Set-Cookie`: the
+// literal identifiers don't end in `_TOKEN`/`_KEY`/`_SECRET`/`_PASSWORD`/
+// `_ID` (or the kebab-case equivalents added above) and aren't among the
+// bare keywords, so a `curl -H "Authorization: Bearer <token>"` or a fetch/
+// HTTP tool call's `Cookie:`/`Set-Cookie:` header rides through
+// redactNamedSecrets untouched. `api-key` is the odd one out — it DOES end
+// in `-key`, so NAME_ALT's kebab-case alternative already redacts an
+// `api-key: <value>`/`api-key=<value>` assignment via redactNamedSecrets —
+// but it's listed here too, deliberately, so the real-world header shape
+// (Azure OpenAI/Cognitive Services' documented, lowercase, hyphenated
+// `api-key` auth header — Microsoft Learn, Authentication section) is also
+// caught by THIS pass' header-specific value grammar (unbounded to end of
+// line/input, no comma/semicolon stop — see below), rather than depending
+// on redactNamedSecrets running first and happening to close the value the
+// same way (skills#620).
+const HTTP_CRED_HEADER_NAME = String.raw`Authorization|Set-Cookie|Cookie|api-key`;
 
 // Deliberately NOT reusing ASSIGNMENT_RE's UNQUOTED_VALUE (comma/semicolon
 // terminated) for the unquoted branch here — that shape is wrong for a

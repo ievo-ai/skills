@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.10
+
+Closes an Eva vuln-scan finding (skills#620): `scrub.mjs`'s secret-name matchers didn't cover kebab-case names, missing Azure's real `api-key` header (CWE-532).
+
+- **`NAME_ALT` (`scrub.mjs`)** — gained a third grammar alongside the existing snake_case and camelCase alternatives: a kebab-case form (hyphen in place of underscore, e.g. `api-key`, `client-secret`, `access-token`, `db-password`), case-insensitive via the same `anyCase()` helper the snake alternative already uses. Verified against the shipped pre-fix source: a hyphenated name matched none of the three prior alternatives — a hyphen isn't in the snake form's `[A-Za-z0-9_]` character class, and an all-lowercase hyphenated name has no lower→upper case transition for the camelCase form to key on. Needed no boundary changes of its own — `ASSIGNMENT_RE`'s leading edge is already `(?<![A-Za-z0-9])` (v0.80.8, #612), which treats a hyphen as a real separator exactly like the underscore case it was fixed for, so a hyphen-prefixed name (`-api-key=`) and the `api-key` tail of a compound header like `x-api-key` are both caught for free.
+- **`HTTP_CRED_HEADER_NAME` (`scrub.mjs`)** — gained `api-key` alongside `Authorization`/`Set-Cookie`/`Cookie`. Azure OpenAI/Cognitive Services' real, documented API authentication header is literally named `api-key` (lowercase, hyphenated, unprefixed hex-string value — no `gh_`/`sk-`/`xox`/`AKIA`/`eyJ`/`sk_`/`pk_`/`rk_` signature for `PROVIDER_SECRET_RE` to catch either), verified against the primary source (Microsoft Learn, Authentication section, fetched live). Listed here even though `NAME_ALT`'s new kebab-case alternative already redacts an `api-key: <value>`/`api-key=<value>` assignment via `redactNamedSecrets` — so the real-world header shape is also caught by this pass' own header-specific value grammar (unbounded to end of line/input, no comma/semicolon stop), rather than depending on `redactNamedSecrets` running first and happening to close the value the same way.
+- **Tests (`scrub.test.mjs`)** — new regression cases for kebab-case names in `redactNamedSecrets` (bare, case-insensitive, multi-hyphen compound, back-to-back-assignment splitting, the accepted-trade-off false positive on an ordinary hyphenated word, the `x-api-key` compound-header side effect), for `api-key`/`API-Key`/`x-api-key` in `redactHttpCredentialHeaders`, and a composite-pipeline test reproducing the issue's exact two exploit shapes (`curl -H "api-key: <value>"` and a JSON body with an `api-key` field).
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.9 → 0.80.10).
+
 ## v0.80.9
 
 Closes an Eva vuln-scan finding (skills#613): lesson text reached a live-read agent/skill overlay, and a public-issue hand-off, with no excerpt-containment fencing — on both the `evolution` sub-agent path and `evo/SKILL.md`'s direct path.

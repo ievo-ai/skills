@@ -329,6 +329,44 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets("9CLIENT_SECRET=super-secret-value-here"), "9CLIENT_SECRET=[REDACTED]");
   });
 
+  it("redacts a kebab-case suffix-shaped NAME (skills#620)", () => {
+    // Neither the snake alternative (hyphen isn't in its `[A-Za-z0-9_]`
+    // character class) nor the camelCase one (no lower→upper case
+    // transition in an all-lowercase hyphenated name) can match these —
+    // Azure OpenAI/Cognitive Services' documented `api-key` field is exactly
+    // this shape.
+    assert.equal(redactNamedSecrets("api-key=hunter2"), "api-key=[REDACTED]");
+    assert.equal(redactNamedSecrets("client-secret=hunter2"), "client-secret=[REDACTED]");
+    assert.equal(redactNamedSecrets("access-token=hunter2"), "access-token=[REDACTED]");
+    assert.equal(redactNamedSecrets("db-password=hunter2"), "db-password=[REDACTED]");
+    assert.equal(redactNamedSecrets("session-id=hunter2"), "session-id=[REDACTED]");
+  });
+
+  it("redacts a multi-hyphen kebab-case name, matching only the trailing suffix segment", () => {
+    assert.equal(
+      redactNamedSecrets("azure-openai-api-key=hunter2"),
+      "azure-openai-api-key=[REDACTED]",
+    );
+  });
+
+  it("is case-insensitive on a kebab-case name (skills#620)", () => {
+    assert.equal(redactNamedSecrets("API-KEY=hunter2"), "API-KEY=[REDACTED]");
+    assert.equal(redactNamedSecrets("Api-Key=hunter2"), "Api-Key=[REDACTED]");
+  });
+
+  it("redacts a kebab-case NAME: value (colon separator) and a quoted kebab-case name/value", () => {
+    assert.equal(redactNamedSecrets("api-key: hunter2"), "api-key: [REDACTED]");
+    assert.equal(
+      redactNamedSecrets('{"api-key": "my-secret-value"}'),
+      '{"api-key": "[REDACTED]"}',
+    );
+  });
+
+  it("does not redact an ordinary hyphenated word that doesn't end in a secret suffix", () => {
+    const text = "well-known=value, content-type: json";
+    assert.equal(redactNamedSecrets(text), text);
+  });
+
   it("redacts an underscore-prefixed secret-shaped NAME (skills#612)", () => {
     // \b treats `_` as the same word class as a letter/digit, so the old
     // leading `\b(${NAME_ALT})\b` never fired a boundary between a leading
@@ -691,6 +729,41 @@ describe("redactNamedSecrets", () => {
     assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
   });
 
+  it("stays linear on a long hyphen-joined run with no terminal suffix (skills#620)", () => {
+    // UNLIKE the camelCase case above, the boundary fix (skills#612) lets a
+    // match attempt start right after ANY non-alnum character, including a
+    // hyphen — so a long hyphen-joined run (`a-a-a-…-a`) offers O(n) attempt
+    // positions, not one. Without a bound on the kebab alternative's leading
+    // run, each of those O(n) positions backtracks over the remaining input
+    // looking for a terminal suffix that never comes, for O(n²) total —
+    // measured on the unbounded form: 989ms at 40 KB, 3.9s at 80 KB
+    // (quadrupling per doubling). The `{0,254}` bound caps each attempt's
+    // backtrack at O(255), restoring linear total cost.
+    const input = `${"a-".repeat(20_000)}x`;
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, input);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("does not redact a kebab-case name past the 255-char leading-run bound, but still redacts at/under it", () => {
+    // The leading class consumes at most 1 + 254 = 255 characters before the
+    // mandatory literal `-` + suffix, so a 255-character identifier prefix
+    // still matches; one character more pushes the suffix out of the
+    // bounded window and the assignment rides through unredacted — the same
+    // fail-OPEN direction QUOTED_VALUE_INNER's bound deliberately avoids
+    // (that one fails closed, over-redacting instead), but here that's the
+    // only alternative to literally uncapping the run again, and a
+    // 256-character single identifier segment is not a realistic
+    // credential name. Pinned empirically (measured, not hand-derived) so a
+    // future edit to the `{0,254}` bound can't silently move this boundary.
+    const atBound = `${"a".repeat(255)}-key=hunter2`;
+    assert.equal(redactNamedSecrets(atBound), `${"a".repeat(255)}-key=[REDACTED]`);
+    const overBound = `${"a".repeat(256)}-key=hunter2`;
+    assert.equal(redactNamedSecrets(overBound), overBound);
+  });
+
   it("over-redacts, never under-redacts, a quoted value past the inner length bound", () => {
     // The bound that makes the strict alternative linear (above) is safe
     // precisely because overflowing it makes that alternative FAIL rather
@@ -884,6 +957,31 @@ describe("redactHttpCredentialHeaders", () => {
       redactHttpCredentialHeaders("MyAuthorization: Bearer abc123"),
       "MyAuthorization: Bearer abc123",
     );
+  });
+
+  it("redacts an api-key header, Azure OpenAI/Cognitive Services' documented auth header (skills#620)", () => {
+    assert.equal(
+      redactHttpCredentialHeaders("api-key: 4f2c9b8e7a6d5c4b3a29180716253445"),
+      "api-key: [REDACTED]",
+    );
+    // Case-insensitive, same as Authorization/Cookie above.
+    assert.equal(redactHttpCredentialHeaders("Api-Key: abc123"), "Api-Key: [REDACTED]");
+    assert.equal(redactHttpCredentialHeaders("API-KEY: abc123"), "API-KEY: [REDACTED]");
+  });
+
+  it("redacts the common X-Api-Key header variant (boundary fires after the leading `-`, same as Proxy-Authorization)", () => {
+    assert.equal(redactHttpCredentialHeaders("X-Api-Key: abc123def456"), "X-Api-Key: [REDACTED]");
+  });
+
+  it("redacts an api-key header value past an internal comma, unlike redactNamedSecrets' comma-terminated UNQUOTED_VALUE", () => {
+    // The whole point of also listing api-key here (NAME_ALT's kebab
+    // alternative would already catch a simple `api-key: value` on its
+    // own): this pass' unquoted branch runs to end of line instead of
+    // stopping at a comma/semicolon, so a value that happens to contain one
+    // doesn't leak its tail.
+    const out = redactHttpCredentialHeaders("api-key: abc,def123");
+    assert.equal(out, "api-key: [REDACTED]");
+    assert.doesNotMatch(out, /def123/);
   });
 
   it("redacts hyphen-prefixed variants like Proxy-Authorization (the boundary fires after `-`)", () => {

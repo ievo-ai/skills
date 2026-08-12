@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.11
+
+Closes an Eva vuln-scan finding (skills#620): scrub.mjs's secret-name matchers didn't cover kebab-case names, missing Azure's real `api-key` header.
+
+- **Why it mattered.** `NAME_ALT` (assignment-name matching) recognized only snake_case (`_TOKEN`/`_KEY`/…), camelCase, and a small bare-uppercase list; `HTTP_CRED_HEADER_NAME` recognized only `Authorization`/`Cookie`/`Set-Cookie`. Neither grammar matches a hyphenated ("kebab-case") name. Azure OpenAI/Cognitive Services' real, documented API authentication header is literally `api-key` (lowercase, hyphenated, unprefixed hex-string value — no provider-signature prefix for `PROVIDER_SECRET_RE` to catch), so a captured `curl -H "api-key: <value>"` call or a JSON body with an `api-key` field survived all five redaction passes unmatched and was persisted verbatim into `.ievo/evolution-candidates/<session-id>.jsonl`.
+- **`NAME_ALT`** — added a kebab-case alternative mirroring the existing snake_case one (`api-key`, `client-secret`, `access-token`, `db-password`, `session-id`, any casing), so a plain `api-key=<value>` / `api-key: <value>` assignment now redacts.
+- **`HTTP_CRED_HEADER_NAME`** — added `api-key`, matched case-insensitively like the existing three names; this pass' unquoted value runs to end of line (unlike `NAME_ALT`'s comma/semicolon-terminated one), which is the correct behavior for a real header value. The existing leading-boundary fix (`(?<![A-Za-z0-9])`, #612) means the common `X-Api-Key` variant matches too, the same way `Proxy-Authorization` already does.
+- **Linear-time bound on the new kebab alternative.** Unlike the pre-existing snake alternative it mirrors, the kebab alternative's leading run is bounded (`[A-Za-z0-9-]{0,254}`, not `*`): the #612 boundary fix lets a match attempt start right after any non-alnum character — including a hyphen — so an unbounded greedy run over a long hyphen-joined string with no terminal suffix (`a-a-a-…-a`) backtracks from O(n) attempt positions for O(n²) total cost on untrusted, not-yet-truncated input. Bounding the run the same way `PROVIDER_SECRET_RE`/`QUOTED_VALUE_INNER` already are elsewhere in this file restores linear cost; real kebab-case credential names are nowhere near 255 characters, so no legitimate match is affected. The pre-existing snake alternative shares this same unbounded shape and is left untouched, out of scope for this fix.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.10 → 0.80.11).
+
 ## v0.80.10
 
 Closes an Eva vuln-scan finding (skills#621): v0.80.9's verbatim-authorship check exempted project-scoped lessons, so copy/pasted third-party text could still reach a project's standing instruction set unreviewed via CLAUDE.md/AGENTS.md.

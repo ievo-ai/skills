@@ -189,6 +189,13 @@ export function redactProviderSecrets(text) {
 const SECRET_SUFFIXES = ["TOKEN", "KEY", "SECRET", "PASSWORD", "ID"];
 const BARE_SECRET_NAMES = ["PASSWORD", "SECRET", "TOKEN", "APIKEY", "API_KEY"];
 
+// Bounds the kebab alternative's identifier run below (see the comment on
+// that alternative for why an unbounded run is unsafe there specifically,
+// unlike the snake/camelCase runs). 100 is generous for any realistic
+// kebab-case secret name (`my-api-secret-key` is 18) while still capping
+// the worst-case backtrack to a constant.
+const NAME_RUN_MAX_UNITS = 100;
+
 // Case-insensitive spelling of a literal ("KEY" -> "[Kk][Ee][Yy]").
 // ASSIGNMENT_RE cannot carry the "i" flag: the camelCase alternative below is
 // meaningful only case-EXACTLY — under "i", its lower→upper boundary check
@@ -245,7 +252,25 @@ const NAME_ALT = [
   // boundary lets a compound header like `x-api-key` match on its `api-key`
   // tail the same way `Proxy-Authorization` matches on `Authorization`
   // below (skills#620).
-  String.raw`[A-Za-z0-9][A-Za-z0-9-]*-(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
+  //
+  // The run is bounded at NAME_RUN_MAX_UNITS, NOT an unbounded `*` like the
+  // snake alternative above uses for its own (differently-separated) run:
+  // an unbounded `[A-Za-z0-9-]*` immediately before a literal `-` drawn
+  // from that SAME character class backtracks once per hyphen it gives
+  // back before the alternative fails — and because a hyphen also
+  // satisfies ASSIGNMENT_RE's leading `(?<![A-Za-z0-9])`, a fresh match
+  // attempt restarts at EVERY hyphen in a hyphen-dense run with no real
+  // terminal suffix, unlike the camelCase alternative below (whose
+  // lower→upper boundary fires only once per identifier run — interior
+  // positions are letter→letter — as its own linearity test pins). Summed
+  // over a run of length n, that is O(n) restarts of an O(n) futile
+  // backtrack each, i.e. O(n²): measured on the unbounded form, ~200ms at
+  // 20k hyphens and ~13s at 160k (found by /ievo:vuln-scan on this diff).
+  // Bounding the run caps each restart's backtrack at O(NAME_RUN_MAX_UNITS)
+  // instead of O(remaining input), restoring O(n) total cost; no real
+  // secret-shaped kebab identifier is anywhere near the bound, so this
+  // costs no redaction coverage on real input.
+  String.raw`[A-Za-z0-9][A-Za-z0-9-]{0,${NAME_RUN_MAX_UNITS}}-(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
   String.raw`[A-Za-z0-9][A-Za-z0-9_]*(?<=[a-z0-9])(?:${CAMEL_SUFFIXES.join("|")})`,
   ...BARE_SECRET_NAMES.map(anyCase),
 ].join("|");

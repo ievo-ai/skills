@@ -373,7 +373,7 @@ describe("redactNamedSecrets", () => {
     assert.equal(redactNamedSecrets(text), text);
   });
 
-  it("does not redact an ordinary hyphenated word that merely ends in a suffix word (accepted trade-off)", () => {
+  it("redacts an ordinary hyphenated word that merely ends in a suffix word (accepted trade-off)", () => {
     // Same class of over-redaction trade-off the snake/camel alternatives
     // already accept (e.g. USER_ID) — a compound identifier that happens to
     // end in a suffix word gets its value redacted even when it isn't a
@@ -749,6 +749,25 @@ describe("redactNamedSecrets", () => {
     // new alternative: 20k embedded `Token`s whose terminal \b never fires
     // (the trailing `x` keeps every candidate suffix mid-identifier).
     const input = `${"aToken".repeat(20_000)}x`;
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, input);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
+  });
+
+  it("stays linear on a long hyphen-dense run with no terminal suffix (no quadratic blowup, skills#620)", () => {
+    // Unlike the camelCase case above, a hyphen also satisfies
+    // ASSIGNMENT_RE's leading `(?<![A-Za-z0-9])` — so an unbounded kebab
+    // run would restart a fresh match attempt (and futile backtrack) at
+    // EVERY hyphen in this run, not just once at the word's start, making
+    // an unbounded form O(n²) rather than O(n). Measured on the unbounded
+    // form before NAME_RUN_MAX_UNITS was added: ~200ms at 20k hyphens,
+    // ~13s at 160k (found by /ievo:vuln-scan on this diff). The bound caps
+    // each restart's backtrack at a constant, restoring linear-time
+    // matching — verified here at 500k hyphens, well past where the
+    // unbounded form was already unusable.
+    const input = `${"a-".repeat(500_000)}x`;
     const started = process.hrtime.bigint();
     const out = redactNamedSecrets(input);
     const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;

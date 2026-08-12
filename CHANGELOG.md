@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.10
+
+Closes an Eva vuln-scan finding (skills#622): `overlay-status/SKILL.md` rendered extracted overlay-file summaries with no excerpt containment, unlike every sibling display skill (`feedback`, `evo`, `deep-review`, `security-check`).
+
+- **`plugins/ievo/skills/overlay-status/SKILL.md` Step 3** — a new "Excerpt containment" note requires every Step 3-extracted summary (frontmatter `description:`, the boilerplate `##` subsection title, the first Markdown heading, the first non-blank line — uniformly across Project/agents/skills/Other scope) to be wrapped in an inline code span before Step 5 renders it, using the same backtick-run-sizing / dual-side-padding / CR-LF-collapse mechanics already documented by `evo/SKILL.md` Step 4 and `deep-reviewer.md`'s own "Excerpt containment" note. `.ievo/evolution/` is committed, project-owned state with no provenance check on what lands there, so a planted excerpt could otherwise smuggle a live-rendering Markdown image/HTML tag/autolink into the chat UI the moment `/ievo:overlay-status` runs.
+  - Step 5's render template now shows the fenced form (backtick code span instead of a bare double-quoted string), with a reminder to display it exactly as fenced rather than stripping the backticks.
+  - **Rules** gained a one-line cross-reference ("Neutralize summaries before they render.") mirroring the equivalent bullet already present in `feedback/SKILL.md` and `deep-reviewer.md`.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.9 → 0.80.10, next free slot per AGENTS.md's version-bump race convention).
+
 ## v0.80.9
 
 Closes an Eva vuln-scan finding (skills#613): lesson text reached a live-read agent/skill overlay, and a public-issue hand-off, with no excerpt-containment fencing — on both the `evolution` sub-agent path and `evo/SKILL.md`'s direct path.

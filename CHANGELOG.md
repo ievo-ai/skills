@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.11
+
+Closes an Eva vuln-scan finding (skills#622): overlay-status/SKILL.md rendered extracted summaries, names, and parsed mtimes without excerpt containment, unlike every sibling display skill.
+
+- **`plugins/ievo/skills/overlay-status/SKILL.md` Step 5 — excerpt containment for both interpolated values.** The render template embeds two independent, untrusted values per row: Step 3's extracted one-line summary (all five precedence paths) and the display name/path (Step 2's classify table — Glob-derived, unvalidated except for the fixed `project.md` literal). `.ievo/evolution/` is committed, not gitignored, so any actor who can land a commit/PR/fork controls both. Each value is now wrapped in its own inline code span before rendering — a backtick run one character longer than the longest run already inside it, dual-side space padding when it begins/ends with a backtick, CR/LF collapsed to a single space first — sized independently per value so co-located spans on the same line can't interfere with each other.
+- **Step 4 — validate parsed `stat` records instead of trusting one-line-per-file.** A POSIX filename may legally hold a tab or newline (only `/` and NUL are forbidden), so a crafted filename can forge an extra field or an extra physical line into `stat --printf`'s output, landing attacker-chosen bytes in the position this parse treats as the *date*. A parsed record is now kept only if its date field matches `^[0-9]{4}-[0-9]{2}-[0-9]{2}$` and its path field matches one of Step 1's own Glob-enumerated paths; anything else is discarded (mtime unavailable) rather than rendered. Corrects the file's own prior claim that "tab cannot appear in a sane overlay filename" — it can.
+- Rules section gets a one-line reinforcement pointing at both defenses.
+
 ## v0.80.10
 
 Closes an Eva vuln-scan finding (skills#621): v0.80.9's verbatim-authorship check exempted project-scoped lessons, so copy/pasted third-party text could still reach a project's standing instruction set unreviewed via CLAUDE.md/AGENTS.md.

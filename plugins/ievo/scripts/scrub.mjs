@@ -42,7 +42,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.80.11";
+export const SCRIPT_VERSION = "0.80.12";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -57,10 +57,11 @@ Usage:
 Redacts PEM-armored private-key blocks, provider-shaped secret values
 (GitHub/OpenAI/Slack/AWS/Stripe tokens, JWTs), secret-shaped NAME=value / NAME: value
 assignments (*_TOKEN/*_KEY/*_SECRET/*_PASSWORD/*_ID, camelCase equivalents
-like authToken/clientSecret/accessKeyId, bare PASSWORD/SECRET/TOKEN/APIKEY/
-API_KEY), HTTP credential-header values (Authorization/Cookie/
-Set-Cookie), URL-embedded credentials (scheme://user:pass@host), rewrites
-$HOME-absolute paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
+like authToken/clientSecret/accessKeyId, kebab-case equivalents like
+api-key/client-secret, bare PASSWORD/SECRET/TOKEN/APIKEY/API_KEY), HTTP
+credential-header values (Authorization/Cookie/Set-Cookie/api-key),
+URL-embedded credentials (scheme://user:pass@host), rewrites $HOME-absolute
+paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
 Unicode code points. Never writes a file; on any internal error emits nothing
 and exits 0 (fail-closed for content).`;
 
@@ -227,8 +228,39 @@ function titleCase(literal) {
 // four suffixes are ordinary words with no initialism spelling. Found by
 // /ievo:vuln-scan on this diff, not by the original skills#557 report.
 const CAMEL_SUFFIXES = [...SECRET_SUFFIXES.map(titleCase), "ID"];
+//
+// Kebab form: the same suffix words as the snake form, hyphen-delimited
+// instead of underscore-delimited (api-key, client-secret, access-token,
+// db-password, session-id). Neither the snake alternative (hyphen isn't in
+// its `[A-Za-z0-9_]` character class) nor the camelCase one (an
+// all-lowercase hyphenated name has no lower→upper case transition) can
+// match a kebab-case name, so a real-world hyphenated credential name rode
+// through unmatched. Azure OpenAI/Cognitive Services' documented `api-key`
+// HTTP header (handled separately below, in HTTP_CRED_HEADER_NAME) is a
+// concrete instance of this same shape appearing as an assignment name too
+// (`{"api-key": "<value>"}`, `api-key=<value>`) (skills#620).
+//
+// UNLIKE the snake alternative above, the leading run here is bounded
+// (`{0,254}`, not `*`) — a run of hyphen-joined identifier characters with
+// no terminal suffix (`a-a-a-a-…-a`) is a realistic captured-output shape
+// (a long flag list, a slug, a compound path segment), and the boundary fix
+// (skills#612) that lets a match attempt START right after ANY non-alnum
+// character — including a hyphen, same as it does for `_` — means every
+// such hyphen is a fresh attempt position. An unbounded greedy
+// `[A-Za-z0-9-]*` backtracking from each of those O(n) positions makes the
+// whole match O(n²) on adversarial input the text hasn't been truncated
+// out of yet (scrub() caps length LAST — see file header); measured on the
+// unbounded form: 989ms at 40 KB, 3.9s at 80 KB (quadrupling per doubling).
+// Bounding the run the same way PROVIDER_SECRET_RE and QUOTED_VALUE_INNER
+// already are elsewhere in this file caps the backtrack cost per attempt
+// position at O(255), restoring linear total cost (108ms at 160 KB,
+// bounded) — real kebab-case identifiers are nowhere near 255 characters,
+// so this costs no legitimate match. The pre-existing snake alternative
+// shares this same unbounded shape and is not touched here — out of scope
+// for skills#620, which only adds this new kebab alternative.
 const NAME_ALT = [
   String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
+  String.raw`[A-Za-z0-9][A-Za-z0-9-]{0,254}-(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
   String.raw`[A-Za-z0-9][A-Za-z0-9_]*(?<=[a-z0-9])(?:${CAMEL_SUFFIXES.join("|")})`,
   ...BARE_SECRET_NAMES.map(anyCase),
 ].join("|");
@@ -431,12 +463,29 @@ export function redactNamedSecrets(text) {
 // 4. HTTP credential-header VALUES — Authorization / Cookie / Set-Cookie
 // ---------------------------------------------------------------------------
 
-// NAME_ALT above never fires on these: the literal identifiers
-// `Authorization` and `Cookie`/`Set-Cookie` don't end in `_TOKEN`/`_KEY`/
-// `_SECRET`/`_PASSWORD`/`_ID` and aren't among the bare keywords, so a
+// NAME_ALT above never fires on `Authorization`/`Cookie`/`Set-Cookie`: those
+// literal identifiers don't end in `_TOKEN`/`_KEY`/`_SECRET`/`_PASSWORD`/
+// `_ID` (or the kebab equivalent) and aren't among the bare keywords, so a
 // `curl -H "Authorization: Bearer <token>"` or a fetch/HTTP tool call's
 // `Cookie:`/`Set-Cookie:` header rides through redactNamedSecrets untouched.
-const HTTP_CRED_HEADER_NAME = String.raw`Authorization|Set-Cookie|Cookie`;
+//
+// `api-key` is listed here too even though NAME_ALT's kebab alternative
+// (added above) now also matches a plain `api-key: value` / `api-key=value`
+// assignment on its own: this pass' unquoted branch runs to end of line
+// instead of stopping at a comma/semicolon the way ASSIGNMENT_RE's
+// UNQUOTED_VALUE does, which is the correct behavior for a real HTTP header
+// value (same reasoning as the Digest-Authorization case below) rather than
+// an ordinary assignment. Azure OpenAI/Cognitive Services' documented
+// authentication header is literally `api-key` (lowercase, hyphenated,
+// unprefixed hex-string value — no provider-signature prefix for
+// PROVIDER_SECRET_RE to catch), so it rode through all five redaction passes
+// unmatched (skills#620). Matched case-insensitively via the "gi" flag below
+// (no camelCase-alternative ambiguity here, unlike ASSIGNMENT_RE, so the
+// flag is safe to use directly rather than needing anyCase()) — this also
+// means the common real-world `X-Api-Key` header variant matches too, the
+// same way `Proxy-Authorization` already does via the leading boundary
+// check below (skills#612), which excludes only a preceding letter/digit.
+const HTTP_CRED_HEADER_NAME = String.raw`Authorization|Set-Cookie|Cookie|api-key`;
 
 // Deliberately NOT reusing ASSIGNMENT_RE's UNQUOTED_VALUE (comma/semicolon
 // terminated) for the unquoted branch here — that shape is wrong for a

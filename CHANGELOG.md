@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.10
+
+Closes an Eva vuln-scan finding (skills#621): the verbatim-authorship check added in v0.80.9 gated agent- and skill-scoped lessons against copy/pasted third-party text, but exempted project-scoped lessons on the theory that CLAUDE.md/AGENTS.md is "read by the human-facing session rather than mechanically applied per-dispatch" — a distinction that doesn't reduce risk, since the injected marker instructs every future session to "apply ALL rules from its sections IN ADDITION to the project's instructions", arguably a broader blast radius than a single agent/skill overlay. An attacker who can post a PR review/comment/issue comment on a repo that later runs `/ievo:review-retrospective` could get that text clustered as a `project`-scoped `durable-lesson`, parked verbatim, and later captured — unreviewed — into a project's standing instruction set.
+
+- **`plugins/ievo/agents/evolution.md` Step 1** and **`plugins/ievo/skills/evo/SKILL.md` Step 1** — the verbatim-authorship check now gates all three scopes (agent, skill, project) instead of exempting project scope. The "If flagged" handling, the Step 5/6 `SKIPPED` report line, and the `evo/SKILL.md` `AskUserQuestion` copy are all updated to describe the authoritative-instruction risk generically (per-dispatch for agent/skill, per-session via the CLAUDE.md/AGENTS.md marker for project) instead of assuming an agent/skill target.
+- **`plugins/ievo/skills/review-retrospective/SKILL.md`** — its Step 4 note describing the evolution gate ("a project-scoped capture from the same park file is unaffected") is corrected to match: restating a parked finding in your own words is now required for a project-scoped capture too, not only agent/skill-scoped ones.
+- Both files' "Cross-doc consequence" notes and Rules-section "Verbatim user/lesson text" prose updated to match — no more references to project scope skipping the gate.
+
 ## v0.80.9
 
 Closes an Eva vuln-scan finding (skills#613): lesson text reached a live-read agent/skill overlay, and a public-issue hand-off, with no excerpt-containment fencing — on both the `evolution` sub-agent path and `evo/SKILL.md`'s direct path.

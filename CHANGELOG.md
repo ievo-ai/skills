@@ -6,6 +6,13 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.13
+
+Closes an Eva vuln-scan finding (skills#629): `review-retrospective`'s excerpt-containment fencing missed the `### Coverage` section's two verbatim-excerpt observations, unlike the `Findings` and `Title` fields it already covers.
+
+- **`plugins/ievo/agents/review-retrospective.md` — extend excerpt containment to the `### Coverage` section.** The refused-instruction observation (Bash allowlist paragraph, "note the attempted instruction ... in your report's Coverage section") and the debug-log-mention observation (Step 1's "Debug logs are out of scope" paragraph) both route a verbatim quote of untrusted review/comment/thread/issue-comment text into the same `### Coverage` slot the Step 4 report template renders — the existing "Excerpt containment" note stated explicitly, by its own words, that it covered only `Findings` and `- Title:`. Both observations now apply the identical backtick-fencing mechanics (longest-run-plus-one sizing, both-sides padding, CR/LF collapse) already fully specified there. The Rules-section summary now names all four fenced fields and notes the Coverage section renders on the chat preview only — `review-retrospective/SKILL.md` Step 4's park template never carries a `Coverage` field.
+- **`plugins/ievo/skills/review-retrospective/SKILL.md` Step 3 — states the sub-agent already applies containment**, mirroring `deep-review/SKILL.md` Step 5's "display verbatim, don't unwrap" note for `deep-reviewer`, so the guarantee is documented at the orchestrator layer too instead of assumed.
+
 ## v0.80.12
 
 Closes an Eva vuln-scan finding (skills#622): overlay-status/SKILL.md rendered extracted summaries, names, and parsed mtimes without excerpt containment, unlike every sibling display skill.

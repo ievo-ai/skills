@@ -405,10 +405,20 @@ export function enumeratePlugins(repo) {
 
 export function enumerateOnePlugin(pluginPath) {
   const name = pluginPath.split("/").pop();
-  const manifestPath = join(pluginPath, ".claude-plugin", "plugin.json");
+  // isDir() guards the INTERMEDIATE ".claude-plugin" segment (lstat-based,
+  // like isDir everywhere else in this file) before manifestPath is even
+  // built. Without it, fileExists(manifestPath)/isOversized(manifestPath)
+  // lstat the FULL two-segment path — lstat only refuses to dereference the
+  // path's final component, so a ".claude-plugin" committed as a symlink
+  // (e.g. pointing at a sibling checkout under the shared
+  // ~/.ievo/checkouts/ cache) is still transparently resolved by the OS for
+  // every ANCESTOR component, exactly as statSync would. Same class of gap
+  // as #363, one level deeper (CWE-59).
+  const manifestDir = join(pluginPath, ".claude-plugin");
+  const manifestPath = join(manifestDir, "plugin.json");
   let manifest = {};
   let manifestOversized = false;
-  if (fileExists(manifestPath)) {
+  if (isDir(manifestDir) && fileExists(manifestPath)) {
     if (isOversized(manifestPath)) {
       manifestOversized = true;
     } else {
@@ -476,7 +486,16 @@ export function enumerateOnePlugin(pluginPath) {
     commands.push({ name: f.replace(/\.md$/, ""), description: truncate(fm.description, 120) });
   }
 
-  const hooks = enumerateHooks(join(pluginPath, "hooks", "hooks.json"));
+  // Same isDir() guard on the intermediate "hooks" segment, before
+  // enumerateHooks ever builds/reads the hooks.json path — see the
+  // ".claude-plugin" comment above for the full CWE-59 rationale. Short-
+  // circuits to the exact shape enumerateHooks already returns for a
+  // missing file, so a repo with no hooks/ dir (the common case) behaves
+  // identically to today.
+  const hooksDir = join(pluginPath, "hooks");
+  const hooks = isDir(hooksDir)
+    ? enumerateHooks(join(hooksDir, "hooks.json"))
+    : { present: false, events: [], entries: [] };
   const mcp = enumerateMcp(join(pluginPath, ".mcp.json"));
 
   let author = "—";

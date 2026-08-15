@@ -6,6 +6,13 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.14
+
+Closes an Eva vuln-scan finding (skills#631): `scan_repo.mjs`'s `enumerateOnePlugin` read through symlinked `.claude-plugin`/`hooks` intermediate directories, bypassing the #363 lstat guard.
+
+- **`plugins/ievo/scripts/scan_repo.mjs` — `isDir()`-guard the `.claude-plugin` and `hooks` intermediate directory segments in `enumerateOnePlugin`.** The #363 fix switched `isDir`/`fileExists`/`isOversized` to `lstatSync`, but `lstat` only refuses to dereference a path's FINAL component — an ancestor directory is still resolved transparently by the OS. `manifestPath = join(pluginPath, ".claude-plugin", "plugin.json")` and `join(pluginPath, "hooks", "hooks.json")` never validated the `.claude-plugin`/`hooks` segment itself before descending into it, so a repo committing either as a symlink (e.g. to a sibling checkout under the shared `~/.ievo/checkouts/` cache) could have its `description`/`version`/`author`/hook fields read through and published verbatim into the public `community-index` artifact. Both call sites now `isDir()`-check the intermediate segment first — mirroring the existing single-segment `skillsDir` guard — and short-circuit to the same "absent" shape (`manifest = {}` / `{present: false, events: [], entries: []}`) the missing-file path already returns, so the common case (no `hooks/` dir) is unchanged.
+- **`plugins/ievo/scripts/tests/scan_repo.test.mjs` — two new regression tests** reproduce the exploit end-to-end: `.claude-plugin`/`hooks` committed as a symlink to a directory holding a real, valid `plugin.json`/`hooks.json`, asserting both are now treated as absent rather than read through.
+
 ## v0.80.13
 
 Closes an Eva vuln-scan finding (skills#629): `review-retrospective`'s excerpt-containment fencing missed the `### Coverage` section's two verbatim-excerpt observations, unlike the `Findings` and `Title` fields it already covers.

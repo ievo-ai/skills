@@ -1591,12 +1591,38 @@ describe("symlink guard (CWE-59, #363)", () => {
     rmSync(p, { recursive: true, force: true });
   });
 
+  it("enumerateOnePlugin does not follow a symlinked .claude-plugin/ INTERMEDIATE directory (skills#631)", () => {
+    // Unlike the manifest-file symlink above, here the ".claude-plugin"
+    // segment ITSELF is the symlink (pointing at victim, which holds a
+    // valid, real plugin.json). lstat on the final "plugin.json" component
+    // alone can't catch this — the ancestor segment is what must be guarded.
+    const p = join(tmpdir(), `scan-repo-symlink-manifest-dir-${Date.now()}`);
+    mkdirSync(p, { recursive: true });
+    symlinkSync(victim, join(p, ".claude-plugin"), "dir");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.version, "unset"); // not victim's "9.9.9"
+    assert.equal(r.author, "—");
+    rmSync(p, { recursive: true, force: true });
+  });
+
   it("enumerateHooks does not follow a symlinked hooks.json", () => {
     const p = join(tmpdir(), `scan-repo-symlink-hooks-${Date.now()}`);
     mkdirSync(join(p, "hooks"), { recursive: true });
     symlinkSync(join(victim, "hooks.json"), join(p, "hooks", "hooks.json"), "file");
     const r = enumerateHooks(join(p, "hooks", "hooks.json"));
     assert.deepEqual(r, { present: false, events: [], entries: [] });
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin does not follow a symlinked hooks/ INTERMEDIATE directory (skills#631)", () => {
+    // Same class of gap as the ".claude-plugin/" case above, for the other
+    // two-segment path enumerateOnePlugin builds: "hooks" itself is the
+    // symlink (pointing at victim, which holds a valid, real hooks.json).
+    const p = join(tmpdir(), `scan-repo-symlink-hooks-dir-${Date.now()}`);
+    mkdirSync(p, { recursive: true });
+    symlinkSync(victim, join(p, "hooks"), "dir");
+    const r = enumerateOnePlugin(p);
+    assert.deepEqual(r.hooks, { present: false, events: [], entries: [] });
     rmSync(p, { recursive: true, force: true });
   });
 

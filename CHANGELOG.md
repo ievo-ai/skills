@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.15
+
+Closes an Eva vuln-scan finding (skills#632): `evolution_candidates.mjs` echoed attacker-influenceable values on its error/log paths unfiltered, unlike its four sibling scripts.
+
+- **`plugins/ievo/scripts/evolution_candidates.mjs` — add the shared `CONTROL_CHAR_RE` constant** (identical to `discover.mjs`/`scan_repo.mjs`/`validate_agents.mjs`/`validate_skills.mjs`'s own copies) and strip it at every echo/log sink that embeds an attacker-influenceable value: `sanitizeSessionId`'s invalid-id message, `appendCandidate`'s re-thrown `--text-file` message (both the path and the wrapped `err.message`), `requireValue`'s and `parseCount`'s flag-value messages, and `main`'s command-execution catch. Without this, a crafted session id, `--text-file` path, or flag value carrying raw ANSI escape sequences or Unicode Bidi-override characters could inject terminal-control sequences or a Trojan-Source-style visual spoof into whatever log/terminal/CI viewer captures this script's stderr — the exact threat model the file's own header comment already documents for `--text-file`.
+- **Two additional sites in the same class, found while auditing the file for every echo path** (beyond the issue's originally cited five): `parseArgs`'s `unknown flag` error and `main`'s `unknown or missing command` error both embed a raw CLI token from `argv`/`positional[0]` — the same attacker-influenceable-argv threat model, left unstripped by the same gap. Fixed identically rather than filed as a follow-up, mirroring the discover.mjs precedent (skills#601 → skills#605) of closing every instance of a freshly-added sanitizer's pattern in one pass instead of piecemeal.
+- **`main`'s `parseArgs` catch is deliberately left unstripped** — every error `parseArgs` can throw is already stripped at its own throw site above, so the message reaching that catch is already clean; stripping again there would be redundant (mirrors `discover.mjs`'s identical, already-established convention for its own `parseArgs` catch).
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.14 → 0.80.15 — 0.80.14 itself landed concurrently via skills#635, claiming the slot this fix originally targeted).
+
 ## v0.80.14
 
 Closes an Eva vuln-scan finding (skills#631): `scan_repo.mjs`'s `enumerateOnePlugin` read through symlinked `.claude-plugin`/`hooks` intermediate directories, bypassing the #363 lstat guard.

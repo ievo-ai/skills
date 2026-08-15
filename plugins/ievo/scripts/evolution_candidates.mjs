@@ -104,7 +104,19 @@ import { scrub } from "./scrub.mjs";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.80.14";
+export const SCRIPT_VERSION = "0.80.15";
+
+// Strips C0 controls, DEL, and Unicode Bidi_Control/zero-width code points
+// (ANSI escape / terminal-control injection and Trojan-Source-style visual
+// spoofing, CWE-150) from a value before it is echoed to stdout/stderr.
+// Per-file copy (not a shared import) mirrors discover.mjs / scan_repo.mjs /
+// validate_agents.mjs / validate_skills.mjs's own CONTROL_CHAR_RE — each
+// file's class is tuned to its own risk model (see
+// .github/scripts/validators/_safe-read.mjs). This file's error/log paths
+// echo attacker-influenceable values (session id, --text-file path, flag
+// values — see the header comment's --text-file threat model) straight to a
+// terminal/CI log stream that a human reviews, so they get the same guard.
+export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 export const IEVO_DIR = ".ievo";
 export const CANDIDATES_DIR = "evolution-candidates";
 export const SESSION_EXT = ".jsonl";
@@ -213,7 +225,7 @@ export function candidatesDir(projectRoot = ".", deps = {}) {
 export function sanitizeSessionId(id) {
   const s = String(id).replace(/[^A-Za-z0-9._-]/g, "_");
   if (!/[A-Za-z0-9]/.test(s)) {
-    throw new Error(`invalid session id '${id}' — needs at least one alphanumeric character`);
+    throw new Error(`invalid session id '${String(id).replace(CONTROL_CHAR_RE, "")}' — needs at least one alphanumeric character`);
   }
   return s;
 }
@@ -390,7 +402,7 @@ export function appendCandidate(
       assertTextFileReadable(allowedPath, projectRoot, MAX_TEXT_FILE_BYTES, statImpl, realpathImpl);
       resolvedText = scrub(readImpl(allowedPath, "utf-8"));
     } catch (err) {
-      throw new Error(`could not read --text-file '${textFile}': ${err.message}`);
+      throw new Error(`could not read --text-file '${String(textFile).replace(CONTROL_CHAR_RE, "")}': ${err.message.replace(CONTROL_CHAR_RE, "")}`);
     }
   }
 
@@ -484,14 +496,14 @@ export function pruneSessions(projectRoot = ".", keep = DEFAULT_RETENTION, deps 
 function requireValue(argv, i, flag) {
   const v = argv[i];
   if (v === undefined) throw new Error(`${flag} requires a value, got end of arguments`);
-  if (v.startsWith("--")) throw new Error(`${flag} requires a value, got flag '${v}'`);
+  if (v.startsWith("--")) throw new Error(`${flag} requires a value, got flag '${v.replace(CONTROL_CHAR_RE, "")}'`);
   return v;
 }
 
 function parseCount(value, flag) {
   const n = parseInt(value, 10);
   if (!Number.isFinite(n) || n < 0) {
-    throw new Error(`${flag} requires a non-negative integer, got '${value}'`);
+    throw new Error(`${flag} requires a non-negative integer, got '${value.replace(CONTROL_CHAR_RE, "")}'`);
   }
   return n;
 }
@@ -517,7 +529,7 @@ export function parseArgs(argv) {
     else if (a === "--project") args.project = requireValue(argv, ++i, "--project");
     else if (a === "--ts") args.ts = requireValue(argv, ++i, "--ts");
     else if (a === "--keep") args.keep = parseCount(requireValue(argv, ++i, "--keep"), "--keep");
-    else if (a.startsWith("--")) throw new Error(`unknown flag '${a}'`);
+    else if (a.startsWith("--")) throw new Error(`unknown flag '${a.replace(CONTROL_CHAR_RE, "")}'`);
     else positional.push(a);
   }
   args.command = positional[0] ?? null;
@@ -575,11 +587,11 @@ export function main(argv = process.argv, io = {}) {
         return exit(0);
       }
       default:
-        errLog(`Error: unknown or missing command '${args.command ?? ""}' — use: append | count | list | prune (or --help)`);
+        errLog(`Error: unknown or missing command '${(args.command ?? "").replace(CONTROL_CHAR_RE, "")}' — use: append | count | list | prune (or --help)`);
         return exit(2);
     }
   } catch (err) {
-    errLog(`Error: ${err.message}`);
+    errLog(`Error: ${err.message.replace(CONTROL_CHAR_RE, "")}`);
     return exit(3);
   }
 }

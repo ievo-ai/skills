@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   SCRIPT_VERSION,
+  CONTROL_CHAR_RE,
   IEVO_DIR,
   CANDIDATES_DIR,
   SESSION_EXT,
@@ -87,6 +88,48 @@ describe("constants", () => {
     assert.equal(DEFAULT_RETENTION, 10);
     assert.equal(DEFAULT_SCOPE, "unclassified");
     assert.equal(MAX_TEXT_FILE_BYTES, 256 * 1024);
+  });
+
+  it("CONTROL_CHAR_RE matches C0 controls and DEL, excludes tab/LF/CR (CWE-150, skills#632)", () => {
+    // CONTROL_CHAR_RE carries the `g` flag (needed for its .replace() call
+    // sites below) — reset lastIndex before each .test() call so this loop
+    // isn't tripped up by the stateful global-regex gotcha.
+    for (const ch of ["\x00", "\x1b", "\x07", "\x7f"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} to match`);
+    }
+    for (const ch of ["\t", "\n", "\r", "a"]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      assert.ok(!CONTROL_CHAR_RE.test(ch), `expected ${JSON.stringify(ch)} not to match`);
+    }
+  });
+
+  it("CONTROL_CHAR_RE matches every Bidi_Control code point and the zero-width characters incl. BOM (Trojan-Source spoof guard, skills#632)", () => {
+    // Mirrors discover.mjs/scan_repo.mjs/validate_agents.mjs/validate_skills.mjs's
+    // own pin of their (per-file) CONTROL_CHAR_RE copy — see this constant's
+    // header comment for why it's not a shared import. Bidi_Control is a
+    // closed set: U+061C, U+200E-U+200F, U+202A-U+202E, U+2066-U+2069. Every
+    // one is asserted so a future narrowing of the class cannot silently drop
+    // one. The zero-width characters (U+200B-U+200F, U+FEFF) and the rest of
+    // the U+2060-U+2069 invisible-operator block are asserted alongside.
+    const stripped = [
+      0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
+      0x2066, 0x2067, 0x2068, 0x2069,
+      0x200b, 0x200c, 0x200d, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xfeff,
+    ];
+    for (const cp of stripped) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.ok(CONTROL_CHAR_RE.test(String.fromCodePoint(cp)), `expected ${label} to match`);
+    }
+    // The code point immediately below and above each added range stays
+    // untouched — a widening that overshoots is as much a defect as one that
+    // falls short.
+    for (const cp of [0x061b, 0x061d, 0x200a, 0x2010, 0x2029, 0x202f, 0x205f, 0x206a, 0xfefe, 0xff00, 0x0061]) {
+      CONTROL_CHAR_RE.lastIndex = 0;
+      const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+      assert.ok(!CONTROL_CHAR_RE.test(String.fromCodePoint(cp)), `expected ${label} not to match`);
+    }
   });
 });
 
@@ -362,6 +405,21 @@ describe("sanitizeSessionId", () => {
   it("throws when the id is only separators", () => {
     assert.throws(() => sanitizeSessionId("///"), /invalid session id/);
   });
+
+  it("strips control characters from the invalid-id message (CWE-150, skills#632)", () => {
+    // No alphanumeric survivor (an ANSI SGR sequence like \x1b[31m carries
+    // digits/letters that would sanitize to a non-empty `s` and never reach
+    // the throw) — pure separators/ESC so the throw branch is hit, then the
+    // RAW `id` embedded in the message must come back with the ESC byte gone.
+    assert.throws(
+      () => sanitizeSessionId("//\x1b//"),
+      (err) => {
+        assert.match(err.message, /invalid session id/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        return true;
+      },
+    );
+  });
 });
 
 describe("sessionFilePath", () => {
@@ -596,6 +654,27 @@ describe("appendCandidate", () => {
     assert.throws(
       () => appendCandidate({ projectRoot, sessionId: "s", textFile: join(projectRoot, IEVO_DIR, "does-not-exist.txt") }, NO_GIT),
       /could not read --text-file '.*does-not-exist\.txt': /,
+    );
+  });
+
+  it("strips control characters from the --text-file path AND the wrapped ENOENT message (CWE-150, skills#632)", () => {
+    // --text-file is documented (header comment, #523) as attacker-
+    // influenceable: a compromised/prompt-injected agent turn could pass a
+    // crafted path directly via Bash. lstat's ENOENT message quotes the raw
+    // path back verbatim, so both the outer template's own `textFile`
+    // interpolation and the wrapped `err.message` need stripping.
+    const projectRoot = join(root, "tf-ctl");
+    mkdirSync(join(projectRoot, IEVO_DIR), { recursive: true });
+    const ghost = join(projectRoot, IEVO_DIR, "ghost-\x1b[31mFAKE\x1b[0m.txt");
+    assert.throws(
+      () => appendCandidate({ projectRoot, sessionId: "s", textFile: ghost }, NO_GIT),
+      (err) => {
+        assert.match(err.message, /could not read --text-file/);
+        assert.match(err.message, /ENOENT/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
     );
   });
 
@@ -956,6 +1035,49 @@ describe("parseArgs", () => {
   it("throws when a flag value is another flag", () => {
     assert.throws(() => parseArgs(["node", "x", "append", "--text", "--scope"]), /--text requires a value, got flag '--scope'/);
   });
+
+  // --- CWE-150 (skills#632): every CLI-arg echo below is attacker-
+  // influenceable the same way --text-file's own header comment documents —
+  // a compromised/prompt-injected agent turn issuing crafted argv directly
+  // via Bash. main()'s catch (both the parseArgs one and the outer one)
+  // echoes these thrown messages verbatim to stderr, a raw terminal/CI log
+  // stream. ---
+
+  it("strips control characters from an unknown flag echoed in the thrown message (skills#632)", () => {
+    assert.throws(
+      () => parseArgs(["node", "x", "--\x1b[31mFAKE\x1b[0m"]),
+      (err) => {
+        assert.match(err.message, /unknown flag/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
+    );
+  });
+
+  it("strips control characters from a forgotten-value flag echoed in the thrown message (skills#632)", () => {
+    assert.throws(
+      () => parseArgs(["node", "x", "append", "--text", "--\x1b[31mFAKE\x1b[0m"]),
+      (err) => {
+        assert.match(err.message, /--text requires a value, got flag/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
+    );
+  });
+
+  it("strips control characters from an invalid --keep value in the thrown message (skills#632)", () => {
+    assert.throws(
+      () => parseArgs(["node", "x", "prune", "--keep", "abc\x1b[31mFAKE\x1b[0m"]),
+      (err) => {
+        assert.match(err.message, /--keep requires a non-negative integer/);
+        assert.doesNotMatch(err.message, /\x1b/);
+        assert.match(err.message, /FAKE/);
+        return true;
+      },
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1092,6 +1214,42 @@ describe("main", () => {
     main(["node", "x"], run.io); // no command
     assert.equal(run.exitCode, 2);
     assert.match(run.errs.join("\n"), /unknown or missing command/);
+  });
+
+  it("strips control characters from an unknown command echoed in the error (CWE-150, skills#632)", () => {
+    // The unrecognized positional command (args.command) comes straight from
+    // argv, the same attacker-influenceable-CLI-arg threat model as the
+    // enumerated flag-value sites — found while auditing this file for every
+    // echo path, not one of the issue's originally cited five.
+    const run = makeRun();
+    main(["node", "x", "bogus-\x1b[31mFAKE\x1b[0m-cmd"], run.io);
+    assert.equal(run.exitCode, 2);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /unknown or missing command/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
+
+  it("strips control characters from a raw fs error in main's outer catch (CWE-150, skills#632)", () => {
+    // Unlike appendCandidate's re-thrown --text-file message (already
+    // sanitized at its own throw site), listSessions's non-ENOENT readdir
+    // errors propagate a native fs error message straight through to main's
+    // outer catch, unsanitized by anything else in this file — the case the
+    // issue's cited main()-outer-catch site (formerly lines 581-583) exists
+    // for. Put a FILE where evolution-candidates/ (a directory) is expected:
+    // readdirSync then throws ENOTDIR, quoting the path (which carries the
+    // control character) verbatim.
+    if (process.platform === "win32") return;
+    const projectRoot = join(root, "m-list-ctl-\x1b[31mFAKE\x1b[0m");
+    mkdirSync(join(projectRoot, IEVO_DIR), { recursive: true });
+    writeFileSync(join(projectRoot, IEVO_DIR, CANDIDATES_DIR), "not a directory", "utf-8");
+    const run = makeRun();
+    main(["node", "x", "list", "--project", projectRoot], run.io);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /ENOTDIR/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
   });
 });
 

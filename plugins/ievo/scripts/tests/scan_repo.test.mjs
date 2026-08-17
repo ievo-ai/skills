@@ -174,6 +174,13 @@ describe("escapeMdCell", () => {
   it("leaves a lone ! with no following [ visually unaffected once escapes render", () => {
     assert.equal(escapeMdCell("trailing bang! no bracket"), "trailing bang\\! no bracket");
   });
+  it("escapes < and > so raw HTML can't be smuggled into the rendered index (CWE-116 follow-up, closes #639)", () => {
+    assert.equal(
+      escapeMdCell("<img src=x onerror=alert(document.cookie)>"),
+      "&lt;img src=x onerror=alert(document.cookie)&gt;",
+    );
+    assert.equal(escapeMdCell("a<b>c"), "a&lt;b&gt;c");
+  });
   it("escapes backslashes before introducing its own", () => {
     assert.equal(escapeMdCell("a\\b|c"), "a\\\\b\\|c");
   });

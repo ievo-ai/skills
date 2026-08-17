@@ -345,6 +345,13 @@ export function truncate(text, limit) {
 // preceding unescaped `[`/`!` carries no Markdown meaning, so nothing else
 // needs escaping. Applied at every renderIndexMd interpolation site so a
 // future field addition can't bypass it by skipping truncate().
+// `<` and `>` are also escaped to `&lt;`/`&gt;` (CWE-116 follow-up, closes
+// skills#639): CommonMark/GFM permit raw inline HTML by default, so an
+// unescaped angle bracket lets a scanned repo's frontmatter/manifest value
+// (e.g. a SKILL.md `description:`) smuggle a live HTML tag (`<img
+// onerror=...>`) into the published index. GitHub.com's own renderer
+// sanitizes dangerous HTML, but other downstream consumers of the index
+// Markdown may not.
 // Also strips CONTROL_CHAR_RE (control/DEL bytes, Unicode Bidi_Control, and
 // zero-width characters — see its definition at the top of this file for the
 // full class and the Trojan-Source rationale). Replaced with a space rather
@@ -360,7 +367,9 @@ export function escapeMdCell(text) {
     .replace(/\|/g, "\\|")
     .replace(/`/g, "'")
     .replace(/\[/g, "\\[")
-    .replace(/!/g, "\\!");
+    .replace(/!/g, "\\!")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 // ---------------------------------------------------------------------------

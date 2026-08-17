@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.17
+
+Closes an Eva vuln-scan finding (skills#638): `vuln-scanner.md`/`vuln-scan.md`'s excerpt-containment rule covered `title`/`exploit_chain.*`/`recommendation` but not the `file`/`function` fields every finding also cites.
+
+- **Gap closed** — `agents/vuln-scanner.md`'s "Excerpt containment" note (§ 2 "Output structured JSON") and its Rules cross-reference, `commands/vuln-scan.md`'s Phase 4 "display verbatim, don't unwrap" note, and `skills/vuln-scan/SKILL.md`'s identical Step 5 note + Rules bullet (the `vuln-scanner` agent's preloaded twin — same schema, same rendering path, same gap, found while tracing this fix's blast radius) all named only three fields (`title`, `exploit_chain.*`, `recommendation`). A git tree entry name is real path data with almost no character restrictions, and `function` is a free-text field with no identifier-grammar constraint either — so a crafted `file`/`function` value citing a scanned module's own attacker-influenced name could smuggle a live-rendering `![...](...)`/`[...](...)` exfiltration beacon or spoofed link the moment findings are displayed, including in the Claude Code chat UI.
+- **Fix** — extended all three files' excerpt-containment prose to name `file`/`function` alongside the existing three fields, applying the identical fencing algorithm already specified there (longest-embedded-backtick-run + 1, dual-side space padding, CR/LF collapse before measuring). Unlike the other three fields, `file`/`function` get no "verbatim quoted source" carve-out — wrap every finding's value for both, always, since neither field has an agent-authored-prose form to exempt.
+- **Related, not touched here** — a stale, unmerged PR (#598, `CHANGES_REQUESTED`, now `DIRTY`/conflicting against main) previously attempted a broader version of this fix (`file` + `preconditions` on `vuln-scanner.md`/`vuln-scan.md`, plus an unrelated `security-auditor.md`/`update.md` pair) and its review flagged the exact `skills/vuln-scan/SKILL.md` sibling gap this PR closes — but never landed. This PR is scoped to skills#638's `file`/`function` ask only; `preconditions` and the `security-auditor.md`/`update.md` fields #598 also touched are out of scope here.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.16 → 0.80.17 — 0.80.16 itself landed concurrently via skills#640, claiming the slot this fix originally targeted).
+
 ## v0.80.16
 
 Closes an Eva vuln-scan finding (skills#639): `escapeMdCell` never escaped raw HTML angle brackets, letting a scanned repo smuggle a live HTML tag into the published community-index.

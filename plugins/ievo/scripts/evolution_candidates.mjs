@@ -104,7 +104,7 @@ import { scrub } from "./scrub.mjs";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.80.16";
+export const SCRIPT_VERSION = "0.80.17";
 
 // Strips C0 controls, DEL, and Unicode Bidi_Control/zero-width code points
 // (ANSI escape / terminal-control injection and Trojan-Source-style visual

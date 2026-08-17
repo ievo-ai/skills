@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.16
+
+Closes an Eva vuln-scan finding (skills#639): `escapeMdCell` never escaped raw HTML angle brackets, letting a scanned repo smuggle a live HTML tag into the published community-index.
+
+- **`plugins/ievo/scripts/scan_repo.mjs` — extend `escapeMdCell` to also escape `<`/`>` to `&lt;`/`&gt;`.** `escapeMdCell()` escaped backslash, `|`, backtick, `[`, and `!` — closing the Markdown-table/code-span/link/image vectors — but never touched `<` or `>`. CommonMark/GFM permit raw inline HTML by default unless the consuming renderer sanitizes it; GitHub.com's own renderer does, but the published index artifact is explicitly designed for broader downstream consumption (a static docs site, an IDE/editor preview, an LLM-driven UI), so a scanned repo's attacker-controlled frontmatter/manifest field (e.g. a SKILL.md `description:`) containing `<img src=x onerror=...>` rendered live wherever such a consumer displayed the index. This is the exact follow-up the v0.54.5 (#377) fix's own "Scope note" flagged and deliberately left out of scope. Two new `.replace()` steps are appended after the existing five (disjoint character classes, no interaction with the earlier escapes); every `renderIndexMd` interpolation site routes through the one shared function, so the fix applies uniformly with nothing to bypass.
+- **The generated index's own "Untrusted content below" banner** is updated to also name raw-HTML syntax (`<`, `>`) among what's escaped, mirroring the #377 precedent's own doc-note step.
+- **Tests** — new cases assert `<img src=x onerror=...>` and a bare `a<b>c` both render with `&lt;`/`&gt;`.
+- **Version** — `fix:` → patch per AGENTS.md's bump table. `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.15 → 0.80.16). `scan_repo.mjs`'s own decoupled scanner-format `SCRIPT_VERSION` also bumps (1.1.6 → 1.1.7, mirroring the #377 precedent) since this changes the generated `.md` output content for any scanned repo whose frontmatter contains `<`/`>`.
+
 ## v0.80.15
 
 Closes an Eva vuln-scan finding (skills#632): `evolution_candidates.mjs` echoed attacker-influenceable values on its error/log paths unfiltered, unlike its four sibling scripts.

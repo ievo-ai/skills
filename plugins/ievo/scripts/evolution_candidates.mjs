@@ -104,7 +104,7 @@ import { scrub } from "./scrub.mjs";
 
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs uses. Bump both in the same PR.
-export const SCRIPT_VERSION = "0.80.18";
+export const SCRIPT_VERSION = "0.80.19";
 
 // Strips C0 controls, DEL, and Unicode Bidi_Control/zero-width code points
 // (ANSI escape / terminal-control injection and Trojan-Source-style visual
@@ -127,6 +127,14 @@ export const DEFAULT_RETENTION = 10;
 // Capture is scope-agnostic: classification is deferred to the next-session
 // analysis pass, so freshly captured candidates carry this placeholder scope.
 export const DEFAULT_SCOPE = "unclassified";
+
+// Shared size cap for every free-form text this file reads off disk: a
+// --text-file correction/failure record (assertTextFileReadable, #523) and a
+// per-session accumulator file (readSessionCandidates, #643) alike. Neither
+// is ever legitimately anywhere near this — frontmatter/manifest files
+// elsewhere in this plugin cap reads at the same 256 KB (scan_repo.mjs's
+// MAX_SCAN_FILE_BYTES).
+export const MAX_TEXT_FILE_BYTES = 256 * 1024;
 
 const HELP_TEXT = `evolution_candidates.mjs — iEvo auto-evolution candidate accumulator
 Usage:
@@ -270,7 +278,43 @@ export function latestTimestamp(candidates) {
   return latest;
 }
 
-export function readSessionCandidates(filePath, readImpl = readFileSync) {
+// lstat's `filePath` before reading — mirrors assertTextFileReadable's leaf-
+// type guard above (and scan_repo.mjs's isDir/fileExists/isOversized trio,
+// same rationale): `listSessions` (below) calls this for every `*.jsonl` name
+// a directory listing returns, including the legacy `<projectRoot>/.ievo/
+// evolution-candidates/` location, which sits inside a project's checked-out
+// working tree and is therefore fully committable — a malicious/compromised
+// repo could commit a symlink there (git tracks symlinks as blob mode
+// 120000). Without this guard a plain readFileSync would follow it straight
+// through to whatever it points at (CWE-59): a non-EOF-terminating target
+// (`/dev/zero`, a FIFO) blocks or exhausts memory, and a readable JSONL-shaped
+// target elsewhere on disk gets parsed and can later surface verbatim via
+// `list`. lstat reports a symlink's own type without following its final
+// component, so `isFile()` is false for it regardless of what it resolves to
+// — same as `assertTextFileReadable`, oversized/non-regular entries are
+// capped by MAX_TEXT_FILE_BYTES too, sized off the lstat call rather than
+// after an unbounded read (closes #643).
+// Skip (return no candidates), not throw: unlike assertTextFileReadable's
+// single-file --text-file ingest, this is a best-effort accumulator scan over
+// N files — one bad entry must not abort count/list/prune for every other
+// session. A missing file (ENOENT, at either the stat or the read step)
+// degrades the same way it always has — no existing candidates — since
+// appendCandidate's own dedup check (below) also routes through this
+// function for a session file that may not exist yet.
+// Same accepted TOCTOU residual as appendCandidate's --text-file path below:
+// the stat and the read are separate syscalls on the same path, so a file
+// that passed the type/size check could in principle be swapped for a
+// symlink before it is read. Accepted here for the identical reason it's
+// accepted there (see the --text-file TOCTOU note in appendCandidate).
+export function readSessionCandidates(filePath, readImpl = readFileSync, statImpl = lstatSync, capBytes = MAX_TEXT_FILE_BYTES) {
+  let st;
+  try {
+    st = statImpl(filePath);
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    throw err;
+  }
+  if (!st.isFile() || st.size > capBytes) return [];
   let text;
   try {
     text = readImpl(filePath, "utf-8");
@@ -314,12 +358,6 @@ export function assertTextFileAllowed(textFile, projectRoot) {
   assertContainedIn(resolvedTarget, ievoRoot(projectRoot));
   return resolvedTarget;
 }
-
-// Frontmatter/manifest files elsewhere in this plugin cap reads at 256 KB
-// (scan_repo.mjs's MAX_SCAN_FILE_BYTES) — a captured correction/failure
-// record is free-form agent-authored text and is never legitimately anywhere
-// near that.
-export const MAX_TEXT_FILE_BYTES = 256 * 1024;
 
 // lstat (not stat/readFileSync) so a symlink AT THE LEAF is judged on its own
 // type without following it — a symlink planted directly at the --text-file
@@ -413,7 +451,7 @@ export function appendCandidate(
   // sessionFilePath throws on an unusable session id — surfaced by the caller.
   const filePath = sessionFilePath(projectRoot, sessionId, { getGitCommonDir });
 
-  const existing = readSessionCandidates(filePath, readImpl);
+  const existing = readSessionCandidates(filePath, readImpl, statImpl);
   if (existing.some((c) => c.text === cleanText && (c.scope ?? DEFAULT_SCOPE) === scope)) {
     return { written: false, reason: "duplicate", filePath };
   }
@@ -438,7 +476,12 @@ export function appendCandidate(
 // the current-location copy — it is scanned first and a later duplicate id
 // is skipped.
 export function listSessions(projectRoot = ".", deps = {}) {
-  const { readdir = readdirSync, readImpl = readFileSync, getGitCommonDir = defaultGetGitCommonDir } = deps;
+  const {
+    readdir = readdirSync,
+    readImpl = readFileSync,
+    statImpl = lstatSync,
+    getGitCommonDir = defaultGetGitCommonDir,
+  } = deps;
   const currentDir = candidatesDir(projectRoot, { getGitCommonDir });
   const legacyDir = legacyCandidatesDir(projectRoot);
   const dirs = currentDir === legacyDir ? [currentDir] : [currentDir, legacyDir];
@@ -460,7 +503,7 @@ export function listSessions(projectRoot = ".", deps = {}) {
       if (seenIds.has(sessionId)) continue;
       seenIds.add(sessionId);
       const filePath = join(dir, name);
-      const candidates = readSessionCandidates(filePath, readImpl);
+      const candidates = readSessionCandidates(filePath, readImpl, statImpl);
       sessions.push({ sessionId, filePath, candidates, latestTs: latestTimestamp(candidates) });
     }
   }

@@ -500,13 +500,14 @@ describe("latestTimestamp", () => {
 
 describe("readSessionCandidates", () => {
   const root = join(tmpdir(), `evc-read-${process.pid}`);
+  const fakeStat = (isFile, size) => () => ({ isFile: () => isFile, size });
   after(() => rmSync(root, { recursive: true, force: true }));
 
-  it("returns [] when the session file is absent (ENOENT)", () => {
+  it("returns [] when the session file is absent (ENOENT at the stat step)", () => {
     assert.deepEqual(readSessionCandidates(join(root, "nope.jsonl")), []);
   });
 
-  it("parses candidates from an existing file", () => {
+  it("parses candidates from an existing file (real fs, default statImpl)", () => {
     writeSession(root, "s1", [{ ts: "2026-01-01T00:00:00Z", scope: "unclassified", text: "hi" }]);
     const out = readSessionCandidates(sessionFilePath(root, "s1", NO_GIT));
     assert.equal(out.length, 1);
@@ -515,7 +516,47 @@ describe("readSessionCandidates", () => {
 
   it("rethrows a non-ENOENT read error (e.g. EACCES)", () => {
     const boom = () => { const e = new Error("denied"); e.code = "EACCES"; throw e; };
-    assert.throws(() => readSessionCandidates("/whatever", boom), /denied/);
+    assert.throws(() => readSessionCandidates("/whatever", boom, fakeStat(true, 10)), /denied/);
+  });
+
+  it("rethrows a non-ENOENT stat error", () => {
+    const boom = () => { const e = new Error("perm"); e.code = "EACCES"; throw e; };
+    assert.throws(() => readSessionCandidates("/whatever", readFileSync, boom), /perm/);
+  });
+
+  it("skips (returns []) a non-regular file per lstat, e.g. a symlink — not followed, not thrown (CWE-59, #643)", () => {
+    assert.deepEqual(readSessionCandidates("/whatever", readFileSync, fakeStat(false, 10)), []);
+  });
+
+  it("skips (returns []) a regular file exceeding MAX_TEXT_FILE_BYTES", () => {
+    assert.deepEqual(
+      readSessionCandidates("/whatever", readFileSync, fakeStat(true, MAX_TEXT_FILE_BYTES + 1)),
+      [],
+    );
+  });
+
+  it("reads a regular file exactly at the MAX_TEXT_FILE_BYTES cap", () => {
+    const readImpl = () => '{"ts":"2026-01-01T00:00:00Z","text":"at cap"}\n';
+    const out = readSessionCandidates("/whatever", readImpl, fakeStat(true, MAX_TEXT_FILE_BYTES));
+    assert.equal(out.length, 1);
+    assert.equal(out[0].text, "at cap");
+  });
+
+  it("skips a REAL symlink at the leaf, end-to-end (default statImpl, no readImpl call)", () => {
+    const symlinkRoot = join(tmpdir(), `evc-read-symlink-${process.pid}`);
+    const targetPath = join(symlinkRoot, "target.jsonl");
+    const linkPath = join(symlinkRoot, "link.jsonl");
+    mkdirSync(symlinkRoot, { recursive: true });
+    writeFileSync(targetPath, '{"ts":"2026-01-01T00:00:00Z","text":"should never surface"}\n', "utf-8");
+    symlinkSync(targetPath, linkPath, "file");
+    try {
+      let readCalled = false;
+      const out = readSessionCandidates(linkPath, () => { readCalled = true; throw new Error("must not read through a symlink"); });
+      assert.deepEqual(out, []);
+      assert.equal(readCalled, false);
+    } finally {
+      rmSync(symlinkRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -580,11 +621,37 @@ describe("appendCandidate", () => {
     assert.equal(res.reason, "duplicate");
   });
 
+  it("degrades dedup to 'no existing candidates' (does not throw) when the session file itself is non-regular per lstat (#643)", () => {
+    // The session file this call dedups against is server-controlled, not
+    // attacker-controlled — but readSessionCandidates' new lstat guard now
+    // sits in this call path too, so confirm it degrades the same way an
+    // absent file always has (empty existing list, write proceeds) instead of
+    // throwing, mirroring the ENOENT case.
+    const projectRoot = join(root, "p-nonregular-session-file");
+    const writes = [];
+    const res = appendCandidate(
+      { projectRoot, sessionId: "s", text: "t", ts: "2026-07-04T00:00:00Z" },
+      {
+        readImpl: () => { throw new Error("must not be called — stat already skipped this entry"); },
+        statImpl: () => ({ isFile: () => false, size: 0 }),
+        mkdir: () => {},
+        appendFile: (p, body) => writes.push([p, body]),
+        getGitCommonDir: () => null,
+      },
+    );
+    assert.equal(res.written, true);
+    assert.equal(writes.length, 1);
+  });
+
   it("honors the default projectRoot '.' via injected fs deps (no disk writes)", () => {
     const writes = [];
     const res = appendCandidate(
       { sessionId: "s", text: "t", ts: "2026-07-04T00:00:00Z" },
       {
+        // statImpl reports a regular file so readSessionCandidates' new lstat
+        // guard reaches this readImpl mock instead of short-circuiting on a
+        // (real, default-statImpl) ENOENT for a path that was never written.
+        statImpl: () => ({ isFile: () => true, size: 1 }),
         readImpl: () => { const e = new Error("nf"); e.code = "ENOENT"; throw e; },
         mkdir: () => {},
         appendFile: (p, body) => writes.push([p, body]),
@@ -603,6 +670,7 @@ describe("appendCandidate", () => {
     const res = appendCandidate(
       { projectRoot, sessionId: "s", text: "t", ts: "2026-07-04T00:00:00Z" },
       {
+        statImpl: () => ({ isFile: () => true, size: 1 }),
         readImpl: () => { const e = new Error("nf"); e.code = "ENOENT"; throw e; },
         mkdir: () => {},
         appendFile: (p, body) => writes.push([p, body]),
@@ -865,6 +933,38 @@ describe("listSessions", () => {
     const gitDir = join(projectRoot, ".git");
     assert.deepEqual(listSessions(projectRoot, { getGitCommonDir: () => gitDir }), []);
   });
+
+  it("skips a symlinked *.jsonl entry in the legacy dir instead of following it (CWE-59, #643)", () => {
+    // Simulates a malicious/compromised repo committing a symlink at
+    // <projectRoot>/.ievo/evolution-candidates/evil.jsonl (git tracks symlinks
+    // as blob mode 120000 — no git-internals bypass needed). A real readFileSync
+    // would follow it straight through to whatever it points at; the session
+    // must instead surface with zero candidates, and the outside target's
+    // content must never be read/parsed.
+    const projectRoot = join(root, "proj-symlink");
+    const legacyDir = legacyCandidatesDir(projectRoot);
+    const outsideTarget = join(root, "outside-target.jsonl");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(outsideTarget, '{"ts":"2026-01-01T00:00:00Z","text":"exfiltrated secret"}\n', "utf-8");
+    symlinkSync(outsideTarget, join(legacyDir, "evil.jsonl"), "file");
+    writeSessionAt(legacyDir, "legit", [{ ts: "2026-01-02T00:00:00Z", text: "real candidate" }]);
+
+    const sessions = listSessions(projectRoot, NO_GIT).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    assert.deepEqual(sessions.map((s) => s.sessionId), ["evil", "legit"]);
+    assert.deepEqual(sessions[0].candidates, []);
+    assert.equal(sessions[1].candidates[0].text, "real candidate");
+  });
+
+  it("skips an oversized *.jsonl entry in the legacy dir (CWE-400)", () => {
+    const projectRoot = join(root, "proj-oversized");
+    const legacyDir = legacyCandidatesDir(projectRoot);
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, "huge.jsonl"), "x".repeat(MAX_TEXT_FILE_BYTES + 1), "utf-8");
+
+    const sessions = listSessions(projectRoot, NO_GIT);
+    assert.equal(sessions.length, 1);
+    assert.deepEqual(sessions[0].candidates, []);
+  });
 });
 
 describe("countPending", () => {
@@ -964,6 +1064,7 @@ describe("pruneSessions", () => {
     const res = pruneSessions("/proj", 1, {
       ...NO_GIT,
       readdir: () => Object.keys(files),
+      statImpl: () => ({ isFile: () => true, size: 1 }),
       readImpl: (p) => {
         const base = p.split(/[\\/]/).pop();
         return files[base].map((r) => JSON.stringify(r)).join("\n") + "\n";

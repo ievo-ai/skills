@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.19
+
+Closes an Eva vuln-scan finding (skills#643): `evolution_candidates.mjs`'s `listSessions`/`readSessionCandidates` had no symlink or size guard on the per-session `.jsonl` files it scans, unlike the `--text-file` ingest path in the same file.
+
+- **`plugins/ievo/scripts/evolution_candidates.mjs` — `readSessionCandidates` now `lstat`s a session file before reading it**, skipping (returning no candidates, not throwing) any entry that isn't a regular file or exceeds `MAX_TEXT_FILE_BYTES` (256 KB, the same cap `assertTextFileReadable` already applies to `--text-file`). `listSessions` scans `*.jsonl` names it finds under both the git-common-dir location and the legacy `<projectRoot>/.ievo/evolution-candidates/` location — the latter sits inside a project's checked-out working tree and is therefore fully committable, so a malicious/compromised repo could commit a symlink there (git tracks symlinks as blob mode 120000). `count`/`prune` route through `listSessions` on every `SessionStart` when iEvo auto-evolution mode is enabled, so an unguarded `readFileSync` following such a symlink to a non-EOF-terminating target (`/dev/zero`, a FIFO) blocked or exhausted memory on every future session in that project, and a readable JSONL-shaped target elsewhere on disk had its content parsed and could later surface verbatim via `list`.
+- **`MAX_TEXT_FILE_BYTES` moved up in the file and its doc comment broadened** — it now caps both the `--text-file` ingest path and this session-file scan path, rather than being declared after its first new use.
+- **Skip, not throw** — this is a best-effort accumulator scan over N files; one bad entry must not abort `count`/`list`/`prune` for every other session. `appendCandidate`'s own dedup check also routes through `readSessionCandidates` for the session file it's about to append to (server-controlled in that call path, not attacker-controlled) — it now degrades the same way an absent file always has, treating a non-regular file as "no existing candidates" rather than throwing.
+- **Tests** — new cases cover: a symlink at the leaf is skipped end-to-end (real `symlinkSync`, confirms the target is never read), an oversized regular file is skipped, a file exactly at the cap still round-trips, `listSessions` skips a symlinked `*.jsonl` entry in the legacy dir without following it while a sibling legitimate session still lists correctly, and `appendCandidate`'s dedup degrades without throwing when its own session file is non-regular per `lstat`.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.18 → 0.80.19 — 0.80.18 itself landed concurrently via skills#645, claiming the slot this fix originally targeted).
+
 ## v0.80.18
 
 Closes an Eva vuln-scan finding (skills#642): `commands/update.md`'s re-audit `AskUserQuestion` prompt interpolated a security-auditor-synthesized flag summary with no excerpt-containment fencing, and `agents/security-auditor.md`'s own containment note overclaimed that every GREEN/YELLOW-verdict flag was exempt.

@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.18
+
+Closes an Eva vuln-scan finding (skills#642): `commands/update.md`'s re-audit `AskUserQuestion` prompt interpolated a security-auditor-synthesized flag summary with no excerpt-containment fencing, and `agents/security-auditor.md`'s own containment note overclaimed that every GREEN/YELLOW-verdict flag was exempt.
+
+- **Gap closed** — `agents/security-auditor.md`'s "Excerpt containment for `report_template.body`" note is scoped, by its own heading, to that one RED-only rendering surface. `commands/update.md` Step 2.5 builds a YELLOW/RED re-audit `AskUserQuestion` whose `Question:` text interpolates the same LLM-synthesized `<top 1-2 flags — category + one-line explanation>` summary directly, with no fencing rule anywhere in that file — a second rendering surface the `report_template.body`-scoped note never covered. `agents/evolution.md`'s Step 5 already fences the structurally identical construct for its own `SKIPPED` report line.
+- **Fix** — `commands/update.md` gains a new "Excerpt containment" note immediately before the Step 2.5 `AskUserQuestion` block, adapted from `agents/evolution.md` Step 5's rule (longest-embedded-backtick-run + 1, dual-side space padding when the excerpt starts/ends with a backtick, CR/LF collapse before measuring). `agents/security-auditor.md`'s note is narrowed to state plainly that it covers only `report_template.body`'s own rendering surface — a flag that never reaches `report_template.body` is exempt from *that* note, but any other caller of the same schema (such as `update.md`'s `AskUserQuestion` step) is a distinct rendering surface responsible for its own containment.
+- **Related, not touched here** — a stale, unmerged PR (#598, `CHANGES_REQUESTED`, conflicting against main) previously staged a near-identical `update.md` containment note as part of a broader, half-applied fix; it never landed and its review flagged unrelated sibling-file gaps that were never addressed. This PR independently re-derives the `update.md` fix and additionally narrows `security-auditor.md`'s overclaim, which #598 did not touch.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.17 → 0.80.18).
+
 ## v0.80.17
 
 Closes an Eva vuln-scan finding (skills#638): `vuln-scanner.md`/`vuln-scan.md`'s excerpt-containment rule covered `title`/`exploit_chain.*`/`recommendation` but not the `file`/`function` fields every finding also cites.

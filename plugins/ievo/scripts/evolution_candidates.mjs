@@ -44,6 +44,16 @@
 // NEW data at the old location once it stops being (or never was) a git
 // working tree.
 //
+// Both read locations are untrusted paths, not just the files in them (#643 +
+// its review finding): the legacy one sits in the checked-out working tree, so
+// a repo can commit the `evolution-candidates` directory — or its `.ievo`
+// parent — as a symlink just as easily as it can commit a `*.jsonl` entry as
+// one. `listSessions` therefore realpath-contains every directory it scans
+// against the root that directory was derived from (assertCandidatesDirContained)
+// before `readdir` resolves it, and `readSessionCandidates` lstat-guards each
+// file it then reads. `appendCandidate`'s WRITE path is not yet contained —
+// see the residual note there (#647).
+//
 // Retention (per #293 Q4): keep the last 10 sessions; `prune` removes older
 // per-session files. Dedup: an identical (scope, text) candidate is not appended
 // twice within the same session.
@@ -150,7 +160,12 @@ Notes:
   inside <project root>/.ievo/ and under a fixed size cap — any other path is
   rejected rather than read. Its content is scrubbed before it is persisted:
   secrets redacted, $HOME-absolute paths rewritten to ~-relative ones, and
-  over-long text truncated.`;
+  over-long text truncated.
+
+  count/list/prune refuse to run if a candidates directory resolves outside
+  the project (or outside the git-common-dir it was derived from) — a
+  symlinked <project root>/.ievo/evolution-candidates would otherwise have
+  them read, and prune delete, files elsewhere on disk.`;
 
 // ---------------------------------------------------------------------------
 // Paths (#564 — git-common-dir relocation)
@@ -294,6 +309,9 @@ export function latestTimestamp(candidates) {
 // — same as `assertTextFileReadable`, oversized/non-regular entries are
 // capped by MAX_TEXT_FILE_BYTES too, sized off the lstat call rather than
 // after an unbounded read (closes #643).
+// This guards the LEAF only. The directory whose listing produced `filePath`
+// is guarded separately, and on the opposite policy — see
+// assertCandidatesDirContained below.
 // Skip (return no candidates), not throw: unlike assertTextFileReadable's
 // single-file --text-file ingest, this is a best-effort accumulator scan over
 // N files — one bad entry must not abort count/list/prune for every other
@@ -333,11 +351,18 @@ function ievoRoot(projectRoot) {
   return resolve(projectRoot, IEVO_DIR);
 }
 
+// Shared containment predicate: is `target` `allowedDir` itself or below it?
+// Both sides must already be resolved (lexically, or by realpath) by the
+// caller — this is a pure string test, it never touches the filesystem.
+function isContainedIn(target, allowedDir) {
+  return target === allowedDir || target.startsWith(allowedDir + sep);
+}
+
 // Throws if `target` would resolve outside `allowedDir` — shared by the
 // lexical pre-check (assertTextFileAllowed, below) and the realpath re-check
 // (assertTextFileReadable, below). Mirrors scan_repo.mjs's assertContained().
 function assertContainedIn(target, allowedDir) {
-  if (target !== allowedDir && !target.startsWith(allowedDir + sep)) {
+  if (!isContainedIn(target, allowedDir)) {
     throw new Error(`must be inside ${allowedDir}`);
   }
 }
@@ -457,6 +482,17 @@ export function appendCandidate(
   }
 
   const record = { ts: ts ?? now(), scope, text: cleanText };
+  // Known residual (#647): unlike listSessions' scan, this append path never
+  // asserts that the candidates directory is contained in the project — so a
+  // symlinked <projectRoot>/.ievo/evolution-candidates has the dedup read
+  // above look for its session file, and this mkdir/appendFile create it,
+  // outside the project. Tracked separately rather than folded into #643's scan fix:
+  // for a git project this path resolves under the git-common-dir (#564),
+  // which a repo's committed contents cannot reach, so the working-tree
+  // location is only written when getGitCommonDir resolves to null; the file
+  // name is a sanitized (UUID, in practice) session id an attacker cannot
+  // choose; and the check has to sit AFTER mkdir here, since the directory
+  // legitimately does not exist on a first append.
   mkdir(dirname(filePath), { recursive: true });
   appendFile(filePath, `${JSON.stringify(record)}\n`, "utf-8");
   return { written: true, filePath, record };
@@ -465,6 +501,57 @@ export function appendCandidate(
 // ---------------------------------------------------------------------------
 // List / count / prune
 // ---------------------------------------------------------------------------
+
+// Directory-level counterpart to readSessionCandidates' leaf guard, and the
+// same class of check assertTextFileReadable's realpath re-check applies to a
+// --text-file path (review finding on #643). readSessionCandidates only ever
+// sees a path listSessions already decided to scan, and `readdir` resolves
+// symlinks in EVERY component of that path including the final one — so a
+// malicious/compromised repo that commits `.ievo/evolution-candidates` itself
+// (or its `.ievo` parent) as a symlink pointing anywhere on disk gets that
+// target's directory listed, and every `*.jsonl` name in it is a genuine
+// regular file that sails through the leaf lstat, is parsed, and surfaces
+// verbatim via `list` (CWE-59). `prune` is worse: it `unlink`s whatever
+// listSessions returned past the retention window, i.e. files outside the
+// project entirely.
+//
+// The containment ROOT is the directory the scanned path was derived from —
+// `projectRoot` for the legacy location, the git-common-dir for the current
+// one — deliberately NOT `<projectRoot>/.ievo` (the root assertTextFileReadable
+// uses for --text-file). `.ievo` sits inside the checked-out working tree, so
+// it is itself committable-as-a-symlink; realpath'ing it as the containment
+// key would resolve the very symlink the check exists to catch and the escape
+// would pass. A project's own root cannot be replaced by a repo's contents,
+// so it is the innermost boundary that stays trustworthy. Both sides are
+// realpath'd before comparing (mirrors scan_repo.mjs's
+// assertCheckoutContained) so a benign symlinked ANCESTOR of projectRoot — a
+// containerized home, /tmp on macOS — is not a false reject.
+//
+// Throws rather than skipping, unlike readSessionCandidates: a symlinked
+// candidates directory is not one bad entry among N, it is a structural
+// anomaly for which no legitimate cause exists, and listSessions already
+// propagates directory-level failures (any non-ENOENT readdir error) instead
+// of degrading. Silently skipping would render an attacked project
+// indistinguishable from an empty one.
+//
+// No type/size checks are ported from assertTextFileReadable: a directory has
+// no size to cap, and an `isDirectory()` lstat would only add rejection of a
+// symlink that stays INSIDE the containment root — which grants a repo no
+// access to anything it could not simply place in the real directory. The
+// same accepted TOCTOU residual applies as everywhere else in this file
+// (realpath and readdir are separate syscalls on the same path).
+export function assertCandidatesDirContained(dir, rootDir, realpathImpl = realpathSync) {
+  const realRoot = realpathImpl(rootDir);
+  const realDir = realpathImpl(dir);
+  if (!isContainedIn(realDir, realRoot)) {
+    // The symlink's target is attacker-chosen, so it is never echoed — only
+    // the caller-supplied paths, stripped like every other value this file
+    // puts in an error message (main() strips again at the output sink).
+    throw new Error(
+      `refusing to scan candidates dir '${dir.replace(CONTROL_CHAR_RE, "")}' — it resolves outside '${realRoot.replace(CONTROL_CHAR_RE, "")}'`,
+    );
+  }
+}
 
 // Merges the current (git-common-dir, when available) location with the
 // legacy <projectRoot>/.ievo/evolution-candidates location, so already-
@@ -475,22 +562,34 @@ export function appendCandidate(
 // possible if a project's git-repo status changed mid-session) resolves to
 // the current-location copy — it is scanned first and a later duplicate id
 // is skipped.
+// Each directory carries the root it must stay inside — see
+// assertCandidatesDirContained above. getGitCommonDir is called once and
+// pinned for the candidatesDir() call so the root is the exact directory that
+// path was built from (and a second `git rev-parse` spawn is avoided).
 export function listSessions(projectRoot = ".", deps = {}) {
   const {
     readdir = readdirSync,
     readImpl = readFileSync,
     statImpl = lstatSync,
+    realpathImpl = realpathSync,
     getGitCommonDir = defaultGetGitCommonDir,
   } = deps;
-  const currentDir = candidatesDir(projectRoot, { getGitCommonDir });
+  const gitCommonDir = getGitCommonDir(projectRoot);
+  const currentDir = candidatesDir(projectRoot, { getGitCommonDir: () => gitCommonDir });
   const legacyDir = legacyCandidatesDir(projectRoot);
-  const dirs = currentDir === legacyDir ? [currentDir] : [currentDir, legacyDir];
+  const scans = currentDir === legacyDir
+    ? [{ dir: legacyDir, rootDir: projectRoot }]
+    : [{ dir: currentDir, rootDir: gitCommonDir }, { dir: legacyDir, rootDir: projectRoot }];
 
   const sessions = [];
   const seenIds = new Set();
-  for (const dir of dirs) {
+  for (const { dir, rootDir } of scans) {
     let entries;
     try {
+      // One catch for both: a candidates dir that does not exist at all
+      // (realpath ENOENT) is the same "nothing accumulated here yet" case
+      // readdir's own ENOENT has always been.
+      assertCandidatesDirContained(dir, rootDir, realpathImpl);
       entries = readdir(dir);
     } catch (err) {
       if (err.code === "ENOENT") continue;

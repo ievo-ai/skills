@@ -29,6 +29,7 @@ import {
   readSessionCandidates,
   assertTextFileAllowed,
   assertTextFileReadable,
+  assertCandidatesDirContained,
   appendCandidate,
   listSessions,
   countPending,
@@ -45,6 +46,15 @@ import {
 // git working tree on a given machine. Dedicated describe blocks below test
 // the relocation itself (fake AND real git-common-dir resolution).
 const NO_GIT = { getGitCommonDir: () => null };
+
+// Identity realpath — injected by the fully-mocked-fs tests below, whose
+// candidates directories deliberately never exist on disk and so cannot be
+// resolved by the real realpathSync that listSessions' directory-containment
+// check (assertCandidatesDirContained) uses. Identity keeps that check a
+// no-op so those tests keep exercising what they were written for (readdir
+// error propagation, sort tiebreaks); containment itself is covered by its
+// own tests against REAL symlinks further down.
+const IDENTITY_REALPATH = { realpathImpl: (p) => p };
 
 // appendCandidate routes --text-file content through scrub.mjs's scrub(), which
 // is not redaction-only: these two pin the OTHER stages of that transform (see
@@ -224,6 +234,72 @@ describe("assertTextFileReadable", () => {
       assert.throws(() => assertTextFileReadable(allowedPath, projectRoot), /must be inside/);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("assertCandidatesDirContained (#643 review finding — directory-level guard)", () => {
+  const identity = (p) => p;
+
+  it("passes for a directory below the root", () => {
+    assert.doesNotThrow(
+      () => assertCandidatesDirContained("/proj/.ievo/evolution-candidates", "/proj", identity),
+    );
+  });
+
+  it("passes when the directory IS the root (no separator suffix to match)", () => {
+    assert.doesNotThrow(() => assertCandidatesDirContained("/proj", "/proj", identity));
+  });
+
+  it("throws when the directory's realpath escapes the root (symlinked dir)", () => {
+    // The lexical path is inside the project; only the realpath reveals the
+    // escape — exactly what a committed `evolution-candidates -> /etc` symlink
+    // produces, and what readdir would otherwise follow.
+    const realpathImpl = (p) => (p === "/proj" ? "/proj" : "/etc");
+    assert.throws(
+      () => assertCandidatesDirContained("/proj/.ievo/evolution-candidates", "/proj", realpathImpl),
+      /refusing to scan candidates dir .* resolves outside '\/proj'/,
+    );
+  });
+
+  it("rejects a sibling directory whose path merely shares the root's prefix", () => {
+    assert.throws(
+      () => assertCandidatesDirContained("/proj-evil/.ievo/evolution-candidates", "/proj", identity),
+      /resolves outside/,
+    );
+  });
+
+  it("strips control characters from both echoed paths (ANSI escape + zero-width, CWE-150)", () => {
+    // --project is attacker-influenceable (see the file's own --text-file
+    // threat model), so both interpolated paths get the same strip every other
+    // error message in this file applies.
+    assert.throws(
+      () => assertCandidatesDirContained("/proj\x1b[31m/x", "/root\u200b", identity),
+      (err) => {
+        assert.match(err.message, /refusing to scan candidates dir/);
+        assert.doesNotMatch(err.message, /[\x1b\u200b]/);
+        return true;
+      },
+    );
+  });
+
+  it("propagates realpath's own fs errors (ENOENT keeps its code for the caller's skip)", () => {
+    assert.throws(
+      () => assertCandidatesDirContained("/nope", "/nope", () => {
+        const e = new Error("nf"); e.code = "ENOENT"; throw e;
+      }),
+      (err) => err.code === "ENOENT",
+    );
+  });
+
+  it("defaults realpathImpl to the real fs", () => {
+    const projectRoot = join(tmpdir(), `evc-dir-contained-defaults-${process.pid}`);
+    const dir = join(projectRoot, IEVO_DIR, CANDIDATES_DIR);
+    mkdirSync(dir, { recursive: true });
+    try {
+      assert.doesNotThrow(() => assertCandidatesDirContained(dir, projectRoot));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
     }
   });
 });
@@ -858,7 +934,7 @@ describe("listSessions", () => {
 
   it("rethrows a non-ENOENT readdir error", () => {
     const boom = () => { const e = new Error("perm"); e.code = "EACCES"; throw e; };
-    assert.throws(() => listSessions(root, { ...NO_GIT, readdir: boom }), /perm/);
+    assert.throws(() => listSessions(root, { ...NO_GIT, ...IDENTITY_REALPATH, readdir: boom }), /perm/);
   });
 
   it("rethrows a non-ENOENT readdir error from the legacy dir when the git-common-dir scan already succeeded", () => {
@@ -871,6 +947,7 @@ describe("listSessions", () => {
     const currentDir = join(gitDir, GIT_COMMON_SUBDIR, "evolution-candidates");
     assert.throws(
       () => listSessions(projectRoot, {
+        ...IDENTITY_REALPATH,
         getGitCommonDir: () => gitDir,
         readdir: (dir) => (dir === currentDir ? [] : boom()),
       }),
@@ -953,6 +1030,59 @@ describe("listSessions", () => {
     assert.deepEqual(sessions.map((s) => s.sessionId), ["evil", "legit"]);
     assert.deepEqual(sessions[0].candidates, []);
     assert.equal(sessions[1].candidates[0].text, "real candidate");
+  });
+
+  it("throws instead of listing a REAL symlinked legacy candidates DIR pointing outside the project (CWE-59, #643 review finding)", () => {
+    // The sibling of the leaf-symlink case above: the repo commits the
+    // `evolution-candidates` directory itself as a symlink. Every *.jsonl
+    // inside the target is a genuine regular file, so the leaf lstat passes
+    // them all — only the directory-level realpath containment catches this.
+    const projectRoot = join(root, "proj-symlink-dir");
+    const outsideDir = join(root, "outside-dir");
+    let read = false;
+    mkdirSync(join(projectRoot, IEVO_DIR), { recursive: true });
+    writeSessionAt(outsideDir, "harvested", [{ ts: "2026-01-01T00:00:00Z", text: "exfiltrated secret" }]);
+    symlinkSync(outsideDir, legacyCandidatesDir(projectRoot), "dir");
+
+    assert.throws(
+      () => listSessions(projectRoot, {
+        ...NO_GIT,
+        readImpl: (...args) => { read = true; return readFileSync(...args); },
+      }),
+      /refusing to scan candidates dir/,
+    );
+    assert.equal(read, false, "the symlink target's files must never be read");
+  });
+
+  it("throws for a REAL symlinked .ievo ANCESTOR, not just the candidates dir itself", () => {
+    // Why the containment root is projectRoot and not <projectRoot>/.ievo:
+    // `.ievo` is inside the working tree and therefore committable as a
+    // symlink too, so realpath'ing it as the root would resolve the very
+    // escape being checked for and let this through.
+    const projectRoot = join(root, "proj-symlink-ancestor");
+    const outsideIevo = join(root, "outside-ievo");
+    mkdirSync(projectRoot, { recursive: true });
+    writeSessionAt(join(outsideIevo, CANDIDATES_DIR), "harvested", [{ ts: "2026-01-01T00:00:00Z", text: "secret" }]);
+    symlinkSync(outsideIevo, join(projectRoot, IEVO_DIR), "dir");
+
+    assert.throws(() => listSessions(projectRoot, NO_GIT), /refusing to scan candidates dir/);
+  });
+
+  it("still lists a symlinked candidates dir that stays INSIDE the project (containment, not symlink-phobia)", () => {
+    // Deliberate non-rejection: a link that resolves back inside the project
+    // exposes nothing the repo could not have placed in the real directory,
+    // so the guard is a containment check rather than an isDirectory() type
+    // check (see assertCandidatesDirContained's note on what is not ported
+    // from assertTextFileReadable).
+    const projectRoot = join(root, "proj-symlink-inside");
+    const realStore = join(projectRoot, "store");
+    mkdirSync(join(projectRoot, IEVO_DIR), { recursive: true });
+    writeSessionAt(realStore, "legit", [{ ts: "2026-01-01T00:00:00Z", text: "real candidate" }]);
+    symlinkSync(realStore, legacyCandidatesDir(projectRoot), "dir");
+
+    const sessions = listSessions(projectRoot, NO_GIT);
+    assert.deepEqual(sessions.map((s) => s.sessionId), ["legit"]);
+    assert.equal(sessions[0].candidates[0].text, "real candidate");
   });
 
   it("skips an oversized *.jsonl entry in the legacy dir (CWE-400)", () => {
@@ -1051,6 +1181,22 @@ describe("pruneSessions", () => {
     assert.ok(!existsSync(join(legacyDir, "old-sess.jsonl")));
   });
 
+  it("refuses to unlink through a REAL symlinked candidates dir (the guard's highest-impact inheritance, #643 review finding)", () => {
+    // prune is the worst consumer of an uncontained listSessions: everything
+    // past the retention window is unlinked, so a symlinked candidates dir
+    // turns retention into arbitrary file deletion outside the project.
+    const projectRoot = join(root, "proj-symlink-prune");
+    const outsideDir = join(root, "outside-prune");
+    mkdirSync(join(projectRoot, IEVO_DIR), { recursive: true });
+    writeSessionAt(outsideDir, "victim-a", [{ ts: "2026-01-01T00:00:00Z", text: "a" }]);
+    writeSessionAt(outsideDir, "victim-b", [{ ts: "2026-01-02T00:00:00Z", text: "b" }]);
+    symlinkSync(outsideDir, legacyCandidatesDir(projectRoot), "dir");
+
+    assert.throws(() => pruneSessions(projectRoot, 1, NO_GIT), /refusing to scan candidates dir/);
+    assert.ok(existsSync(join(outsideDir, "victim-a.jsonl")));
+    assert.ok(existsSync(join(outsideDir, "victim-b.jsonl")));
+  });
+
   it("orders equal-timestamp sessions by id (tiebreak exercised both directions)", () => {
     // Fully injected so the readdir order (b, a, c) is deterministic — the sort
     // then compares equal-ts sessions in both id orders, covering both sides of
@@ -1063,6 +1209,7 @@ describe("pruneSessions", () => {
     const removed = [];
     const res = pruneSessions("/proj", 1, {
       ...NO_GIT,
+      ...IDENTITY_REALPATH,
       readdir: () => Object.keys(files),
       statImpl: () => ({ isFile: () => true, size: 1 }),
       readImpl: (p) => {
@@ -1229,6 +1376,9 @@ describe("main", () => {
     // #523: --help must state the --text-file restriction, not just its shape.
     assert.match(run.logs[0], /--text-file <path> is untrusted input/);
     assert.match(run.logs[0], /inside <project root>\/\.ievo\//);
+    // #643 review finding: --help must also state why count/list/prune can
+    // refuse to run, so the containment error is self-explaining.
+    assert.match(run.logs[0], /refuse to run if a candidates directory resolves outside/);
   });
 
   it("exits 2 with an error on unparseable args", () => {

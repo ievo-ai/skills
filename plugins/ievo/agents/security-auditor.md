@@ -220,9 +220,16 @@ space (a cosmetic side effect, not a fencing bypass), but a BLANK line
 ends the enclosing paragraph before inline parsing runs, so no span forms
 at all and everything after the break renders as live, unfenced Markdown.
 Replace every CR/LF run inside the excerpt with a single space before
-measuring the backtick run and wrapping. `flags[].excerpt` values that
-never reach `report_template.body` (GREEN/YELLOW verdicts) don't need
-this treatment.
+measuring the backtick run and wrapping. This note scopes only to
+`report_template.body`'s own rendering surface (RED-only, filed as a
+public GitHub issue) — a `flags[].excerpt` value that never reaches
+`report_template.body` needs no containment on THAT account. That does
+NOT mean every other caller of this schema is exempt: any OTHER surface
+that renders a flag's `excerpt`/`explanation` back to a user — for
+example a YELLOW/RED re-audit prompt built from this schema, such as
+`/ievo:update`'s `AskUserQuestion` step — is a distinct rendering surface
+with its own live-Markdown exposure, and is responsible for its own
+excerpt containment; this note does not cover it.
 
 Example RED output:
 

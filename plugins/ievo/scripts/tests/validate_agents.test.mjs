@@ -753,6 +753,41 @@ describe("main (CLI entry)", () => {
     assert.match(output, /escagents/);
   });
 
+  it("strips a raw newline from the printed rel path — CI workflow-command-forgery guard (CWE-117, skills#648)", () => {
+    // Same threat as the frontmatter-value fix, extended to path echoing: a
+    // POSIX filename is unrestricted beyond NUL/`/`, so a PR-added agent .md
+    // file (or its parent dir) can itself carry a raw `\n` followed by a
+    // GitHub Actions workflow-command line.
+    if (process.platform === "win32") return;
+    const nlDir = join(tmpDir, "nl\n::add-mask::secret-agents");
+    mkdirSync(nlDir, { recursive: true });
+    writeFileSync(join(nlDir, "a.md"), "---\nname: a\ndescription: ok\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", nlDir], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 0);
+    const relLine = run.logs.find((l) => l.includes("secret-agents"));
+    assert.ok(relLine, "expected a log line naming the directory");
+    assert.ok(!relLine.includes("\n"), `log line must not carry a raw newline: ${JSON.stringify(relLine)}`);
+  });
+
+  it("strips a raw newline from the file-unreadable message's embedded path (CWE-117, skills#648)", () => {
+    if (process.platform === "win32") return;
+    const nlTrapDir = join(tmpDir, "nl-trap\n::add-mask::secret");
+    mkdirSync(nlTrapDir, { recursive: true });
+    const trapFile = join(nlTrapDir, "a.md");
+    writeFileSync(trapFile, "---\nname: trap\ndescription: ok\n---", "utf-8");
+    chmodSync(trapFile, 0o000);
+    const run = makeRun();
+    try {
+      main(["node", "validate_agents.mjs", nlTrapDir], run.exit, run.log, run.errLog);
+    } finally {
+      chmodSync(trapFile, 0o644);
+    }
+    const unreadableLine = run.logs.find((l) => l.includes("file-unreadable"));
+    assert.ok(unreadableLine, "expected a file-unreadable violation line");
+    assert.ok(!unreadableLine.includes("\n"), `log line must not carry a raw newline: ${JSON.stringify(unreadableLine)}`);
+  });
+
   it("continues past unreadable file — does NOT halt on first read error (CI gate correctness)", () => {
     // POSIX-only: chmod 000 makes the file unreadable so readFileSync throws
     // EACCES while isOversized's lstatSync (which only needs dir execute

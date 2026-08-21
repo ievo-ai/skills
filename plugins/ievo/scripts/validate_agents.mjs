@@ -335,8 +335,10 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
     // A crafted file path (e.g. a PR-added agent .md file with an embedded
     // ESC byte) reaches this unstripped otherwise — same CWE-150 guard as
     // CONTROL_CHAR_RE's use on frontmatter values, extended to path echoing
-    // (skills#495).
-    const rel = relative(process.cwd(), filePath).replace(CONTROL_CHAR_RE, "");
+    // (skills#495). A POSIX filename is unrestricted beyond NUL/`/`, so it
+    // can carry a raw `\n` too — stripForDisplay() closes that CWE-117 gap
+    // (skills#648) the same way it does for frontmatter values above.
+    const rel = stripForDisplay(relative(process.cwd(), filePath));
     let violations;
     try {
       violations = validateAgent(filePath);
@@ -348,11 +350,11 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
       // offending path verbatim — the same attacker-influenceable path this
       // file's CONTROL_CHAR_RE guard exists for, reachable through a third
       // call site the rel fix above didn't cover (skills#495 deep-review
-      // follow-up).
+      // follow-up; stripForDisplay() applied here too as of skills#648).
       violations = [{
         severity: "error",
         rule: "file-unreadable",
-        message: `Could not read agent file: ${err.message.replace(CONTROL_CHAR_RE, "")}`,
+        message: `Could not read agent file: ${stripForDisplay(err.message)}`,
       }];
     }
 

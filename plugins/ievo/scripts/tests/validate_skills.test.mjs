@@ -1207,6 +1207,41 @@ describe("main (CLI entry)", () => {
     assert.match(output, /escskill/);
   });
 
+  it("strips a raw newline from the printed rel path — CI workflow-command-forgery guard (CWE-117, skills#648)", () => {
+    // Same threat as the frontmatter-value fix, extended to path echoing: a
+    // POSIX filename is unrestricted beyond NUL/`/`, so a PR-added SKILL.md's
+    // parent directory can itself carry a raw `\n` followed by a GitHub
+    // Actions workflow-command line.
+    if (process.platform === "win32") return;
+    const skillDir = join(tmpDir, "nl\n::add-mask::secret-skill");
+    mkdirSync(skillDir, { recursive: true });
+    const filePath = join(skillDir, "SKILL.md");
+    writeFileSync(filePath, "---\nname: foo\ndescription: ok\neffort: low\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_skills.mjs", filePath], run.exit, run.log, run.errLog);
+    const relLine = run.logs.find((l) => l.includes("secret-skill"));
+    assert.ok(relLine, "expected a log line naming the directory");
+    assert.ok(!relLine.includes("\n"), `log line must not carry a raw newline: ${JSON.stringify(relLine)}`);
+  });
+
+  it("strips a raw newline from the file-unreadable message's embedded path (CWE-117, skills#648)", () => {
+    if (process.platform === "win32") return;
+    const nlTrapDir = join(tmpDir, "nl-trap\n::add-mask::secret");
+    mkdirSync(nlTrapDir, { recursive: true });
+    const trapFile = join(nlTrapDir, "SKILL.md");
+    writeFileSync(trapFile, "---\nname: trap\ndescription: ok\n---", "utf-8");
+    chmodSync(trapFile, 0o000);
+    const run = makeRun();
+    try {
+      main(["node", "validate_skills.mjs", trapFile], run.exit, run.log, run.errLog);
+    } finally {
+      chmodSync(trapFile, 0o644);
+    }
+    const unreadableLine = run.logs.find((l) => l.includes("file-unreadable"));
+    assert.ok(unreadableLine, "expected a file-unreadable violation line");
+    assert.ok(!unreadableLine.includes("\n"), `log line must not carry a raw newline: ${JSON.stringify(unreadableLine)}`);
+  });
+
   it("handles multiple valid files", () => {
     const dir1 = join(tmpDir, "multi-a");
     const dir2 = join(tmpDir, "multi-b");

@@ -1070,6 +1070,26 @@ describe("main (CLI entry)", () => {
     }
   });
 
+  it("strips a raw newline from the discover-failed error's embedded path (CWE-117, skills#648)", () => {
+    // discoverSkillFiles() resolve()s DEFAULT_SKILLS_DIR against cwd, so the
+    // ENOENT message carries the absolute path — a cwd component holding a raw
+    // `\n` would otherwise forge a workflow command in the job log.
+    if (process.platform === "win32") return;
+    const nlRoot = join(tmpDir, "nl-root\n::add-mask::secret");
+    mkdirSync(nlRoot, { recursive: true });
+    const originalCwd = process.cwd();
+    const run = makeRun();
+    try {
+      process.chdir(nlRoot);
+      main(["node", "validate_skills.mjs"], run.exit, run.log, run.errLog);
+    } finally {
+      process.chdir(originalCwd);
+    }
+    assert.equal(run.exitCode, 2);
+    assert.ok(run.errs.some((e) => e.includes("cannot scan skills directory")));
+    assert.ok(!run.errs.some((e) => e.includes("\n")), `error line must not carry a raw newline: ${JSON.stringify(run.errs)}`);
+  });
+
   it("exits 0 when all skills pass (explicit files)", () => {
     const skillDir = join(tmpDir, "good-skill");
     mkdirSync(skillDir, { recursive: true });

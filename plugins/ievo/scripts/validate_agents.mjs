@@ -90,16 +90,16 @@ export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u20
 
 // Display-only: strips CONTROL_CHAR_RE's class PLUS \r/\n from a value right
 // before it is interpolated into a violation message. CONTROL_CHAR_RE alone
-// is not enough at every interpolation site \u2014 it deliberately excludes
+// is not enough at every interpolation site — it deliberately excludes
 // \x0a/\x0d (see above) so a legitimate block-scalar body keeps its line
 // breaks, but that same exclusion lets a `model:`/`effort:` value whose ONLY
 // non-standard byte is `\n` reach a message with `shown === model` (the
 // "shown stripped" branches below never trigger), carrying the raw newline
 // into main()'s stdout verbatim. `pre-commit-gate.yml` streams that stdout
 // straight into the GitHub Actions job log, where a line starting with `::`
-// is parsed as a workflow command (CWE-117, skills#648) \u2014 e.g. `::add-mask::`
+// is parsed as a workflow command (CWE-117, skills#648) — e.g. `::add-mask::`
 // or `::stop-commands::` forging or suppressing CI annotations. Never use
-// this for a verdict comparison \u2014 only at a message-interpolation site, after
+// this for a verdict comparison — only at a message-interpolation site, after
 // the raw value has already been judged.
 export function stripForDisplay(value) {
   return value.replace(CONTROL_CHAR_RE, "").replace(/[\r\n]/g, "");
@@ -313,18 +313,25 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
   const args = parseArgs(argv);
   const agentsDir = resolve(args.agentsDir);
 
+  // `agentsDir` comes from `--agents-dir`, and `err.message` embeds the same
+  // caller-supplied path — both reach errLog(), which pre-commit-gate.yml
+  // streams into the job log, so both need the display strip for the same
+  // CWE-117 reason as the per-file `rel` echo below (skills#648). The verdict
+  // path is untouched: readdirSync()/resolve() still see the RAW value.
   let entries;
   try {
     entries = readdirSync(agentsDir);
   } catch (err) {
-    errLog(`Error: cannot read agents directory '${agentsDir}': ${err.message}`);
+    errLog(
+      `Error: cannot read agents directory '${stripForDisplay(agentsDir)}': ${stripForDisplay(err.message)}`,
+    );
     return exit(2);
   }
 
   const agentFiles = entries.filter((f) => f.endsWith(".md")).map((f) => resolve(agentsDir, f));
 
   if (agentFiles.length === 0) {
-    errLog(`Error: no .md files found in '${agentsDir}'`);
+    errLog(`Error: no .md files found in '${stripForDisplay(agentsDir)}'`);
     return exit(2);
   }
 

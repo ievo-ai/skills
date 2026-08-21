@@ -672,6 +672,30 @@ describe("main (CLI entry)", () => {
     assert.match(run.errs.join("\n"), /no .md files/);
   });
 
+  it("strips a raw newline from the dir-unreadable error — CI workflow-command-forgery guard (CWE-117, skills#648)", () => {
+    // `--agents-dir` is caller-supplied, and its text lands in BOTH the
+    // interpolated `agentsDir` and the ENOENT `err.message`; errLog() is the
+    // same job-log sink as log(), so both need the display strip.
+    if (process.platform === "win32") return;
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", "/nonexistent\n::add-mask::secret/dir"], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 2);
+    const line = run.errs.join("\n---\n");
+    assert.match(line, /cannot read agents directory/);
+    assert.ok(!run.errs.some((e) => e.includes("\n")), `error line must not carry a raw newline: ${JSON.stringify(line)}`);
+  });
+
+  it("strips a raw newline from the no-.md-files error (CWE-117, skills#648)", () => {
+    if (process.platform === "win32") return;
+    const emptyNlDir = join(tmpDir, "empty-nl\n::add-mask::secret");
+    mkdirSync(emptyNlDir, { recursive: true });
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", emptyNlDir], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 2);
+    assert.match(run.errs.join("\n"), /no .md files/);
+    assert.ok(!run.errs.some((e) => e.includes("\n")), `error line must not carry a raw newline: ${JSON.stringify(run.errs)}`);
+  });
+
   it("exits 0 when all agents pass", () => {
     const passDir = join(tmpDir, "pass");
     mkdirSync(passDir, { recursive: true });

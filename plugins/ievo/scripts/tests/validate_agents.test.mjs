@@ -20,6 +20,7 @@ import {
   isOversized,
   parseArgs,
   parseFrontmatter,
+  stripForDisplay,
   checkModelField,
   checkEffortField,
   validateAgent,
@@ -110,6 +111,18 @@ describe("constants", () => {
       const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
       assert.ok(!CONTROL_CHAR_RE.test(String.fromCodePoint(cp)), `expected ${label} not to match`);
     }
+  });
+});
+
+describe("stripForDisplay", () => {
+  it("strips \\n and \\r on top of CONTROL_CHAR_RE's class (CWE-117, skills#648)", () => {
+    assert.equal(stripForDisplay("opus\n::add-mask::x"), "opus::add-mask::x");
+    assert.equal(stripForDisplay("opus\r\n::add-mask::x"), "opus::add-mask::x");
+    assert.equal(stripForDisplay(`opus${String.fromCodePoint(0x200b)}\n`), "opus");
+  });
+
+  it("is a no-op for a value with neither control chars nor newlines", () => {
+    assert.equal(stripForDisplay("sonnet"), "sonnet");
   });
 });
 
@@ -358,6 +371,35 @@ describe("checkModelField", () => {
     assert.deepEqual(checkModelField("sonnet"), []);
     assert.equal(checkModelField("claude-sonnet-4-6")[0].rule, "model-vendor-locked");
   });
+
+  it("strips a raw newline from the vendor-locked branch's message — CI workflow-command-forgery guard (CWE-117, skills#648)", () => {
+    // CONTROL_CHAR_RE deliberately excludes \n/\r, so `shown === model` here
+    // and (pre-fix) the vendor-locked branch would interpolate the model
+    // value straight through, letting a line like `::add-mask::x` reach the
+    // pre-commit-gate.yml job log as its own workflow command.
+    const v = checkModelField("claude-sonnet-4-6\n::add-mask::secret");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "model-vendor-locked");
+    assert.ok(!v[0].message.includes("\n"), `message must not carry a raw newline: ${JSON.stringify(v[0].message)}`);
+    assert.match(v[0].message, /claude-sonnet-4-6::add-mask::secret/);
+  });
+
+  it("strips a raw newline from the not-in-allowed-set fallback's message (CWE-117, skills#648)", () => {
+    const v = checkModelField("randomalias\n::stop-commands::x");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "model-not-allowed");
+    assert.ok(!v[0].message.includes("\n"), `message must not carry a raw newline: ${JSON.stringify(v[0].message)}`);
+  });
+
+  it("strips a raw newline even when combined with an invisible character (shown-stripped branch, CWE-117, skills#648)", () => {
+    // shown !== model here because of the U+200B, not the \n — before this
+    // fix `shown` was CONTROL_CHAR_RE-only, so the \n survived into this
+    // branch's own message too.
+    const v = checkModelField(`opus${String.fromCodePoint(0x200b)}\n::add-mask::x`);
+    assert.equal(v.length, 1);
+    assert.match(v[0].message, /shown stripped/);
+    assert.ok(!v[0].message.includes("\n"), `message must not carry a raw newline: ${JSON.stringify(v[0].message)}`);
+  });
 });
 
 describe("checkEffortField", () => {
@@ -395,6 +437,20 @@ describe("checkEffortField", () => {
       assert.ok(!v[0].message.includes(ch), `message must not carry the raw ${label}`);
       assert.match(v[0].message, /`effort: high`/);
     }
+  });
+
+  it("strips a raw newline from an invalid-value message — CI workflow-command-forgery guard (CWE-117, skills#648)", () => {
+    const v = checkEffortField("bogus\n::add-mask::secret");
+    assert.equal(v.length, 1);
+    assert.equal(v[0].rule, "invalid-effort-value");
+    assert.ok(!v[0].message.includes("\n"), `message must not carry a raw newline: ${JSON.stringify(v[0].message)}`);
+  });
+
+  it("strips a raw newline even when combined with an invisible character (shown-stripped branch, CWE-117, skills#648)", () => {
+    const v = checkEffortField(`high${String.fromCodePoint(0x200b)}\n::add-mask::x`);
+    assert.equal(v.length, 1);
+    assert.match(v[0].message, /shown stripped/);
+    assert.ok(!v[0].message.includes("\n"), `message must not carry a raw newline: ${JSON.stringify(v[0].message)}`);
   });
 
   it("returns unchanged verdicts for effort values with no invisible characters", () => {
@@ -616,6 +672,30 @@ describe("main (CLI entry)", () => {
     assert.match(run.errs.join("\n"), /no .md files/);
   });
 
+  it("strips a raw newline from the dir-unreadable error — CI workflow-command-forgery guard (CWE-117, skills#648)", () => {
+    // `--agents-dir` is caller-supplied, and its text lands in BOTH the
+    // interpolated `agentsDir` and the ENOENT `err.message`; errLog() is the
+    // same job-log sink as log(), so both need the display strip.
+    if (process.platform === "win32") return;
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", "/nonexistent\n::add-mask::secret/dir"], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 2);
+    const line = run.errs.join("\n---\n");
+    assert.match(line, /cannot read agents directory/);
+    assert.ok(!run.errs.some((e) => e.includes("\n")), `error line must not carry a raw newline: ${JSON.stringify(line)}`);
+  });
+
+  it("strips a raw newline from the no-.md-files error (CWE-117, skills#648)", () => {
+    if (process.platform === "win32") return;
+    const emptyNlDir = join(tmpDir, "empty-nl\n::add-mask::secret");
+    mkdirSync(emptyNlDir, { recursive: true });
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", emptyNlDir], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 2);
+    assert.match(run.errs.join("\n"), /no .md files/);
+    assert.ok(!run.errs.some((e) => e.includes("\n")), `error line must not carry a raw newline: ${JSON.stringify(run.errs)}`);
+  });
+
   it("exits 0 when all agents pass", () => {
     const passDir = join(tmpDir, "pass");
     mkdirSync(passDir, { recursive: true });
@@ -695,6 +775,41 @@ describe("main (CLI entry)", () => {
     assert.equal(run.exitCode, 0);
     assert.ok(!output.includes("\x1b"), "output must not contain the raw ESC byte");
     assert.match(output, /escagents/);
+  });
+
+  it("strips a raw newline from the printed rel path — CI workflow-command-forgery guard (CWE-117, skills#648)", () => {
+    // Same threat as the frontmatter-value fix, extended to path echoing: a
+    // POSIX filename is unrestricted beyond NUL/`/`, so a PR-added agent .md
+    // file (or its parent dir) can itself carry a raw `\n` followed by a
+    // GitHub Actions workflow-command line.
+    if (process.platform === "win32") return;
+    const nlDir = join(tmpDir, "nl\n::add-mask::secret-agents");
+    mkdirSync(nlDir, { recursive: true });
+    writeFileSync(join(nlDir, "a.md"), "---\nname: a\ndescription: ok\n---", "utf-8");
+    const run = makeRun();
+    main(["node", "validate_agents.mjs", nlDir], run.exit, run.log, run.errLog);
+    assert.equal(run.exitCode, 0);
+    const relLine = run.logs.find((l) => l.includes("secret-agents"));
+    assert.ok(relLine, "expected a log line naming the directory");
+    assert.ok(!relLine.includes("\n"), `log line must not carry a raw newline: ${JSON.stringify(relLine)}`);
+  });
+
+  it("strips a raw newline from the file-unreadable message's embedded path (CWE-117, skills#648)", () => {
+    if (process.platform === "win32") return;
+    const nlTrapDir = join(tmpDir, "nl-trap\n::add-mask::secret");
+    mkdirSync(nlTrapDir, { recursive: true });
+    const trapFile = join(nlTrapDir, "a.md");
+    writeFileSync(trapFile, "---\nname: trap\ndescription: ok\n---", "utf-8");
+    chmodSync(trapFile, 0o000);
+    const run = makeRun();
+    try {
+      main(["node", "validate_agents.mjs", nlTrapDir], run.exit, run.log, run.errLog);
+    } finally {
+      chmodSync(trapFile, 0o644);
+    }
+    const unreadableLine = run.logs.find((l) => l.includes("file-unreadable"));
+    assert.ok(unreadableLine, "expected a file-unreadable violation line");
+    assert.ok(!unreadableLine.includes("\n"), `log line must not carry a raw newline: ${JSON.stringify(unreadableLine)}`);
   });
 
   it("continues past unreadable file — does NOT halt on first read error (CI gate correctness)", () => {

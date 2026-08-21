@@ -88,6 +88,23 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 // comment must say so.
 export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
+// Display-only: strips CONTROL_CHAR_RE's class PLUS \r/\n from a value right
+// before it is interpolated into a violation message. CONTROL_CHAR_RE alone
+// is not enough at every interpolation site — it deliberately excludes
+// \x0a/\x0d (see above) so a legitimate block-scalar body keeps its line
+// breaks, but that same exclusion lets a `model:`/`effort:` value whose ONLY
+// non-standard byte is `\n` reach a message with `shown === model` (the
+// "shown stripped" branches below never trigger), carrying the raw newline
+// into main()'s stdout verbatim. `pre-commit-gate.yml` streams that stdout
+// straight into the GitHub Actions job log, where a line starting with `::`
+// is parsed as a workflow command (CWE-117, skills#648) — e.g. `::add-mask::`
+// or `::stop-commands::` forging or suppressing CI annotations. Never use
+// this for a verdict comparison — only at a message-interpolation site, after
+// the raw value has already been judged.
+export function stripForDisplay(value) {
+  return value.replace(CONTROL_CHAR_RE, "").replace(/[\r\n]/g, "");
+}
+
 // Patterns that indicate vendor-specific or version-pinned IDs
 export const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^claude-/, why: "Anthropic-specific ID — locks to one vendor" },
@@ -184,11 +201,13 @@ export function checkModelField(model) {
     // message below (mandatory — the raw value must never reach a printed
     // message) would render a model that visibly *is* an allowed alias, or
     // visibly *isn't* vendor-pinned, while erroring on it. Past this point
-    // `model` is strip-identical, so the interpolations below are CWE-150-safe.
+    // `model` is CONTROL_CHAR_RE-identical, but may still carry a raw `\n`/`\r`
+    // (CONTROL_CHAR_RE excludes those, see its comment) — `shown` came from
+    // CONTROL_CHAR_RE alone, so it can too; use stripForDisplay() below.
     violations.push({
       severity: "error",
       rule: "model-not-allowed",
-      message: `\`model: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not an allowed alias. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
+      message: `\`model: ${stripForDisplay(model)}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not an allowed alias. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
     });
     return violations;
   }
@@ -198,7 +217,7 @@ export function checkModelField(model) {
       violations.push({
         severity: "error",
         rule: "model-vendor-locked",
-        message: `\`model: ${model}\` is forbidden — ${why}. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
+        message: `\`model: ${stripForDisplay(model)}\` is forbidden — ${why}. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
       });
       return violations; // first match is enough
     }
@@ -208,7 +227,7 @@ export function checkModelField(model) {
   violations.push({
     severity: "error",
     rule: "model-not-allowed",
-    message: `\`model: ${model}\` not in allowed aliases. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
+    message: `\`model: ${stripForDisplay(model)}\` not in allowed aliases. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
   });
   return violations;
 }
@@ -225,14 +244,14 @@ export function checkEffortField(effort) {
     return [{
       severity: "error",
       rule: "invalid-effort-value",
-      message: `\`effort: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
+      message: `\`effort: ${stripForDisplay(effort)}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
     }];
   }
   if (!VALID_EFFORT_VALUES.has(effort)) {
     return [{
       severity: "error",
       rule: "invalid-effort-value",
-      message: `\`effort: ${effort}\` is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
+      message: `\`effort: ${stripForDisplay(effort)}\` is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
     }];
   }
   return [];
@@ -294,18 +313,25 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
   const args = parseArgs(argv);
   const agentsDir = resolve(args.agentsDir);
 
+  // `agentsDir` comes from `--agents-dir`, and `err.message` embeds the same
+  // caller-supplied path — both reach errLog(), which pre-commit-gate.yml
+  // streams into the job log, so both need the display strip for the same
+  // CWE-117 reason as the per-file `rel` echo below (skills#648). The verdict
+  // path is untouched: readdirSync()/resolve() still see the RAW value.
   let entries;
   try {
     entries = readdirSync(agentsDir);
   } catch (err) {
-    errLog(`Error: cannot read agents directory '${agentsDir}': ${err.message}`);
+    errLog(
+      `Error: cannot read agents directory '${stripForDisplay(agentsDir)}': ${stripForDisplay(err.message)}`,
+    );
     return exit(2);
   }
 
   const agentFiles = entries.filter((f) => f.endsWith(".md")).map((f) => resolve(agentsDir, f));
 
   if (agentFiles.length === 0) {
-    errLog(`Error: no .md files found in '${agentsDir}'`);
+    errLog(`Error: no .md files found in '${stripForDisplay(agentsDir)}'`);
     return exit(2);
   }
 
@@ -316,8 +342,10 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
     // A crafted file path (e.g. a PR-added agent .md file with an embedded
     // ESC byte) reaches this unstripped otherwise — same CWE-150 guard as
     // CONTROL_CHAR_RE's use on frontmatter values, extended to path echoing
-    // (skills#495).
-    const rel = relative(process.cwd(), filePath).replace(CONTROL_CHAR_RE, "");
+    // (skills#495). A POSIX filename is unrestricted beyond NUL/`/`, so it
+    // can carry a raw `\n` too — stripForDisplay() closes that CWE-117 gap
+    // (skills#648) the same way it does for frontmatter values above.
+    const rel = stripForDisplay(relative(process.cwd(), filePath));
     let violations;
     try {
       violations = validateAgent(filePath);
@@ -329,11 +357,11 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
       // offending path verbatim — the same attacker-influenceable path this
       // file's CONTROL_CHAR_RE guard exists for, reachable through a third
       // call site the rel fix above didn't cover (skills#495 deep-review
-      // follow-up).
+      // follow-up; stripForDisplay() applied here too as of skills#648).
       violations = [{
         severity: "error",
         rule: "file-unreadable",
-        message: `Could not read agent file: ${err.message.replace(CONTROL_CHAR_RE, "")}`,
+        message: `Could not read agent file: ${stripForDisplay(err.message)}`,
       }];
     }
 

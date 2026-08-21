@@ -81,6 +81,23 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 // comment must say so.
 export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
+// Display-only: strips CONTROL_CHAR_RE's class PLUS \r/\n from a value right
+// before it is interpolated into a violation message. CONTROL_CHAR_RE alone
+// is not enough at every interpolation site — it deliberately excludes
+// \x0a/\x0d (see above) so a legitimate block-scalar body keeps its line
+// breaks, but that same exclusion lets a `model:`/`effort:`/`name:` value
+// whose ONLY non-standard byte is `\n` reach a message unstripped (`shown`/
+// `fm.name` still carry it), carrying the raw newline into main()'s stdout
+// verbatim. `pre-commit-gate.yml` streams that stdout straight into the
+// GitHub Actions job log, where a line starting with `::` is parsed as a
+// workflow command (CWE-117, skills#648) — e.g. `::add-mask::` or
+// `::stop-commands::` forging or suppressing CI annotations. Never use this
+// for a verdict comparison — only at a message-interpolation site, after the
+// raw value has already been judged.
+export function stripForDisplay(value) {
+  return value.replace(CONTROL_CHAR_RE, "").replace(/[\r\n]/g, "");
+}
+
 // SKILL.md frontmatter is never legitimately larger than this — guards the
 // readFileSync call in validateSkill() below against a multi-GB blob (or a
 // symlink pointed at a non-EOF-terminating device such as /dev/zero) OOMing
@@ -208,12 +225,14 @@ export function checkModelField(model) {
     // interpolating `shown` into either message below (mandatory — the raw
     // value must never reach a printed message) would render a model that
     // visibly *is* an allowed alias, or visibly *isn't* vendor-pinned, while
-    // erroring on it. Past this point `model` is strip-identical, so the
-    // remaining interpolations of it are already CWE-150-safe.
+    // erroring on it. Past this point `model` is CONTROL_CHAR_RE-identical,
+    // but may still carry a raw `\n`/`\r` (CONTROL_CHAR_RE excludes those,
+    // see its comment) — `shown` came from CONTROL_CHAR_RE alone, so it can
+    // too; use stripForDisplay() below.
     return [{
       severity: "error",
       rule: "model-not-allowed",
-      message: `\`model: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not one of the allowed aliases (${[...ALLOWED_MODELS].join(", ")}). Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
+      message: `\`model: ${stripForDisplay(model)}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not one of the allowed aliases (${[...ALLOWED_MODELS].join(", ")}). Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
     }];
   }
 
@@ -222,7 +241,7 @@ export function checkModelField(model) {
       return [{
         severity: "error",
         rule: "model-vendor-locked",
-        message: `\`model: ${model}\` is forbidden — ${why}. Use only vendor-neutral family aliases (${[...ALLOWED_MODELS].join(", ")}) for turn-level pins; omit \`model:\` for skills without pinning needs.`,
+        message: `\`model: ${stripForDisplay(model)}\` is forbidden — ${why}. Use only vendor-neutral family aliases (${[...ALLOWED_MODELS].join(", ")}) for turn-level pins; omit \`model:\` for skills without pinning needs.`,
       }];
     }
   }
@@ -230,7 +249,7 @@ export function checkModelField(model) {
   return [{
     severity: "error",
     rule: "model-not-allowed",
-    message: `\`model: ${model}\` not in allowed aliases (${[...ALLOWED_MODELS].join(", ")}). Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
+    message: `\`model: ${stripForDisplay(model)}\` not in allowed aliases (${[...ALLOWED_MODELS].join(", ")}). Use only vendor-neutral family aliases for turn-level pins; omit \`model:\` for skills without pinning needs.`,
   }];
 }
 
@@ -254,14 +273,14 @@ export function checkEffortField(effort) {
     return [{
       severity: "error",
       rule: "invalid-effort-value",
-      message: `effort: "${shown}" (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}`,
+      message: `effort: "${stripForDisplay(effort)}" (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}`,
     }];
   }
   if (!VALID_EFFORT_VALUES.has(effort)) {
     return [{
       severity: "error",
       rule: "invalid-effort-value",
-      message: `effort: "${effort}" is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}`,
+      message: `effort: "${stripForDisplay(effort)}" is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}`,
     }];
   }
   return [];
@@ -322,16 +341,23 @@ export function validateSkillContent(content, parentDirName) {
       // into its own branch purely for the message: interpolating `fm.name`
       // (mandatory — the raw value must never reach a printed message) would
       // otherwise render a name that visibly *does* match the pattern.
+      // `fm.name` is only CONTROL_CHAR_RE-stripped (by parseFrontmatter) — it
+      // can still carry a raw `\n`/`\r` (CONTROL_CHAR_RE excludes those), so
+      // this still needs stripForDisplay() below (CWE-117, skills#648).
       violations.push({
         severity: "error",
         rule: "name-invalid-format",
-        message: `name "${fm.name}" (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — which are not lowercase alnum + hyphens`,
+        message: `name "${stripForDisplay(fm.name)}" (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — which are not lowercase alnum + hyphens`,
       });
     } else if (!NAME_PATTERN.test(fm.name)) {
+      // `fm.name` reaches here strip-identical to `rawName` under
+      // CONTROL_CHAR_RE, but a bare `\n`/`\r` fails NAME_PATTERN too (it's
+      // outside the allowed charset) without tripping the branch above —
+      // stripForDisplay() below closes that gap (CWE-117, skills#648).
       violations.push({
         severity: "error",
         rule: "name-invalid-format",
-        message: `name "${fm.name}" does not match required pattern: lowercase alnum + hyphens, no leading/trailing hyphens`,
+        message: `name "${stripForDisplay(fm.name)}" does not match required pattern: lowercase alnum + hyphens, no leading/trailing hyphens`,
       });
     }
     // Compared RAW, stripped only where it is interpolated into the message.
@@ -344,10 +370,14 @@ export function validateSkillContent(content, parentDirName) {
     // interpolation still keeps the CWE-150 guarantee that no raw control byte
     // reaches a message main() prints (skills#495).
     if (parentDirName && fm.name !== parentDirName) {
+      // Both sides need stripForDisplay(), not just CONTROL_CHAR_RE: `fm.name`
+      // can still carry a raw `\n`/`\r` (see above), and POSIX directory
+      // basenames are unrestricted beyond NUL/`/`, so `parentDirName` could
+      // too (CWE-117, skills#648).
       violations.push({
         severity: "error",
         rule: "name-dir-mismatch",
-        message: `name "${fm.name}" does not match parent directory "${parentDirName.replace(CONTROL_CHAR_RE, "")}"`,
+        message: `name "${stripForDisplay(fm.name)}" does not match parent directory "${stripForDisplay(parentDirName)}"`,
       });
     }
   }
@@ -455,7 +485,17 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
     try {
       files = discoverSkillFiles(DEFAULT_SKILLS_DIR);
     } catch (err) {
-      errLog(`Error: cannot scan skills directory '${DEFAULT_SKILLS_DIR}': ${err.message}`);
+      // `DEFAULT_SKILLS_DIR` is a module constant, but `err.message` is not:
+      // discoverSkillFiles() resolve()s it against cwd, so the ENOENT text
+      // embeds the ABSOLUTE path — and a checkout directory (or any ancestor)
+      // may itself carry a raw `\n`, since a POSIX path component is
+      // unrestricted beyond NUL/`/`. That reaches errLog(), which
+      // pre-commit-gate.yml streams into the job log. Same CWE-117 strip as the
+      // per-file `rel` echo below (skills#648); the scan itself still ran on the
+      // RAW path.
+      errLog(
+        `Error: cannot scan skills directory '${DEFAULT_SKILLS_DIR}': ${stripForDisplay(err.message)}`,
+      );
       return exit(2);
     }
   }
@@ -473,8 +513,10 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
     // A crafted file path (e.g. a PR-added SKILL.md directory with an embedded
     // ESC byte) reaches this unstripped otherwise — same CWE-150 guard as
     // CONTROL_CHAR_RE's use on frontmatter values, extended to path echoing
-    // (skills#495).
-    const rel = relative(process.cwd(), filePath).replace(CONTROL_CHAR_RE, "");
+    // (skills#495). A POSIX filename is unrestricted beyond NUL/`/`, so it
+    // can carry a raw `\n` too — stripForDisplay() closes that CWE-117 gap
+    // (skills#648) the same way it does for frontmatter values above.
+    const rel = stripForDisplay(relative(process.cwd(), filePath));
     let violations;
     try {
       violations = validateSkill(filePath);
@@ -483,11 +525,12 @@ export function main(argv = process.argv, exit = process.exit, log = console.log
       // offending path verbatim — the same attacker-influenceable path this
       // file's CONTROL_CHAR_RE guard exists for, reachable through a third
       // call site the rel/parentDirName fix above didn't cover (skills#495
-      // deep-review follow-up).
+      // deep-review follow-up; stripForDisplay() applied here too as of
+      // skills#648).
       violations = [{
         severity: "error",
         rule: "file-unreadable",
-        message: `Could not read SKILL.md file: ${err.message.replace(CONTROL_CHAR_RE, "")}`,
+        message: `Could not read SKILL.md file: ${stripForDisplay(err.message)}`,
       }];
     }
 

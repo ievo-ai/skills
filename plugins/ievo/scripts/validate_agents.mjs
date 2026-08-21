@@ -88,6 +88,23 @@ export const BLOCK_SCALAR_RE = /^[|>](?:[+-]?\d*|\d[+-]?)$/;
 // comment must say so.
 export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 
+// Display-only: strips CONTROL_CHAR_RE's class PLUS \r/\n from a value right
+// before it is interpolated into a violation message. CONTROL_CHAR_RE alone
+// is not enough at every interpolation site \u2014 it deliberately excludes
+// \x0a/\x0d (see above) so a legitimate block-scalar body keeps its line
+// breaks, but that same exclusion lets a `model:`/`effort:` value whose ONLY
+// non-standard byte is `\n` reach a message with `shown === model` (the
+// "shown stripped" branches below never trigger), carrying the raw newline
+// into main()'s stdout verbatim. `pre-commit-gate.yml` streams that stdout
+// straight into the GitHub Actions job log, where a line starting with `::`
+// is parsed as a workflow command (CWE-117, skills#648) \u2014 e.g. `::add-mask::`
+// or `::stop-commands::` forging or suppressing CI annotations. Never use
+// this for a verdict comparison \u2014 only at a message-interpolation site, after
+// the raw value has already been judged.
+export function stripForDisplay(value) {
+  return value.replace(CONTROL_CHAR_RE, "").replace(/[\r\n]/g, "");
+}
+
 // Patterns that indicate vendor-specific or version-pinned IDs
 export const FORBIDDEN_MODEL_PATTERNS = [
   { pattern: /^claude-/, why: "Anthropic-specific ID — locks to one vendor" },
@@ -184,11 +201,13 @@ export function checkModelField(model) {
     // message below (mandatory — the raw value must never reach a printed
     // message) would render a model that visibly *is* an allowed alias, or
     // visibly *isn't* vendor-pinned, while erroring on it. Past this point
-    // `model` is strip-identical, so the interpolations below are CWE-150-safe.
+    // `model` is CONTROL_CHAR_RE-identical, but may still carry a raw `\n`/`\r`
+    // (CONTROL_CHAR_RE excludes those, see its comment) — `shown` came from
+    // CONTROL_CHAR_RE alone, so it can too; use stripForDisplay() below.
     violations.push({
       severity: "error",
       rule: "model-not-allowed",
-      message: `\`model: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not an allowed alias. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
+      message: `\`model: ${stripForDisplay(model)}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — so it is not an allowed alias. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
     });
     return violations;
   }
@@ -198,7 +217,7 @@ export function checkModelField(model) {
       violations.push({
         severity: "error",
         rule: "model-vendor-locked",
-        message: `\`model: ${model}\` is forbidden — ${why}. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
+        message: `\`model: ${stripForDisplay(model)}\` is forbidden — ${why}. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
       });
       return violations; // first match is enough
     }
@@ -208,7 +227,7 @@ export function checkModelField(model) {
   violations.push({
     severity: "error",
     rule: "model-not-allowed",
-    message: `\`model: ${model}\` not in allowed aliases. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
+    message: `\`model: ${stripForDisplay(model)}\` not in allowed aliases. Use one of: ${[...ALLOWED_MODELS].join(", ")}.`,
   });
   return violations;
 }
@@ -225,14 +244,14 @@ export function checkEffortField(effort) {
     return [{
       severity: "error",
       rule: "invalid-effort-value",
-      message: `\`effort: ${shown}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
+      message: `\`effort: ${stripForDisplay(effort)}\` (shown stripped) contains control or invisible characters — C0/DEL, bidi control, or zero-width — and is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
     }];
   }
   if (!VALID_EFFORT_VALUES.has(effort)) {
     return [{
       severity: "error",
       rule: "invalid-effort-value",
-      message: `\`effort: ${effort}\` is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
+      message: `\`effort: ${stripForDisplay(effort)}\` is not a valid value. Allowed: ${[...VALID_EFFORT_VALUES].join(", ")}.`,
     }];
   }
   return [];

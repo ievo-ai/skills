@@ -2264,7 +2264,6 @@ describe("mainSafe", () => {
     assert.match(r2.errs.join("\n"), /fatal:.*does not have any commits yet/);
   });
 
-
   it("strips a raw newline from mainSafe's fatal err.message echo — CI workflow-command-forgery guard (CWE-117, skills#650)", () => {
     // mainSafe's catch is the last line of defense for any throw main() does
     // not individually guard (see its own doc comment) — reached here while

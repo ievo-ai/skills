@@ -6,6 +6,16 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.21
+
+Closes an Eva vuln-scan finding (skills#650): scan_repo.mjs's CLI error-echo sinks interpolated raw newline-carrying values, enabling GitHub Actions workflow-command forgery.
+
+- **Gap closed** — CONTROL_CHAR_RE deliberately excludes `\x0a`/`\x0d` so escapeMdCell's rendered Markdown-cell sink can rely on its own `\s+` collapse instead. `main()`'s `--repo` format-validation error echo shared that same bare strip, and its clone-failure / containment-failure `err.message` echoes carried no stripping at all — a `--repo` argument (rejected by `isValidOwnerRepo`'s strict charset, so it always falls into the error branch) or an `err.message` derived from one whose only non-standard byte is `\n` reached `console.error()` verbatim. The `ievo-ai/community-index` GitHub Actions workflow (and a local `/ievo:index-repos` run) streams that stderr straight into the job/session log, where a line starting with `::` is parsed as a workflow command — `::add-mask::`/`::stop-commands::`-style forgery or suppression of CI annotations. Same vulnerability class just fixed in `validate_agents.mjs`/`validate_skills.mjs` (skills#648, v0.80.20), in `scan_repo.mjs`'s own, separate error-echo paths.
+- **Fourth sink found by exhaustive audit, not named in the issue** — enumerating every `errLog`/`console.error` call in the file (rather than trusting the three the issue named) surfaced `mainSafe()`'s own `fatal: ${err.message}` catch-all, which exists specifically to catch any throw reached while scanning the attacker-controlled checkout that `main()`'s own two try/catch blocks don't individually guard — exactly the shape of attacker-influenced `err.message` the other three sinks needed fixing for.
+- **Fix** — added a `stripForDisplay()` helper (CONTROL_CHAR_RE's class plus `\r`/`\n`, display-only — never used for a verdict comparison) mirroring `validate_agents.mjs`/`validate_skills.mjs`'s own (skills#648), applied at all four sinks: the `--repo` echo, both `err.message` echoes in `main()`, and `mainSafe()`'s fatal-catch `err.message` echo. `escapeMdCell()`'s Markdown-cell sink is unchanged — its existing whitespace collapse already neutralizes a raw newline.
+- **Tests** — new `stripForDisplay()` unit tests plus a raw-newline regression test at each of the four sinks in `scan_repo.test.mjs`, each asserting the echoed error text never carries a raw `\n` before the payload it precedes.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.20 → 0.80.21). `scan_repo.mjs`'s own `SCRIPT_VERSION` stays untouched — it is the intentionally decoupled scanner-output-format version (v0.6.6/#47).
+
 ## v0.80.20
 
 Closes an Eva vuln-scan finding (skills#648): `validate_agents.mjs`/`validate_skills.mjs` interpolated raw newline-carrying frontmatter values into CI log messages, enabling GitHub Actions workflow-command forgery.

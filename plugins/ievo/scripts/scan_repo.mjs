@@ -52,8 +52,9 @@ export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
 // The one character class this file strips from attacker-influenceable text,
-// shared by BOTH of its sinks — escapeMdCell() below (rendered community-index
-// Markdown) and main()'s `--repo` format-validation error echo. It covers:
+// shared by escapeMdCell() below (rendered community-index Markdown) and,
+// via stripForDisplay() below, main()'s/mainSafe()'s CLI error-echo sinks. It
+// covers:
 //
 //   - C0 controls and DEL (0x00-0x08, 0x0b-0x0c, 0x0e-0x1f, 0x7f), minus \t
 //     and \n, which escapeMdCell collapses as whitespace anyway. A crafted ESC
@@ -72,16 +73,45 @@ export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 //     ranges: adding a code point outside them means this enumeration is no
 //     longer exhaustive and must say so.
 //
-// Both sinks reference this const rather than re-inlining the literal —
-// duplicating it is exactly how the two copies drifted apart before (a widened
-// escapeMdCell left the CLI echo on the old ASCII-only class, and each fix
-// had to chase the other). Sharing one `/g` regex across call sites is safe:
+// Deliberately excludes \x0a/\x0d (\n/\r) — escapeMdCell's own `\s+` collapse
+// already neutralizes a raw newline in its Markdown-cell sink, so folding
+// \r/\n into this shared class would double-normalize that call site for no
+// gain. The CLI error-echo sinks need the stricter \r/\n-inclusive class
+// instead — see stripForDisplay() immediately below, which layers it on top
+// of this one rather than widening this one.
+//
+// Every consumer references this const rather than re-inlining the literal —
+// duplicating it is exactly how copies have drifted apart before (a widened
+// escapeMdCell left a CLI echo on the old ASCII-only class, and each fix had
+// to chase the other). Sharing one `/g` regex across call sites is safe:
 // String.prototype.replace resets `lastIndex` for a global pattern.
 //
 // Per-file copy (not a shared import) mirrors validate_skills.mjs /
 // validate_agents.mjs's own CONTROL_CHAR_RE — each FILE's class is tuned to its
 // own risk model (see .github/scripts/validators/_safe-read.mjs).
 export const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
+
+// Display-only: strips CONTROL_CHAR_RE's class PLUS \r/\n from a value right
+// before it is interpolated into a CLI error message (main()'s `--repo`
+// echo, its clone/containment-failure `err.message` echoes, and mainSafe()'s
+// fatal-catch `err.message` echo). CONTROL_CHAR_RE alone is not enough at
+// those sinks — it deliberately excludes \x0a/\x0d (see above) — so an
+// `--repo` argument, or an `err.message` derived from one (e.g. a git clone
+// error quoting the raw argument back, or an uncaught throw reached while
+// scanning the attacker-controlled checkout) whose only non-standard byte is
+// `\n` still reached errLog() unstripped. Both this script's `community-index`
+// GitHub Actions workflow caller and a local `/ievo:index-repos` run stream
+// that stderr straight into the job/session log, where a line starting with
+// `::` is parsed as a workflow command (CWE-117, skills#650) — e.g.
+// `::add-mask::` or `::stop-commands::`, forging or suppressing subsequent
+// log annotations. Mirrors validate_agents.mjs's / validate_skills.mjs's own
+// stripForDisplay() (skills#648). Never use this for a verdict comparison —
+// only at a message-interpolation site, after the raw value has already been
+// judged; escapeMdCell's Markdown-cell sink stays on the bare CONTROL_CHAR_RE
+// strip above, since its whitespace collapse already neutralizes \r/\n.
+export function stripForDisplay(value) {
+  return value.replace(CONTROL_CHAR_RE, "").replace(/[\r\n]/g, "");
+}
 
 // Strict GitHub <owner>/<repo> slug: owner is GitHub's actual username charset
 // (alnum + hyphen, <=39 chars); repo allows alnum/./_/- (<=100 chars). Anchored
@@ -879,7 +909,7 @@ export function parseArgs(argv) {
 export function main(argv = process.argv, execImpl = execFileSync, log = console.log, errLog = console.error, exit = process.exit) {
   const args = parseArgs(argv);
   if (!isValidOwnerRepo(args.repo)) {
-    errLog(`Error: repo must be in <owner>/<repo> format, got '${(args.repo ?? "").replace(CONTROL_CHAR_RE, "")}'`);
+    errLog(`Error: repo must be in <owner>/<repo> format, got '${stripForDisplay(args.repo ?? "")}'`);
     return exit(1);
   }
 
@@ -891,14 +921,14 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
   try {
     repo = checkoutOrRefresh(args.repo, checkoutDir, args.force, execImpl);
   } catch (err) {
-    errLog(`Failed to clone ${args.repo}: ${err.message}`);
+    errLog(`Failed to clone ${args.repo}: ${stripForDisplay(err.message)}`);
     return exit(2);
   }
 
   try {
     assertCheckoutContained(repo, checkoutDir);
   } catch (err) {
-    errLog(`Refusing to scan ${args.repo}: ${err.message}`);
+    errLog(`Refusing to scan ${args.repo}: ${stripForDisplay(err.message)}`);
     return exit(2);
   }
 
@@ -1003,7 +1033,7 @@ export function mainSafe(argv = process.argv, execImpl = execFileSync, log = con
   try {
     return main(argv, execImpl, log, errLog, exit);
   } catch (err) {
-    errLog(`fatal: ${err.message}`);
+    errLog(`fatal: ${stripForDisplay(err.message)}`);
     return exit(2);
   }
 }

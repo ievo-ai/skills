@@ -35,6 +35,7 @@ import {
   assertCheckoutContained,
   truncate,
   escapeMdCell,
+  stripForDisplay,
   isoNow,
   isoDate,
   parseArgs,
@@ -222,6 +223,18 @@ describe("escapeMdCell", () => {
       const label = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
       assert.equal(escapeMdCell(`a${ch}b`), `a${ch}b`, `expected ${label} to survive`);
     }
+  });
+});
+
+describe("stripForDisplay", () => {
+  it("strips \\n and \\r on top of CONTROL_CHAR_RE's class (CWE-117, skills#650)", () => {
+    assert.equal(stripForDisplay("owner/repo\n::add-mask::x"), "owner/repo::add-mask::x");
+    assert.equal(stripForDisplay("owner/repo\r\n::add-mask::x"), "owner/repo::add-mask::x");
+    assert.equal(stripForDisplay(`owner/repo${String.fromCodePoint(0x200b)}\n`), "owner/repo");
+  });
+
+  it("is a no-op for a value with neither control chars nor newlines", () => {
+    assert.equal(stripForDisplay("owner/repo"), "owner/repo");
   });
 });
 
@@ -1921,6 +1934,21 @@ describe("main (end-to-end)", () => {
     assert.match(errText, /FAKE/);
   });
 
+  it("strips a raw newline from an invalid repo arg echoed in the error message — CI workflow-command-forgery guard (CWE-117, skills#650)", () => {
+    // OWNER_REPO_RE's charset can never itself contain \n, so this always
+    // falls into the invalid-format branch — the crafted payload's whole
+    // point is that a naive CONTROL_CHAR_RE-only strip (which deliberately
+    // excludes \n) would let the second "line" reach the CI job log as its
+    // own workflow command.
+    const r = captureRun();
+    main(["node", "scan_repo.mjs", "owner/repo\n::add-mask::secret"], undefined, r.log, r.errLog, r.exit);
+    assert.equal(r.exitCode, 1);
+    const errText = r.errs.join("\n");
+    assert.match(errText, /repo must be in <owner>\/<repo> format/);
+    assert.ok(!errText.includes("\n::add-mask::"), `error text must not carry a raw newline before the payload: ${JSON.stringify(errText)}`);
+    assert.match(errText, /owner\/repo::add-mask::secret/);
+  });
+
   it("exits 1 on a CWE-22 traversal payload, without touching git/fs", () => {
     const r = captureRun();
     const fake = makeFakeExec([]); // no git/checkout call should be made
@@ -1940,6 +1968,24 @@ describe("main (end-to-end)", () => {
     );
     assert.equal(r.exitCode, 2);
     assert.match(r.errs.join("\n"), /Failed to clone owner\/missing/);
+  });
+
+  it("strips a raw newline from the clone-failure err.message echo — CI workflow-command-forgery guard (CWE-117, skills#650)", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-clone-fail-nl");
+    const coDir = join(root, "co-clone-fail-nl");
+    // err.message is attacker-influenced: e.g. a malicious remote's git error
+    // output, or (as here) any thrown Error whose text embeds a raw newline
+    // followed by a workflow-command-shaped line.
+    const fake = makeFakeExec([{ throw: new Error("clone failed\n::add-mask::secret") }]);
+    main(
+      ["node", "scan_repo.mjs", "owner/missing", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 2);
+    const errText = r.errs.join("\n");
+    assert.match(errText, /Failed to clone owner\/missing: clone failed::add-mask::secret/);
+    assert.ok(!errText.includes("\n::add-mask::"), `error text must not carry a raw newline before the payload: ${JSON.stringify(errText)}`);
   });
 
   it("exits 2 when the checkout path resolves outside checkoutDir via a symlink (#363)", () => {
@@ -1962,6 +2008,32 @@ describe("main (end-to-end)", () => {
     );
     assert.equal(r.exitCode, 2);
     assert.match(r.errs.join("\n"), /Refusing to scan owner\/escapee.*refusing to write outside/s);
+  });
+
+  it("strips a raw newline from the containment-failure err.message echo — CI workflow-command-forgery guard (CWE-117, skills#650)", () => {
+    // A POSIX directory name is unrestricted beyond NUL/`/`, so the symlink
+    // target assertCheckoutContained's thrown message quotes back (via
+    // realpathSync) can itself carry a raw newline followed by a
+    // workflow-command-shaped line — the same class of gap as the args.repo
+    // and clone-failure sinks above, reached through a different value.
+    if (process.platform === "win32") return;
+    const r = captureRun();
+    const outDir = join(root, "out-escape-nl");
+    const coDir = join(root, "co-escape-nl");
+    const outsideDir = join(root, "outside-escape-nl\n::add-mask::secret");
+    mkdirSync(coDir, { recursive: true });
+    mkdirSync(outsideDir, { recursive: true });
+    const target = join(coDir, checkoutCacheKey("owner/escapee-nl"));
+    symlinkSync(outsideDir, target, "dir");
+    const fake = makeFakeExec([{ stdout: "" }]); // git clone (no-op mock)
+    main(
+      ["node", "scan_repo.mjs", "owner/escapee-nl", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 2);
+    const errText = r.errs.join("\n");
+    assert.match(errText, /Refusing to scan owner\/escapee-nl/);
+    assert.ok(!errText.includes("\n::add-mask::"), `error text must not carry a raw newline before the payload: ${JSON.stringify(errText)}`);
   });
 
   it("happy path: builds .md + .json artifacts, exits 0", () => {
@@ -2190,6 +2262,29 @@ describe("mainSafe", () => {
     mainSafe(["node", "scan_repo.mjs", "owner/unborn", "--output-dir", outDir, "--checkout-dir", coDir], fakeSafe, r2.log, r2.errLog, r2.exit);
     assert.equal(r2.exitCode, 2);
     assert.match(r2.errs.join("\n"), /fatal:.*does not have any commits yet/);
+  });
+
+
+  it("strips a raw newline from mainSafe's fatal err.message echo — CI workflow-command-forgery guard (CWE-117, skills#650)", () => {
+    // mainSafe's catch is the last line of defense for any throw main() does
+    // not individually guard (see its own doc comment) — reached here while
+    // scanning the attacker-controlled checkout, so err.message is exactly as
+    // attacker-influenced as the two try/catch'd sinks above.
+    const outDir = join(root, "out-zero-commit-nl");
+    const coDir = join(root, "co-zero-commit-nl");
+    const target = join(coDir, checkoutCacheKey("owner/unborn-nl"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    const r = captureRun();
+    const fakeSafe = makeFakeExec([
+      { stdout: "https://github.com/owner/unborn-nl.git\n" },
+      { throw: new Error("fatal: no commits yet\n::add-mask::secret") },
+    ]);
+    mainSafe(["node", "scan_repo.mjs", "owner/unborn-nl", "--output-dir", outDir, "--checkout-dir", coDir], fakeSafe, r.log, r.errLog, r.exit);
+    assert.equal(r.exitCode, 2);
+    const errText = r.errs.join("\n");
+    assert.match(errText, /fatal: fatal: no commits yet::add-mask::secret/);
+    assert.ok(!errText.includes("\n::add-mask::"), `error text must not carry a raw newline before the payload: ${JSON.stringify(errText)}`);
   });
 
   after(() => rmSync(root, { recursive: true, force: true }));

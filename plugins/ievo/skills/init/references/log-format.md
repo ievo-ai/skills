@@ -91,7 +91,9 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 > - **Section 5** — the "Candidates after dedup + ranking" table's `Name` and
 >   `Source repo` columns, and every candidate name in the "Dropped —
 >   already installed" list.
-> - **Section 6** — the `#### <owner>/<repo>` per-repo heading itself, and
+> - **Section 6** — the "Repos considered" list's per-repo `name` (the same
+>   `<owner>/<repo>` `init/SKILL.md` Step 6 extracts from `discover.mjs`'s
+>   candidates), the `#### <owner>/<repo>` per-repo heading itself, and
 >   every name in that repo's "Skills found" / "Agents found" / "Plugins
 >   found" lists (`scan_repo.mjs`'s own enumeration of the target repo's
 >   unvetted frontmatter).

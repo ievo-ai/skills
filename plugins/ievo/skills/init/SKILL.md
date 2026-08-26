@@ -711,15 +711,17 @@ beacon or a spoofed link with no further user action.
 **The type=skill `<url>` is assembled, not copied — so it inherits the
 candidate's taint.** `discover.mjs` emits no `url` field at all: a candidate
 is `{id, name, source_repo, source_origin, installs, quality_tier,
-matched_queries, rank_score}` (`discover.mjs:465`). So the `skills.sh: <url>`
+matched_queries, rank_score}` — the object `discover.mjs`'s `rankCandidates`
+builds per id. So the `skills.sh: <url>`
 half of that option's `description:` can only be *built* out of the
 candidate's own values — its `id`, or its `source_repo` + `name` in the
 `https://www.skills.sh/<owner>/<repo>/<skill>` shape `security-check/SKILL.md`
 Step 1 uses. All three are copied verbatim off the skills.sh API row
-(`discover.mjs:309` spreads each result as-is; `:467`/`:468` carry `name` and
-`source` straight through) and are gated only by a truthiness check on `id`
-(`:448`) — the codex path's `typeof c.id === "string"` filter (`:416`) is no
-stricter, and neither is a charset check. An `id` or `source_repo` of
+(`searchSkillsSh` spreads each result as-is; `rankCandidates` then carries that
+row's `name` and `source` straight through into the candidate it builds) and
+are gated only by `rankCandidates`' truthiness check on `id` — the codex path's
+`typeof c.id === "string"` filter in `fetchCodexMarketplace` is no stricter,
+and neither is a charset check. An `id` or `source_repo` of
 `x ![a](https://evil/b.png)` therefore beacons from inside the one
 `description:` this note governs. Fence the **whole assembled URL string** end
 to end, measuring the backtick run over the complete value rather than over
@@ -777,6 +779,21 @@ copies of the same O1 reason string in Section 6b's "Demoted" list and
 Section 7b's Overlap tail table — but there the rows *are* table cells and
 need that file's additional pipe step; see its own "Excerpt containment"
 note.
+
+**`Header:` is contained by construction, not by fencing.** The `Header:`
+line carried by all four templates below — `<short tag, max 12 chars>` — is
+the one field this note does not fence, and the reason is that a 12-character
+budget cannot hold an untrusted value *plus* a fence: a value sized to the cap
+grows past it once the backtick runs are added, and a tag cut back to the cap
+can lose its closing run, leaving an unterminated code span — worse than no
+fence at all. So do not abbreviate the candidate's own name (or any other
+candidate-sourced value) into it. Write a **fixed** tag chosen here, not
+derived from the candidate: `Install` for type=skill, `Vendor` for type=agent,
+`Plugin` for both type=plugin templates, and the same fixed-tag treatment for
+each question in the plugin sub-interview. Nothing untrusted is interpolated,
+so there is nothing left in that field to contain. (The Tail question below
+shows no `Header:` line; if one is ever added, it takes the same fixed tag —
+never `<candidate-name>` abbreviated.)
 
 ### type=skill
 

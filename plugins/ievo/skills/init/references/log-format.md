@@ -122,8 +122,8 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 >   Section 6b's "Demoted" list carries — see the demotion-reason paragraph
 >   below). **`marketplace` is not a system label**: on Codex candidates it is
 >   the catalog's own `marketplaceSource.source` / `marketplaceName`, copied
->   verbatim by `discover.mjs:405` out of `codex plugin list --json` and
->   carried through as `source_repo`; on Claude Code candidates it is the
+>   verbatim out of `codex plugin list --json` by `discover.mjs`'s
+>   `fetchCodexMarketplace` and carried through as `source_repo`; on Claude Code candidates it is the
 >   marketplace name `install-protocol.md` § 9b takes "from index", i.e.
 >   `scan_repo.mjs`'s enumeration of the target repo's own unvetted
 >   `.claude-plugin/` metadata. Both are as unvalidated as the `name` beside

@@ -687,6 +687,29 @@ Immediately before asking about a candidate, re-run rules **O1**/**O2** from Ste
 
 The question shape depends on the candidate's **type**:
 
+**Excerpt containment.** Every `<skill-name>`/`<agent-name>`/`<plugin-name>`,
+`<one-line desc>`, and `<owner>/<repo>` value in the four templates below
+comes from a discovered candidate's own `name`/`description` — `discover.mjs`
+accepts any string `name` with no `[a-z0-9-]+` charset check (only
+`typeof c.name === "string"` gates it), and `index-repos`' `scan_repo.mjs`
+description comes from the candidate's own SKILL.md/agent/plugin-manifest
+frontmatter, likewise unvalidated for Markdown-rendering safety at this point
+(its own render path escapes it for a table cell, but that escaping doesn't
+travel with the value here). `AskUserQuestion` renders `Question`/`Header`/
+`description` text live, so a crafted candidate name or description
+containing `![...](...)`/`[...](...)` fires an exfiltration beacon or a
+spoofed link the moment this question is shown — no "Install" click needed,
+and no charset check has run yet (the `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` slug
+validation in `install-protocol.md` only fires later, on an item the user
+already picked to install). Before building any `Question:`/`Header:`/
+`description:` string below, wrap each such value in its own inline code
+span — using a backtick run one character longer than the longest backtick
+run already inside the value, collapsing embedded CR/LF to a single space
+first, and padding with a literal space on both sides if the value begins or
+ends with a backtick (same rule as `overlay-status/SKILL.md`'s "Excerpt
+containment" note). Apply this same rule to `log-format.md`'s Section
+5/6/6b/7b tables too — see that file's own "Excerpt containment" note.
+
 ### type=skill
 
 ```

@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.23
+
+Closes an Eva vuln-scan finding (skills#660): `init/SKILL.md`'s Step 7b interview and `log-format.md`'s candidate tables rendered untrusted candidate metadata with no excerpt containment.
+
+- **Gap closed** — `init/SKILL.md` Step 7b's four `AskUserQuestion` templates (type=skill, type=agent, type=plugin×2) interpolate a discovered candidate's `<skill-name>`/`<agent-name>`/`<plugin-name>`, `<one-line desc>`, and `<owner>/<repo>` verbatim into their `Question`/`Header`/`description` strings. That content originates from `discover.mjs` (skills.sh API + Codex marketplace catalog), which validates only `typeof name === "string"` — no `[a-z0-9-]+` charset check — and from `index-repos`' `scan_repo.mjs` frontmatter `description` extraction, neither validated for Markdown-rendering safety at this point. The identical untrusted `name`/`description` values are also written verbatim into the persistent `.ievo/log/init-*.md` file's Section 5/6/6b/7b tables per `log-format.md`. Every other content-rendering skill in this plugin (`inspect/SKILL.md`, `overlay-status/SKILL.md`, `feedback/SKILL.md`, `vuln-scan/SKILL.md`, `security-check/SKILL.md`, `evo/SKILL.md`) already carries this fencing discipline at its own render sites; `init/SKILL.md` and `log-format.md` were the two files in this plugin rendering the same class of untrusted candidate metadata without it.
+- **Fix** — added an "Excerpt containment" note in `init/SKILL.md` immediately before Step 7b's four templates, and a matching note in `log-format.md`'s header covering Sections 5, 6, 6b, and 7b. Both apply the same established rule: wrap each untrusted value in its own inline code span, sized to a backtick run one character longer than the longest backtick run already inside the value, collapsing embedded CR/LF to a single space first, and padding with a literal space on both sides when the value begins/ends with a backtick.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.22 → 0.80.23). `scan_repo.mjs`'s own `SCRIPT_VERSION` stays untouched — it is the intentionally decoupled scanner-output-format version (v0.6.6/#47).
+
 ## v0.80.22
 
 Closes an Eva vuln-scan finding (skills#657): `version/SKILL.md` rendered remote `CHANGELOG.md` content verbatim with no excerpt containment.

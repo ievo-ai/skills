@@ -10,6 +10,25 @@ the exact markdown template for each section. Append the matching block to
 > Write **complete lists** — never abbreviate/truncate. The diagnostic value
 > depends on seeing everything (e.g. a 26-agent project logs all 26 names).
 
+> **Excerpt containment.** Every `Name`/description value in Sections 5, 6,
+> 6b, and 7b below (the "Candidates after dedup + ranking" table, the
+> per-repo "Skills found"/"Agents found"/"Plugins found" lists, the
+> categorized-candidate tables and their "Dropped from `<category>`" lines,
+> and the vendor queue/plugin queue/skipped/overlap-tail/filter-override
+> tables) renders a discovered candidate's own `name`/`description` —
+> untrusted content sourced from `discover.mjs` (skills.sh API, no charset
+> check on `name`) and `index-repos`' `scan_repo.mjs` (frontmatter
+> `description`, likewise unvalidated for Markdown-rendering safety here).
+> `$LOG_PATH` is a plain Markdown file that renders live in any Markdown
+> viewer it's later opened in — `feedback/SKILL.md`'s own "Fence containment"
+> note already treats this exact table as untrusted when it's attached to a
+> public issue, but that mitigation applies only at attach time, not when
+> this file is first written. Wrap each `Name`/description value in its own
+> inline code span before writing the row — same rule as `init/SKILL.md`
+> Step 7b's "Excerpt containment" note (backtick run one longer than the
+> longest already inside the value, CR/LF collapsed to a single space,
+> space-padded if the value starts/ends with a backtick).
+
 ---
 
 ## Section 0 — Plugin metadata

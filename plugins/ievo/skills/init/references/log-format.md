@@ -219,9 +219,10 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 > **Excerpt containment (Section 8).** All four of Section 8's tables render
 > an audited candidate's own metadata: `Item` (the candidate name — same
 > untrusted `discover.mjs`/`scan_repo.mjs` value `init/SKILL.md` Step 8a's
-> own "Excerpt containment" note covers) and `Source repo` in GREEN; `Top
-> flag (severity/category/file)` in YELLOW; `Top 2 flags` and `Alternative
-> suggested` in RED; and `Item`/`Repo` in Reports filed. `Top flag`/`Top 2
+> own "Excerpt containment" note covers) — present in every one of the four
+> tables, not GREEN alone — plus `Source repo` in GREEN; `Top flag
+> (severity/category/file)` in YELLOW; `Top 2 flags` and `Alternative
+> suggested` in RED; and `Repo` in Reports filed. `Top flag`/`Top 2
 > flags` are built from the `security-auditor`'s `flags[].category`/
 > `explanation`/`excerpt`, which quote the audited repo's own — attacker-
 > controlled — file contents (including a repo-relative `file` path);
@@ -247,15 +248,18 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 >
 > **Excerpt containment (Section 9, failure branch only).** The `ok` case is
 > largely covered: `<name>` is slug-validated by `install-protocol.md`
-> before any Write, and `<owner>`/`<repo>` are charset-validated earlier in
-> the pipeline. The `FAILED: reason` case is not — it logs precisely the
-> `<name>` (and any `<path>` built from it) that just *failed* that same
-> validation, plus free-text `reason`, the same shape as `inspect/SKILL.md`
-> Step 1's own validation-failure message, which is fenced for exactly this
-> reason. Whenever this line is written for a failure, wrap `<name>`,
-> `<path>`, and `reason` each in their own inline code span per the rule
-> above before writing the line — this is a single log line, not a table, so
-> no pipe-escape step applies here.
+> before any Write, and `<owner>`/`<repo>` are charset-validated before the
+> clone in that same file's "How to fetch the tree" step 1. The `FAILED:
+> reason` case is not — whichever of those checks rejects the item, this
+> line logs precisely the value that just *failed* it: `<name>` (and any
+> `<path>` built from it) on a slug-validation failure, or `<owner>`/`<repo>`
+> themselves on a charset-validation failure — plus free-text `reason` in
+> either case, the same shape as `inspect/SKILL.md` Step 1's own
+> validation-failure message, which is fenced for exactly this reason.
+> Whenever this line is written for a failure, wrap `<name>`, `<owner>`,
+> `<repo>`, `<path>`, and `reason` each in their own inline code span per the
+> rule above before writing the line — this is a single log line, not a
+> table, so no pipe-escape step applies here.
 
 ## Section 8 — Antivirus security audit
 

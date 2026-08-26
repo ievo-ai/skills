@@ -77,6 +77,52 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 
 ---
 
+> **Excerpt containment (Sections 5, 6, 6b, 7b).** Every list and table cell
+> in these four sections that names a **candidate** — a skill, agent, or
+> plugin discovered by `discover.mjs` (Section 5) or expanded via
+> `scan_repo.mjs`/`repo-indexer` (Section 6) — renders that candidate's own
+> `name` (and, where shown, its source `<owner>/<repo>`) verbatim: none of it
+> is charset-validated until `install-protocol.md`'s slug check, which fires
+> later, only on an item already picked to install (`init/SKILL.md` Step
+> 7b's own "Excerpt containment" note covers the live interview; this note
+> covers the persistent log file — a plain Markdown document that renders
+> live in any Markdown viewer the moment it's opened, with no further user
+> action needed). This covers:
+> - **Section 5** — the "Candidates after dedup + ranking" table's `Name` and
+>   `Source repo` columns, and every candidate name in the "Dropped —
+>   already installed" list.
+> - **Section 6** — the `#### <owner>/<repo>` per-repo heading itself, and
+>   every name in that repo's "Skills found" / "Agents found" / "Plugins
+>   found" lists (`scan_repo.mjs`'s own enumeration of the target repo's
+>   unvetted frontmatter).
+> - **Section 6b** — every candidate name in all four "Dropped: ..." lists
+>   and the "Demoted: capability-overlap" list; the `Name` and `Source repo`
+>   columns of every per-category table; and every name in each category's
+>   "Dropped from `<category>`" list and the "Final candidates" summary
+>   table's `Top item` column.
+> - **Section 7b** — the `name`/`source repo` columns of the Vendor queue and
+>   Skipped tables, the `name`/`from plugin` columns of the Plugin queue
+>   table, and the `name` column of the Overlap tail and Filter overrides
+>   tables (`triggering item` in Filter overrides names another candidate —
+>   fence it too).
+>
+> Before writing any such cell, wrap the value in its own inline code span —
+> a backtick run one character longer than the longest backtick run already
+> inside the value, collapsing embedded CR/LF to a single space first, and
+> padding with a literal space on both sides if the value begins or ends
+> with a backtick (same rule as `overlay-status/SKILL.md`'s "Excerpt
+> containment" note and `init/SKILL.md` Step 7b's and Step 8a's notes).
+> These are GFM tables (except Section 6's per-repo lists, which are plain
+> bullets), so a code span alone does not contain a table cell — apply
+> `inspect/SKILL.md`'s pipe step too, before measuring the fence and
+> wrapping: double every backslash in the run immediately preceding each
+> `|`, then prefix the pipe with one more backslash (`\|` → `\\\|`), since
+> GFM splits a row into cells on unescaped pipes before inline parsing runs.
+> Reason/rule/score/count/type/origin/user-choice values in these sections
+> are system-generated or drawn from a fixed enum, and "Why kept" quotes the
+> user's own locally-detected stack/deps (Step 4), not the candidate's own
+> text — no containment needed for those columns.
+
 ## Section 5 — Candidate discovery (discover.mjs)
 
 ````markdown

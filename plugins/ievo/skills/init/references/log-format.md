@@ -37,6 +37,41 @@ the exact markdown template for each section. Append the matching block to
 > longest already inside the value, CR/LF collapsed to a single space,
 > space-padded if the value starts/ends with a backtick), and the same
 > `<owner>/<repo>` coverage that note already carries.
+>
+> **A code span alone does not contain a table cell.** Most of those render
+> sites are GFM tables — Section 5's "Candidates after dedup + ranking"
+> table, Section 6b's per-category candidate tables and its final-candidates
+> summary table, and Section 7b's vendor-queue, plugin-queue, skipped,
+> overlap-tail and filter-override tables — and GFM splits a row into cells
+> on unescaped `|` **before** inline parsing, so a pipe inside backticks
+> still ends the cell. The rule in the spec is "include a pipe in a cell's
+> content by escaping it, **including inside other inline spans**"
+> (GFM § Tables (extension), example 200), so a
+> `name`/`description`/`source_repo` of `x | ![a](u)` wrapped in backticks
+> still renders as two cells, the second one a live image — the exact
+> beacon this note exists to stop. For every value written into a **table
+> cell**, therefore, apply `inspect/SKILL.md`'s pipe step too, before
+> measuring the fence and wrapping: **double every backslash in the run
+> immediately preceding each `|`, then prefix the pipe with one more
+> backslash** (`\|` → `\\\|`). Doubling first is what makes it hold —
+> CommonMark's backslash-escape parity rule treats a run of backslashes in
+> front of a special character as escaping it only when the run's length is
+> odd, so a value already carrying `` a\|b `` would otherwise become
+> `a\\|b`: an even run, an unescaped pipe, and a split cell again. That
+> parity rule is spec-level rather than a renderer quirk, so cmark-gfm and
+> micromark both split there. Backslashes anywhere else are left alone, so
+> an ordinary `C:\Users\x` still displays verbatim; the one residual cost
+> is cosmetic and unavoidable — a backslash immediately before a pipe
+> displays doubled, because every renderer consumes one backslash off that
+> run.
+>
+> Apply the pipe step **only** inside table cells. Section 5's "Dropped —
+> already installed" list, Section 6's `#### <owner>/<repo>` headings and
+> their "Skills found"/"Agents found"/"Plugins found" lists, and Section
+> 6b's dropped/demoted lists and "Dropped from `<category>`" lines have no
+> row to split, and a `\|` inside a code span there would render its
+> backslash literally. The code-span wrap, the CR/LF collapse and the
+> backtick padding above apply on every one of these surfaces, table or not.
 
 ---
 

@@ -731,7 +731,16 @@ span — using a backtick run one character longer than the longest backtick
 run already inside the value, collapsing embedded CR/LF to a single space
 first, and padding with a literal space on both sides if the value begins or
 ends with a backtick (same rule as `overlay-status/SKILL.md`'s "Excerpt
-containment" note). For `<url>`, the value to contain is the **whole
+containment" note). Where a template below already shows a placeholder inside
+backticks — the four typed templates' `Question:` lines, e.g.
+`` `Install <skill-name>?` `` — that pair is **illustrative, not a fence**: it
+is a fixed run of one, wrapped around the whole literal question string rather
+than around the value, so a `name` carrying a backtick of its own closes the
+pair early and renders the remainder of the question live. Size the run per
+value by the same
+longest-run-plus-one rule, and put the fence around the interpolated value
+itself, not around the surrounding literal prose. For `<url>`, the value to
+contain is the **whole
 assembled URL**, not just the `id` fragment inside it — measure the backtick
 run over the complete string and wrap it end to end. Rebuilding the URL from a
 validated `id` is an equally acceptable route: split the `id` on `/` into its

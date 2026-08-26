@@ -281,6 +281,12 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 
 ## Section 8 — Antivirus security audit
 
+> **Excerpt containment — not covered by the note above.** The `Item`,
+> `Source repo` and auditor-reasoning values below are the same untrusted
+> candidate metadata Sections 5/6/6b/7b fence, but this section (and Section 9)
+> sits outside that note's scope. Tracked in skills#662, alongside Step 8a's
+> own YELLOW/RED verdict prompts.
+
 ```markdown
 ## 8. Antivirus security audit (security-auditor sub-agents)
 
@@ -306,6 +312,11 @@ Total bytes scanned: <sum of total_bytes_scanned>
 ---
 
 ## Section 9 — Install (append after EACH install, not the batch)
+
+> **Excerpt containment — not covered by the note above.** `<name>` and
+> `<owner>/<repo>` on each line below carry the same untrusted candidate
+> metadata as Sections 5/6/6b/7b, and are outside that note's scope for the
+> same reason as Section 8 — tracked in skills#662.
 
 ```markdown
 ## 9. Install

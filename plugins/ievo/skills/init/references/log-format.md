@@ -90,19 +90,29 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 > action needed). This covers:
 > - **Section 5** — the "Candidates after dedup + ranking" table's `Name` and
 >   `Source repo` columns, and every candidate name in the "Dropped —
->   already installed" list.
+>   already installed" list **plus that list's own `matches installed
+>   <type>: <name>` reason text** (see the already-installed-reason
+>   paragraph below).
 > - **Section 6** — the "Repos considered" list's per-repo `name` (the same
 >   `<owner>/<repo>` `init/SKILL.md` Step 6 extracts from `discover.mjs`'s
->   candidates), the `#### <owner>/<repo>` per-repo heading itself, and
->   every name in that repo's "Skills found" / "Agents found" / "Plugins
->   found" lists (`scan_repo.mjs`'s own enumeration of the target repo's
->   unvetted frontmatter).
+>   candidates), the `#### <owner>/<repo>` per-repo heading itself, every
+>   name in that repo's "Skills found" / "Agents found" / "Plugins found"
+>   lists (`scan_repo.mjs`'s own enumeration of the target repo's unvetted
+>   frontmatter), **and every plugin name listed in the "Hooks present in
+>   any plugin" line's `(which plugins)` parenthetical** — that line names a
+>   subset of the very plugins the "Plugins found" list above it already
+>   carries, re-rendered on a different line, and each name is the target
+>   repo's own `plugins/<dir>/.claude-plugin/plugin.json` `name` (falling
+>   back to the `plugins/<dir>` directory name) as `enumerateOnePlugin`
+>   returns it, no more validated on this line than on that one.
 > - **Section 6b** — every candidate name in all four "Dropped: ..." lists
 >   and the "Demoted: capability-overlap" list, **plus that list's own O1
->   `reason` text** (see the demotion-reason paragraph below); the `Name` and
->   `Source repo` columns of every per-category table; and every name in each
->   category's "Dropped from `<category>`" list and the "Final candidates"
->   summary table's `Top item` column.
+>   `reason` text** (see the demotion-reason paragraph below) **and the
+>   `matches installed <agent|skill|plugin>: <name>` reason carried by the
+>   "already-installed" one** (see the already-installed-reason paragraph
+>   below); the `Name` and `Source repo` columns of every per-category
+>   table; and every name in each category's "Dropped from `<category>`"
+>   list and the "Final candidates" summary table's `Top item` column.
 > - **Section 7b** — the `name`/`source repo` columns of the Vendor queue and
 >   Skipped tables, the `name`/**`marketplace`**/`from plugin` columns of the
 >   Plugin queue table, the `name` column of the Overlap tail and Filter
@@ -124,15 +134,36 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 > builds it as `overlap: <tool> already covered by <installed-item>`, and both
 > halves inherit a candidate's taint: `<tool>` is read straight off the demoted
 > candidate's own name/description (that is what makes the rule fire — `ruff`
-> out of `ruff-recursive-fix`), and `<installed-item>` is a candidate the user
-> accepted earlier in the same run whenever Step 7b's live re-check is what
-> demoted it — no more validated than the demoted candidate, since neither has
-> reached `install-protocol.md`'s slug check. Fence the **whole assembled
-> reason string** end to end, measuring the backtick run over the complete
-> string rather than over the embedded fragment. O2's reason (`overlap: N
-> <domain> specialists already installed`) embeds only Step 4's
-> locally-detected language/stack grouping and a count — no containment
-> needed, and fencing it anyway is harmless.
+> out of `ruff-recursive-fix`), and `<installed-item>` is untrusted on **both**
+> branches that reach it: when Step 7b's live re-check is what demoted the
+> candidate it is another candidate the user accepted earlier in the same run,
+> no more validated than the demoted one (neither has reached
+> `install-protocol.md`'s slug check); when Step 7a's original pass is what
+> demoted it, it is an item out of Step 3's installed inventory, which is
+> untrusted for the separate reason the already-installed-reason paragraph
+> below sets out. Fence the **whole assembled reason string** end to end,
+> measuring the backtick run over the complete string rather than over the
+> embedded fragment. O2's reason (`overlap: N <domain> specialists already
+> installed`) embeds only Step 4's locally-detected language/stack grouping
+> and a count — no containment needed, and fencing it anyway is harmless.
+>
+> **The already-installed drop reason is not a system string either.**
+> Sections 5 and 6b both record it as `matches installed <type>: <name>`,
+> where `<name>` is the **installed** item's name exactly as `init/SKILL.md`
+> Step 3 collected it: a `.claude/skills/<name>/` or `.claude/agents/<name>.md`
+> basename (or the same under `~/.claude/` and `.claude/plugins/*/`), a Codex
+> `.agents/skills/<name>/` basename, or a key of `.claude/settings.json`'s
+> `enabledPlugins` object. Nothing in init charset-validates any of them —
+> Step 3 reports whatever the working tree and settings file happen to hold,
+> and a POSIX directory name may carry any byte but `/` and NUL, so anyone
+> able to land an ordinary commit, PR or fork controls it. That is the same
+> threat model `overlay-status/SKILL.md`'s own "Excerpt containment" note
+> applies to its Glob-matched basenames, and this is also the same value this
+> note already fences one paragraph up under a different label — the O1
+> reason's `<installed-item>`, on its Step 7a branch, is drawn from this very
+> inventory. Fence the **whole assembled reason string** end to end, on the
+> same terms as the O1 reason. `<type>` itself is a fixed
+> `skill|agent|plugin` enum and adds no taint of its own.
 >
 > Before writing any such cell, wrap the value in its own inline code span —
 > a backtick run one character longer than the longest backtick run already
@@ -141,10 +172,12 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 > with a backtick (same rule as `overlay-status/SKILL.md`'s "Excerpt
 > containment" note and `init/SKILL.md` Step 7b's and Step 8a's notes).
 > Most of these sinks are GFM **table cells** — the exceptions are the
-> plain-bullet lists (Section 5's "Dropped — already installed", Section 6's
-> per-repo lists, and Section 6b's four "Dropped: ..." lists, its "Demoted:
-> capability-overlap" list including that list's O1 `reason`, and its
-> per-category "Dropped from `<category>`" lists). A code span alone does not
+> plain-bullet lists (Section 5's "Dropped — already installed" including its
+> `matches installed` reason, Section 6's per-repo lists including the "Hooks
+> present in any plugin" line, and Section 6b's four "Dropped: ..." lists
+> including the already-installed one's `matches installed` reason, its
+> "Demoted: capability-overlap" list including that list's O1 `reason`, and
+> its per-category "Dropped from `<category>`" lists). A code span alone does not
 > contain a table cell, so **for the table cells only** apply
 > `inspect/SKILL.md`'s pipe step too, before measuring the fence and
 > wrapping: double every backslash in the run immediately preceding each
@@ -156,10 +189,23 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 > sections are system-generated or drawn from a fixed enum, and "Why kept"
 > quotes the user's own locally-detected stack/deps (Step 4), not the
 > candidate's own text — no containment needed for those columns. The
-> remaining `reason` strings are fixed sentences over locally-derived values,
-> **except** the O1 capability-overlap reason called out above — fence that
-> one wherever it appears (Section 6b's "Demoted" list, Section 7b's Overlap
-> tail table).
+> `reason` strings are **not** one class and must not be dispositioned as
+> one — a column named `reason` sitting beside `rule` and `score` reads as
+> system-generated and several are not. Each is settled individually here;
+> whenever a new reason string is added to these sections, add its own line:
+> - Section 5's "Dropped — already installed" and Section 6b's "Dropped:
+>   already-installed" `matches installed <type>: <name>` — **fence**
+>   (already-installed-reason paragraph above).
+> - Section 6b's "Demoted" O1 `overlap: <tool> already covered by
+>   <installed-item>`, and its copy in Section 7b's Overlap tail
+>   `demotion reason` column — **fence** (demotion-reason paragraph above).
+> - Section 6b's "Demoted" O2 `overlap: N <domain> specialists already
+>   installed` — no containment needed (Step 4's own stack grouping plus a
+>   count); fencing it anyway is harmless.
+> - Section 6b's out-of-stack, stack-irrelevant and not-installable-on-Codex
+>   reasons — fixed sentences that interpolate nothing at all.
+> - Section 7b's Skipped table `reason (if known from question)` — the fixed
+>   option label the user picked in Step 7b/8a, a string init writes itself.
 >
 > **A backtick pair already shown in a template below is illustrative, not a
 > fence** — it is one fixed backtick wrapped around a whole literal string,
@@ -202,6 +248,11 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 ### Final discover output: <N> candidates
 ````
 
+(Containment: the "Dropped — already installed" list's `matches installed
+<type>: <name>` reason carries the *installed* item's own unvalidated
+Step 3 name, so fence the whole reason string alongside the candidate name —
+see the "Excerpt containment (Sections 5, 6, 6b, 7b)" note above.)
+
 ---
 
 ## Section 6 — Repo indexing + candidate expansion
@@ -226,6 +277,11 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 - Agents: <count> from <M> repos
 - Plugins: <count> from <K> repos
 ```
+
+(Containment: the "Hooks present in any plugin" line's `(which plugins)`
+parenthetical names the same `scan_repo.mjs`-enumerated plugins as the
+"Plugins found" list above it — fence each name there too, on identical
+terms; see the "Excerpt containment (Sections 5, 6, 6b, 7b)" note above.)
 
 ---
 
@@ -278,8 +334,11 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 ```
 
 (Containment: the "Demoted" list's O1 `reason` carries the candidate-derived
-`<tool>`, so fence the whole reason string alongside the name — see the
-"Excerpt containment (Sections 5, 6, 6b, 7b)" note above.)
+`<tool>`, and the "Dropped: already-installed" list's `matches installed
+<agent|skill|plugin>: <name>` reason carries the *installed* item's own
+unvalidated Step 3 name — fence each whole reason string alongside the name;
+see the "Excerpt containment (Sections 5, 6, 6b, 7b)" note above. The other
+three "Dropped: ..." lists' reasons interpolate nothing and need no fence.)
 
 ---
 

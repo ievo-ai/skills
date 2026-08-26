@@ -734,9 +734,21 @@ Filter subsection)*. **O1**'s reason — `overlap: <tool> already covered by
 <installed-item>` — embeds two values that inherit the candidate's taint:
 `<tool>` is read straight off the demoted candidate's own name/description
 (that is what makes the rule fire — `ruff` out of `ruff-recursive-fix`), and
-`<installed-item>`, in this step's live re-check above, is a candidate the
-user accepted **earlier this same run** — no more validated than the demoted
-one, since neither has reached Step 9's slug check. So fence the **whole
+`<installed-item>` is untrusted on **both** of the branches that produce it.
+Where this step's live re-check above is what demoted the candidate, it is
+another candidate the user accepted **earlier this same run** — no more
+validated than the demoted one, since neither has reached Step 9's slug
+check. Where Step 7a's original static pass is what demoted it, it is an item
+out of **Step 3's installed inventory** (Step 7a checks against that
+inventory; both sets of demotions land in the same `overlap_tail[]` and reach
+this same Tail question) — i.e. a `.claude/skills/<name>/` or
+`.claude/agents/<name>.md` basename, a Codex `.agents/skills/<name>/`
+basename, or a key of `.claude/settings.json`'s `enabledPlugins` object.
+Step 3 reports those verbatim off the working tree and settings file and
+charset-validates none of them, and a POSIX directory name may carry any byte
+but `/` and NUL, so anyone able to land an ordinary commit, PR or fork
+controls one — the same threat model `overlay-status/SKILL.md`'s own "Excerpt
+containment" note applies to its Glob-matched basenames. So fence the **whole
 assembled reason string** end to end, measuring the backtick run over the
 complete string rather than over the embedded fragment. **O2**'s reason —
 `overlap: N <domain> specialists already installed` — embeds only Step 4's

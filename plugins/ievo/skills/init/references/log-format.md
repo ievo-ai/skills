@@ -104,12 +104,21 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 >   category's "Dropped from `<category>`" list and the "Final candidates"
 >   summary table's `Top item` column.
 > - **Section 7b** — the `name`/`source repo` columns of the Vendor queue and
->   Skipped tables, the `name`/`from plugin` columns of the Plugin queue
->   table, the `name` column of the Overlap tail and Filter overrides
->   tables (`triggering item` in Filter overrides names another candidate —
->   fence it too), and the Overlap tail table's **`demotion reason`** column
->   whenever its `rule` is O1 (the same assembled string Section 6b's
->   "Demoted" list carries — see the demotion-reason paragraph below).
+>   Skipped tables, the `name`/**`marketplace`**/`from plugin` columns of the
+>   Plugin queue table, the `name` column of the Overlap tail and Filter
+>   overrides tables (`triggering item` in Filter overrides names another
+>   candidate — fence it too), and the Overlap tail table's **`demotion
+>   reason`** column whenever its `rule` is O1 (the same assembled string
+>   Section 6b's "Demoted" list carries — see the demotion-reason paragraph
+>   below). **`marketplace` is not a system label**: on Codex candidates it is
+>   the catalog's own `marketplaceSource.source` / `marketplaceName`, copied
+>   verbatim by `discover.mjs:405` out of `codex plugin list --json` and
+>   carried through as `source_repo`; on Claude Code candidates it is the
+>   marketplace name `install-protocol.md` § 9b takes "from index", i.e.
+>   `scan_repo.mjs`'s enumeration of the target repo's own unvetted
+>   `.claude-plugin/` metadata. Both are as unvalidated as the `name` beside
+>   them — neither reaches `install-protocol.md`'s slug check before this row
+>   is written.
 >
 > **The O1 demotion reason is not a system string.** `init/SKILL.md` Step 7a
 > builds it as `overlap: <tool> already covered by <installed-item>`, and both
@@ -151,6 +160,19 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 > **except** the O1 capability-overlap reason called out above — fence that
 > one wherever it appears (Section 6b's "Demoted" list, Section 7b's Overlap
 > tail table).
+>
+> **A backtick pair already shown in a template below is illustrative, not a
+> fence** — it is one fixed backtick wrapped around a whole literal string,
+> not a run sized to the value, so a value carrying a backtick breaks
+> straight out of it. Size the run per value by the longest-run-plus-one rule
+> above and wrap the *value*. Two such placeholders, resolved explicitly
+> rather than left to inference: Section 6b's "Dropped from `<category>`"
+> needs no containment (`<category>` is one of Step 6b's own category
+> labels), while Section 6's "Index path:
+> `.ievo/cache/index/<owner>-<repo>-<hash>.md`" renders the same candidate
+> slug as the `#### <owner>/<repo>` heading above it — fence it on the same
+> terms as that heading (the trailing `<hash>` is `scan_repo.mjs`'s SHA-256
+> digest and adds no taint of its own).
 
 ## Section 5 — Candidate discovery (discover.mjs)
 
@@ -294,9 +316,10 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 ```
 
 (Containment: the Overlap tail table's `demotion reason` cell carries the same
-candidate-derived O1 string as Section 6b's list — fence it exactly like the
-`name` and `triggering item` cells, pipe step included, per the "Excerpt
-containment (Sections 5, 6, 6b, 7b)" note above.)
+candidate-derived O1 string as Section 6b's list, and the Plugin queue's
+`marketplace` cell carries the catalog-/repo-supplied marketplace name — fence
+both exactly like the `name` and `triggering item` cells, pipe step included,
+per the "Excerpt containment (Sections 5, 6, 6b, 7b)" note above.)
 
 ---
 

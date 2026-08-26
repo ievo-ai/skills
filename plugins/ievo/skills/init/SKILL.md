@@ -783,6 +783,34 @@ Each sub-agent internally applies the `security-check` skill (loaded from the ie
 
 After all sub-agents return, group items by verdict:
 
+**Excerpt containment.** The YELLOW and RED `AskUserQuestion`s below render
+values straight out of the `security-auditor`'s own JSON schema: `<name>`
+(the audited candidate — an untrusted `discover.mjs`/`scan_repo.mjs`-sourced
+value, same class as the rest of this interview), the YELLOW batch's "top
+flag for each" text and the RED template's `<top 2 flags>` (both built from
+`flags[].category`/`explanation`/`excerpt`, which quote the audited repo's
+own — attacker-controlled — file contents), `<next-ranked-same-category>`
+(another candidate's name, sourced from `alternative_suggestion`), and
+`<owner>/<repo>` (the candidate's own source repo, interpolated into the
+"Report to..." option label) — none of it charset-validated yet (the
+`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` slug check in `install-protocol.md` only
+fires later, in Step 9, on an item already picked to install). This is exactly
+the surface `security-auditor.md`'s own "Excerpt containment" note names as
+uncovered: that note fences `report_template.body` only and states verbatim
+that "any OTHER surface that renders a flag's `excerpt`/`explanation` back to
+a user — for example a YELLOW/RED re-audit prompt built from this schema ...
+is a distinct rendering surface with its own live-Markdown exposure, and is
+responsible for its own excerpt containment; this note does not cover it."
+Before building the YELLOW batch's `multiSelect` options or the RED
+per-item `Question:` string and its option **labels** below, wrap each such
+value in its own inline code span — a backtick run one character longer than
+the longest backtick run already inside the value, collapsing embedded CR/LF
+to a single space first, and padding with a literal space on both sides if
+the value begins or ends with a backtick (same rule as
+`overlay-status/SKILL.md`'s "Excerpt containment" note). Apply this same rule
+to `log-format.md`'s Section 8/9 rows too — see that file's own "Excerpt
+containment" note.
+
 - **GREEN** → add to final install list. No user friction.
 - **YELLOW** → batch through one `AskUserQuestion` (multiSelect) showing top flag for each. User unchecks any they want to skip; checked items proceed to install.
 - **RED** → per-item `AskUserQuestion` with 4 options:

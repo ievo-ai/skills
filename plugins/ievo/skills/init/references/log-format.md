@@ -216,6 +216,47 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 
 ---
 
+> **Excerpt containment (Section 8).** All four of Section 8's tables render
+> an audited candidate's own metadata: `Item` (the candidate name — same
+> untrusted `discover.mjs`/`scan_repo.mjs` value `init/SKILL.md` Step 8a's
+> own "Excerpt containment" note covers) and `Source repo` in GREEN; `Top
+> flag (severity/category/file)` in YELLOW; `Top 2 flags` and `Alternative
+> suggested` in RED; and `Item`/`Repo` in Reports filed. `Top flag`/`Top 2
+> flags` are built from the `security-auditor`'s `flags[].category`/
+> `explanation`/`excerpt`, which quote the audited repo's own — attacker-
+> controlled — file contents (including a repo-relative `file` path);
+> `Auditor reasoning (first sentence)` synthesizes over that same untrusted
+> content; `Alternative suggested` is another candidate's name, sourced from
+> `alternative_suggestion`. None of it is charset-validated at this point —
+> `security-auditor.md`'s own "Excerpt containment" note fences
+> `report_template.body` only and explicitly excludes every other
+> rendering surface. Wrap each such value in its own inline code span before
+> writing the row — a backtick run one character longer than the longest
+> backtick run already inside the value, collapsing embedded CR/LF to a
+> single space first, and padding with a literal space on both sides if the
+> value begins or ends with a backtick (same rule as
+> `overlay-status/SKILL.md`'s "Excerpt containment" note and `init/SKILL.md`
+> Step 8a's note). All four tables are GFM tables, so a code span alone does
+> not contain a table cell — apply `inspect/SKILL.md`'s pipe step too,
+> before measuring the fence and
+> wrapping: double every backslash in the run immediately preceding each
+> `|`, then prefix the pipe with one more backslash (`\|` → `\\\|`), since
+> GFM splits a row into cells on unescaped pipes before inline parsing runs.
+> `Issue URL` and `Filed at` are system-generated (a `gh issue create` result
+> URL and an ISO timestamp) — no containment needed for those two columns.
+>
+> **Excerpt containment (Section 9, failure branch only).** The `ok` case is
+> largely covered: `<name>` is slug-validated by `install-protocol.md`
+> before any Write, and `<owner>`/`<repo>` are charset-validated earlier in
+> the pipeline. The `FAILED: reason` case is not — it logs precisely the
+> `<name>` (and any `<path>` built from it) that just *failed* that same
+> validation, plus free-text `reason`, the same shape as `inspect/SKILL.md`
+> Step 1's own validation-failure message, which is fenced for exactly this
+> reason. Whenever this line is written for a failure, wrap `<name>`,
+> `<path>`, and `reason` each in their own inline code span per the rule
+> above before writing the line — this is a single log line, not a table, so
+> no pipe-escape step applies here.
+
 ## Section 8 — Antivirus security audit
 
 ```markdown

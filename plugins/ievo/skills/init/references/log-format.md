@@ -98,15 +98,32 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 >   found" lists (`scan_repo.mjs`'s own enumeration of the target repo's
 >   unvetted frontmatter).
 > - **Section 6b** — every candidate name in all four "Dropped: ..." lists
->   and the "Demoted: capability-overlap" list; the `Name` and `Source repo`
->   columns of every per-category table; and every name in each category's
->   "Dropped from `<category>`" list and the "Final candidates" summary
->   table's `Top item` column.
+>   and the "Demoted: capability-overlap" list, **plus that list's own O1
+>   `reason` text** (see the demotion-reason paragraph below); the `Name` and
+>   `Source repo` columns of every per-category table; and every name in each
+>   category's "Dropped from `<category>`" list and the "Final candidates"
+>   summary table's `Top item` column.
 > - **Section 7b** — the `name`/`source repo` columns of the Vendor queue and
 >   Skipped tables, the `name`/`from plugin` columns of the Plugin queue
->   table, and the `name` column of the Overlap tail and Filter overrides
+>   table, the `name` column of the Overlap tail and Filter overrides
 >   tables (`triggering item` in Filter overrides names another candidate —
->   fence it too).
+>   fence it too), and the Overlap tail table's **`demotion reason`** column
+>   whenever its `rule` is O1 (the same assembled string Section 6b's
+>   "Demoted" list carries — see the demotion-reason paragraph below).
+>
+> **The O1 demotion reason is not a system string.** `init/SKILL.md` Step 7a
+> builds it as `overlap: <tool> already covered by <installed-item>`, and both
+> halves inherit a candidate's taint: `<tool>` is read straight off the demoted
+> candidate's own name/description (that is what makes the rule fire — `ruff`
+> out of `ruff-recursive-fix`), and `<installed-item>` is a candidate the user
+> accepted earlier in the same run whenever Step 7b's live re-check is what
+> demoted it — no more validated than the demoted candidate, since neither has
+> reached `install-protocol.md`'s slug check. Fence the **whole assembled
+> reason string** end to end, measuring the backtick run over the complete
+> string rather than over the embedded fragment. O2's reason (`overlap: N
+> <domain> specialists already installed`) embeds only Step 4's
+> locally-detected language/stack grouping and a count — no containment
+> needed, and fencing it anyway is harmless.
 >
 > Before writing any such cell, wrap the value in its own inline code span —
 > a backtick run one character longer than the longest backtick run already
@@ -114,16 +131,26 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 > padding with a literal space on both sides if the value begins or ends
 > with a backtick (same rule as `overlay-status/SKILL.md`'s "Excerpt
 > containment" note and `init/SKILL.md` Step 7b's and Step 8a's notes).
-> These are GFM tables (except Section 6's per-repo lists, which are plain
-> bullets), so a code span alone does not contain a table cell — apply
+> Most of these sinks are GFM **table cells** — the exceptions are the
+> plain-bullet lists (Section 5's "Dropped — already installed", Section 6's
+> per-repo lists, and Section 6b's four "Dropped: ..." lists, its "Demoted:
+> capability-overlap" list including that list's O1 `reason`, and its
+> per-category "Dropped from `<category>`" lists). A code span alone does not
+> contain a table cell, so **for the table cells only** apply
 > `inspect/SKILL.md`'s pipe step too, before measuring the fence and
 > wrapping: double every backslash in the run immediately preceding each
 > `|`, then prefix the pipe with one more backslash (`\|` → `\\\|`), since
 > GFM splits a row into cells on unescaped pipes before inline parsing runs.
-> Reason/rule/score/count/type/origin/user-choice values in these sections
-> are system-generated or drawn from a fixed enum, and "Why kept" quotes the
-> user's own locally-detected stack/deps (Step 4), not the candidate's own
-> text — no containment needed for those columns.
+> Do **not** apply the pipe step in the plain-bullet lists — outside a table
+> a `\|` inside a code span renders its backslash literally.
+> The `rule`/`score`/`count`/`type`/`origin`/`user-choice` values in these
+> sections are system-generated or drawn from a fixed enum, and "Why kept"
+> quotes the user's own locally-detected stack/deps (Step 4), not the
+> candidate's own text — no containment needed for those columns. The
+> remaining `reason` strings are fixed sentences over locally-derived values,
+> **except** the O1 capability-overlap reason called out above — fence that
+> one wherever it appears (Section 6b's "Demoted" list, Section 7b's Overlap
+> tail table).
 
 ## Section 5 — Candidate discovery (discover.mjs)
 
@@ -228,6 +255,10 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 [category summary]
 ```
 
+(Containment: the "Demoted" list's O1 `reason` carries the candidate-derived
+`<tool>`, so fence the whole reason string alongside the name — see the
+"Excerpt containment (Sections 5, 6, 6b, 7b)" note above.)
+
 ---
 
 ## Section 7b — Interview results
@@ -261,6 +292,11 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 |------|------|------------------|---------|
 [...rows where user checked a tail item despite the demotion — feeds Step 13 feedback capture; empty if no overrides...]
 ```
+
+(Containment: the Overlap tail table's `demotion reason` cell carries the same
+candidate-derived O1 string as Section 6b's list — fence it exactly like the
+`name` and `triggering item` cells, pipe step included, per the "Excerpt
+containment (Sections 5, 6, 6b, 7b)" note above.)
 
 ---
 

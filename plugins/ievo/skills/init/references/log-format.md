@@ -10,19 +10,46 @@ the exact markdown template for each section. Append the matching block to
 > Write **complete lists** — never abbreviate/truncate. The diagnostic value
 > depends on seeing everything (e.g. a 26-agent project logs all 26 names).
 
-> **Excerpt containment.** Every `Name`/description value **and every
-> `Source repo`/`<owner>/<repo>` value** in Sections 5, 6, 6b, and 7b below
-> (the "Candidates after dedup + ranking" table, Section 6's per-repo
-> `#### <owner>/<repo>` headings and their "Skills found"/"Agents
-> found"/"Plugins found" lists, the categorized-candidate tables and their
-> "Dropped from `<category>`" lines, and the vendor queue/plugin
+> **Excerpt containment.** Every `Name`/description value, **every
+> `Source repo`/`<owner>/<repo>` value**, and **every reason/justification
+> string** in Sections 5, 6, 6b, and 7b below (the "Candidates after dedup
+> + ranking" table and the "Dropped — already installed" list's
+> `matches installed <type>: <name>` reason; Section 6's "Repos
+> considered" list, its per-repo `#### <owner>/<repo>` headings, their
+> `Index path:` line — assembled around `<owner>-<repo>` — and their
+> "Skills found"/"Agents found"/"Plugins found" lists and the "Hooks
+> present in any plugin" line's "(which plugins)" names; Section 6b's
+> dropped/demoted lists — including the
+> `matches installed <agent|skill|plugin>: <name>` reason and the O1/O2
+> `overlap: <tool> already covered by <installed-item>` /
+> `overlap: N <domain> specialists already installed` demotion reasons —
+> its categorized-candidate tables including their `Why kept` column,
+> their "Dropped from `<category>`" lines, and its final-candidates
+> summary table; and the vendor queue/plugin
 > queue/skipped/overlap-tail/filter-override tables — including the plugin
-> queue's `marketplace`/`from plugin` columns) renders a discovered
+> queue's `marketplace`/`from plugin` columns, the skipped table's
+> `reason (if known from question)` column, the overlap tail's
+> `demotion reason` column, and the filter-override table's
+> `triggering item` column) renders a discovered
 > candidate's own `name`/`description`/`source_repo` — untrusted content
 > sourced from `discover.mjs` (skills.sh API, no charset check on `name`,
 > and `source_repo` is that API's `source` field copied through verbatim)
 > and `index-repos`' `scan_repo.mjs` (frontmatter
-> `description`, likewise unvalidated for Markdown-rendering safety here).
+> `description`, likewise unvalidated for Markdown-rendering safety here)
+> — or is **assembled around** one of those values. Every
+> reason/justification string listed above is exactly that: a fixed
+> template with the candidate's own name/description interpolated into it,
+> plus the `<tool>`/`<installed-item>`/`<domain>` that O1/O2 or the
+> already-installed check matched it against (SKILL.md Step 7a's Filter
+> subsection). An `<installed-item>` name is no safer than the candidate's
+> own: Step 3 collects it as a bare directory/file name off
+> `.claude/skills/`, `.claude/agents/`, `.claude/plugins/*/`
+> (`.agents/skills/` on Codex) or `enabledPlugins`, with no charset check
+> of its own. Fencing a row's `Name` cell while writing that same name
+> back raw inside the row's reason only relocates the payload —
+> `init/SKILL.md` Step 7b's note already fences these reason strings (and
+> the tail question's option labels built from them) where the interview
+> renders them live, and they are no less untrusted once they land here.
 > `$LOG_PATH` is a plain Markdown file that renders live in any Markdown
 > viewer it's later opened in — `feedback/SKILL.md`'s own "Fence containment"
 > note already treats this exact table as untrusted when it's attached to a
@@ -31,12 +58,26 @@ the exact markdown template for each section. Append the matching block to
 > inline code span before writing the row — and before writing a
 > `#### <owner>/<repo>` heading, which holds an inline code span perfectly
 > well and still reads as a heading, so a repo slug carrying
-> `![...](...)`/`[...](...)` can't render there either. Same rule as
+> `![...](...)`/`[...](...)` can't render there either. For a
+> reason/justification string the value to contain is the **whole
+> assembled string**, not just the name embedded in it — measure the
+> backtick run over the complete string and wrap it end to end, exactly as
+> `init/SKILL.md` Step 7b fences the tail question's demotion-reason
+> description; the same goes for Section 6's `Index path:`, whose
+> `<owner>-<repo>` segment makes the whole path untrusted. Where a
+> template below already shows an interpolated value inside a fixed
+> single-backtick pair — that `Index path:` line is the one instance —
+> the pair is **illustrative, not a fence**: it is a run of one, fixed at
+> authoring time, so a value carrying a backtick of its own closes it
+> early and renders the remainder of the line live. Size the run per value
+> by the same longest-run-plus-one rule (`init/SKILL.md` Step 7b and
+> `inspect/SKILL.md` carry the identical disclaimer for their own
+> templates). Same rule as
 > `init/SKILL.md`
 > Step 7b's "Excerpt containment" note (backtick run one longer than the
 > longest already inside the value, CR/LF collapsed to a single space,
 > space-padded if the value starts/ends with a backtick), and the same
-> `<owner>/<repo>` coverage that note already carries.
+> `<owner>/<repo>` and reason-string coverage that note already carries.
 >
 > **A code span alone does not contain a table cell.** Most of those render
 > sites are GFM tables — Section 5's "Candidates after dedup + ranking"
@@ -66,9 +107,12 @@ the exact markdown template for each section. Append the matching block to
 > run.
 >
 > Apply the pipe step **only** inside table cells. Section 5's "Dropped —
-> already installed" list, Section 6's `#### <owner>/<repo>` headings and
-> their "Skills found"/"Agents found"/"Plugins found" lists, and Section
-> 6b's dropped/demoted lists and "Dropped from `<category>`" lines have no
+> already installed" list, Section 6's "Repos considered" list, its
+> `#### <owner>/<repo>` headings and their `Index path:`/"Skills
+> found"/"Agents found"/"Plugins found"/"Hooks present in any plugin"
+> lines, and Section
+> 6b's dropped/demoted lists — their reason strings included — and
+> "Dropped from `<category>`" lines have no
 > row to split, and a `\|` inside a code span there would render its
 > backslash literally. The code-span wrap, the CR/LF collapse and the
 > backtick padding above apply on every one of these surfaces, table or not.

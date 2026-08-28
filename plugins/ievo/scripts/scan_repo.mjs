@@ -442,8 +442,14 @@ export function enumeratePlugins(repo) {
   return plugins;
 }
 
-export function enumerateOnePlugin(pluginPath) {
-  const name = pluginPath.split("/").pop();
+// `identity` overrides the name/path this plugin reports, for call sites
+// where `pluginPath` itself is not a sensible identity — e.g. a
+// "single-plugin" layout repo scanned at its checkout root (a
+// checkoutCacheKey-hashed cache-dir name, not the repo/plugin's real name).
+// Defaults preserve the original `plugins/<name>/`-relative behavior when
+// omitted.
+export function enumerateOnePlugin(pluginPath, identity = {}) {
+  const name = identity.name ?? pluginPath.split("/").pop();
   // isDir() guards the INTERMEDIATE ".claude-plugin" segment (lstat-based,
   // like isDir everywhere else in this file) before manifestPath is even
   // built. Without it, fileExists(manifestPath)/isOversized(manifestPath)
@@ -544,7 +550,7 @@ export function enumerateOnePlugin(pluginPath) {
     name,
     description: truncate(manifest.description, 200),
     version: manifest.version ?? "unset",
-    path: `plugins/${name}/`,
+    path: identity.path ?? `plugins/${name}/`,
     author,
     license: manifest.license ?? "—",
     agents,
@@ -942,10 +948,30 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
   const today = isoDate(0);
   const recentCount = countRecentCommits(repo, thirtyDaysAgo, execImpl);
 
-  const plugins = enumeratePlugins(repo);
-  const standaloneAgents = enumerateStandaloneAgents(repo);
-  const standaloneSkills = enumerateStandaloneSkills(repo);
-  const standaloneCommands = enumerateStandaloneCommands(repo);
+  // A "single-plugin" layout repo (detectLayout above) IS the plugin — its
+  // .claude-plugin/, hooks/, .mcp.json etc. live at the checkout root, not
+  // under a plugins/<name>/ subdirectory. enumeratePlugins() only ever looks
+  // for the latter and returns [] for this layout, silently hiding the
+  // repo's own hooks/MCP servers from the published index (CWE-693). Scan
+  // the checkout root itself as the sole plugin instead, with an explicit
+  // name/path override — `repo` is a checkoutCacheKey-hashed cache-dir name,
+  // not a presentable identity or a `plugins/<name>/`-relative path.
+  const plugins =
+    layout === "single-plugin"
+      ? [enumerateOnePlugin(repo, { name: args.repo.split("/").pop(), path: "." })]
+      : enumeratePlugins(repo);
+  // enumerateStandalone{Agents,Skills,Commands}(repo) read the identical
+  // repo-root agents/skills/commands dirs that enumerateOnePlugin(repo, ...)
+  // above just read for this same "single-plugin" repo -- without this
+  // branch, every root-level agent/skill/command would be double-counted:
+  // once under plugins[0], again under standalone_*. Skipping them here is
+  // also the semantically correct attribution, not just a dedup -- for this
+  // layout those files belong to the one plugin at the manifest root, not to
+  // no plugin at all (which is what "standalone" means for every other
+  // layout that lacks a plugin manifest).
+  const standaloneAgents = layout === "single-plugin" ? [] : enumerateStandaloneAgents(repo);
+  const standaloneSkills = layout === "single-plugin" ? [] : enumerateStandaloneSkills(repo);
+  const standaloneCommands = layout === "single-plugin" ? [] : enumerateStandaloneCommands(repo);
 
   // CWE-345: a LICENSE/LICENSE.md/LICENSE.txt file's *content* is never read
   // here — only its presence is checked — so its actual terms (GPL,

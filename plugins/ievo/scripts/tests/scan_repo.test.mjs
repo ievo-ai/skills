@@ -1357,6 +1357,23 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     assert.equal(r.author, "—");
   });
 
+  it("enumerateOnePlugin: identity override replaces derived name + path (skills#669)", () => {
+    // Without an override, name/path derive from the directory basename —
+    // meaningless for a single-plugin-layout repo scanned at its checkout
+    // root (a checkoutCacheKey-hashed cache-dir name).
+    const bare = join(root, "plugins", "no-manifest");
+    const r = enumerateOnePlugin(bare, { name: "real-repo-name", path: "." });
+    assert.equal(r.name, "real-repo-name");
+    assert.equal(r.path, ".");
+  });
+
+  it("enumerateOnePlugin: omitted identity override falls back to plugins/<name>/ default", () => {
+    const bare = join(root, "plugins", "no-manifest");
+    const r = enumerateOnePlugin(bare);
+    assert.equal(r.name, "no-manifest");
+    assert.equal(r.path, "plugins/no-manifest/");
+  });
+
   it("enumerateOnePlugin skips non-dir entries inside skills/", () => {
     const p = join(root, "plugins", "skills-mixed");
     mkdirSync(join(p, "skills", "real"), { recursive: true });
@@ -2195,6 +2212,102 @@ describe("main (end-to-end)", () => {
     const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
     assert.match(md, /Hooks total:\*\* 0 across 0 plugins — ⚠️ unknown \(not scanned, oversized\): padded/);
     assert.match(md, /plugin.json not scanned/);
+  });
+
+  it("single-plugin layout: root-level hooks.json + .mcp.json are scanned, not silently hidden (skills#669)", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-single-plugin");
+    const coDir = join(root, "co-single-plugin");
+    const target = join(coDir, checkoutCacheKey("owner/soloplugin"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // single-plugin layout: .claude-plugin/ at repo root, no top-level plugins/.
+    mkdirSync(join(target, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(target, ".claude-plugin", "plugin.json"),
+      JSON.stringify({ description: "solo plugin desc", version: "2.0.0", author: { name: "Bob" }, license: "MIT" }),
+      "utf-8",
+    );
+    // hooks/hooks.json and .mcp.json at repo root — same relative location a
+    // nested plugins/<name>/ plugin keeps them, but enumeratePlugins() never
+    // looked at the repo root itself for this layout before this fix.
+    mkdirSync(join(target, "hooks"), { recursive: true });
+    writeFileSync(
+      join(target, "hooks", "hooks.json"),
+      JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo hi" }] }] } }),
+      "utf-8",
+    );
+    writeFileSync(
+      join(target, ".mcp.json"),
+      JSON.stringify({ mcpServers: { solo: { command: "node", args: ["server.js"] } } }),
+      "utf-8",
+    );
+    // Root-level agents/skills/commands — the standard shape for a
+    // well-formed single-plugin repo. These belong to THIS plugin (the one
+    // .claude-plugin/plugin.json at the same root), not to "no plugin" —
+    // and must be counted exactly once, not once here AND again via the
+    // standalone enumerators (which read these same repo-root dirs).
+    mkdirSync(join(target, "agents"), { recursive: true });
+    writeFileSync(
+      join(target, "agents", "watcher.md"),
+      "---\nname: watcher\nmodel: sonnet\ndescription: watches things\n---\nbody\n",
+      "utf-8",
+    );
+    mkdirSync(join(target, "skills", "doer"), { recursive: true });
+    writeFileSync(
+      join(target, "skills", "doer", "SKILL.md"),
+      "---\nname: doer\ndescription: does stuff\n---\nbody\n",
+      "utf-8",
+    );
+    mkdirSync(join(target, "commands"), { recursive: true });
+    writeFileSync(join(target, "commands", "go.md"), "---\ndescription: go do it\n---\nbody\n", "utf-8");
+
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/soloplugin.git\n" }, // remote get-url origin
+      { stdout: "5010c0\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/soloplugin", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const safeName = checkoutCacheKey("owner/soloplugin");
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
+    assert.equal(manifest.has_hooks, true);
+    assert.equal(manifest.has_mcp, true);
+    assert.equal(manifest.has_pretooluse_hooks, true);
+    assert.equal(manifest.has_userpromptsubmit_hooks, false);
+    assert.equal(manifest.stats.plugins, 1);
+    // Double-counting regression guard: the root-level agent/skill above
+    // must be counted exactly once (via the plugin), never a second time
+    // via the standalone enumerators reading the identical repo-root dirs.
+    assert.equal(manifest.stats.agents, 1);
+    assert.equal(manifest.stats.skills, 1);
+    const summary = r.logs.join("\n");
+    assert.match(summary, /hooks: yes/);
+    assert.match(summary, /mcp: yes/);
+    const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
+    // Identity is derived from the requested owner/repo, not the
+    // checkoutCacheKey-hashed checkout-dir basename — and the plugin's path
+    // is reported as the repo root ("."), not a plugins/<name>/ subpath that
+    // doesn't exist in this layout.
+    assert.match(md, /### soloplugin/);
+    assert.match(md, /- \*\*Path:\*\* `\.`/);
+    assert.match(md, /PreToolUse: yes — soloplugin/);
+    // The root-level agent/skill/command render once, under the plugin's
+    // own tables...
+    assert.match(md, /\| watcher \| sonnet \|/);
+    assert.match(md, /\| doer \|/);
+    assert.match(md, /\| go \|/);
+    // ...and never a second time under a "Standalone" section — confirming
+    // enumerateStandalone{Agents,Skills,Commands} were skipped for this
+    // layout, not merely that their output happens to be empty elsewhere.
+    assert.doesNotMatch(md, /## Standalone agents/);
+    assert.doesNotMatch(md, /## Standalone skills/);
+    assert.doesNotMatch(md, /## Standalone commands/);
   });
 
   after(() => rmSync(root, { recursive: true, force: true }));

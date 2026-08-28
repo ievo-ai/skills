@@ -1392,6 +1392,49 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     assert.equal(r.skills.length, 0);
   });
 
+  it("enumerateOnePlugin descends one level for grouped skills — skills/<group>/<name>/SKILL.md", () => {
+    // enumerateStandaloneSkills already handles this nesting; enumerateOnePlugin
+    // must too, since main() skips the standalone enumerators for a
+    // "single-plugin" layout repo — otherwise a repo that groups its skills
+    // reports zero skills (skills#673).
+    const p = join(root, "plugins", "skills-grouped");
+    mkdirSync(join(p, "skills", "flat"), { recursive: true });
+    writeFileSync(join(p, "skills", "flat", "SKILL.md"), "---\nname: flat\ndescription: flat one\n---\n", "utf-8");
+    mkdirSync(join(p, "skills", "group", "nested", "scripts"), { recursive: true });
+    writeFileSync(
+      join(p, "skills", "group", "nested", "SKILL.md"),
+      "---\nname: nested\ndescription: nested one\nallowed-tools: Bash(*)\n---\n",
+      "utf-8",
+    );
+    const r = enumerateOnePlugin(p);
+    assert.deepEqual(r.skills.map((s) => s.name), ["flat", "nested"]);
+    // The nested branch yields the identical shape as the flat one, with every
+    // sub-surface flag read from the nested skill dir, not the group dir.
+    const nested = r.skills.find((s) => s.name === "nested");
+    assert.equal(nested.description, "nested one");
+    assert.equal(nested.has_scripts, true);
+    assert.equal(nested.has_refs, false);
+    assert.equal(nested.broad_bash, true);
+    assert.equal(nested.license, "—");
+    assert.equal(nested.compatibility, "any");
+  });
+
+  it("enumerateOnePlugin: grouped-skill fallback ignores non-dirs and SKILL.md-less sub-dirs", () => {
+    const p = join(root, "plugins", "skills-group-empty");
+    mkdirSync(join(p, "skills", "group", "no-md"), { recursive: true });
+    writeFileSync(join(p, "skills", "group", "stray.txt"), "stray", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills.length, 0);
+  });
+
+  it("enumerateOnePlugin: nested skill name falls back to its dir name when frontmatter omits it", () => {
+    const p = join(root, "plugins", "skills-grouped-noname");
+    mkdirSync(join(p, "skills", "group", "unnamed"), { recursive: true });
+    writeFileSync(join(p, "skills", "group", "unnamed", "SKILL.md"), "---\ndescription: no name\n---\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.deepEqual(r.skills.map((s) => s.name), ["unnamed"]);
+  });
+
   it("enumerateOnePlugin: author falls back to '—' when manifest.author is not an object", () => {
     const p = join(root, "plugins", "author-string");
     mkdirSync(join(p, ".claude-plugin"), { recursive: true });
@@ -2259,6 +2302,15 @@ describe("main (end-to-end)", () => {
       "---\nname: doer\ndescription: does stuff\n---\nbody\n",
       "utf-8",
     );
+    // A grouped skill (skills/<group>/<name>/SKILL.md) alongside the flat one:
+    // with the standalone enumerators skipped for this layout, the plugin
+    // enumerator is the only thing that can see it (skills#673).
+    mkdirSync(join(target, "skills", "grouped", "helper"), { recursive: true });
+    writeFileSync(
+      join(target, "skills", "grouped", "helper", "SKILL.md"),
+      "---\nname: helper\ndescription: helps out\n---\nbody\n",
+      "utf-8",
+    );
     mkdirSync(join(target, "commands"), { recursive: true });
     writeFileSync(join(target, "commands", "go.md"), "---\ndescription: go do it\n---\nbody\n", "utf-8");
 
@@ -2285,7 +2337,8 @@ describe("main (end-to-end)", () => {
     // must be counted exactly once (via the plugin), never a second time
     // via the standalone enumerators reading the identical repo-root dirs.
     assert.equal(manifest.stats.agents, 1);
-    assert.equal(manifest.stats.skills, 1);
+    // Both the flat and the grouped root-level skill, each exactly once.
+    assert.equal(manifest.stats.skills, 2);
     const summary = r.logs.join("\n");
     assert.match(summary, /hooks: yes/);
     assert.match(summary, /mcp: yes/);
@@ -2301,6 +2354,7 @@ describe("main (end-to-end)", () => {
     // own tables...
     assert.match(md, /\| watcher \| sonnet \|/);
     assert.match(md, /\| doer \|/);
+    assert.match(md, /\| helper \|/);
     assert.match(md, /\| go \|/);
     // ...and never a second time under a "Standalone" section — confirming
     // enumerateStandalone{Agents,Skills,Commands} were skipped for this

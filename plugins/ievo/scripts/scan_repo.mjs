@@ -442,6 +442,29 @@ export function enumeratePlugins(repo) {
   return plugins;
 }
 
+// Reads one skill directory (a dir known to contain a SKILL.md) into the shape
+// enumerateOnePlugin reports. Shared by the flat (skills/<name>/) and nested
+// (skills/<group>/<name>/) branches below so both yield identical fields.
+function readPluginSkill(skillPath, fallbackName) {
+  const fm = parseFrontmatter(join(skillPath, "SKILL.md"));
+  const allowedTools = fm["allowed-tools"] ?? "";
+  const skill = {
+    name: fm.name ?? fallbackName,
+    description: truncate(fm.description, 120),
+    has_scripts: isDir(join(skillPath, "scripts")),
+    has_refs: isDir(join(skillPath, "references")),
+    license: fm.license ?? "—",
+    compatibility: truncate(fm.compatibility, 80) || "any",
+    broad_bash: /Bash\(\*\)|Bash\(rm:|Bash\(sudo:|Bash\(curl:/.test(allowedTools),
+  };
+  // An oversized SKILL.md short-circuits parseFrontmatter (CWE-400 guard),
+  // so `allowed-tools` was never read — broad_bash above is a default
+  // false, not a scanned "no". Surface the gap so a padded SKILL.md
+  // renders as "unknown — not scanned" rather than a clean grant.
+  if (fm.oversized) skill.oversized = true;
+  return skill;
+}
+
 // `identity` overrides the name/path this plugin reports, for call sites
 // where `pluginPath` itself is not a sensible identity — e.g. a
 // "single-plugin" layout repo scanned at its checkout root (a
@@ -498,28 +521,21 @@ export function enumerateOnePlugin(pluginPath, identity = {}) {
     for (const skillName of listDirSorted(skillsDir)) {
       const skillPath = join(skillsDir, skillName);
       if (!isDir(skillPath)) continue;
-      const skillMd = join(skillPath, "SKILL.md");
-      if (!fileExists(skillMd)) continue;
-      const fm = parseFrontmatter(skillMd);
-      const hasScripts = isDir(join(skillPath, "scripts"));
-      const hasRefs = isDir(join(skillPath, "references"));
-      const allowedTools = fm["allowed-tools"] ?? "";
-      const broadBash = /Bash\(\*\)|Bash\(rm:|Bash\(sudo:|Bash\(curl:/.test(allowedTools);
-      const skill = {
-        name: fm.name ?? skillName,
-        description: truncate(fm.description, 120),
-        has_scripts: hasScripts,
-        has_refs: hasRefs,
-        license: fm.license ?? "—",
-        compatibility: truncate(fm.compatibility, 80) || "any",
-        broad_bash: broadBash,
-      };
-      // An oversized SKILL.md short-circuits parseFrontmatter (CWE-400 guard),
-      // so `allowed-tools` was never read — broad_bash above is a default
-      // false, not a scanned "no". Surface the gap so a padded SKILL.md
-      // renders as "unknown — not scanned" rather than a clean grant.
-      if (fm.oversized) skill.oversized = true;
-      skills.push(skill);
+      if (fileExists(join(skillPath, "SKILL.md"))) {
+        skills.push(readPluginSkill(skillPath, skillName));
+        continue;
+      }
+      // Nested grouping — skills/<group>/<name>/SKILL.md. enumerateStandaloneSkills
+      // already descends one level for this shape, and main() now skips the
+      // standalone enumerators entirely for a "single-plugin" layout repo (the
+      // double-count fix), so without the same fallback here a single-plugin repo
+      // that groups its skills would report zero skills — the same silent-hiding
+      // class (CWE-693) as the hooks/MCP gap this function is reused to close.
+      for (const subName of listDirSorted(skillPath)) {
+        const sub = join(skillPath, subName);
+        if (!isDir(sub) || !fileExists(join(sub, "SKILL.md"))) continue;
+        skills.push(readPluginSkill(sub, subName));
+      }
     }
   }
 

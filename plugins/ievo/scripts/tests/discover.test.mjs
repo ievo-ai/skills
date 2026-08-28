@@ -1158,6 +1158,13 @@ describe("main", () => {
     assert.equal(run.errs.length, 0);
   });
 
+  it("--help documents the stdin size cap alongside the --stack-file one (skills#671)", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--help"], Readable.from([]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 0);
+    assert.match(run.logs[0], /stdin is capped/);
+  });
+
   it("--help works even with other flags present", async () => {
     const run = makeRun();
     await main(["node", "discover.mjs", "--stack-file", "noexist.json", "--help"], Readable.from([]), run.log, run.errLog, run.exit);
@@ -1404,6 +1411,24 @@ describe("main", () => {
 
   // --- skills#601: strip control characters from attacker-influenceable
   // input before it reaches an errLog() message (CWE-117) ---
+
+  it("strips control characters from a stream error surfaced by the readStdin catch (skills#601)", async () => {
+    // The catch wraps the whole readStdin() call, so it sees runtime stream
+    // failures too — not just our own cap-throw template string. That
+    // message is built by the runtime out of bytes we never sanitized.
+    const run = makeRun();
+    const stream = new Readable({
+      read() {
+        this.destroy(new Error("EIO: read failed on '\x1b[31mFAKE\x1b[0m'"));
+      },
+    });
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /Error: EIO: read failed/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
 
   it("strips control characters from the stdin 'First 200 chars' echo (skills#601)", async () => {
     const run = makeRun();

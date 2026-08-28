@@ -29,6 +29,11 @@
 // project's own .ievo/ directory (--project, default "."), both lexically up
 // front and again by realpath, and required to be a regular file under a
 // size cap.
+//
+// stdin is untrusted the same way (skills#671): it is capped at
+// MAX_STDIN_BYTES while chunks accumulate, and exceeding it aborts the read
+// with `Error: stdin exceeds <n> bytes` / exit 3 rather than buffering an
+// unbounded payload.
 
 import { readFileSync, lstatSync, realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
@@ -694,7 +699,9 @@ Usage:
 Notes:
   --stack-file <path> is untrusted input: it must be an existing regular file
   inside <project root>/.ievo/ (--project, default ".") and under a fixed
-  size cap — any other path is rejected rather than read.`);
+  size cap — any other path is rejected rather than read.
+  stdin is capped the same way: input larger than the cap is rejected with
+  exit 3 rather than buffered.`);
     return exit(0);
   }
 
@@ -749,10 +756,13 @@ Notes:
     } catch (err) {
       // Mirrors the --stack-file cap failure's Error: .../exit(3) UX above,
       // rather than letting the cap throw fall through to mainSafe's generic
-      // fatal:/exit(2) backstop. err.message here is our own template string
-      // (no attacker-controlled bytes interpolated), so no CONTROL_CHAR_RE
-      // strip is needed unlike the echoes below.
-      errLog(`Error: ${err.message}`);
+      // fatal:/exit(2) backstop. This catch wraps the whole readStdin() call,
+      // so err is not only our own cap-throw template string: a runtime
+      // failure of the underlying stream (an EIO/ECONNRESET surfacing as the
+      // async iterator rejecting) lands here too, with a message the runtime
+      // built and whose bytes we did not sanitize. Strip it like every other
+      // echoed err.message in this file (skills#601).
+      errLog(`Error: ${err.message.replace(CONTROL_CHAR_RE, "")}`);
       return exit(3);
     }
     if (!stdinText) {

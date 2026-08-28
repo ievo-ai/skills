@@ -24,6 +24,7 @@ import {
   STACK_INDEPENDENT_QUERIES,
   IEVO_DIR,
   MAX_STACK_FILE_BYTES,
+  MAX_STDIN_BYTES,
   assertStackFileAllowed,
   assertStackFileReadable,
   qualityTier,
@@ -859,6 +860,27 @@ describe("readStdin", () => {
     const result = await readStdin(stream);
     assert.equal(result, "");
   });
+
+  // --- #671: size cap (mirrors --stack-file's MAX_STACK_FILE_BYTES) ---
+
+  it("succeeds when total bytes are exactly at capBytes", async () => {
+    const stream = Readable.from(["abcde"]);
+    const result = await readStdin(stream, 5);
+    assert.equal(result, "abcde");
+  });
+
+  it("throws once accumulated bytes exceed capBytes, without waiting to buffer the rest", async () => {
+    // Second chunk alone pushes the running total past the cap — assert the
+    // throw fires from inside the accumulation loop (abort-not-degrade),
+    // not only after Buffer.concat on a fully-buffered oversized result.
+    const stream = Readable.from(["abcde", "f"]);
+    await assert.rejects(() => readStdin(stream, 5), /stdin exceeds 5 bytes/);
+  });
+
+  it("uses MAX_STDIN_BYTES as the default cap", async () => {
+    const stream = Readable.from(["x".repeat(MAX_STDIN_BYTES + 1)]);
+    await assert.rejects(() => readStdin(stream), new RegExp(`stdin exceeds ${MAX_STDIN_BYTES} bytes`));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1136,6 +1158,13 @@ describe("main", () => {
     assert.equal(run.errs.length, 0);
   });
 
+  it("--help documents the stdin size cap alongside the --stack-file one (skills#671)", async () => {
+    const run = makeRun();
+    await main(["node", "discover.mjs", "--help"], Readable.from([]), run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 0);
+    assert.match(run.logs[0], /stdin is capped/);
+  });
+
   it("--help works even with other flags present", async () => {
     const run = makeRun();
     await main(["node", "discover.mjs", "--stack-file", "noexist.json", "--help"], Readable.from([]), run.log, run.errLog, run.exit);
@@ -1360,8 +1389,46 @@ describe("main", () => {
     assert.match(run.errs.join("\n"), /First 200 chars/);
   });
 
+  // --- #671: readStdin's cap surfaces the same Error: .../exit(3) UX as the
+  // --stack-file cap failure, via main()'s new try/catch around the call ---
+
+  it("exits 3 when stdin exceeds MAX_STDIN_BYTES, mirroring the --stack-file cap UX", async () => {
+    const run = makeRun();
+    const stream = Readable.from(["x".repeat(MAX_STDIN_BYTES + 1)]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    assert.match(run.errs.join("\n"), new RegExp(`Error: stdin exceeds ${MAX_STDIN_BYTES} bytes`));
+  });
+
+  it("never reaches JSON.parse (no 'invalid JSON'/'First 200 chars' noise) when stdin exceeds the cap", async () => {
+    const run = makeRun();
+    const stream = Readable.from(["x".repeat(MAX_STDIN_BYTES + 1)]);
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    const errText = run.errs.join("\n");
+    assert.doesNotMatch(errText, /invalid JSON/);
+    assert.doesNotMatch(errText, /First 200 chars/);
+  });
+
   // --- skills#601: strip control characters from attacker-influenceable
   // input before it reaches an errLog() message (CWE-117) ---
+
+  it("strips control characters from a stream error surfaced by the readStdin catch (skills#601)", async () => {
+    // The catch wraps the whole readStdin() call, so it sees runtime stream
+    // failures too — not just our own cap-throw template string. That
+    // message is built by the runtime out of bytes we never sanitized.
+    const run = makeRun();
+    const stream = new Readable({
+      read() {
+        this.destroy(new Error("EIO: read failed on '\x1b[31mFAKE\x1b[0m'"));
+      },
+    });
+    await main(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
+    assert.equal(run.exitCode, 3);
+    const errText = run.errs.join("\n");
+    assert.match(errText, /Error: EIO: read failed/);
+    assert.doesNotMatch(errText, /\x1b/);
+    assert.match(errText, /FAKE/);
+  });
 
   it("strips control characters from the stdin 'First 200 chars' echo (skills#601)", async () => {
     const run = makeRun();
@@ -1501,15 +1568,18 @@ describe("main", () => {
 
   it("mainSafe catches unexpected throw and exits 2 with fatal", async () => {
     const run = makeRun();
-    // Create a stdin stream that throws when iterated — simulates unhandled error path
-    const throwingStream = {
-      async *[Symbol.asyncIterator]() {
-        throw new Error("simulated unhandled error");
-      },
-    };
-    await mainSafe(["node", "discover.mjs"], throwingStream, run.log, run.errLog, run.exit);
+    // main() now explicitly handles every KNOWN throwing path on the stdin
+    // branch (readStdin()'s new size cap included — see the cap tests
+    // above), so a throwing stdin STREAM no longer reaches this backstop.
+    // Exercise a genuinely unhandled throw instead: buildQueries() assumes
+    // `stack.languages` is an array (per this file's `Input:` doc comment)
+    // and calls `.filter()` on it with no shape check — a non-array value
+    // parses fine as JSON but throws a TypeError uncaught anywhere in main().
+    const stream = Readable.from(['{"languages":"python"}']);
+    await mainSafe(["node", "discover.mjs"], stream, run.log, run.errLog, run.exit);
     assert.equal(run.exitCode, 2);
     assert.match(run.errs.join("\n"), /fatal:/);
+    assert.match(run.errs.join("\n"), /filter is not a function/);
   });
 
   it("mainSafe forwards successful runs unchanged", async () => {

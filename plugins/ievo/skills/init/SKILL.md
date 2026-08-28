@@ -742,7 +742,29 @@ subcommands) — vendoring here copies skills only.
 If user picks "Vendor specific items" (Claude Code) / "Vendor its skills"
 (Codex) for a plugin → enter sub-interview listing that plugin's agents and
 skills (skills only on Codex — agents fall under Step 7a's platform filter),
-one question per item.
+one question per item — same four templates above, so the containment note
+below covers it too.
+
+**Excerpt containment.** Every `<skill-name>`, `<agent-name>`, `<plugin-name>`,
+`<one-line desc>`, and `<owner>/<repo>` in the four templates above
+originates from a discovered candidate's own `name`/`source_repo` fields
+(`discover.mjs`) or `description` (`index-repos`/`scan_repo.mjs`) —
+ultimately the public skills.sh API or Codex marketplace catalog, both
+externally writable. `discover.mjs` only checks `typeof c.name === "string"`
+before copying `name: skill.name` through unchanged — no agentskills.io
+`[a-z0-9-]+` charset allowlist is applied at fetch time — and
+`install-protocol.md`'s own naming check gates the later *install* write,
+not this interview render, so a crafted `![...](...)`/`[...](...)` payload
+in either field reaches this template verbatim. Before building any
+`Question`/`Header`/`description`/`Source` string above, wrap each such
+value in its own inline code span — using a backtick run one character
+longer than the longest backtick run already inside that value, so it can't
+break out of its own span — rather than embedding it raw. Pad with a single
+literal space on BOTH sides when the value begins or ends with a backtick
+(CommonMark strips the pad only when both ends carry one), and collapse
+every CR/LF run inside the value to a single space before measuring and
+wrapping (same rule as `overlay-status/SKILL.md`'s and `inspect/SKILL.md`'s
+own "Excerpt containment" notes).
 
 ### Tail question — demoted candidates (`overlap_tail[]`)
 

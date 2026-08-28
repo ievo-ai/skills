@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.27
+
+Closes skills#671: discover.mjs's readStdin() buffered its primary stdin input with no size cap, unlike the --stack-file path.
+
+- **Gap closed** — `readStdin()` accumulated every stdin chunk into an array with no length check, calling `Buffer.concat` only once the stream ended. `main()` calls it unconditionally on the default, documented invocation (no `--stack-file`), unlike the `--stack-file` path, which enforces `MAX_STACK_FILE_BYTES` (256 KB) via `assertStackFileReadable()` before any read — the same cap pattern independently duplicated in `evolution_candidates.mjs`'s `MAX_TEXT_FILE_BYTES` and `scan_repo.mjs`'s `MAX_SCAN_FILE_BYTES`. A multi-hundred-MB-to-GB stdin payload (attacker-controlled if a compromised/prompt-injected agent turn pipes it in) forced full in-memory buffering before any size or shape validation, risking OOM/crash (CWE-400).
+- **Fix** — added `MAX_STDIN_BYTES` (256 KB, same order of magnitude as the sibling caps) and track cumulative byte length across chunks inside `readStdin()`'s `for await` loop, throwing once the running total exceeds the cap rather than buffering further.
+  - `main()`'s stdin branch now wraps the `readStdin()` call in a try/catch so the cap throw surfaces the same `Error: ...`/`exit(3)` UX as the `--stack-file` cap failure, instead of falling through to `mainSafe()`'s generic `fatal:`/`exit(2)` backstop.
+- **Tests** — new `readStdin()` unit tests for the at-cap/over-cap boundary and the default-cap wiring, plus `main()` end-to-end tests asserting `exit(3)` with the `Error: stdin exceeds N bytes` message and no `invalid JSON`/`First 200 chars` noise on the cap path.
+  - The pre-existing "mainSafe catches unexpected throw" test switched its trigger from a throwing stdin stream (now caught inside `main()`) to a malformed `languages` shape reaching `buildQueries()`'s unguarded `.filter()` — still exercising `mainSafe()`'s own backstop for a genuinely unhandled path.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.26 → 0.80.27).
+
 ## v0.80.26
 
 Closes skills#666: `security-auditor.md`'s "Excerpt containment" note covered `report_template.body` only, leaving its `candidate`/`alternative_suggestion` fields — present on every verdict, not just RED — with no containment rule.

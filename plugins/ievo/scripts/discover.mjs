@@ -38,7 +38,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.80.26";
+export const SCRIPT_VERSION = "0.80.27";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
@@ -582,12 +582,29 @@ export function parseArgs(argv) {
   return args;
 }
 
-export async function readStdin(stdinStream = process.stdin) {
+// stdin is this script's primary, documented input (`echo '{...}' | discover.mjs`
+// — see the file header), reachable by the same threat actor already modeled for
+// --stack-file: a compromised/prompt-injected agent turn piping an arbitrarily
+// large payload in. Unlike --stack-file (capped at MAX_STACK_FILE_BYTES via
+// assertStackFileReadable before any read starts), stdin has no upfront lstat to
+// check — the only place to bound it is while accumulating chunks. Same order of
+// magnitude and same abort-not-degrade semantics as MAX_STACK_FILE_BYTES /
+// evolution_candidates.mjs's MAX_TEXT_FILE_BYTES / scan_repo.mjs's
+// MAX_SCAN_FILE_BYTES (skills#671).
+export const MAX_STDIN_BYTES = 256 * 1024;
+
+export async function readStdin(stdinStream = process.stdin, capBytes = MAX_STDIN_BYTES) {
   const chunks = [];
+  let total = 0;
   for await (const chunk of stdinStream) {
     // process.stdin yields Buffer; Readable.from(["str"]) yields strings.
     // Normalize both to Buffer so Buffer.concat works.
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk);
+    const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk;
+    total += buf.length;
+    if (total > capBytes) {
+      throw new Error(`stdin exceeds ${capBytes} bytes`);
+    }
+    chunks.push(buf);
   }
   return Buffer.concat(chunks).toString("utf-8");
 }
@@ -726,7 +743,18 @@ Notes:
     }
   } else {
     inputSource = "stdin";
-    const stdinText = (await readStdin(stdinStream)).trim();
+    let stdinText;
+    try {
+      stdinText = (await readStdin(stdinStream)).trim();
+    } catch (err) {
+      // Mirrors the --stack-file cap failure's Error: .../exit(3) UX above,
+      // rather than letting the cap throw fall through to mainSafe's generic
+      // fatal:/exit(2) backstop. err.message here is our own template string
+      // (no attacker-controlled bytes interpolated), so no CONTROL_CHAR_RE
+      // strip is needed unlike the echoes below.
+      errLog(`Error: ${err.message}`);
+      return exit(3);
+    }
     if (!stdinText) {
       errLog("Error: provide stack via stdin JSON or --stack-file <path>");
       return exit(1);

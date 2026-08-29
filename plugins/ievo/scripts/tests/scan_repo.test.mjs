@@ -1430,6 +1430,27 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     assert.equal(r.skills[0].oversized, undefined);
   });
 
+  it("enumerateOnePlugin: identity override replaces the basename-derived name/path (single-plugin repo-root call)", () => {
+    // A repo-root call site (main()'s single-plugin branch) can't rely on
+    // pluginPath's own basename — the checkout dir is a hash-suffixed
+    // cache-key slug, not the plugin's name — so an explicit identity must
+    // win over both the directory basename and any plugins/<name>/ default.
+    const p = join(root, "plugins", "some-hash-suffixed-checkout-dir");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "2.0.0" }), "utf-8");
+    const r = enumerateOnePlugin(p, { name: "real-repo-name", path: "." });
+    assert.equal(r.name, "real-repo-name");
+    assert.equal(r.path, ".");
+    assert.equal(r.version, "2.0.0");
+  });
+
+  it("enumerateOnePlugin: without an identity override, name/path still derive from pluginPath as before", () => {
+    const p = join(root, "plugins", "alpha");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.name, "alpha");
+    assert.equal(r.path, "plugins/alpha/");
+  });
+
   after(() => rmSync(root, { recursive: true, force: true }));
 });
 
@@ -2084,6 +2105,66 @@ describe("main (end-to-end)", () => {
     // field (a distinct, already-correct data source) legitimately says "MIT".
     const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
     assert.match(md, /## Repo metadata\n- \*\*Description:\*\*.*\n- \*\*License:\*\* license-file-present \(unverified\)/);
+  });
+
+  it("single-plugin layout: scans the repo root itself, so root-level hooks/mcp are no longer hidden (CWE-693, #669)", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-single-plugin");
+    const coDir = join(root, "co-single-plugin");
+    const target = join(coDir, checkoutCacheKey("owner/standalone"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // "single-plugin" layout: .claude-plugin/ at repo root, no top-level plugins/.
+    mkdirSync(join(target, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(target, ".claude-plugin", "plugin.json"),
+      JSON.stringify({ description: "standalone plugin desc", version: "1.0.0" }),
+      "utf-8",
+    );
+    // Root-level hooks/hooks.json + .mcp.json — the exact location a
+    // single-plugin-layout repo keeps them, previously never read because
+    // enumeratePlugins() only ever walked a top-level plugins/ directory.
+    mkdirSync(join(target, "hooks"), { recursive: true });
+    writeFileSync(
+      join(target, "hooks", "hooks.json"),
+      JSON.stringify({
+        hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }] },
+      }),
+      "utf-8",
+    );
+    writeFileSync(
+      join(target, ".mcp.json"),
+      JSON.stringify({ mcpServers: { srv: { url: "https://api.example.com" } } }),
+      "utf-8",
+    );
+
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/standalone.git\n" }, // remote get-url origin
+      { stdout: "c0ffee\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/standalone", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const safeName = checkoutCacheKey("owner/standalone");
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
+    assert.equal(manifest.stats.plugins, 1);
+    assert.equal(manifest.has_hooks, true);
+    assert.equal(manifest.has_mcp, true);
+    assert.equal(manifest.has_pretooluse_hooks, true);
+    assert.equal(manifest.has_userpromptsubmit_hooks, false);
+    const summary = r.logs.join("\n");
+    assert.match(summary, /hooks: yes/);
+    assert.match(summary, /mcp: yes/);
+    // Identity: name derived from the owner/repo slug (not the hash-suffixed
+    // checkout dir basename), path reported as repo root.
+    const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
+    assert.match(md, /### standalone/);
+    assert.match(md, /\*\*Path:\*\* `\.`/);
   });
 
   it("output filenames disambiguate a flattening collision (CWE-706, #401)", () => {

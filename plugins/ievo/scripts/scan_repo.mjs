@@ -442,8 +442,13 @@ export function enumeratePlugins(repo) {
   return plugins;
 }
 
-export function enumerateOnePlugin(pluginPath) {
-  const name = pluginPath.split("/").pop();
+// `identity` overrides the name/path normally derived from `pluginPath`'s own
+// basename — needed when `pluginPath` is the checkout root itself (the
+// "single-plugin" layout, called from main() below): the checkout directory
+// is named via checkoutCacheKey's hash-suffixed slug, not the plugin's name,
+// and there is no "plugins/<name>/" segment to report as `path`.
+export function enumerateOnePlugin(pluginPath, identity = {}) {
+  const name = identity.name ?? pluginPath.split("/").pop();
   // isDir() guards the INTERMEDIATE ".claude-plugin" segment (lstat-based,
   // like isDir everywhere else in this file) before manifestPath is even
   // built. Without it, fileExists(manifestPath)/isOversized(manifestPath)
@@ -544,7 +549,7 @@ export function enumerateOnePlugin(pluginPath) {
     name,
     description: truncate(manifest.description, 200),
     version: manifest.version ?? "unset",
-    path: `plugins/${name}/`,
+    path: identity.path ?? `plugins/${name}/`,
     author,
     license: manifest.license ?? "—",
     agents,
@@ -942,7 +947,18 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
   const today = isoDate(0);
   const recentCount = countRecentCommits(repo, thirtyDaysAgo, execImpl);
 
-  const plugins = enumeratePlugins(repo);
+  // "single-plugin" layout (`.claude-plugin/` at repo root, no top-level
+  // `plugins/`) has no `plugins/<name>/` subdirectory for enumeratePlugins()
+  // to walk, so it always returned [] here — silently hiding that repo's own
+  // hooks/hooks.json and .mcp.json (both read only from inside
+  // enumerateOnePlugin) from has_hooks/has_mcp and the published index
+  // (CWE-693). Scan the repo root itself as the sole plugin instead, with an
+  // explicit name/path identity since the checkout dir's basename is a
+  // hash-suffixed cache-key slug, not the plugin's name.
+  const plugins =
+    layout === "single-plugin"
+      ? [enumerateOnePlugin(repo, { name: args.repo.split("/").pop(), path: "." })]
+      : enumeratePlugins(repo);
   const standaloneAgents = enumerateStandaloneAgents(repo);
   const standaloneSkills = enumerateStandaloneSkills(repo);
   const standaloneCommands = enumerateStandaloneCommands(repo);

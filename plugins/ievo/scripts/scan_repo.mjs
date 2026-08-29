@@ -478,56 +478,70 @@ export function enumerateOnePlugin(pluginPath, identity = {}) {
     }
   }
 
+  // `identity.skipContentDirs` (single-plugin repo-root call site, from
+  // main() below) leaves agents/skills/commands empty here: `pluginPath` is
+  // the repo root in that case, and `enumerateStandaloneAgents/Skills/
+  // Commands` already read that same `agents/`/`skills/`/`commands/` at repo
+  // root unconditionally regardless of layout — populating both would list
+  // every item twice (once here, once standalone) and double `stats.agents`/
+  // `stats.skills` in the persisted manifest. hooks/mcp below have no
+  // standalone equivalent, so they are unaffected and always scanned.
   const agents = [];
-  const agentsDir = join(pluginPath, "agents");
-  for (const f of listFilesSorted(agentsDir, ".md")) {
-    const agentFile = join(agentsDir, f);
-    const fm = parseFrontmatter(agentFile);
-    agents.push({
-      name: fm.name ?? f.replace(/\.md$/, ""),
-      model: fm.model ?? "—",
-      tools: fm.tools ?? "—",
-      description: truncate(fm.description, 120),
-    });
+  if (!identity.skipContentDirs) {
+    const agentsDir = join(pluginPath, "agents");
+    for (const f of listFilesSorted(agentsDir, ".md")) {
+      const agentFile = join(agentsDir, f);
+      const fm = parseFrontmatter(agentFile);
+      agents.push({
+        name: fm.name ?? f.replace(/\.md$/, ""),
+        model: fm.model ?? "—",
+        tools: fm.tools ?? "—",
+        description: truncate(fm.description, 120),
+      });
+    }
   }
 
   const skills = [];
-  const skillsDir = join(pluginPath, "skills");
-  if (isDir(skillsDir)) {
-    for (const skillName of listDirSorted(skillsDir)) {
-      const skillPath = join(skillsDir, skillName);
-      if (!isDir(skillPath)) continue;
-      const skillMd = join(skillPath, "SKILL.md");
-      if (!fileExists(skillMd)) continue;
-      const fm = parseFrontmatter(skillMd);
-      const hasScripts = isDir(join(skillPath, "scripts"));
-      const hasRefs = isDir(join(skillPath, "references"));
-      const allowedTools = fm["allowed-tools"] ?? "";
-      const broadBash = /Bash\(\*\)|Bash\(rm:|Bash\(sudo:|Bash\(curl:/.test(allowedTools);
-      const skill = {
-        name: fm.name ?? skillName,
-        description: truncate(fm.description, 120),
-        has_scripts: hasScripts,
-        has_refs: hasRefs,
-        license: fm.license ?? "—",
-        compatibility: truncate(fm.compatibility, 80) || "any",
-        broad_bash: broadBash,
-      };
-      // An oversized SKILL.md short-circuits parseFrontmatter (CWE-400 guard),
-      // so `allowed-tools` was never read — broad_bash above is a default
-      // false, not a scanned "no". Surface the gap so a padded SKILL.md
-      // renders as "unknown — not scanned" rather than a clean grant.
-      if (fm.oversized) skill.oversized = true;
-      skills.push(skill);
+  if (!identity.skipContentDirs) {
+    const skillsDir = join(pluginPath, "skills");
+    if (isDir(skillsDir)) {
+      for (const skillName of listDirSorted(skillsDir)) {
+        const skillPath = join(skillsDir, skillName);
+        if (!isDir(skillPath)) continue;
+        const skillMd = join(skillPath, "SKILL.md");
+        if (!fileExists(skillMd)) continue;
+        const fm = parseFrontmatter(skillMd);
+        const hasScripts = isDir(join(skillPath, "scripts"));
+        const hasRefs = isDir(join(skillPath, "references"));
+        const allowedTools = fm["allowed-tools"] ?? "";
+        const broadBash = /Bash\(\*\)|Bash\(rm:|Bash\(sudo:|Bash\(curl:/.test(allowedTools);
+        const skill = {
+          name: fm.name ?? skillName,
+          description: truncate(fm.description, 120),
+          has_scripts: hasScripts,
+          has_refs: hasRefs,
+          license: fm.license ?? "—",
+          compatibility: truncate(fm.compatibility, 80) || "any",
+          broad_bash: broadBash,
+        };
+        // An oversized SKILL.md short-circuits parseFrontmatter (CWE-400 guard),
+        // so `allowed-tools` was never read — broad_bash above is a default
+        // false, not a scanned "no". Surface the gap so a padded SKILL.md
+        // renders as "unknown — not scanned" rather than a clean grant.
+        if (fm.oversized) skill.oversized = true;
+        skills.push(skill);
+      }
     }
   }
 
   const commands = [];
-  const commandsDir = join(pluginPath, "commands");
-  for (const f of listFilesSorted(commandsDir, ".md")) {
-    const cmdFile = join(commandsDir, f);
-    const fm = parseFrontmatter(cmdFile);
-    commands.push({ name: f.replace(/\.md$/, ""), description: truncate(fm.description, 120) });
+  if (!identity.skipContentDirs) {
+    const commandsDir = join(pluginPath, "commands");
+    for (const f of listFilesSorted(commandsDir, ".md")) {
+      const cmdFile = join(commandsDir, f);
+      const fm = parseFrontmatter(cmdFile);
+      commands.push({ name: f.replace(/\.md$/, ""), description: truncate(fm.description, 120) });
+    }
   }
 
   // Same isDir() guard on the intermediate "hooks" segment, before
@@ -957,7 +971,7 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
   // hash-suffixed cache-key slug, not the plugin's name.
   const plugins =
     layout === "single-plugin"
-      ? [enumerateOnePlugin(repo, { name: args.repo.split("/").pop(), path: "." })]
+      ? [enumerateOnePlugin(repo, { name: args.repo.split("/").pop(), path: ".", skipContentDirs: true })]
       : enumeratePlugins(repo);
   const standaloneAgents = enumerateStandaloneAgents(repo);
   const standaloneSkills = enumerateStandaloneSkills(repo);

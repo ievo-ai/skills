@@ -1430,6 +1430,38 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     assert.equal(r.skills[0].oversized, undefined);
   });
 
+  it("enumerateOnePlugin: skipContentDirs leaves agents/skills/commands empty (single-plugin repo-root call avoids double-counting standalone)", () => {
+    const p = join(root, "plugins", "skip-content-dirs");
+    mkdirSync(join(p, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(p, ".claude-plugin", "plugin.json"), "{}", "utf-8");
+    mkdirSync(join(p, "agents"), { recursive: true });
+    writeFileSync(join(p, "agents", "a.md"), "---\nname: a\n---\nbody\n", "utf-8");
+    mkdirSync(join(p, "skills", "s"), { recursive: true });
+    writeFileSync(join(p, "skills", "s", "SKILL.md"), "---\nname: s\n---\nbody\n", "utf-8");
+    mkdirSync(join(p, "commands"), { recursive: true });
+    writeFileSync(join(p, "commands", "c.md"), "---\nname: c\n---\nbody\n", "utf-8");
+    // hooks/mcp are unaffected by skipContentDirs — always scanned.
+    mkdirSync(join(p, "hooks"), { recursive: true });
+    writeFileSync(
+      join(p, "hooks", "hooks.json"),
+      JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "x" }] }] } }),
+      "utf-8",
+    );
+    const r = enumerateOnePlugin(p, { name: "x", path: ".", skipContentDirs: true });
+    assert.deepEqual(r.agents, []);
+    assert.deepEqual(r.skills, []);
+    assert.deepEqual(r.commands, []);
+    assert.equal(r.hooks.present, true);
+  });
+
+  it("enumerateOnePlugin: without skipContentDirs, agents/skills/commands are still populated as before", () => {
+    const p = join(root, "plugins", "alpha");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.agents.length, 1);
+    assert.equal(r.skills.length, 1);
+    assert.equal(r.commands.length, 1);
+  });
+
   it("enumerateOnePlugin: identity override replaces the basename-derived name/path (single-plugin repo-root call)", () => {
     // A repo-root call site (main()'s single-plugin branch) can't rely on
     // pluginPath's own basename — the checkout dir is a hash-suffixed
@@ -2137,6 +2169,17 @@ describe("main (end-to-end)", () => {
       JSON.stringify({ mcpServers: { srv: { url: "https://api.example.com" } } }),
       "utf-8",
     );
+    // A single-plugin-layout repo commonly also has real agents/skills/commands
+    // at its own root (that IS the plugin's content, since repo root == plugin
+    // root for this layout) — enumerateStandaloneAgents/Skills/Commands already
+    // read that same root unconditionally regardless of layout. Populated here
+    // to prove the fix doesn't double-count them via the new plugins[] entry.
+    mkdirSync(join(target, "agents"), { recursive: true });
+    writeFileSync(join(target, "agents", "watcher.md"), "---\nname: watcher\n---\nbody\n", "utf-8");
+    mkdirSync(join(target, "skills", "doer"), { recursive: true });
+    writeFileSync(join(target, "skills", "doer", "SKILL.md"), "---\nname: doer\n---\nbody\n", "utf-8");
+    mkdirSync(join(target, "commands"), { recursive: true });
+    writeFileSync(join(target, "commands", "go.md"), "---\nname: go\n---\nbody\n", "utf-8");
 
     const fake = makeFakeExec([
       { stdout: "https://github.com/owner/standalone.git\n" }, // remote get-url origin
@@ -2157,6 +2200,12 @@ describe("main (end-to-end)", () => {
     assert.equal(manifest.has_mcp, true);
     assert.equal(manifest.has_pretooluse_hooks, true);
     assert.equal(manifest.has_userpromptsubmit_hooks, false);
+    // Not doubled: the plugin entry's own agents/skills stay empty
+    // (skipContentDirs) so the total is the standalone count alone (1 each),
+    // not 2 — regression coverage for the double-counting gap /ievo:deep-review
+    // caught on this diff before commit.
+    assert.equal(manifest.stats.agents, 1);
+    assert.equal(manifest.stats.skills, 1);
     const summary = r.logs.join("\n");
     assert.match(summary, /hooks: yes/);
     assert.match(summary, /mcp: yes/);
@@ -2165,6 +2214,16 @@ describe("main (end-to-end)", () => {
     const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
     assert.match(md, /### standalone/);
     assert.match(md, /\*\*Path:\*\* `\.`/);
+    // Listed once, under Standalone — never a second time under the plugin's
+    // own "### standalone" card (which would render an "**Agents (1):**" /
+    // "**Skills (1):**" sub-table if the plugin entry's agents/skills weren't
+    // suppressed).
+    assert.match(md, /## Standalone agents \(1\)/);
+    assert.match(md, /## Standalone skills \(1\)/);
+    assert.match(md, /## Standalone commands \(1\)/);
+    assert.doesNotMatch(md, /\*\*Agents \(/);
+    assert.doesNotMatch(md, /\*\*Skills \(/);
+    assert.doesNotMatch(md, /\*\*Commands \(/);
   });
 
   it("output filenames disambiguate a flattening collision (CWE-706, #401)", () => {

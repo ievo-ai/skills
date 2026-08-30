@@ -12,7 +12,7 @@ allowed-tools:
   - Bash(chmod*)
   - Bash(codex plugin list*)
   - Bash(claude plugin list*)
-compatibility: Works on any agent platform that supports the agentskills.io standard. Uses Read + Glob for context gathering, Write for output. Optionally runs Bash (`mktemp` for an atomically-created, unpredictable output path + `chmod 600` to harden it, and `codex plugin list --json` / `claude plugin list` for plugin state) — degrades gracefully to a timestamp-only path with no hardening where Bash is unavailable. Output is a plain Markdown file readable by any agent on any platform.
+compatibility: Works on any agent platform that supports the agentskills.io standard. Uses Read + Glob for context gathering, Write for output. Optionally runs Bash (`mktemp` for an atomically-created, unpredictable output path + `chmod 600` to harden it, and `codex plugin list --json` / `claude plugin list` for plugin state) — degrades gracefully to a timestamp-only path with no hardening where Bash or `mktemp` is unavailable. Output is a plain Markdown file readable by any agent on any platform.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -64,12 +64,16 @@ A timestamp-only filename is guessable to second granularity by anyone else who 
 **When Bash is available (Claude Code, Codex):** create the output file by running `mktemp` directly, with no `VAR=` assignment wrapped around it — this skill's `allowed-tools` only pre-authorizes `Bash(mktemp*)` for a command whose text literally starts with `mktemp`, and a leading assignment turns it into a different command the matcher won't recognize, falling through to a manual prompt instead. Resolve the temp dir via the same priority order as below, using mktemp's own `TMPDIR` handling:
 
 ```bash
-mktemp "${TMPDIR:-${TEMP:-${TMP:-/tmp}}}/ievo-handoff-XXXXXXXXXXXX.md"
+mktemp "${TMPDIR:-${TEMP:-${TMP:-/tmp}}}/ievo-handoff-XXXXXXXXXXXX"
 ```
+
+The `X` run must be the **last** thing in the template — do not append `.md` (or any other suffix) after it. GNU `mktemp` tolerates a trailing suffix (its `--suffix` option "is implied if TEMPLATE does not end in X"), but BSD/macOS `mktemp` passes the template to `mkstemp(3)`, which requires the name to end in `X`s — a template with a suffix after the `X` run is rejected outright and no file is created. The resulting file therefore has no extension; the content written in Step 4 is still Markdown, and Step 5 reports the exact path either way.
 
 `mktemp`'s trailing `X` run becomes a random alphanumeric suffix (12 chars — comfortably past the 6 both GNU and BSD `mktemp` require), and its exclusive-creation semantics guarantee the path did not already exist as a file, symlink, or directory the instant before creation — closing both the guessable-name disclosure risk and the symlink pre-plant/overwrite risk in one step, without needing to separately check-then-write (a check followed by a later Write call would itself be a race). `mktemp` prints the created path to stdout — read it from the command's own output and carry that exact string forward as the output path for Step 4.
 
-**When Bash is unavailable (another agentskills.io platform):** fall back to resolving the temp directory from an env var directly, in priority order:
+**If `mktemp` fails** — a non-zero exit status, or an empty/whitespace-only stdout (no `mktemp` on `PATH`, an unset-and-missing temp directory, a temp directory that isn't writable, or a platform that rejects the template): treat the `mktemp` path as unavailable — do not retry, do not switch templates, and do not block the handoff. Fall through to the fallback below and continue. Best-effort only, same spirit as Step 2f's plugin-state capture and Step 3's redaction.
+
+**When Bash is unavailable (another agentskills.io platform), or `mktemp` failed:** fall back to resolving the temp directory from an env var directly, in priority order:
 
 1. `TMPDIR` — set on POSIX systems (macOS, Linux)
 2. `TEMP` — set on Windows

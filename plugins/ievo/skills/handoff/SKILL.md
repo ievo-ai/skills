@@ -69,7 +69,7 @@ mktemp "${TMPDIR:-${TEMP:-${TMP:-/tmp}}}/ievo-handoff-XXXXXXXXXXXX"
 
 The `X` run must be the **last** thing in the template — do not append `.md` (or any other suffix) after it. GNU `mktemp` tolerates a trailing suffix (its `--suffix` option "is implied if TEMPLATE does not end in X"), but BSD/macOS `mktemp` passes the template to `mkstemp(3)`, which requires the name to end in `X`s — a template with a suffix after the `X` run is rejected outright and no file is created. The resulting file therefore has no extension; the content written in Step 4 is still Markdown, and Step 5 reports the exact path either way.
 
-`mktemp`'s trailing `X` run becomes a random alphanumeric suffix (12 chars — comfortably past the 6 both GNU and BSD `mktemp` require), and its exclusive-creation semantics guarantee the path did not already exist as a file, symlink, or directory the instant before creation — closing both the guessable-name disclosure risk and the symlink pre-plant/overwrite risk in one step, without needing to separately check-then-write (a check followed by a later Write call would itself be a race). `mktemp` prints the created path to stdout — read it from the command's own output and carry that exact string forward as the output path for Step 4.
+`mktemp`'s trailing `X` run becomes a random alphanumeric suffix (12 chars — comfortably past the 6 both GNU and BSD `mktemp` require), and its exclusive-creation semantics guarantee the path did not already exist as a file, symlink, or directory the instant before creation — closing both the guessable-name disclosure risk and the symlink pre-plant/overwrite risk in one step, without needing to separately check-then-write (a check followed by a later Write call would itself be a race). `mktemp` prints the created path to stdout — read it from the command's own output and carry that exact string forward as the output path for Step 4. Note that this leaves an empty file already sitting at that path, so Step 4's Write is an overwrite — see Step 4's read-first requirement.
 
 **If `mktemp` fails** — a non-zero exit status, or an empty/whitespace-only stdout (no `mktemp` on `PATH`, an unset-and-missing temp directory, a temp directory that isn't writable, or a platform that rejects the template): treat the `mktemp` path as unavailable — do not retry, do not switch templates, and do not block the handoff. Fall through to the fallback below and continue. Best-effort only, same spirit as Step 2f's plugin-state capture and Step 3's redaction.
 
@@ -172,7 +172,11 @@ Redaction is best-effort — the denylist cannot catch every secret. The handoff
 
 ## Step 4: Write the handoff document
 
-Use the Write tool to produce the document at the exact path determined in Step 1 (the path `mktemp` printed, or the fallback path). Structure:
+Use the Write tool to produce the document at the exact path determined in Step 1 (the path `mktemp` printed, or the fallback path).
+
+**Read the file first whenever Step 1 already created it.** On the `mktemp` path the output file exists (empty, zero bytes) before Step 4 starts, so the Write is an *overwrite*, not a create — and Claude Code's Write tool refuses to overwrite a path the session hasn't Read, failing with `File has not been read yet. Read it first before writing to it.` Call the Read tool once on that exact path before the Write: on an empty file it returns only an "exists but the contents are empty" notice (a warning, not an error) and registers the file as read, after which the Write succeeds normally. Skip it on the fallback path, where no file exists yet and Write creates it. On a platform whose write tool carries no such read-first requirement the extra Read is simply a harmless no-op, so this ordering is safe everywhere.
+
+Structure:
 
 ```markdown
 # Handoff — <purpose summary, 5-10 words>
@@ -262,8 +266,10 @@ Sections with no content are omitted entirely (not rendered as empty headers).
 **Harden permissions after writing (when Bash is available):** the Write tool's own permission bits on a freshly created file are platform/implementation-dependent — don't rely on them to keep the document private. Immediately after the Write tool call succeeds, restrict it to the invoking user only, substituting the literal path from Step 1 (this matches `Bash(chmod*)` since the command text itself starts with `chmod`):
 
 ```bash
-chmod 600 <output path from Step 1>
+chmod 600 "<output path from Step 1>"
 ```
+
+Keep the double quotes: `TMPDIR`/`TEMP`/`TMP` routinely resolve under a home directory, and a user account or folder name containing a space (`Jane Doe`, ordinary on both macOS and Windows) puts a space in the resulting path. Unquoted, that path word-splits into several arguments — `chmod` then fails on names that don't exist and the real file is left unhardened.
 
 Best-effort, same spirit as Step 2f/Step 3 — on a platform without Bash this step is simply unavailable; the document is still written via the fallback path in Step 1.
 

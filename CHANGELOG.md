@@ -6,6 +6,14 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.29
+
+Closes skills#676: `handoff/SKILL.md` wrote its output document to a predictable, second-granularity-guessable temp path with no existence/symlink check or post-write permission hardening.
+
+- **Gap closed** — Step 1 built the output path as `<temp-dir>/ievo-handoff-<YYYYMMDD-HHMMSS>.md`, a deterministic name in a directory that on shared hosts (multi-user devbox, shared CI runner, multi-tenant container) is not guaranteed private to the invoking user. Step 4 then wrote to it via the Write tool with no check that the path didn't already exist, wasn't a symlink, and no permission hardening afterward — in contrast to `deep-review/SKILL.md`'s existing `[ -L "$p" ]` symlink-skip guard for untracked files in the same plugin (CWE-377).
+- **Fix** — Step 1 now creates the output file with `mktemp` when Bash is available (Claude Code, Codex): its trailing `X` run supplies a random alphanumeric suffix, and its exclusive-creation semantics guarantee the path didn't already exist as a file, symlink, or directory the instant before creation — closing the guessable-name and symlink pre-plant/overwrite risks together, without a separate check-then-write step that would itself race. Step 4 additionally runs `chmod 600` immediately after the Write tool call succeeds, since the Write tool's own permission bits on a freshly created file are platform/implementation-dependent and shouldn't be relied on. Both are best-effort, degrading to the prior timestamp-only path with no hardening on a platform without Bash — same posture as this skill's existing Step 2f/Step 3 graceful-degrade language. `allowed-tools` gained `Bash(mktemp*)` / `Bash(chmod*)`, matching `hooks-setup/SKILL.md`'s existing `allowed-tools: Bash(chmod*)` entry — the only other skill in this repo that allow-lists `chmod` rather than blocking it (`deep-review`/`review-retrospective`/`security-check`/`vuln-scan` all list `Bash(chmod*)` under `disallowed-tools` instead, the opposite intent).
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.27 → 0.80.29 — 0.80.28 reserved by the still-open PR#674 at push time). `scan_repo.mjs`'s own `SCRIPT_VERSION` stays untouched — it is the intentionally decoupled scanner-output-format version (v0.6.6/#47).
+
 ## v0.80.27
 
 Closes skills#671: discover.mjs's readStdin() buffered its primary stdin input with no size cap, unlike the --stack-file path.

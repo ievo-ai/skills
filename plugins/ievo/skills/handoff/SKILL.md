@@ -8,9 +8,11 @@ allowed-tools:
   - Read
   - Glob
   - Write
+  - Bash(mktemp*)
+  - Bash(chmod*)
   - Bash(codex plugin list*)
   - Bash(claude plugin list*)
-compatibility: Works on any agent platform that supports the agentskills.io standard. Uses Read + Glob for context gathering, Write for output. Optionally runs Bash (`codex plugin list --json` / `claude plugin list`) to capture plugin state on Codex/Claude Code — degrades gracefully elsewhere. Output is a plain Markdown file readable by any agent on any platform.
+compatibility: Works on any agent platform that supports the agentskills.io standard. Uses Read + Glob for context gathering, Write for output. Optionally runs Bash (`mktemp` for an atomically-created, unpredictable output path + `chmod 600` to harden it, and `codex plugin list --json` / `claude plugin list` for plugin state) — degrades gracefully to a timestamp-only path with no hardening where Bash is unavailable. Output is a plain Markdown file readable by any agent on any platform.
 metadata:
   author: ievo-ai
   homepage: https://github.com/ievo-ai/skills
@@ -57,16 +59,24 @@ The user's choice (or freeform "Other" response) becomes the stated purpose.
 
 ## Step 1: Determine output path
 
-Use the OS temp directory and generate a unique filename. Resolve in priority order:
+A timestamp-only filename is guessable to second granularity by anyone else who can list or poll the same temp directory — on a shared devbox, CI runner, or multi-tenant container that directory is not guaranteed private to the invoking user (CWE-377). Add a random component and create the file atomically so the path can't be pre-planted or guessed ahead of time.
+
+**When Bash is available (Claude Code, Codex):** create the output file by running `mktemp` directly, with no `VAR=` assignment wrapped around it — this skill's `allowed-tools` only pre-authorizes `Bash(mktemp*)` for a command whose text literally starts with `mktemp`, and a leading assignment turns it into a different command the matcher won't recognize, falling through to a manual prompt instead. Resolve the temp dir via the same priority order as below, using mktemp's own `TMPDIR` handling:
+
+```bash
+mktemp "${TMPDIR:-${TEMP:-${TMP:-/tmp}}}/ievo-handoff-XXXXXXXXXXXX.md"
+```
+
+`mktemp`'s trailing `X` run becomes a random alphanumeric suffix (12 chars — comfortably past the 6 both GNU and BSD `mktemp` require), and its exclusive-creation semantics guarantee the path did not already exist as a file, symlink, or directory the instant before creation — closing both the guessable-name disclosure risk and the symlink pre-plant/overwrite risk in one step, without needing to separately check-then-write (a check followed by a later Write call would itself be a race). `mktemp` prints the created path to stdout — read it from the command's own output and carry that exact string forward as the output path for Step 4.
+
+**When Bash is unavailable (another agentskills.io platform):** fall back to resolving the temp directory from an env var directly, in priority order:
 
 1. `TMPDIR` — set on POSIX systems (macOS, Linux)
 2. `TEMP` — set on Windows
 3. `TMP` — Windows legacy fallback
 4. `/tmp` — last resort
 
-Build the output path: `<temp-dir>/ievo-handoff-<YYYYMMDD-HHMMSS>.md`
-
-Use ISO-8601 basic format for the timestamp (no colons — Windows-safe, sortable). No Bash invocation needed — the agent reads the relevant env var directly.
+Build the output path: `<temp-dir>/ievo-handoff-<YYYYMMDD-HHMMSS>.md`, using ISO-8601 basic format for the timestamp (no colons — Windows-safe, sortable). This fallback lacks the random component and creation-atomicity of the `mktemp` path above — best-effort only, same spirit as Step 2f/Step 3's degrade-gracefully posture elsewhere in this skill.
 
 ## Step 2: Gather context for the handoff document
 
@@ -158,7 +168,7 @@ Redaction is best-effort — the denylist cannot catch every secret. The handoff
 
 ## Step 4: Write the handoff document
 
-Use the Write tool to produce the document. Structure:
+Use the Write tool to produce the document at the exact path determined in Step 1 (the path `mktemp` printed, or the fallback path). Structure:
 
 ```markdown
 # Handoff — <purpose summary, 5-10 words>
@@ -245,6 +255,14 @@ Could not list installed plugins for this session. If this handoff references iE
 
 Sections with no content are omitted entirely (not rendered as empty headers).
 
+**Harden permissions after writing (when Bash is available):** the Write tool's own permission bits on a freshly created file are platform/implementation-dependent — don't rely on them to keep the document private. Immediately after the Write tool call succeeds, restrict it to the invoking user only, substituting the literal path from Step 1 (this matches `Bash(chmod*)` since the command text itself starts with `chmod`):
+
+```bash
+chmod 600 <output path from Step 1>
+```
+
+Best-effort, same spirit as Step 2f/Step 3 — on a platform without Bash this step is simply unavailable; the document is still written via the fallback path in Step 1.
+
 ## Step 5: Report to user
 
 Print the output path and a brief summary:
@@ -275,7 +293,7 @@ accumulated weight of this session's history.
 - **Temp dir, not workspace.** Save to the OS temporary directory, never to the project working tree. Handoff documents are ephemeral working documents, not project artifacts. The user can explicitly save to a permanent location if they want retention.
 - **No session state dependency.** The handoff must be self-contained — a fresh agent with no conversation history should be able to read it and start working. Don't reference "what we discussed earlier" or "the approach from above."
 - **Respect user scope.** If the user specified a narrow purpose, don't broaden the handoff to include unrelated session context. A handoff for "fix the login bug" shouldn't include the database migration discussion from earlier in the session.
-- **Idempotent.** Running `/ievo:handoff` multiple times produces separate documents (unique timestamps). Previous handoffs are not modified or referenced.
+- **Idempotent.** Running `/ievo:handoff` multiple times produces separate documents (unique timestamps, plus a random suffix where `mktemp` is available). Previous handoffs are not modified or referenced.
 
 ## See also
 

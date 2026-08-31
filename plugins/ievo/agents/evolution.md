@@ -716,11 +716,20 @@ caller forwards it to `/ievo:feedback`. This note is the delegated-path twin of
 `evo/SKILL.md` Step 4's identically-named note; the two carry **no** deliberate
 differences (same rule, same text), so any divergence between them is drift.
 
+**The derived `<short title>` header takes the same containment, for the
+same reason.** The template below synthesizes `<short title derived from
+lesson>` from the identical lesson text this note already covers, then
+writes it into the `## <date> — <title>` header — and Step 5's report
+echoes the same derived title a second time on its `Section title` line.
+Both are rendered as Markdown on the identical surfaces listed above. Apply
+the same wrap-and-measure mechanics to the title before writing it into
+either location.
+
 Then append a section:
 
 ```markdown
 
-## <YYYY-MM-DD HH:MM UTC> — <short title derived from lesson>
+## <YYYY-MM-DD HH:MM UTC> — <short title derived from lesson, link/image/HTML/autolink spans code-fenced per the note above>
 **Trigger:** <user-observed mistake | user-defined convention | vendored | upstream rebase>
 
 <full lesson text — verbatim, link/image/HTML/autolink spans code-fenced per the note above>
@@ -1015,7 +1024,7 @@ Otherwise, output a short summary to the user:
 - Scope + target: project | agents/<name> | skills/<name>
 - Overlay file: path
 - Marker injected: yes (first evolution for this target) | no (already present)
-- Section title: "<title>"
+- Section title: "<title, link/image/HTML/autolink spans code-fenced per Step 4's Excerpt containment note>"
 - Upstream escalation: not applicable (local lesson) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Reusable-practice escalation: not applicable (upstream escalation already recommended above, or lesson classified local) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
 - Extraction candidate: not applicable | detected (+ one-line cluster description for the caller to hand to `/ievo:consolidate`)

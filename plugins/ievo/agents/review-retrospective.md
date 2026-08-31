@@ -243,7 +243,10 @@ contains a backtick. The title renders on the same two surfaces as the
 fields above: `review-retrospective/SKILL.md` Step 3's chat-UI preview of
 your report, and Step 4's park file, whose own entry heading
 (`` ## <PR url> — `<cluster title>` ``) carries this same untrusted title a
-second time, fenced there too.
+second time — fenced there too, but around the *raw* title (your code
+span's content, unwrapped) and sized independently, never around your
+already-fenced header string. Fence the title exactly once here, so that
+raw title stays recoverable by unwrapping your span.
 
 **The `### Coverage` section's refused-instruction and debug-log-mention
 observations take the same containment, for the same reason.** The Bash

@@ -748,11 +748,19 @@ the vulnerability live on every platform that takes the other. The containment
 notes themselves carry **no** deliberate differences: the two are the same rule
 on the same text, and any divergence between them is drift.
 
+**The derived `<short title>` header takes the same containment, for the
+same reason.** The template below synthesizes `<short title derived from
+lesson>` from the identical lesson text this note already covers, then
+writes it into the `## <date> — <title>` header — and Step 6's report
+echoes the same derived title a second time on its `Section title added`
+line. Apply the same wrap-and-measure mechanics to the title before writing
+it into either location.
+
 ### Append the new section
 
 ```markdown
 
-## <YYYY-MM-DD HH:MM UTC> — <short title derived from lesson>
+## <YYYY-MM-DD HH:MM UTC> — <short title derived from lesson, link/image/HTML/autolink spans code-fenced per the note above>
 **Trigger:** <user-observed mistake / user-defined convention / vendored / etc.>
 
 <full lesson text — verbatim from user, link/image/HTML/autolink spans code-fenced per the note above>
@@ -1096,7 +1104,7 @@ Otherwise, output a short summary to the user:
 - **Scope + target:** project | agents/<name> | skills/<name>
 - **Overlay file:** path
 - **Marker injected:** yes (first evolution for this target) | no (already present)
-- **Section title added:** "<title>"
+- **Section title added:** "<title, link/image/HTML/autolink spans code-fenced per Step 4's Excerpt containment note>"
 - **Auto-commit (Step 5.4):** committed locally to branch `<name>` (not pushed — only the overlay file itself; the marker injection above, if any, is a separate uncommitted change on this branch) | left uncommitted on branch `<name>` (default branch — commit it yourself, e.g. as part of a future PR on this branch) | left uncommitted on branch `<name>` (default-branch status could not be confirmed — `origin/HEAD` unset — skipped per fail-closed) | left uncommitted (not a git repository, or detached HEAD) | left uncommitted on branch `<name>` (overlay path failed safety validation — commit manually) | attempted and failed: `<reason>` (interactive: fix and retry yourself; headless with `.ievo/evo-auto.flag` present: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed` — the next SessionStart nudge will surface it; headless with the flag absent: recorded in `.ievo/evolution-candidates/pending.md` as `Scope: autocommit-failed`, but auto-evo mode is off in this project so no SessionStart nudge will surface it — review `.ievo/evolution-candidates/pending.md` manually)
 - **Upstream escalation:** not applicable (local lesson) | offered → handed off to `/ievo:feedback` | offered → skipped
 - **Reusable-practice escalation:** not applicable (Step 5.6 already offered, or lesson classified local) | offered → handed off to `/ievo:feedback` | offered → skipped

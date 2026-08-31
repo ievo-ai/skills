@@ -721,8 +721,7 @@ same reason.** The template below synthesizes `<short title derived from
 lesson>` from the identical lesson text this note already covers, then
 writes it into the `## <date> — <title>` header — and Step 5's report
 echoes the same derived title a second time on its `Section title` line.
-Both are rendered as Markdown on the identical surfaces listed above. Apply
-the same wrap-and-measure mechanics to the title before writing it into
+Apply the same wrap-and-measure mechanics to the title before writing it into
 either location.
 
 Then append a section:

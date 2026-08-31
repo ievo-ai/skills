@@ -165,6 +165,22 @@ If the cluster's `target` came back `unknown`, ask a second, target-only questio
   - `A named skill` — description: `Prompts for the skill name, recorded as target skill/<name> in Step 4's park file (never written to .ievo/evolution/skills/<name>.md directly)`
   - `I don't know — park it` — description: `Keep target unknown; park in .ievo/evolution-candidates/retrospective-pending.md for later manual review`
 
+**Excerpt containment for `<title>` in both `Question:` templates above.**
+Both questions interpolate the cluster's untrusted, contributor-derived
+`<short title>` directly into their `Question:` text — the same title this
+skill's own "display verbatim" note above and Step 4's park-file heading
+already fence. `AskUserQuestion` question text is a distinct rendering
+surface with its own live-Markdown exposure and is responsible for its own
+excerpt containment, same as `init/SKILL.md`'s YELLOW/RED `AskUserQuestion`
+templates and `security-auditor.md`'s own note both state for their own
+untrusted-value interpolations. Before building either `Question:` string,
+wrap `<title>` in its own inline code span — a backtick run one character
+longer than the longest run already inside it, a literal space on both
+sides when it starts or ends with a backtick, and every CR/LF run
+collapsed to a single space before measuring — the identical mechanics the
+review-retrospective agent's own "Excerpt containment" note already applies
+to this same title.
+
 Clusters classified `stale`, `one-off-defect`, `already-covered`, or `ordinary-followup` need no confirmation question — report them for visibility (the user may disagree with a classification and can say so, but there is nothing to write anywhere for them) and move on.
 
 When no interactive session is available (headless/scheduled run — same detection as `evo/SKILL.md` Step 2.5, the shared definition `consolidate/SKILL.md` Step 8 item 4 and `extract-best-practices/SKILL.md` Phase 4 Step 5 also cite), or on a platform with no `AskUserQuestion` at all, never guess a disposition or a target: every `durable-lesson` cluster is treated as unresolved and routed to Step 4's park file, regardless of whether its target was confident — the confirmation checkpoint the issue requires cannot be skipped just because no one is present to answer it.

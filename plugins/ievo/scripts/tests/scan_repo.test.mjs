@@ -1592,8 +1592,14 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
   // Item-count ceilings (CWE-400 amplification twin of the per-file byte cap)
   // ---------------------------------------------------------------------------
 
+  // Each cap test builds its plugin in its OWN tmpdir (like the sibling
+  // enumeratePlugins cap tests below) rather than inside the shared `root`:
+  // the "enumerates two plugins (alpha + bare)" test above asserts `root`'s
+  // plugin list exactly, so a fixture added there would only stay invisible
+  // to it by declaration order.
+
   it("enumerateOnePlugin caps agents at MAX_SCAN_ITEMS and flags agents_truncated:true", () => {
-    const p = join(root, "plugins", "many-agents");
+    const p = join(tmpdir(), `scan-repo-many-agents-${Date.now()}`);
     mkdirSync(join(p, "agents"), { recursive: true });
     for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
       writeFileSync(join(p, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
@@ -1601,18 +1607,20 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     const r = enumerateOnePlugin(p);
     assert.equal(r.agents.length, MAX_SCAN_ITEMS);
     assert.equal(r.agents_truncated, true);
+    rmSync(p, { recursive: true, force: true });
   });
 
   it("enumerateOnePlugin: no agents_truncated field when agent count is under the cap", () => {
-    const p = join(root, "plugins", "few-agents-cap");
+    const p = join(tmpdir(), `scan-repo-few-agents-${Date.now()}`);
     mkdirSync(join(p, "agents"), { recursive: true });
     writeFileSync(join(p, "agents", "a1.md"), "---\nname: a1\n---\n", "utf-8");
     const r = enumerateOnePlugin(p);
     assert.equal(r.agents_truncated, undefined);
+    rmSync(p, { recursive: true, force: true });
   });
 
   it("enumerateOnePlugin caps skills at MAX_SCAN_ITEMS and flags skills_truncated:true", () => {
-    const p = join(root, "plugins", "many-skills");
+    const p = join(tmpdir(), `scan-repo-many-skills-${Date.now()}`);
     mkdirSync(join(p, "skills"), { recursive: true });
     for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
       const skillDir = join(p, "skills", `s${i}`);
@@ -1622,18 +1630,20 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     const r = enumerateOnePlugin(p);
     assert.equal(r.skills.length, MAX_SCAN_ITEMS);
     assert.equal(r.skills_truncated, true);
+    rmSync(p, { recursive: true, force: true });
   });
 
   it("enumerateOnePlugin: no skills_truncated field when skill count is under the cap", () => {
-    const p = join(root, "plugins", "few-skills-cap");
+    const p = join(tmpdir(), `scan-repo-few-skills-${Date.now()}`);
     mkdirSync(join(p, "skills", "s1"), { recursive: true });
     writeFileSync(join(p, "skills", "s1", "SKILL.md"), "---\nname: s1\n---\n", "utf-8");
     const r = enumerateOnePlugin(p);
     assert.equal(r.skills_truncated, undefined);
+    rmSync(p, { recursive: true, force: true });
   });
 
   it("enumerateOnePlugin caps commands at MAX_SCAN_ITEMS and flags commands_truncated:true", () => {
-    const p = join(root, "plugins", "many-commands");
+    const p = join(tmpdir(), `scan-repo-many-commands-${Date.now()}`);
     mkdirSync(join(p, "commands"), { recursive: true });
     for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
       writeFileSync(join(p, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
@@ -1641,14 +1651,16 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     const r = enumerateOnePlugin(p);
     assert.equal(r.commands.length, MAX_SCAN_ITEMS);
     assert.equal(r.commands_truncated, true);
+    rmSync(p, { recursive: true, force: true });
   });
 
   it("enumerateOnePlugin: no commands_truncated field when command count is under the cap", () => {
-    const p = join(root, "plugins", "few-commands-cap");
+    const p = join(tmpdir(), `scan-repo-few-commands-${Date.now()}`);
     mkdirSync(join(p, "commands"), { recursive: true });
     writeFileSync(join(p, "commands", "c1.md"), "---\ndescription: c1\n---\n", "utf-8");
     const r = enumerateOnePlugin(p);
     assert.equal(r.commands_truncated, undefined);
+    rmSync(p, { recursive: true, force: true });
   });
 
   it("enumeratePlugins caps at MAX_SCAN_ITEMS plugins and flags truncated:true, never enumerating past the cap", () => {

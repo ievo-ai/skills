@@ -228,19 +228,20 @@ Each vuln-scanner agent returns a JSON object with:
 **Agent failure handling**: if a Task-dispatched agent does not return (timeout, crash) or returns an error, treat that module as `scan_complete: false` with zero findings and proceed with available results. Flag incomplete modules in the summary banner (e.g., "Modules incomplete: auth, payments — results omitted").
 
 **Excerpt containment for the module identifier in both banners above.**
-The identifier you echo there is this orchestrator's own Phase 1d
-`module_path` for that dispatch — on the unparseable-JSON path nothing
-parsed to read a `module` field from, and on the timeout/crash path no
-response arrived at all, so in neither case did the value pass through
-`vuln-scanner`'s "Excerpt containment" fencing (its agent never returned
-usable output). It is real tree-derived path data, exactly like `file` in
-Phase 4's note below, so fence it yourself at the point of interpolation:
-wrap it in an inline code span sized one backtick longer than the longest
-backtick run already inside it, pad both sides with a literal space if it
-starts or ends with a backtick, and collapse every CR/LF run inside it to a
-single space before measuring — same mechanics as `vuln-scanner.md`'s
-"Excerpt containment" note, applied per module name (e.g. `` Modules
-incomplete: `auth`, `payments` — results omitted ``).
+The identifier you echo there is this orchestrator's own `module_path`
+dispatch field (§ Dispatch format), sourced from Phase 1d's module
+grouping — on the unparseable-JSON path nothing parsed to read a `module`
+field from, and on the timeout/crash path no response arrived at all, so
+in neither case did the value pass through `vuln-scanner`'s "Excerpt
+containment" fencing (its agent never returned usable output). It is real
+tree-derived path data, exactly like `file` in Phase 4's note below, so
+fence it yourself at the point of interpolation: wrap it in an inline code
+span sized one backtick longer than the longest backtick run already
+inside it, pad both sides with a literal space if it starts or ends with a
+backtick, and collapse every CR/LF run inside it to a single space before
+measuring — same mechanics as `vuln-scanner.md`'s "Excerpt containment"
+note, applied per module name (e.g. `` Modules incomplete: `auth`,
+`payments` — results omitted ``).
 
 Parse and aggregate all module results.
 

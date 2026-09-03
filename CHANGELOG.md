@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.32
+
+Closes skills#682: vuln-scan's Excerpt containment notes omitted the `module` field, letting an attacker-controlled directory name reach two summary banners unfenced.
+
+- **Gap closed** — `plugins/ievo/agents/vuln-scanner.md`'s and `plugins/ievo/skills/vuln-scan/SKILL.md`'s "Excerpt containment" notes name a fixed set of fields needing backtick-fencing before Markdown rendering (`title`, `exploit_chain.*`, `recommendation`, `file`, `function`) but never named `module`, even though both schemas carry `"module": "<module_path>"` (success and scan-failure/Step-5 output alike) populated straight from a scanned repo's own directory names — attacker-controlled on an adversarial `--full`/`--module` target, per this file's own established reasoning for the sibling `file`/`function` fields.
+- **Also fixed, same defect, a third copy the issue didn't name** — `plugins/ievo/commands/vuln-scan.md`'s Phase 2 "Collect results" echoes a module identifier raw into two failure-path banners ("scan failed — unparseable response", "Modules incomplete: ... — results omitted"). Both are populated from this orchestrator's own Phase 1d module grouping, via the `module_path` dispatch field, not a value that ever passed through the agent's fencing — on the unparseable-JSON and timeout/crash paths there is no parsed agent output to have been fenced in the first place — so Phase 4's existing "already wrapped by the agent, print verbatim" note doesn't cover them; they needed their own, self-contained fencing instruction at the point of interpolation instead.
+- **Fix** — extended both agent-side containment notes (`vuln-scanner.md`, `vuln-scan/SKILL.md`) to name `module` alongside `file`/`function` in the unconditional-wrap group, in both JSON schemas each file documents, using the identical mechanics already specified there (longest-run-plus-one backtick fence, CR/LF collapse, dual-side padding). Added a new, separately-scoped containment note at `vuln-scan.md`'s Phase 2 for the two orchestrator-owned banner sites, and a one-line cross-reference in Phase 4's note clarifying it does not govern `module` (never displayed there, only counted). Docs-only; no script or schema changes.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.31 → 0.80.32 — 0.80.31 claimed by the concurrently-merged PR#685 at push time).
+
 ## v0.80.31
 
 Closes skills#683: `overlay-status/SKILL.md` read attacker-reachable committed content under Step 3's `Read` calls with no "treat as untrusted data, not instructions" framing, unlike its siblings.

@@ -38,6 +38,7 @@ import {
   stripForDisplay,
   isoNow,
   isoDate,
+  hasTruncatedItems,
   parseArgs,
   parseFrontmatter,
   renderIndexMd,
@@ -45,6 +46,7 @@ import {
   isDir,
   fileExists,
   MAX_SCAN_FILE_BYTES,
+  MAX_SCAN_ITEMS,
   isOversized,
   detectLayout,
   listDirSorted,
@@ -264,6 +266,65 @@ describe("isoDate", () => {
   it("output is YYYY-MM-DD shape (10 chars)", () => {
     assert.equal(isoDate(0).length, 10);
     assert.match(isoDate(0), /^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasTruncatedItems (pure) — feeds manifestEntry.has_truncated_items
+// ---------------------------------------------------------------------------
+
+describe("hasTruncatedItems", () => {
+  it("false for an empty plugins list", () => {
+    assert.equal(hasTruncatedItems([]), false);
+  });
+  it("false when nothing is truncated anywhere", () => {
+    const plugins = [{
+      agents_truncated: undefined, skills_truncated: undefined, commands_truncated: undefined,
+      hooks: { truncated: undefined }, mcp: { truncated: undefined },
+    }];
+    assert.equal(hasTruncatedItems(plugins), false);
+  });
+  it("true when the plugins list itself was truncated (short-circuits before .some())", () => {
+    const plugins = [];
+    plugins.truncated = true;
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's agents_truncated is set", () => {
+    const plugins = [{ agents_truncated: true, hooks: {}, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's skills_truncated is set (agents_truncated falsy)", () => {
+    const plugins = [{ skills_truncated: true, hooks: {}, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's commands_truncated is set (agents/skills_truncated falsy)", () => {
+    const plugins = [{ commands_truncated: true, hooks: {}, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's hooks.truncated is set (agents/skills/commands_truncated falsy)", () => {
+    const plugins = [{ hooks: { truncated: true }, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's mcp.truncated is set (every earlier field falsy)", () => {
+    const plugins = [{ hooks: {}, mcp: { truncated: true } }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("false when a plugin has no hooks/mcp keys at all (optional-chaining defensive branch)", () => {
+    const plugins = [{}];
+    assert.equal(hasTruncatedItems(plugins), false);
+  });
+  it("false when standalone lists are passed but none is truncated", () => {
+    assert.equal(hasTruncatedItems([], [], [], []), false);
+  });
+  it("true when a standalone list was truncated (plugins list clean)", () => {
+    const standaloneAgents = [];
+    standaloneAgents.truncated = true;
+    assert.equal(hasTruncatedItems([], standaloneAgents, [], []), true);
+  });
+  it("true when a later standalone list is the truncated one", () => {
+    const standaloneCommands = [];
+    standaloneCommands.truncated = true;
+    assert.equal(hasTruncatedItems([], [], [], standaloneCommands), true);
   });
 });
 
@@ -808,6 +869,66 @@ describe("enumerateHooks", () => {
     assert.deepEqual(r.entries, []);
     assert.equal(r.oversized, true);
   });
+  it("truncates an oversized matcher to 80 chars (CWE-400 twin: command already was, matcher wasn't)", () => {
+    const f = join(tmp, "long-matcher.json");
+    writeFileSync(f, JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: "x".repeat(200), hooks: [{ command: "echo hi" }] }] },
+    }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries[0].matcher, "x".repeat(79) + "…");
+  });
+  it("truncates an oversized event key to 80 chars (attacker-controlled hooks.json object key)", () => {
+    const longEvent = "y".repeat(200);
+    const f = join(tmp, "long-event.json");
+    writeFileSync(f, JSON.stringify({
+      hooks: { [longEvent]: [{ matcher: "*", hooks: [{ command: "echo hi" }] }] },
+    }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries[0].event, "y".repeat(79) + "…");
+    // The raw (untruncated) key is still what has_pretooluse/etc. and the
+    // returned `events` list compare/report against — only the per-entry
+    // render-bound copy pushed into `entries` is truncated.
+    assert.deepEqual(r.events, [longEvent]);
+  });
+  it("does not set truncated when entry count is under MAX_SCAN_ITEMS", () => {
+    const f = join(tmp, "few-entries.json");
+    writeFileSync(f, JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: "*", hooks: [{ command: "echo hi" }] }] },
+    }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.truncated, undefined);
+  });
+  it("caps entries at MAX_SCAN_ITEMS across events and flags truncated:true, never reading a later event's entries", () => {
+    const overflowList = [];
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      overflowList.push({ matcher: `m${i}`, hooks: [{ command: `c${i}` }] });
+    }
+    const f = join(tmp, "overflow.json");
+    writeFileSync(f, JSON.stringify({
+      hooks: {
+        PreToolUse: overflowList,
+        // Alphabetically after PreToolUse (Object.entries preserves insertion
+        // order for string keys) — must never be reached once the cap is hit
+        // mid-way through PreToolUse's own list.
+        UserPromptSubmit: [{ matcher: "should-not-appear", hooks: [{ command: "nope" }] }],
+      },
+    }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    assert.ok(!r.entries.some((e) => e.matcher === "should-not-appear"));
+  });
+  it("does not flag truncated when entry count is exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exactList = [];
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      exactList.push({ matcher: `m${i}`, hooks: [{ command: `c${i}` }] });
+    }
+    const f = join(tmp, "exact.json");
+    writeFileSync(f, JSON.stringify({ hooks: { PreToolUse: exactList } }), "utf-8");
+    const r = enumerateHooks(f);
+    assert.equal(r.entries.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
+  });
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
 });
@@ -903,6 +1024,43 @@ describe("enumerateMcp", () => {
     assert.equal(r.present, false);
     assert.deepEqual(r.servers, []);
     assert.equal(r.oversized, true);
+  });
+  it("truncates an oversized server name to 80 chars (attacker-controlled mcpServers object key)", () => {
+    const longName = "z".repeat(200);
+    const f = join(tmp, "long-name.json");
+    writeFileSync(f, JSON.stringify({
+      mcpServers: { [longName]: { url: "https://example.com" } },
+    }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.servers[0].name, "z".repeat(79) + "…");
+  });
+  it("does not set truncated when server count is under MAX_SCAN_ITEMS", () => {
+    const f = join(tmp, "few-servers.json");
+    writeFileSync(f, JSON.stringify({ mcpServers: { one: { url: "https://example.com" } } }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.truncated, undefined);
+  });
+  it("caps servers at MAX_SCAN_ITEMS and flags truncated:true", () => {
+    const servers = {};
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      servers[`srv${i}`] = { url: `https://example.com/${i}` };
+    }
+    const f = join(tmp, "overflow.json");
+    writeFileSync(f, JSON.stringify({ mcpServers: servers }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.servers.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+  });
+  it("does not flag truncated when server count is exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const servers = {};
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      servers[`srv${i}`] = { url: `https://example.com/${i}` };
+    }
+    const f = join(tmp, "exact.json");
+    writeFileSync(f, JSON.stringify({ mcpServers: servers }), "utf-8");
+    const r = enumerateMcp(f);
+    assert.equal(r.servers.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
   });
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -1430,6 +1588,103 @@ describe("enumeratePlugins / enumerateOnePlugin (integration)", () => {
     assert.equal(r.skills[0].oversized, undefined);
   });
 
+  // ---------------------------------------------------------------------------
+  // Item-count ceilings (CWE-400 amplification twin of the per-file byte cap)
+  // ---------------------------------------------------------------------------
+
+  // Each cap test builds its plugin in its OWN tmpdir (like the sibling
+  // enumeratePlugins cap tests below) rather than inside the shared `root`:
+  // the "enumerates two plugins (alpha + bare)" test above asserts `root`'s
+  // plugin list exactly, so a fixture added there would only stay invisible
+  // to it by declaration order.
+
+  it("enumerateOnePlugin caps agents at MAX_SCAN_ITEMS and flags agents_truncated:true", () => {
+    const p = join(tmpdir(), `scan-repo-many-agents-${Date.now()}`);
+    mkdirSync(join(p, "agents"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(p, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.agents.length, MAX_SCAN_ITEMS);
+    assert.equal(r.agents_truncated, true);
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin: no agents_truncated field when agent count is under the cap", () => {
+    const p = join(tmpdir(), `scan-repo-few-agents-${Date.now()}`);
+    mkdirSync(join(p, "agents"), { recursive: true });
+    writeFileSync(join(p, "agents", "a1.md"), "---\nname: a1\n---\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.agents_truncated, undefined);
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin caps skills at MAX_SCAN_ITEMS and flags skills_truncated:true", () => {
+    const p = join(tmpdir(), `scan-repo-many-skills-${Date.now()}`);
+    mkdirSync(join(p, "skills"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      const skillDir = join(p, "skills", `s${i}`);
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillDir, "SKILL.md"), `---\nname: s${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills.length, MAX_SCAN_ITEMS);
+    assert.equal(r.skills_truncated, true);
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin: no skills_truncated field when skill count is under the cap", () => {
+    const p = join(tmpdir(), `scan-repo-few-skills-${Date.now()}`);
+    mkdirSync(join(p, "skills", "s1"), { recursive: true });
+    writeFileSync(join(p, "skills", "s1", "SKILL.md"), "---\nname: s1\n---\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.skills_truncated, undefined);
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin caps commands at MAX_SCAN_ITEMS and flags commands_truncated:true", () => {
+    const p = join(tmpdir(), `scan-repo-many-commands-${Date.now()}`);
+    mkdirSync(join(p, "commands"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(p, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.commands.length, MAX_SCAN_ITEMS);
+    assert.equal(r.commands_truncated, true);
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumerateOnePlugin: no commands_truncated field when command count is under the cap", () => {
+    const p = join(tmpdir(), `scan-repo-few-commands-${Date.now()}`);
+    mkdirSync(join(p, "commands"), { recursive: true });
+    writeFileSync(join(p, "commands", "c1.md"), "---\ndescription: c1\n---\n", "utf-8");
+    const r = enumerateOnePlugin(p);
+    assert.equal(r.commands_truncated, undefined);
+    rmSync(p, { recursive: true, force: true });
+  });
+
+  it("enumeratePlugins caps at MAX_SCAN_ITEMS plugins and flags truncated:true, never enumerating past the cap", () => {
+    const many = join(tmpdir(), `scan-repo-many-plugins-${Date.now()}`);
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      mkdirSync(join(many, "plugins", `p${i}`), { recursive: true });
+    }
+    const plugins = enumeratePlugins(many);
+    assert.equal(plugins.length, MAX_SCAN_ITEMS);
+    assert.equal(plugins.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumeratePlugins does not flag truncated when plugin count is exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exact = join(tmpdir(), `scan-repo-exact-plugins-${Date.now()}`);
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      mkdirSync(join(exact, "plugins", `p${i}`), { recursive: true });
+    }
+    const plugins = enumeratePlugins(exact);
+    assert.equal(plugins.length, MAX_SCAN_ITEMS);
+    assert.equal(plugins.truncated, undefined);
+    rmSync(exact, { recursive: true, force: true });
+  });
+
   after(() => rmSync(root, { recursive: true, force: true }));
 });
 
@@ -1514,6 +1769,105 @@ describe("enumerateStandaloneAgents / Skills / Commands", () => {
     mkdirSync(empty, { recursive: true });
     assert.deepEqual(enumerateStandaloneCommands(empty), []);
     rmSync(empty, { recursive: true, force: true });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Item-count ceilings on the STANDALONE path (CWE-400). `flat-agents` /
+  // `flat-skills` / `mixed` repos never reach enumerateOnePlugin, so these
+  // enumerations need the same MAX_SCAN_ITEMS ceiling the plugin-layout ones
+  // have — otherwise the amplification stays fully open for the commonest
+  // community layout.
+  // ---------------------------------------------------------------------------
+
+  it("enumerateStandaloneAgents caps at MAX_SCAN_ITEMS and flags truncated:true", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-agents-${Date.now()}`);
+    mkdirSync(join(many, "agents"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(many, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneAgents(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneAgents does not flag truncated at exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exact = join(tmpdir(), `scan-repo-exact-sa-agents-${Date.now()}`);
+    mkdirSync(join(exact, "agents"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      writeFileSync(join(exact, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneAgents(exact);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
+    rmSync(exact, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills caps direct skills/<name>/SKILL.md at MAX_SCAN_ITEMS", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-skills-${Date.now()}`);
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      const d = join(many, "skills", `s${i}`);
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "SKILL.md"), `---\nname: s${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneSkills(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills caps NESTED skills/<group>/<name>/SKILL.md too, and stops the outer walk", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-nested-${Date.now()}`);
+    // MAX + 2 groups of one nested skill each: group #501 trips the cap inside
+    // the inner loop, leaving group #502 behind so the outer loop's own
+    // `if (out.truncated) break` is what stops the walk (not simply running
+    // out of directories).
+    for (let i = 0; i < MAX_SCAN_ITEMS + 2; i++) {
+      const d = join(many, "skills", `g${String(i).padStart(4, "0")}`, "nested");
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "SKILL.md"), `---\nname: n${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneSkills(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills does not flag truncated at exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exact = join(tmpdir(), `scan-repo-exact-sa-skills-${Date.now()}`);
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      const d = join(exact, "skills", `s${i}`);
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "SKILL.md"), `---\nname: s${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneSkills(exact);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
+    rmSync(exact, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneCommands caps at MAX_SCAN_ITEMS and flags truncated:true", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-cmds-${Date.now()}`);
+    mkdirSync(join(many, "commands"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(many, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneCommands(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneCommands does not flag truncated at exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exact = join(tmpdir(), `scan-repo-exact-sa-cmds-${Date.now()}`);
+    mkdirSync(join(exact, "commands"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      writeFileSync(join(exact, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneCommands(exact);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
+    rmSync(exact, { recursive: true, force: true });
   });
 
   after(() => rmSync(root, { recursive: true, force: true }));
@@ -1881,6 +2235,114 @@ describe("renderIndexMd", () => {
     assert.match(md, /\*\*MCP servers:\*\* ⚠️ present but not scanned/);
     assert.match(md, /\| big \| — \| no \| — \| any \| unknown \|/);
   });
+
+  // Item-count ceilings (CWE-400 amplification twin of the oversized/byte-cap
+  // tests above): `renderIndexMd` must visibly mark a truncated list, not
+  // silently render it identically to a complete one.
+  it("marks the Plugins heading with '+' and adds a truncation banner when plugins.truncated is true", () => {
+    const d = baseData();
+    d.plugins = [{
+      name: "p1", description: "", version: "1.0.0", path: "plugins/p1/", author: "—", license: "—",
+      agents: [], skills: [], commands: [],
+      hooks: { present: false, events: [], entries: [] },
+      mcp: { present: false, servers: [] },
+    }];
+    d.plugins.truncated = true;
+    const md = renderIndexMd(d);
+    assert.match(md, /## Plugins \(1\+\)/);
+    assert.match(md, new RegExp(`⚠️ \\*\\*Plugin list truncated\\*\\* — this repo has more than ${MAX_SCAN_ITEMS} plugins`));
+  });
+
+  it("does not add a '+' or banner when plugins.truncated is absent", () => {
+    const d = baseData();
+    d.plugins = [{
+      name: "p1", description: "", version: "1.0.0", path: "plugins/p1/", author: "—", license: "—",
+      agents: [], skills: [], commands: [],
+      hooks: { present: false, events: [], entries: [] },
+      mcp: { present: false, servers: [] },
+    }];
+    const md = renderIndexMd(d);
+    assert.match(md, /## Plugins \(1\)/);
+    assert.doesNotMatch(md, /Plugin list truncated/);
+  });
+
+  it("marks Agents/Skills/Commands sub-headings with '+' and adds a truncation note when *_truncated is true", () => {
+    const d = baseData();
+    d.plugins = [{
+      name: "p1", description: "", version: "1.0.0", path: "plugins/p1/", author: "—", license: "—",
+      agents: [{ name: "a1", model: "sonnet", tools: "—", description: "" }],
+      agents_truncated: true,
+      skills: [{
+        name: "s1", description: "", has_scripts: false, has_refs: false,
+        license: "—", compatibility: "any", broad_bash: false,
+      }],
+      skills_truncated: true,
+      commands: [{ name: "c1", description: "" }],
+      commands_truncated: true,
+      hooks: { present: false, events: [], entries: [] },
+      mcp: { present: false, servers: [] },
+    }];
+    const md = renderIndexMd(d);
+    assert.match(md, /\*\*Agents \(1\+\):\*\*/);
+    assert.match(md, new RegExp(`⚠️ truncated at ${MAX_SCAN_ITEMS} agents \\(repo has more\\)\\.`));
+    assert.match(md, /\*\*Skills \(1\+\):\*\*/);
+    assert.match(md, new RegExp(`⚠️ truncated at ${MAX_SCAN_ITEMS} skills \\(repo has more\\)\\.`));
+    assert.match(md, /\*\*Commands \(1\+\):\*\*/);
+    assert.match(md, new RegExp(`⚠️ truncated at ${MAX_SCAN_ITEMS} commands \\(repo has more\\)\\.`));
+  });
+
+  it("adds a truncation note in the Hooks/MCP sections when hooks.truncated/mcp.truncated is true", () => {
+    const d = baseData();
+    d.plugins = [{
+      name: "p1", description: "", version: "1.0.0", path: "plugins/p1/", author: "—", license: "—",
+      agents: [], skills: [], commands: [],
+      hooks: {
+        present: true,
+        events: ["PreToolUse"],
+        entries: [{ event: "PreToolUse", matcher: "Bash", command: "echo hi" }],
+        has_pretooluse: true,
+        has_userpromptsubmit: false,
+        truncated: true,
+      },
+      mcp: {
+        present: true,
+        servers: [{ name: "srv", endpoint: "https://example.com", is_local: false }],
+        truncated: true,
+      },
+    }];
+    const md = renderIndexMd(d);
+    assert.match(md, new RegExp(`⚠️ truncated at ${MAX_SCAN_ITEMS} hook entries \\(repo has more\\)\\.`));
+    assert.match(md, new RegExp(`⚠️ truncated at ${MAX_SCAN_ITEMS} servers \\(repo has more\\)\\.`));
+  });
+
+  it("marks each Standalone heading with '+' and adds a banner when the list is truncated", () => {
+    const d = baseData();
+    d.standalone_agents = [{ name: "a1", model: "opus", tools: "—", description: "", path: "agents/a1.md" }];
+    d.standalone_agents.truncated = true;
+    d.standalone_skills = [{ name: "s1", description: "", license: "—", compatibility: "any", path: "skills/s1/SKILL.md" }];
+    d.standalone_skills.truncated = true;
+    d.standalone_commands = [{ name: "c1", description: "", path: "commands/c1.md" }];
+    d.standalone_commands.truncated = true;
+    const md = renderIndexMd(d);
+    assert.match(md, /## Standalone agents \(1\+\)/);
+    assert.match(md, new RegExp(`⚠️ \\*\\*Standalone agent list truncated\\*\\* — this repo has more than ${MAX_SCAN_ITEMS} agents`));
+    assert.match(md, /## Standalone skills \(1\+\)/);
+    assert.match(md, new RegExp(`⚠️ \\*\\*Standalone skill list truncated\\*\\* — this repo has more than ${MAX_SCAN_ITEMS} skills`));
+    assert.match(md, /## Standalone commands \(1\+\)/);
+    assert.match(md, new RegExp(`⚠️ \\*\\*Standalone command list truncated\\*\\* — this repo has more than ${MAX_SCAN_ITEMS} commands`));
+  });
+
+  it("does not add a '+' or banner to the Standalone headings when nothing is truncated", () => {
+    const d = baseData();
+    d.standalone_agents = [{ name: "a1", model: "opus", tools: "—", description: "", path: "agents/a1.md" }];
+    d.standalone_skills = [{ name: "s1", description: "", license: "—", compatibility: "any", path: "skills/s1/SKILL.md" }];
+    d.standalone_commands = [{ name: "c1", description: "", path: "commands/c1.md" }];
+    const md = renderIndexMd(d);
+    assert.match(md, /## Standalone agents \(1\)/);
+    assert.match(md, /## Standalone skills \(1\)/);
+    assert.match(md, /## Standalone commands \(1\)/);
+    assert.doesNotMatch(md, /list truncated/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2195,6 +2657,80 @@ describe("main (end-to-end)", () => {
     const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
     assert.match(md, /Hooks total:\*\* 0 across 0 plugins — ⚠️ unknown \(not scanned, oversized\): padded/);
     assert.match(md, /plugin.json not scanned/);
+  });
+
+  it("item-count truncation: manifest surfaces has_truncated_items:true and the CLI summary notes it", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-truncated");
+    const coDir = join(root, "co-truncated");
+    const target = join(coDir, checkoutCacheKey("owner/truncated"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // One plugin with more commands than MAX_SCAN_ITEMS → commands_truncated:true
+    // on the plugin descriptor, wiring end-to-end through main()'s
+    // hasTruncatedItems(plugins) call into the persisted manifest and the CLI
+    // summary line. hasTruncatedItems' own branches are unit-tested directly
+    // above (describe("hasTruncatedItems")) — this only proves main() wires it.
+    const p = join(target, "plugins", "many-commands");
+    mkdirSync(join(p, "commands"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(p, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
+    }
+
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/truncated.git\n" }, // remote get-url origin
+      { stdout: "beef02\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/truncated", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const safeName = checkoutCacheKey("owner/truncated");
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
+    assert.equal(manifest.has_truncated_items, true);
+    assert.match(r.logs.join("\n"), /, truncated: yes/);
+  });
+
+  it("item-count truncation on a flat-agents repo: manifest + rendered index both surface it", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-truncated-flat");
+    const coDir = join(root, "co-truncated-flat");
+    const target = join(coDir, checkoutCacheKey("owner/flat"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // No plugins/ dir at all — the `flat-agents` layout, which routes through
+    // enumerateStandaloneAgents and never touches enumeratePlugins. Before the
+    // cap reached the standalone path, this repo produced a clean-looking
+    // index with has_truncated_items:false.
+    mkdirSync(join(target, "agents"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(target, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
+    }
+
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/flat.git\n" }, // remote get-url origin
+      { stdout: "beef03\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/flat", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const safeName = checkoutCacheKey("owner/flat");
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
+    assert.equal(manifest.stats.agents, MAX_SCAN_ITEMS);
+    assert.equal(manifest.has_truncated_items, true);
+    const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
+    assert.match(md, new RegExp(`## Standalone agents \\(${MAX_SCAN_ITEMS}\\+\\)`));
+    assert.match(md, /Standalone agent list truncated/);
+    assert.match(r.logs.join("\n"), /, truncated: yes/);
   });
 
   after(() => rmSync(root, { recursive: true, force: true }));

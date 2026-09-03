@@ -38,6 +38,7 @@ import {
   stripForDisplay,
   isoNow,
   isoDate,
+  hasTruncatedItems,
   parseArgs,
   parseFrontmatter,
   renderIndexMd,
@@ -265,6 +266,52 @@ describe("isoDate", () => {
   it("output is YYYY-MM-DD shape (10 chars)", () => {
     assert.equal(isoDate(0).length, 10);
     assert.match(isoDate(0), /^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasTruncatedItems (pure) — feeds manifestEntry.has_truncated_items
+// ---------------------------------------------------------------------------
+
+describe("hasTruncatedItems", () => {
+  it("false for an empty plugins list", () => {
+    assert.equal(hasTruncatedItems([]), false);
+  });
+  it("false when nothing is truncated anywhere", () => {
+    const plugins = [{
+      agents_truncated: undefined, skills_truncated: undefined, commands_truncated: undefined,
+      hooks: { truncated: undefined }, mcp: { truncated: undefined },
+    }];
+    assert.equal(hasTruncatedItems(plugins), false);
+  });
+  it("true when the plugins list itself was truncated (short-circuits before .some())", () => {
+    const plugins = [];
+    plugins.truncated = true;
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's agents_truncated is set", () => {
+    const plugins = [{ agents_truncated: true, hooks: {}, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's skills_truncated is set (agents_truncated falsy)", () => {
+    const plugins = [{ skills_truncated: true, hooks: {}, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's commands_truncated is set (agents/skills_truncated falsy)", () => {
+    const plugins = [{ commands_truncated: true, hooks: {}, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's hooks.truncated is set (agents/skills/commands_truncated falsy)", () => {
+    const plugins = [{ hooks: { truncated: true }, mcp: {} }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("true when a plugin's mcp.truncated is set (every earlier field falsy)", () => {
+    const plugins = [{ hooks: {}, mcp: { truncated: true } }];
+    assert.equal(hasTruncatedItems(plugins), true);
+  });
+  it("false when a plugin has no hooks/mcp keys at all (optional-chaining defensive branch)", () => {
+    const plugins = [{}];
+    assert.equal(hasTruncatedItems(plugins), false);
   });
 });
 
@@ -2457,6 +2504,42 @@ describe("main (end-to-end)", () => {
     const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
     assert.match(md, /Hooks total:\*\* 0 across 0 plugins — ⚠️ unknown \(not scanned, oversized\): padded/);
     assert.match(md, /plugin.json not scanned/);
+  });
+
+  it("item-count truncation: manifest surfaces has_truncated_items:true and the CLI summary notes it", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-truncated");
+    const coDir = join(root, "co-truncated");
+    const target = join(coDir, checkoutCacheKey("owner/truncated"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // One plugin with more commands than MAX_SCAN_ITEMS → commands_truncated:true
+    // on the plugin descriptor, wiring end-to-end through main()'s
+    // hasTruncatedItems(plugins) call into the persisted manifest and the CLI
+    // summary line. hasTruncatedItems' own branches are unit-tested directly
+    // above (describe("hasTruncatedItems")) — this only proves main() wires it.
+    const p = join(target, "plugins", "many-commands");
+    mkdirSync(join(p, "commands"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(p, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
+    }
+
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/truncated.git\n" }, // remote get-url origin
+      { stdout: "beef02\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/truncated", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const safeName = checkoutCacheKey("owner/truncated");
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
+    assert.equal(manifest.has_truncated_items, true);
+    assert.match(r.logs.join("\n"), /, truncated: yes/);
   });
 
   after(() => rmSync(root, { recursive: true, force: true }));

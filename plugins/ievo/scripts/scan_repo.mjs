@@ -983,6 +983,21 @@ export function isoDate(daysAgo = 0) {
   return d.toISOString().slice(0, 10);
 }
 
+// True when MAX_SCAN_ITEMS truncated ANY list in this scan — the enumerated
+// plugins themselves, or any one plugin's agents/skills/commands/hook-entries/
+// mcp-servers. Extracted as a pure function (rather than inlined at the
+// manifestEntry call site) so it's directly unit-testable against small
+// literal fixtures instead of needing a MAX_SCAN_ITEMS-sized on-disk fixture
+// per branch of the chained `||` below.
+export function hasTruncatedItems(plugins) {
+  return Boolean(
+    plugins.truncated ||
+      plugins.some(
+        (p) => p.agents_truncated || p.skills_truncated || p.commands_truncated || p.hooks?.truncated || p.mcp?.truncated,
+      ),
+  );
+}
+
 export function parseArgs(argv) {
   const args = { repo: null, outputDir: ".", checkoutDir: join(homedir(), ".ievo", "checkouts"), force: false };
   for (let i = 2; i < argv.length; i++) {
@@ -1096,6 +1111,13 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     has_unscanned_mcp: plugins.some((p) => p.mcp?.oversized),
     has_unscanned_manifest: plugins.some((p) => p.manifest_oversized),
     has_unscanned_skills: plugins.some((p) => p.skills.some((s) => s.oversized)),
+    // MAX_SCAN_ITEMS short-circuits enumeration once a list hits the cap;
+    // stats.plugins/agents/skills above are computed from the (capped)
+    // arrays, so they'd otherwise silently under-report a large repo's true
+    // counts with no signal anywhere in this artifact. Mirrors the
+    // has_unscanned_* precedent above, for item-count truncation instead of
+    // byte-size skips.
+    has_truncated_items: hasTruncatedItems(plugins),
   };
   const jsonPath = join(outputDir, `${safeName}.json`);
   assertContained(jsonPath, outputDir);
@@ -1103,7 +1125,8 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
 
   log(
     `${args.repo}: indexed (commit=${commitSha}) — ${plugins.length} plugins, ` +
-    `${totalAgents} agents, ${totalSkills} skills, hooks: ${hasHooks ? "yes" : "no"}, mcp: ${hasMcp ? "yes" : "no"}`,
+    `${totalAgents} agents, ${totalSkills} skills, hooks: ${hasHooks ? "yes" : "no"}, mcp: ${hasMcp ? "yes" : "no"}` +
+    (manifestEntry.has_truncated_items ? ", truncated: yes" : ""),
   );
 
   return exit(0);

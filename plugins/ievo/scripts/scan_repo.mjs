@@ -47,7 +47,7 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SCRIPT_VERSION = "1.1.7";
+export const SCRIPT_VERSION = "1.1.8";
 export const TTL_SECONDS = 7 * 24 * 3600;
 export const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
@@ -198,6 +198,17 @@ export function fileExists(p) {
 // this — guards the readFileSync call sites below against a multi-GB blob
 // planted in an attacker-controlled repo exhausting scanner memory (CWE-400).
 export const MAX_SCAN_FILE_BYTES = 256 * 1024;
+
+// Bounds the *count* of structural items a scanned repo can contribute — the
+// byte cap above bounds each individual item's own size, but nothing
+// previously bounded how many plugins/agents/skills/commands/hook-entries/
+// mcp-servers a repo could commit, each comfortably within the byte cap. A
+// repo with many minimal, valid entries could still make the aggregate
+// rendered/persisted index scale with attacker-chosen item count rather than
+// any single capped input (CWE-400 amplification twin of the byte cap
+// above). Enforced the same way `oversized` is: enumeration stops at the
+// cap and a `truncated` fact is surfaced rather than silently continuing.
+export const MAX_SCAN_ITEMS = 500;
 
 export function isOversized(p, capBytes = MAX_SCAN_FILE_BYTES) {
   try {
@@ -437,6 +448,19 @@ export function enumeratePlugins(repo) {
     if (name.startsWith(".")) continue;
     const pluginPath = join(pluginsDir, name);
     if (!isDir(pluginPath)) continue;
+    if (plugins.length >= MAX_SCAN_ITEMS) {
+      // No sibling wrapper object exists for a bare array return value (unlike
+      // enumerateOnePlugin's `result.*_truncated` fields or enumerateHooks'/
+      // enumerateMcp's `oversized`-sibling `truncated` field below) — attaching
+      // the fact directly to the array is the narrowest way to carry it to
+      // main()'s `data.plugins` (same reference) without changing this
+      // function's return contract for every other caller. Note this does NOT
+      // survive `[...plugins]`/`.filter()`/`.map()`/`JSON.stringify()` — only
+      // renderIndexMd's direct `plugins.truncated` read relies on it, and
+      // `data` (which holds this reference) is never itself JSON-serialized.
+      plugins.truncated = true;
+      break;
+    }
     plugins.push(enumerateOnePlugin(pluginPath));
   }
   return plugins;
@@ -474,8 +498,13 @@ export function enumerateOnePlugin(pluginPath) {
   }
 
   const agents = [];
+  let agentsTruncated = false;
   const agentsDir = join(pluginPath, "agents");
   for (const f of listFilesSorted(agentsDir, ".md")) {
+    if (agents.length >= MAX_SCAN_ITEMS) {
+      agentsTruncated = true;
+      break;
+    }
     const agentFile = join(agentsDir, f);
     const fm = parseFrontmatter(agentFile);
     agents.push({
@@ -487,6 +516,7 @@ export function enumerateOnePlugin(pluginPath) {
   }
 
   const skills = [];
+  let skillsTruncated = false;
   const skillsDir = join(pluginPath, "skills");
   if (isDir(skillsDir)) {
     for (const skillName of listDirSorted(skillsDir)) {
@@ -494,6 +524,10 @@ export function enumerateOnePlugin(pluginPath) {
       if (!isDir(skillPath)) continue;
       const skillMd = join(skillPath, "SKILL.md");
       if (!fileExists(skillMd)) continue;
+      if (skills.length >= MAX_SCAN_ITEMS) {
+        skillsTruncated = true;
+        break;
+      }
       const fm = parseFrontmatter(skillMd);
       const hasScripts = isDir(join(skillPath, "scripts"));
       const hasRefs = isDir(join(skillPath, "references"));
@@ -518,8 +552,13 @@ export function enumerateOnePlugin(pluginPath) {
   }
 
   const commands = [];
+  let commandsTruncated = false;
   const commandsDir = join(pluginPath, "commands");
   for (const f of listFilesSorted(commandsDir, ".md")) {
+    if (commands.length >= MAX_SCAN_ITEMS) {
+      commandsTruncated = true;
+      break;
+    }
     const cmdFile = join(commandsDir, f);
     const fm = parseFrontmatter(cmdFile);
     commands.push({ name: f.replace(/\.md$/, ""), description: truncate(fm.description, 120) });
@@ -554,6 +593,9 @@ export function enumerateOnePlugin(pluginPath) {
     mcp,
   };
   if (manifestOversized) result.manifest_oversized = true;
+  if (agentsTruncated) result.agents_truncated = true;
+  if (skillsTruncated) result.skills_truncated = true;
+  if (commandsTruncated) result.commands_truncated = true;
   return result;
 }
 
@@ -575,11 +617,22 @@ export function enumerateHooks(hooksJsonPath) {
   const hooks = data.hooks ?? {};
   const events = Object.keys(hooks);
   const entries = [];
+  let truncated = false;
   for (const [event, hookList] of Object.entries(hooks)) {
+    if (truncated) break;
     if (!Array.isArray(hookList)) continue;
     for (const h of hookList) {
       if (!h || typeof h !== "object") continue;
-      const matcher = h.matcher ?? "—";
+      if (entries.length >= MAX_SCAN_ITEMS) {
+        truncated = true;
+        break;
+      }
+      // `command` was already the only field wrapped in truncate(..., 80);
+      // `matcher` and `event` (the latter an attacker-controlled hooks.json
+      // object key, not the command payload) escaped it, so either could
+      // carry a string sized up to just under the whole-file MAX_SCAN_FILE_BYTES
+      // cap. Wrapped here at the same 80-char limit as their sibling.
+      const matcher = truncate(h.matcher ?? "—", 80);
       let cmd = "—";
       const innerHooks = h.hooks ?? [];
       if (innerHooks.length > 0) {
@@ -588,10 +641,10 @@ export function enumerateHooks(hooksJsonPath) {
           cmd = first.command ?? first.type ?? "—";
         }
       }
-      entries.push({ event, matcher, command: truncate(cmd, 80) });
+      entries.push({ event: truncate(event, 80), matcher, command: truncate(cmd, 80) });
     }
   }
-  return {
+  const result = {
     present: true,
     events,
     entries,
@@ -599,6 +652,8 @@ export function enumerateHooks(hooksJsonPath) {
     has_userpromptsubmit: events.includes("UserPromptSubmit"),
     has_posttooluse: events.includes("PostToolUse"),
   };
+  if (truncated) result.truncated = true;
+  return result;
 }
 
 export function enumerateMcp(mcpJsonPath) {
@@ -614,17 +669,27 @@ export function enumerateMcp(mcpJsonPath) {
   // exactly `null` parses cleanly, then crashes `data.mcpServers` (CWE-20).
   if (!data || typeof data !== "object") return { present: false, servers: [] };
   const servers = [];
+  let truncated = false;
   for (const [name, config] of Object.entries(data.mcpServers ?? {})) {
     if (!config || typeof config !== "object") continue;
+    if (servers.length >= MAX_SCAN_ITEMS) {
+      truncated = true;
+      break;
+    }
     const url = config.url ?? "";
     const isLocal = /localhost|127\.0\.0\.1|::1/.test(url);
     servers.push({
-      name,
+      // `endpoint` was already wrapped in truncate(..., 80); `name` (the
+      // attacker-controlled mcpServers object key) escaped it — same gap as
+      // enumerateHooks' matcher/event above.
+      name: truncate(name, 80),
       endpoint: truncate(url || config.command || "", 80),
       is_local: isLocal,
     });
   }
-  return { present: true, servers };
+  const result = { present: true, servers };
+  if (truncated) result.truncated = true;
+  return result;
 }
 
 export function enumerateStandaloneAgents(repo) {
@@ -766,8 +831,12 @@ export function renderIndexMd(data) {
   lines.push("");
 
   if (plugins.length > 0) {
-    lines.push(`## Plugins (${plugins.length})`);
+    lines.push(`## Plugins (${plugins.length}${plugins.truncated ? "+" : ""})`);
     lines.push("");
+    if (plugins.truncated) {
+      lines.push(`> ⚠️ **Plugin list truncated** — this repo has more than ${MAX_SCAN_ITEMS} plugins; only the first ${MAX_SCAN_ITEMS} (sorted) are indexed here.`);
+      lines.push("");
+    }
     for (const p of plugins) {
       lines.push(`### ${escapeMdCell(p.name)}`);
       lines.push(`- **Description:** ${escapeMdCell(p.description) || "—"}`);
@@ -780,8 +849,12 @@ export function renderIndexMd(data) {
       }
       lines.push("");
       if (p.agents.length > 0) {
-        lines.push(`**Agents (${p.agents.length}):**`);
+        lines.push(`**Agents (${p.agents.length}${p.agents_truncated ? "+" : ""}):**`);
         lines.push("");
+        if (p.agents_truncated) {
+          lines.push(`⚠️ truncated at ${MAX_SCAN_ITEMS} agents (repo has more).`);
+          lines.push("");
+        }
         lines.push("| Name | Model | Tools | Description |");
         lines.push("|------|-------|-------|-------------|");
         for (const a of p.agents) {
@@ -790,8 +863,12 @@ export function renderIndexMd(data) {
         lines.push("");
       }
       if (p.skills.length > 0) {
-        lines.push(`**Skills (${p.skills.length}):**`);
+        lines.push(`**Skills (${p.skills.length}${p.skills_truncated ? "+" : ""}):**`);
         lines.push("");
+        if (p.skills_truncated) {
+          lines.push(`⚠️ truncated at ${MAX_SCAN_ITEMS} skills (repo has more).`);
+          lines.push("");
+        }
         lines.push("| Name | Description | Has scripts | License | Compat | Broad bash |");
         lines.push("|------|-------------|-------------|---------|--------|------------|");
         for (const s of p.skills) {
@@ -801,8 +878,12 @@ export function renderIndexMd(data) {
         lines.push("");
       }
       if (p.commands.length > 0) {
-        lines.push(`**Commands (${p.commands.length}):**`);
+        lines.push(`**Commands (${p.commands.length}${p.commands_truncated ? "+" : ""}):**`);
         lines.push("");
+        if (p.commands_truncated) {
+          lines.push(`⚠️ truncated at ${MAX_SCAN_ITEMS} commands (repo has more).`);
+          lines.push("");
+        }
         lines.push("| Name | Description |");
         lines.push("|------|-------------|");
         for (const c of p.commands) {
@@ -813,6 +894,10 @@ export function renderIndexMd(data) {
       if (p.hooks?.present && p.hooks.entries.length > 0) {
         lines.push("**Hooks:**");
         lines.push("");
+        if (p.hooks.truncated) {
+          lines.push(`⚠️ truncated at ${MAX_SCAN_ITEMS} hook entries (repo has more).`);
+          lines.push("");
+        }
         lines.push("| Event | Matcher | Command |");
         lines.push("|-------|---------|---------|");
         for (const h of p.hooks.entries) {
@@ -826,6 +911,10 @@ export function renderIndexMd(data) {
       if (p.mcp?.present && p.mcp.servers.length > 0) {
         lines.push("**MCP servers:**");
         lines.push("");
+        if (p.mcp.truncated) {
+          lines.push(`⚠️ truncated at ${MAX_SCAN_ITEMS} servers (repo has more).`);
+          lines.push("");
+        }
         lines.push("| Name | Endpoint | Local |");
         lines.push("|------|----------|-------|");
         for (const m of p.mcp.servers) {

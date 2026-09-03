@@ -313,6 +313,19 @@ describe("hasTruncatedItems", () => {
     const plugins = [{}];
     assert.equal(hasTruncatedItems(plugins), false);
   });
+  it("false when standalone lists are passed but none is truncated", () => {
+    assert.equal(hasTruncatedItems([], [], [], []), false);
+  });
+  it("true when a standalone list was truncated (plugins list clean)", () => {
+    const standaloneAgents = [];
+    standaloneAgents.truncated = true;
+    assert.equal(hasTruncatedItems([], standaloneAgents, [], []), true);
+  });
+  it("true when a later standalone list is the truncated one", () => {
+    const standaloneCommands = [];
+    standaloneCommands.truncated = true;
+    assert.equal(hasTruncatedItems([], [], [], standaloneCommands), true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1746,6 +1759,105 @@ describe("enumerateStandaloneAgents / Skills / Commands", () => {
     rmSync(empty, { recursive: true, force: true });
   });
 
+  // ---------------------------------------------------------------------------
+  // Item-count ceilings on the STANDALONE path (CWE-400). `flat-agents` /
+  // `flat-skills` / `mixed` repos never reach enumerateOnePlugin, so these
+  // enumerations need the same MAX_SCAN_ITEMS ceiling the plugin-layout ones
+  // have — otherwise the amplification stays fully open for the commonest
+  // community layout.
+  // ---------------------------------------------------------------------------
+
+  it("enumerateStandaloneAgents caps at MAX_SCAN_ITEMS and flags truncated:true", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-agents-${Date.now()}`);
+    mkdirSync(join(many, "agents"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(many, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneAgents(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneAgents does not flag truncated at exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exact = join(tmpdir(), `scan-repo-exact-sa-agents-${Date.now()}`);
+    mkdirSync(join(exact, "agents"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      writeFileSync(join(exact, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneAgents(exact);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
+    rmSync(exact, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills caps direct skills/<name>/SKILL.md at MAX_SCAN_ITEMS", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-skills-${Date.now()}`);
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      const d = join(many, "skills", `s${i}`);
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "SKILL.md"), `---\nname: s${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneSkills(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills caps NESTED skills/<group>/<name>/SKILL.md too, and stops the outer walk", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-nested-${Date.now()}`);
+    // MAX + 2 groups of one nested skill each: group #501 trips the cap inside
+    // the inner loop, leaving group #502 behind so the outer loop's own
+    // `if (out.truncated) break` is what stops the walk (not simply running
+    // out of directories).
+    for (let i = 0; i < MAX_SCAN_ITEMS + 2; i++) {
+      const d = join(many, "skills", `g${String(i).padStart(4, "0")}`, "nested");
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "SKILL.md"), `---\nname: n${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneSkills(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneSkills does not flag truncated at exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exact = join(tmpdir(), `scan-repo-exact-sa-skills-${Date.now()}`);
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      const d = join(exact, "skills", `s${i}`);
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "SKILL.md"), `---\nname: s${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneSkills(exact);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
+    rmSync(exact, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneCommands caps at MAX_SCAN_ITEMS and flags truncated:true", () => {
+    const many = join(tmpdir(), `scan-repo-many-sa-cmds-${Date.now()}`);
+    mkdirSync(join(many, "commands"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(many, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneCommands(many);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, true);
+    rmSync(many, { recursive: true, force: true });
+  });
+
+  it("enumerateStandaloneCommands does not flag truncated at exactly MAX_SCAN_ITEMS (boundary is exclusive)", () => {
+    const exact = join(tmpdir(), `scan-repo-exact-sa-cmds-${Date.now()}`);
+    mkdirSync(join(exact, "commands"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS; i++) {
+      writeFileSync(join(exact, "commands", `c${i}.md`), `---\ndescription: c${i}\n---\n`, "utf-8");
+    }
+    const r = enumerateStandaloneCommands(exact);
+    assert.equal(r.length, MAX_SCAN_ITEMS);
+    assert.equal(r.truncated, undefined);
+    rmSync(exact, { recursive: true, force: true });
+  });
+
   after(() => rmSync(root, { recursive: true, force: true }));
 });
 
@@ -2190,6 +2302,35 @@ describe("renderIndexMd", () => {
     assert.match(md, new RegExp(`⚠️ truncated at ${MAX_SCAN_ITEMS} hook entries \\(repo has more\\)\\.`));
     assert.match(md, new RegExp(`⚠️ truncated at ${MAX_SCAN_ITEMS} servers \\(repo has more\\)\\.`));
   });
+
+  it("marks each Standalone heading with '+' and adds a banner when the list is truncated", () => {
+    const d = baseData();
+    d.standalone_agents = [{ name: "a1", model: "opus", tools: "—", description: "", path: "agents/a1.md" }];
+    d.standalone_agents.truncated = true;
+    d.standalone_skills = [{ name: "s1", description: "", license: "—", compatibility: "any", path: "skills/s1/SKILL.md" }];
+    d.standalone_skills.truncated = true;
+    d.standalone_commands = [{ name: "c1", description: "", path: "commands/c1.md" }];
+    d.standalone_commands.truncated = true;
+    const md = renderIndexMd(d);
+    assert.match(md, /## Standalone agents \(1\+\)/);
+    assert.match(md, new RegExp(`⚠️ \\*\\*Standalone agent list truncated\\*\\* — this repo has more than ${MAX_SCAN_ITEMS} agents`));
+    assert.match(md, /## Standalone skills \(1\+\)/);
+    assert.match(md, new RegExp(`⚠️ \\*\\*Standalone skill list truncated\\*\\* — this repo has more than ${MAX_SCAN_ITEMS} skills`));
+    assert.match(md, /## Standalone commands \(1\+\)/);
+    assert.match(md, new RegExp(`⚠️ \\*\\*Standalone command list truncated\\*\\* — this repo has more than ${MAX_SCAN_ITEMS} commands`));
+  });
+
+  it("does not add a '+' or banner to the Standalone headings when nothing is truncated", () => {
+    const d = baseData();
+    d.standalone_agents = [{ name: "a1", model: "opus", tools: "—", description: "", path: "agents/a1.md" }];
+    d.standalone_skills = [{ name: "s1", description: "", license: "—", compatibility: "any", path: "skills/s1/SKILL.md" }];
+    d.standalone_commands = [{ name: "c1", description: "", path: "commands/c1.md" }];
+    const md = renderIndexMd(d);
+    assert.match(md, /## Standalone agents \(1\)/);
+    assert.match(md, /## Standalone skills \(1\)/);
+    assert.match(md, /## Standalone commands \(1\)/);
+    assert.doesNotMatch(md, /list truncated/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2539,6 +2680,44 @@ describe("main (end-to-end)", () => {
     const safeName = checkoutCacheKey("owner/truncated");
     const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
     assert.equal(manifest.has_truncated_items, true);
+    assert.match(r.logs.join("\n"), /, truncated: yes/);
+  });
+
+  it("item-count truncation on a flat-agents repo: manifest + rendered index both surface it", () => {
+    const r = captureRun();
+    const outDir = join(root, "out-truncated-flat");
+    const coDir = join(root, "co-truncated-flat");
+    const target = join(coDir, checkoutCacheKey("owner/flat"));
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+    // No plugins/ dir at all — the `flat-agents` layout, which routes through
+    // enumerateStandaloneAgents and never touches enumeratePlugins. Before the
+    // cap reached the standalone path, this repo produced a clean-looking
+    // index with has_truncated_items:false.
+    mkdirSync(join(target, "agents"), { recursive: true });
+    for (let i = 0; i < MAX_SCAN_ITEMS + 1; i++) {
+      writeFileSync(join(target, "agents", `a${i}.md`), `---\nname: a${i}\n---\n`, "utf-8");
+    }
+
+    const fake = makeFakeExec([
+      { stdout: "https://github.com/owner/flat.git\n" }, // remote get-url origin
+      { stdout: "beef03\n" },                     // rev-parse
+      { stdout: "2026-05-22T10:00:00+00:00\n" }, // log -1 --format=%cI
+      { stdout: "main\n" },                       // symbolic-ref
+      { stdout: "\n" },                           // git log oneline → 0 commits
+    ]);
+    main(
+      ["node", "scan_repo.mjs", "owner/flat", "--output-dir", outDir, "--checkout-dir", coDir],
+      fake, r.log, r.errLog, r.exit,
+    );
+    assert.equal(r.exitCode, 0, `errs: ${r.errs.join("\n")}`);
+    const safeName = checkoutCacheKey("owner/flat");
+    const manifest = JSON.parse(readFileSync(join(outDir, `${safeName}.json`), "utf-8"));
+    assert.equal(manifest.stats.agents, MAX_SCAN_ITEMS);
+    assert.equal(manifest.has_truncated_items, true);
+    const md = readFileSync(join(outDir, `${safeName}.md`), "utf-8");
+    assert.match(md, new RegExp(`## Standalone agents \\(${MAX_SCAN_ITEMS}\\+\\)`));
+    assert.match(md, /Standalone agent list truncated/);
     assert.match(r.logs.join("\n"), /, truncated: yes/);
   });
 

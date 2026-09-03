@@ -207,7 +207,11 @@ export const MAX_SCAN_FILE_BYTES = 256 * 1024;
 // rendered/persisted index scale with attacker-chosen item count rather than
 // any single capped input (CWE-400 amplification twin of the byte cap
 // above). Enforced the same way `oversized` is: enumeration stops at the
-// cap and a `truncated` fact is surfaced rather than silently continuing.
+// cap and a `truncated` fact is surfaced rather than silently continuing —
+// at EVERY enumeration point, plugin-layout (`enumeratePlugins`,
+// `enumerateOnePlugin`, `enumerateHooks`, `enumerateMcp`) and standalone
+// (`enumerateStandaloneAgents`/`Skills`/`Commands` — the enumeration the
+// flat-agents/flat-skills/mixed layouts actually route through) alike.
 export const MAX_SCAN_ITEMS = 500;
 
 export function isOversized(p, capBytes = MAX_SCAN_FILE_BYTES) {
@@ -697,6 +701,19 @@ export function enumerateStandaloneAgents(repo) {
   if (!isDir(agentsDir)) return [];
   const out = [];
   for (const f of listFilesSorted(agentsDir, ".md")) {
+    // Same MAX_SCAN_ITEMS ceiling as enumerateOnePlugin's agents loop, checked
+    // BEFORE the per-file read/parse below so nothing past the cap is ever
+    // read. `flat-agents`/`mixed` repos never reach enumerateOnePlugin, so
+    // leaving this uncapped would keep the identical CWE-400 amplification
+    // open for the commonest community layout. The fact rides on the returned
+    // array itself — see enumeratePlugins' note on that bare-array contract;
+    // `data.standalone_agents` (the sole consumer, via renderIndexMd and
+    // hasTruncatedItems) holds this same reference and is never
+    // JSON-serialized.
+    if (out.length >= MAX_SCAN_ITEMS) {
+      out.truncated = true;
+      break;
+    }
     const fm = parseFrontmatter(join(agentsDir, f));
     out.push({
       name: fm.name ?? f.replace(/\.md$/, ""),
@@ -714,6 +731,11 @@ export function enumerateStandaloneSkills(repo) {
   if (!isDir(skillsDir)) return [];
   const out = [];
   for (const skillName of listDirSorted(skillsDir)) {
+    // The cap can also be reached inside the nested sub-dir loop below, whose
+    // `break` only exits that inner loop — stop the outer walk too, so a repo
+    // padded with many nested groups does no further per-directory work once
+    // capped (mirrors enumerateHooks' outer-loop `if (truncated) break`).
+    if (out.truncated) break;
     const skillPath = join(skillsDir, skillName);
     if (!isDir(skillPath)) continue;
     const skillMd = join(skillPath, "SKILL.md");
@@ -721,6 +743,10 @@ export function enumerateStandaloneSkills(repo) {
       for (const subName of listDirSorted(skillPath)) {
         const sub = join(skillPath, subName);
         if (isDir(sub) && fileExists(join(sub, "SKILL.md"))) {
+          if (out.length >= MAX_SCAN_ITEMS) {
+            out.truncated = true;
+            break;
+          }
           const fm = parseFrontmatter(join(sub, "SKILL.md"));
           out.push({
             name: fm.name ?? subName,
@@ -732,6 +758,13 @@ export function enumerateStandaloneSkills(repo) {
         }
       }
       continue;
+    }
+    // Checked after the isDir/fileExists guards and before parseFrontmatter —
+    // the same position enumerateOnePlugin's skills loop uses, so only
+    // entries that would actually have been indexed count against the cap.
+    if (out.length >= MAX_SCAN_ITEMS) {
+      out.truncated = true;
+      break;
     }
     const fm = parseFrontmatter(skillMd);
     out.push({
@@ -750,6 +783,12 @@ export function enumerateStandaloneCommands(repo) {
   if (!isDir(commandsDir)) return [];
   const out = [];
   for (const f of listFilesSorted(commandsDir, ".md")) {
+    // Mirrors enumerateOnePlugin's commands loop — see enumerateStandaloneAgents
+    // above for why the standalone path needs its own ceiling.
+    if (out.length >= MAX_SCAN_ITEMS) {
+      out.truncated = true;
+      break;
+    }
     const fm = parseFrontmatter(join(commandsDir, f));
     out.push({
       name: f.replace(/\.md$/, ""),
@@ -930,8 +969,12 @@ export function renderIndexMd(data) {
 
   const sa = data.standalone_agents;
   if (sa.length > 0) {
-    lines.push(`## Standalone agents (${sa.length})`);
+    lines.push(`## Standalone agents (${sa.length}${sa.truncated ? "+" : ""})`);
     lines.push("");
+    if (sa.truncated) {
+      lines.push(`> ⚠️ **Standalone agent list truncated** — this repo has more than ${MAX_SCAN_ITEMS} agents; only the first ${MAX_SCAN_ITEMS} (sorted) are indexed here.`);
+      lines.push("");
+    }
     lines.push("| Name | Model | Tools | Description | Path |");
     lines.push("|------|-------|-------|-------------|------|");
     for (const a of sa) {
@@ -942,8 +985,12 @@ export function renderIndexMd(data) {
 
   const ss = data.standalone_skills;
   if (ss.length > 0) {
-    lines.push(`## Standalone skills (${ss.length})`);
+    lines.push(`## Standalone skills (${ss.length}${ss.truncated ? "+" : ""})`);
     lines.push("");
+    if (ss.truncated) {
+      lines.push(`> ⚠️ **Standalone skill list truncated** — this repo has more than ${MAX_SCAN_ITEMS} skills; only the first ${MAX_SCAN_ITEMS} (sorted) are indexed here.`);
+      lines.push("");
+    }
     lines.push("| Name | Description | License | Compat | Path |");
     lines.push("|------|-------------|---------|--------|------|");
     for (const s of ss) {
@@ -954,8 +1001,12 @@ export function renderIndexMd(data) {
 
   const sc = data.standalone_commands;
   if (sc.length > 0) {
-    lines.push(`## Standalone commands (${sc.length})`);
+    lines.push(`## Standalone commands (${sc.length}${sc.truncated ? "+" : ""})`);
     lines.push("");
+    if (sc.truncated) {
+      lines.push(`> ⚠️ **Standalone command list truncated** — this repo has more than ${MAX_SCAN_ITEMS} commands; only the first ${MAX_SCAN_ITEMS} (sorted) are indexed here.`);
+      lines.push("");
+    }
     lines.push("| Name | Description | Path |");
     lines.push("|------|-------------|------|");
     for (const c of sc) {
@@ -984,17 +1035,21 @@ export function isoDate(daysAgo = 0) {
 }
 
 // True when MAX_SCAN_ITEMS truncated ANY list in this scan — the enumerated
-// plugins themselves, or any one plugin's agents/skills/commands/hook-entries/
-// mcp-servers. Extracted as a pure function (rather than inlined at the
-// manifestEntry call site) so it's directly unit-testable against small
-// literal fixtures instead of needing a MAX_SCAN_ITEMS-sized on-disk fixture
-// per branch of the chained `||` below.
-export function hasTruncatedItems(plugins) {
+// plugins themselves, any one plugin's agents/skills/commands/hook-entries/
+// mcp-servers, or (variadic `standaloneLists`) any of the standalone
+// agents/skills/commands arrays, whose lengths feed the same
+// `stats.agents`/`stats.skills` totals the flag exists to qualify. Extracted
+// as a pure function (rather than inlined at the manifestEntry call site) so
+// it's directly unit-testable against small literal fixtures instead of
+// needing a MAX_SCAN_ITEMS-sized on-disk fixture per branch of the chained
+// `||` below.
+export function hasTruncatedItems(plugins, ...standaloneLists) {
   return Boolean(
     plugins.truncated ||
       plugins.some(
         (p) => p.agents_truncated || p.skills_truncated || p.commands_truncated || p.hooks?.truncated || p.mcp?.truncated,
-      ),
+      ) ||
+      standaloneLists.some((l) => l.truncated),
   );
 }
 
@@ -1116,8 +1171,11 @@ export function main(argv = process.argv, execImpl = execFileSync, log = console
     // arrays, so they'd otherwise silently under-report a large repo's true
     // counts with no signal anywhere in this artifact. Mirrors the
     // has_unscanned_* precedent above, for item-count truncation instead of
-    // byte-size skips.
-    has_truncated_items: hasTruncatedItems(plugins),
+    // byte-size skips. The standalone arrays are passed too: totalAgents/
+    // totalSkills sum them into the same stats, so a capped flat-agents/
+    // flat-skills/mixed repo must set this flag exactly as a capped
+    // marketplace-layout one does.
+    has_truncated_items: hasTruncatedItems(plugins, standaloneAgents, standaloneSkills, standaloneCommands),
   };
   const jsonPath = join(outputDir, `${safeName}.json`);
   assertContained(jsonPath, outputDir);

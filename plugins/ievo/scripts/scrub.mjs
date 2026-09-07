@@ -42,7 +42,7 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.80.34";
+export const SCRIPT_VERSION = "0.80.35";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
@@ -258,10 +258,41 @@ const CAMEL_SUFFIXES = [...SECRET_SUFFIXES.map(titleCase), "ID"];
 // so this costs no legitimate match. The pre-existing snake alternative
 // shares this same unbounded shape and is not touched here — out of scope
 // for skills#620, which only adds this new kebab alternative.
+//
+// The camelCase alternative below is ALSO now bounded (`{0,254}`, not `*`,
+// skills#692) — same fix, same reasoning, applied to a third sibling in
+// this family. Unlike the kebab class, camelCase's `[A-Za-z0-9_]*` already
+// includes `_`, so an underscore-separated run (`a_a_a_..._a`) gets the
+// same O(n) restart-position count the leading-boundary fix (skills#612)
+// grants right after every underscore (each satisfies the `(?<![A-Za-z0-9])`
+// lookbehind ASSIGNMENT_RE wraps around this whole alternation below) — and
+// because the run's own character class also includes `_`, an unbounded
+// quantifier starting from any of those O(n) positions could greedily
+// consume to end of input and backtrack all the way back looking for a
+// terminal suffix that never comes, for O(n²) total FROM THIS ALTERNATIVE
+// ALONE. The `{0,254}` bound caps each attempt's backtrack at O(255),
+// removing this alternative's own quadratic contribution — real camelCase
+// credential names are nowhere near 255 characters, so this costs no
+// legitimate match, identical reasoning to the kebab fix above.
+//
+// UNLIKE the kebab fix, this does NOT by itself restore redactNamedSecrets
+// to linear total cost on underscore-delimited adversarial input: the
+// pre-existing snake alternative directly above shares this identical
+// unbounded `[A-Za-z0-9_]*` leading class and is NOT touched here — tracked
+// separately, still open, in skills#637 — so ASSIGNMENT_RE's alternation
+// tries snake FIRST at every one of those same O(n) restart positions and
+// still backtracks unboundedly there regardless of this bound (measured:
+// bounding only this alternative cut an adversarial 32 KB underscore-joined
+// run from ~1566ms to ~409ms — a real, precedented reduction, but still
+// quadratic-shaped, not linear, until skills#637 also lands). The kebab
+// fix's delimiter (`-`) is disjoint from snake's character class, so that
+// fix alone WAS sufficient to restore linear cost; camelCase's delimiter
+// (`_`) is not disjoint from snake's, so full linear-time redaction on this
+// input shape requires both fixes together.
 const NAME_ALT = [
   String.raw`[A-Za-z0-9][A-Za-z0-9_]*_(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
   String.raw`[A-Za-z0-9][A-Za-z0-9-]{0,254}-(?:${SECRET_SUFFIXES.map(anyCase).join("|")})`,
-  String.raw`[A-Za-z0-9][A-Za-z0-9_]*(?<=[a-z0-9])(?:${CAMEL_SUFFIXES.join("|")})`,
+  String.raw`[A-Za-z0-9][A-Za-z0-9_]{0,254}(?<=[a-z0-9])(?:${CAMEL_SUFFIXES.join("|")})`,
   ...BARE_SECRET_NAMES.map(anyCase),
 ].join("|");
 

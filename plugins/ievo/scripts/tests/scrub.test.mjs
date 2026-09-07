@@ -729,6 +729,50 @@ describe("redactNamedSecrets", () => {
     assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected linear-time matching`);
   });
 
+  it("does not redact a camelCase name past the 255-char leading-run bound, but still redacts at/under it (skills#692)", () => {
+    // Same bound, same reasoning, same pinning discipline as the kebab
+    // boundary test below, applied to the camelCase alternative (skills#692
+    // bounded its leading run to `{0,254}`, mirroring skills#620's kebab
+    // fix). The leading class consumes at most 1 + 254 = 255 characters
+    // before the mandatory lookbehind + suffix, so a 255-character
+    // lowercase prefix immediately followed by "Token" still matches; one
+    // character more pushes the suffix out of the bounded window and the
+    // assignment rides through unredacted. No underscore/hyphen appears
+    // anywhere in this input, so neither the snake nor kebab alternatives
+    // are in play — this isolates the camelCase alternative's own bound.
+    const atBound = `${"a".repeat(255)}Token=hunter2`;
+    assert.equal(redactNamedSecrets(atBound), `${"a".repeat(255)}Token=[REDACTED]`);
+    const overBound = `${"a".repeat(256)}Token=hunter2`;
+    assert.equal(redactNamedSecrets(overBound), overBound);
+  });
+
+  it("bounds the camelCase alternative's own backtracking cost on an underscore-joined run with no terminal suffix (skills#692)", () => {
+    // A genuine regression guard, not an asymptotic-linearity proof: unlike
+    // the kebab fix below (whose `-` delimiter is disjoint from the snake
+    // alternative's character class), the camelCase alternative's
+    // `[A-Za-z0-9_]*` leading run shares its `_`-inclusive character class
+    // with the pre-existing, still-unbounded snake alternative (skills#637,
+    // open) — so an underscore-joined adversarial run (`a_a_a_..._a`) gets
+    // O(n) restart positions (skills#612's leading boundary fires right
+    // after every underscore) at which snake is tried FIRST and still
+    // backtracks unboundedly, regardless of this fix. redactNamedSecrets
+    // therefore stays quadratic-shaped on this input until skills#637 also
+    // bounds snake — this assertion only pins that camelCase no longer adds
+    // ITS OWN unbounded cost on top of snake's: measured directly against
+    // the pre-fix code on this exact 32 KB input, bounding only this
+    // alternative cut the cost from ~1566ms to ~409ms. The budget below is
+    // generous enough to comfortably admit the bounded cost (with headroom
+    // for a loaded CI runner) while still catching a regression back to the
+    // unbounded form, which blows well past it at this size.
+    const units = 16_000;
+    const input = `${"a_".repeat(units)}x`;
+    const started = process.hrtime.bigint();
+    const out = redactNamedSecrets(input);
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.equal(out, input);
+    assert.ok(elapsedMs < 1000, `took ${elapsedMs.toFixed(1)}ms — expected the bounded alternative's cost, not the unbounded regression`);
+  });
+
   it("stays linear on a long hyphen-joined run with no terminal suffix (skills#620)", () => {
     // UNLIKE the camelCase case above, the boundary fix (skills#612) lets a
     // match attempt start right after ANY non-alnum character, including a

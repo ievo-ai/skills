@@ -308,8 +308,8 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
 
    With both sides in that normal form, treat it as a match — refuse to
    scan this item — when a listed entry is **equal to** `<item-path>`,
-   **under** it (its segments begin with `<item-path>`'s
-   — a symlinked file inside the item), or an **ancestor of** it
+   **under** it (its segments begin with `<item-path>`'s segments — a
+   symlinked file inside the item), or an **ancestor of** it
    (`<item-path>`'s segments begin with the listed entry's — the link sits
    on the path being walked *through*; git indexes a symlinked directory as
    a single entry with nothing "inside" it tracked, so only this ancestor
@@ -318,12 +318,44 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    checkout has symlinks elsewhere that this item doesn't touch, and is not
    a reason to refuse.
 
+   A containment match is not just a coverage gap the way a failed clone
+   is — it is the exfiltration shape described above, already materialized
+   in the candidate's own tree: a tracked symlink sitting exactly where
+   sub-step 6's Read would have followed it. Report it as a **finding**,
+   not only as prose. Emit one `flags` entry (Step 5) per matched line,
+   with `category` `credential_exfil`, `severity` `high`, `file` set to
+   the matched entry's path exactly as `ls-files` listed it — repo-root-
+   relative, not item-relative like the paths other flags cite, because an
+   ancestor match names an entry *above* `<item-path>` that has no
+   item-relative spelling at all — `excerpt` set to that entry's whole
+   `ls-files -s` line, and an `explanation` naming which of the three
+   relations matched (equal / under / ancestor) and stating plainly that
+   the link's target was never resolved and sub-steps 5-6 never ran.
+   Leaving `flags` empty and noting the symlink in `reasoning` alone caps
+   the item at YELLOW — "not blocking install" (Step 4) — and, since
+   `report_template.available` is RED-only, the maintainer whose repo
+   ships the link is never told at all. This is not the bare "structural
+   fact" Step 4 forbids as a RED basis, and `high` is not a guess about
+   the target: the entry's *position* relative to `<item-path>` is the
+   whole mechanism, and this sub-step declined to follow it precisely so
+   that mechanism could not fire — an item that could not be audited at
+   all because a link stood on its scan path is the last place to shrug.
+   Say the target is unresolved in the `explanation` and the flag stays
+   factual; the verdict itself is still Step 4's synthesis, but with a
+   flag present RED is reachable and Step 6's report becomes available.
+   The excerpt is attacker-controlled like any other cited text, so Step
+   6's "Excerpt containment" fencing rule applies to it unchanged.
+
    On any match — or an unresolved quoted path, or a `..` segment surviving
    normalization, above — do NOT run sub-steps 5-6 below for this item.
    Instead apply the same disposition as a
    clone/resolution failure below: treat the scan as reduced-coverage, note
-   the symlink finding in `reasoning` (Step 5), and let the "no shortcut for
-   low-yield scans" rule apply.
+   the finding in `reasoning` (Step 5), and let the "no shortcut for
+   low-yield scans" rule apply. Those other two refusals stop there, with no
+   flag: each is a fail-closed response to input this sub-step could not
+   resolve — a path it could not un-quote, a `<item-path>` it would not
+   collapse — not a symlink it actually found, so neither has the `file` and
+   `excerpt` evidence a `credential_exfil` flag must cite.
 5. **Enumerate files** under the item's path with the **Glob tool**
    (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<item-path>"`) — never a Bash
    `find`/`ls`. The item's own path (e.g. a skill/agent directory name) is

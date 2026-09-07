@@ -6,6 +6,17 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.34
+
+Close a CWE-59 symlink-containment gap in `security-check/SKILL.md`'s antivirus fetch flow, unlike its three sibling vendor-fetch paths — closes #690.
+
+- **Gap closed** — `security-check/SKILL.md` Step 2's "How to fetch files" clones a candidate skill/agent/plugin, enumerates its files with the Glob tool, and Reads every listed file, but had no check for whether a Glob-enumerated tree entry was itself a symlink (mode `120000`) before Reading it — unlike `agents/evolution.md`, `commands/update.md`, and `init/references/install-protocol.md`, which each already insert a git-index symlink-containment check between their clone and Glob/Read steps for the identical clone-then-enumerate pattern. A malicious candidate could ship a symlinked asset (e.g. `<item-path>/assets/logo.png` pointing at `~/.ssh/id_rsa` or `~/.aws/credentials`) that Glob/Read would follow, pulling real local secret content into the auditor's context — and, on a RED verdict routed through the "Report" option in Step 6, filing that leaked content as a public issue in the malicious candidate's own repo.
+- **Fix** — new Step 2 sub-step 4 (existing sub-steps 4-5 renumbered to 5-6): `git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'` (no path interpolation), refusing the item on any symlink entry equal to, under, or an ancestor of `<item-path>` — segment-compared with trailing-slash normalization, fail-closed on any still-quoted (non-ASCII/control-char) path. Ports the exact, already-reviewed pattern from the three sibling files rather than inventing a new one.
+- **Disposition reuses an existing path** — a symlink refusal now shares this file's existing "If cloning or resolution fails" fallback: treat the scan as reduced-coverage, note it in `reasoning` (Step 5), and let the "no shortcut for low-yield scans" rule apply — no new failure-reporting path was introduced.
+- **Cross-file sync** — `agents/security-auditor.md`'s own "Bash command allowlist" (the actual dispatch context that runs `security-check/SKILL.md` at `/ievo:init` Step 8) still declared a closed set of SIX templates with no `|` piping allowed at all, which would have blocked the new symlink-check command in the agent's real invocation path. Widened to seven templates and carved out template 7's own fixed pipe, mirroring the identical widening `agents/evolution.md` already carries for its own equivalent check.
+- **Scope** — `plugins/ievo/skills/security-check/SKILL.md` and `plugins/ievo/agents/security-auditor.md`. No script/test changes — pure Markdown instructions, no `node --test` code path.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.33 → 0.80.34).
+
 ## v0.80.33
 
 Guard `scan_repo.mjs`'s plugin/agent/skill/command/hook-entry/mcp-server counts against unbounded enumeration and truncate two fields that escaped the existing 80-char cap — closes #684.

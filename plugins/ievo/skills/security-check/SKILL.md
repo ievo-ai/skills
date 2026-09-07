@@ -275,16 +275,49 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    as a match.
 
    Otherwise, take the path after the first TAB on each returned line and
-   compare it against `<item-path>` as a `/`-separated **segment** list —
-   but bring both sides into the listing's own normal form first. Git tree
-   paths never contain a `.` or `..` segment, a doubled `/`, or a trailing
-   `/`, so the listed-entry side is always already in that form.
-   `<item-path>` is not: it is the path portion of this skill's Input
-   identifier (the `<path>` of `<owner>/<repo>:<path>`, the `<plugin>` of
-   `<owner>/<repo>/<plugin>`, the `<skill>` of `<owner>/<repo>@<skill>`) —
-   never walked out of the cloned tree here, and, unlike `<owner>`,
-   `<repo>` and `<commit-sha>` in sub-steps 1-2, never validated against a
-   charset. A crafted `plugins//evil`, `plugins/./evil`,
+   compare it against `<item-path>` as a `/`-separated **segment** list.
+
+   `<item-path>` here is the item's **repo-root-relative path inside the
+   checkout** — the same value sub-step 5's Glob enumerates under, spelled
+   `<path>` (skill/agent) and `<plugin-path>` (plugin) in the per-type file
+   lists below — never the bare fragment of this skill's Input identifier.
+   `ls-files` lists every entry from the repo root, so comparing against a
+   bare item *name* would fail open on this check's commonest case:
+   `security-auditor` (dispatched by `/ievo:init` Step 8) passes
+   `<owner>/<repo>@<name>`, so a skill that actually lives at
+   `plugins/x/skills/bar`, compared as `bar`, is equal to, under, and an
+   ancestor of *nothing* — all three relations below miss, the check
+   "passes", and sub-steps 5-6 go on to Glob and Read the resolved
+   directory anyway. Resolve the identifier to that in-repo path first:
+   - `<owner>/<repo>:<path>` (agent) — `<path>` is already repo-root-
+     relative; use it as `<item-path>` unchanged.
+   - `<owner>/<repo>@<skill>` and `<owner>/<repo>/<plugin>` — the fragment
+     is a *name*, not a path, and the item can sit anywhere in the tree
+     (`skills/<name>/`, `plugins/<plugin>/skills/<name>/`, …). Locate it
+     with the **Glob tool** against the checkout — `path: "$CHECKOUT_DIR"`,
+     `pattern: "**/SKILL.md"` for a skill, `"**/.claude-plugin/plugin.json"`
+     for a plugin. Both patterns are fixed literals with nothing untrusted
+     interpolated, and Glob returns paths only, never file contents, so
+     running it before this check completes cannot pull anything a symlink
+     points at into context. `<item-path>` is the matched `SKILL.md`'s
+     parent directory (for a plugin, the `.claude-plugin` directory's
+     parent) with the `$CHECKOUT_DIR/` prefix stripped, whose last segment
+     equals the identifier's name.
+   If that resolution matches no directory, or more than one, **refuse to
+   scan this item** — same disposition as the `..` case below. Do not read
+   the candidate `SKILL.md`/`plugin.json` bodies to disambiguate by their
+   declared `name:`: that is precisely the Read this sub-step exists to
+   gate, and a skill whose directory name doesn't match its declared name
+   is not worth reaching through an unchecked symlink to identify.
+
+   Bring both sides into the listing's own normal form before comparing.
+   Git tree paths never contain a `.` or `..` segment, a doubled `/`, or a
+   trailing `/`, so the listed-entry side is always already in that form —
+   as are the Glob-resolved skill/plugin paths above, walked out of the
+   cloned tree itself. The agent case is not: there `<item-path>` is the
+   identifier's `<path>` verbatim, chosen by the candidate's author, and,
+   unlike `<owner>`, `<repo>` and `<commit-sha>` in sub-steps 1-2, never
+   validated against a charset. A crafted `plugins//evil`, `plugins/./evil`,
    `plugins/x/../evil` or `plugins/evil/` still resolves
    `$CHECKOUT_DIR/<item-path>` to a location sub-steps 5-6's Glob/Read
    would go on to reach, while segment-splitting into a spurious empty,
@@ -346,16 +379,18 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    The excerpt is attacker-controlled like any other cited text, so Step
    6's "Excerpt containment" fencing rule applies to it unchanged.
 
-   On any match — or an unresolved quoted path, or a `..` segment surviving
-   normalization, above — do NOT run sub-steps 5-6 below for this item.
+   On any match — or an unresolved quoted path, an identifier that resolved
+   to no in-repo directory or to more than one, or a `..` segment surviving
+   normalization, all above — do NOT run sub-steps 5-6 below for this item.
    Instead apply the same disposition as a
    clone/resolution failure below: treat the scan as reduced-coverage, note
    the finding in `reasoning` (Step 5), and let the "no shortcut for
-   low-yield scans" rule apply. Those other two refusals stop there, with no
-   flag: each is a fail-closed response to input this sub-step could not
-   resolve — a path it could not un-quote, a `<item-path>` it would not
-   collapse — not a symlink it actually found, so neither has the `file` and
-   `excerpt` evidence a `credential_exfil` flag must cite.
+   low-yield scans" rule apply. Those other three refusals stop there, with
+   no flag: each is a fail-closed response to input this sub-step could not
+   resolve — a path it could not un-quote, an identifier it could not place
+   in the tree, an `<item-path>` it would not collapse — not a symlink it
+   actually found, so none has the `file` and `excerpt` evidence a
+   `credential_exfil` flag must cite.
 5. **Enumerate files** under the item's path with the **Glob tool**
    (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<item-path>"`) — never a Bash
    `find`/`ls`. The item's own path (e.g. a skill/agent directory name) is

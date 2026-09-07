@@ -113,10 +113,12 @@ flags, same argument order, nothing added:
 `<owner>`/`<repo>`/`<default-branch>`/`<commit-sha>` may hold ONLY values that
 already passed the skill's own validation steps (the owner/repo slug regexes,
 the ref allowlist, the hex-sha regex) — never a value read from candidate
-content. Template 7 takes no path argument at all — not even the
-already-validated `<item-path>` — precisely so the symlink check never needs
-to decide whether `<item-path>` is safe to interpolate; it never reaches the
-shell in the first place. Its `-c core.quotePath=false` and its trailing
+content. Template 7 takes no path argument at all — not even `<item-path>`,
+the item's own resolved in-repo path, which nothing charset-validates
+(`security-check/SKILL.md` § Step 2 sub-step 4 is explicit that, unlike
+`<owner>`/`<repo>`/`<commit-sha>`, it never is) — precisely so the symlink
+check never needs to decide whether `<item-path>` is safe to interpolate; it
+never reaches the shell in the first place. Its `-c core.quotePath=false` and its trailing
 `| grep '^120000'` are both part of the template itself, fixed and literal
 like template 1/2's own `--jq` filters — not a compounding pipe or an added
 flag you chose, and not values derived from any untrusted input. Neither may

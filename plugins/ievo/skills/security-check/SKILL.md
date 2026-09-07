@@ -274,11 +274,41 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    still begins with a `"`, fail closed: do not try to unescape it, treat it
    as a match.
 
-   Otherwise, take the path after the first TAB on each returned line, strip
-   any trailing `/` from it AND from `<item-path>` (normalize both before
-   comparing), and compare the two as `/`-separated segment lists. Treat it
-   as a match — refuse to scan this item — when a listed entry is **equal
-   to** `<item-path>`, **under** it (its segments begin with `<item-path>`'s
+   Otherwise, take the path after the first TAB on each returned line and
+   compare it against `<item-path>` as a `/`-separated **segment** list —
+   but bring both sides into the listing's own normal form first. Git tree
+   paths never contain a `.` or `..` segment, a doubled `/`, or a trailing
+   `/`, so the listed-entry side is always already in that form.
+   `<item-path>` is not: it is the path portion of this skill's Input
+   identifier (the `<path>` of `<owner>/<repo>:<path>`, the `<plugin>` of
+   `<owner>/<repo>/<plugin>`, the `<skill>` of `<owner>/<repo>@<skill>`) —
+   never walked out of the cloned tree here, and, unlike `<owner>`,
+   `<repo>` and `<commit-sha>` in sub-steps 1-2, never validated against a
+   charset. A crafted `plugins//evil`, `plugins/./evil`,
+   `plugins/x/../evil` or `plugins/evil/` still resolves
+   `$CHECKOUT_DIR/<item-path>` to a location sub-steps 5-6's Glob/Read
+   would go on to reach, while segment-splitting into a spurious empty,
+   `.`, `..` or final-empty component that lines up against nothing in the
+   listing — silently defeating this comparison on the exact target it
+   exists to catch. So normalize `<item-path>` with all four rules and **in
+   this order**: (1) collapse every run of consecutive `/` to a single `/`;
+   (2) drop every `.` segment; (3) if any `..` segment remains, **refuse to
+   scan this item** rather than resolving it against the segment to its
+   left — nothing upstream of this sub-step rejects a `..` in `<item-path>`
+   (this file has no directory-level containment check before the clone),
+   and a lexical collapse disagrees with a real path walk precisely when
+   the segment to its left is the symlink this sub-step is hunting for;
+   (4) strip any trailing `/`. Strip a trailing `/` from the listed entry's
+   path as well — git never emits one, but normalizing both sides keeps the
+   two spellings of a directory from diverging. Every spelling an attacker
+   can pick for one target (`p`, `p/`, `p//q`, `p/./q`) has to land on the
+   same segment list, or the comparison has as many bypasses as there are
+   spellings; the enumerated rules are why the port from
+   `commands/update.md` carries all four, not just the trailing slash.
+
+   With both sides in that normal form, treat it as a match — refuse to
+   scan this item — when a listed entry is **equal to** `<item-path>`,
+   **under** it (its segments begin with `<item-path>`'s
    — a symlinked file inside the item), or an **ancestor of** it
    (`<item-path>`'s segments begin with the listed entry's — the link sits
    on the path being walked *through*; git indexes a symlinked directory as
@@ -288,8 +318,9 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    checkout has symlinks elsewhere that this item doesn't touch, and is not
    a reason to refuse.
 
-   On any match (or an unresolved quoted path above), do NOT run sub-steps
-   5-6 below for this item. Instead apply the same disposition as a
+   On any match — or an unresolved quoted path, or a `..` segment surviving
+   normalization, above — do NOT run sub-steps 5-6 below for this item.
+   Instead apply the same disposition as a
    clone/resolution failure below: treat the scan as reduced-coverage, note
    the symlink finding in `reasoning` (Step 5), and let the "no shortcut for
    low-yield scans" rule apply.

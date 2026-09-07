@@ -238,14 +238,167 @@ path, or repo metadata) is ever written into a Bash/`gh api` command line:
    git -C "$CHECKOUT_DIR" fetch --depth 1 origin <commit-sha>
    git -C "$CHECKOUT_DIR" checkout <commit-sha>
    ```
-4. **Enumerate files** under the item's path with the **Glob tool**
+4. **Check for a symlink at, under, or anywhere on the way to `<item-path>`
+   before enumerating or reading anything.** Git preserves a symlink as an
+   ordinary tree entry (mode `120000`); if the checkout materializes it as a
+   real OS-level symlink, sub-step 5's Glob and sub-step 6's Read follow it
+   like any other file — so a malicious candidate can ship, say,
+   `<item-path>/assets/logo.png` as a symlink to `~/.ssh/id_rsa` or
+   `~/.aws/credentials`, and that secret's *contents* (not the candidate's
+   own file) flow into context — worse, if the resulting verdict is RED and
+   the reporter takes the "Report" option in Step 6, the leaked excerpt gets
+   filed as a **public issue in the candidate's own repo**, turning this
+   audit gate into a credential-exfiltration channel back to whoever planted
+   the symlink. Check this via the git index, not the filesystem — a
+   no-follow filesystem check (e.g. `find -type l`) would need `<item-path>`
+   interpolated into a Bash command line, exactly the CWE-78 this fetch flow
+   exists to avoid, since it is exactly as untrusted as any other value
+   drawn from this repo's tree:
+   ```bash
+   git -C "$CHECKOUT_DIR" -c core.quotePath=false ls-files -s | grep '^120000'
+   ```
+   Run it with **no path argument** — `$CHECKOUT_DIR` alone is
+   `mktemp`-generated and safe to pass to `-C`, so no untrusted byte reaches
+   the shell here either — with `-c core.quotePath=false` so a symlink path
+   holding a byte over `0x7F` comes back raw and comparable rather than
+   C-quoted into a string the containment comparison below would then miss
+   (verified on git 2.54.0 — the same check in `evolution.md`,
+   `commands/update.md`, and `init/references/install-protocol.md` documents
+   this in full), and with the trailing `| grep '^120000'` exactly as shown:
+   a fixed, literal pattern, adding no injection surface. `grep` printing
+   nothing and exiting 1 IS the pass case — no symlink in the index at all —
+   not a failure to retry.
+
+   Double quotes, backslashes, and control characters are still escaped
+   regardless of `core.quotePath` — if the path field of any returned line
+   still begins with a `"`, fail closed: do not try to unescape it, treat it
+   as a match.
+
+   Otherwise, take the path after the first TAB on each returned line and
+   compare it against `<item-path>` as a `/`-separated **segment** list.
+
+   `<item-path>` here is the item's **repo-root-relative path inside the
+   checkout** — the same value sub-step 5's Glob enumerates under, spelled
+   `<path>` (skill/agent) and `<plugin-path>` (plugin) in the per-type file
+   lists below — never the bare fragment of this skill's Input identifier.
+   `ls-files` lists every entry from the repo root, so comparing against a
+   bare item *name* would fail open on this check's commonest case:
+   `security-auditor` (dispatched by `/ievo:init` Step 8) passes
+   `<owner>/<repo>@<name>`, so a skill that actually lives at
+   `plugins/x/skills/bar`, compared as `bar`, is equal to, under, and an
+   ancestor of *nothing* — all three relations below miss, the check
+   "passes", and sub-steps 5-6 go on to Glob and Read the resolved
+   directory anyway. Resolve the identifier to that in-repo path first:
+   - `<owner>/<repo>:<path>` (agent) — `<path>` is already repo-root-
+     relative; use it as `<item-path>` unchanged.
+   - `<owner>/<repo>@<skill>` and `<owner>/<repo>/<plugin>` — the fragment
+     is a *name*, not a path, and the item can sit anywhere in the tree
+     (`skills/<name>/`, `plugins/<plugin>/skills/<name>/`, …). Locate it
+     with the **Glob tool** against the checkout — `path: "$CHECKOUT_DIR"`,
+     `pattern: "**/SKILL.md"` for a skill, `"**/.claude-plugin/plugin.json"`
+     for a plugin. Both patterns are fixed literals with nothing untrusted
+     interpolated, and Glob returns paths only, never file contents, so
+     running it before this check completes cannot pull anything a symlink
+     points at into context. `<item-path>` is the matched `SKILL.md`'s
+     parent directory (for a plugin, the `.claude-plugin` directory's
+     parent) with the `$CHECKOUT_DIR/` prefix stripped, whose last segment
+     equals the identifier's name.
+   If that resolution matches no directory, or more than one, **refuse to
+   scan this item** — same disposition as the `..` case below. Do not read
+   the candidate `SKILL.md`/`plugin.json` bodies to disambiguate by their
+   declared `name:`: that is precisely the Read this sub-step exists to
+   gate, and a skill whose directory name doesn't match its declared name
+   is not worth reaching through an unchecked symlink to identify.
+
+   Bring both sides into the listing's own normal form before comparing.
+   Git tree paths never contain a `.` or `..` segment, a doubled `/`, or a
+   trailing `/`, so the listed-entry side is always already in that form —
+   as are the Glob-resolved skill/plugin paths above, walked out of the
+   cloned tree itself. The agent case is not: there `<item-path>` is the
+   identifier's `<path>` verbatim, chosen by the candidate's author, and,
+   unlike `<owner>`, `<repo>` and `<commit-sha>` in sub-steps 1-2, never
+   validated against a charset. A crafted `plugins//evil`, `plugins/./evil`,
+   `plugins/x/../evil` or `plugins/evil/` still resolves
+   `$CHECKOUT_DIR/<item-path>` to a location sub-steps 5-6's Glob/Read
+   would go on to reach, while segment-splitting into a spurious empty,
+   `.`, `..` or final-empty component that lines up against nothing in the
+   listing — silently defeating this comparison on the exact target it
+   exists to catch. So normalize `<item-path>` with all four rules and **in
+   this order**: (1) collapse every run of consecutive `/` to a single `/`;
+   (2) drop every `.` segment; (3) if any `..` segment remains, **refuse to
+   scan this item** rather than resolving it against the segment to its
+   left — nothing upstream of this sub-step rejects a `..` in `<item-path>`
+   (this file has no directory-level containment check before the clone),
+   and a lexical collapse disagrees with a real path walk precisely when
+   the segment to its left is the symlink this sub-step is hunting for;
+   (4) strip any trailing `/`. Strip a trailing `/` from the listed entry's
+   path as well — git never emits one, but normalizing both sides keeps the
+   two spellings of a directory from diverging. Every spelling an attacker
+   can pick for one target (`p`, `p/`, `p//q`, `p/./q`) has to land on the
+   same segment list, or the comparison has as many bypasses as there are
+   spellings; the enumerated rules are why the port from
+   `commands/update.md` carries all four, not just the trailing slash.
+
+   With both sides in that normal form, treat it as a match — refuse to
+   scan this item — when a listed entry is **equal to** `<item-path>`,
+   **under** it (its segments begin with `<item-path>`'s segments — a
+   symlinked file inside the item), or an **ancestor of** it
+   (`<item-path>`'s segments begin with the listed entry's — the link sits
+   on the path being walked *through*; git indexes a symlinked directory as
+   a single entry with nothing "inside" it tracked, so only this ancestor
+   relation catches that shape). A non-empty listing whose lines all fall
+   outside `<item-path>` — matching none of the three relations — means the
+   checkout has symlinks elsewhere that this item doesn't touch, and is not
+   a reason to refuse.
+
+   A containment match is not just a coverage gap the way a failed clone
+   is — it is the exfiltration shape described above, already materialized
+   in the candidate's own tree: a tracked symlink sitting exactly where
+   sub-step 6's Read would have followed it. Report it as a **finding**,
+   not only as prose. Emit one `flags` entry (Step 5) per matched line,
+   with `category` `credential_exfil`, `severity` `high`, `file` set to
+   the matched entry's path exactly as `ls-files` listed it — repo-root-
+   relative, not item-relative like the paths other flags cite, because an
+   ancestor match names an entry *above* `<item-path>` that has no
+   item-relative spelling at all — `excerpt` set to that entry's whole
+   `ls-files -s` line, and an `explanation` naming which of the three
+   relations matched (equal / under / ancestor) and stating plainly that
+   the link's target was never resolved and sub-steps 5-6 never ran.
+   Leaving `flags` empty and noting the symlink in `reasoning` alone caps
+   the item at YELLOW — "not blocking install" (Step 4) — and, since
+   `report_template.available` is RED-only, the maintainer whose repo
+   ships the link is never told at all. This is not the bare "structural
+   fact" Step 4 forbids as a RED basis, and `high` is not a guess about
+   the target: the entry's *position* relative to `<item-path>` is the
+   whole mechanism, and this sub-step declined to follow it precisely so
+   that mechanism could not fire — an item that could not be audited at
+   all because a link stood on its scan path is the last place to shrug.
+   Say the target is unresolved in the `explanation` and the flag stays
+   factual; the verdict itself is still Step 4's synthesis, but with a
+   flag present RED is reachable and Step 6's report becomes available.
+   The excerpt is attacker-controlled like any other cited text, so Step
+   6's "Excerpt containment" fencing rule applies to it unchanged.
+
+   On any match — or an unresolved quoted path, an identifier that resolved
+   to no in-repo directory or to more than one, or a `..` segment surviving
+   normalization, all above — do NOT run sub-steps 5-6 below for this item.
+   Instead apply the same disposition as a
+   clone/resolution failure below: treat the scan as reduced-coverage, note
+   the finding in `reasoning` (Step 5), and let the "no shortcut for
+   low-yield scans" rule apply. Those other three refusals stop there, with
+   no flag: each is a fail-closed response to input this sub-step could not
+   resolve — a path it could not un-quote, an identifier it could not place
+   in the tree, an `<item-path>` it would not collapse — not a symlink it
+   actually found, so none has the `file` and `excerpt` evidence a
+   `credential_exfil` flag must cite.
+5. **Enumerate files** under the item's path with the **Glob tool**
    (`pattern: "**/*"`, `path: "$CHECKOUT_DIR/<item-path>"`) — never a Bash
    `find`/`ls`. The item's own path (e.g. a skill/agent directory name) is
    exactly as untrusted as any file inside it; the Glob tool takes `path` as
    a direct parameter, never shell text, so it can't be exploited even if
    that name contains shell metacharacters.
-5. **Read every listed file with the Read tool**, passing its full path as
-   the `file_path` parameter directly — same reasoning as step 4: a direct
+6. **Read every listed file with the Read tool**, passing its full path as
+   the `file_path` parameter directly — same reasoning as step 5: a direct
    tool parameter is never interpreted as command syntax.
 
 If cloning or resolution fails (private repo, no network) do not fall back

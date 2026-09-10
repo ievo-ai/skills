@@ -29,12 +29,12 @@
 //   node scrub.mjs --help
 //
 // Contract: never writes a file. On any internal error while running as a
-// CLI (unreadable stdin, an unexpected throw from scrub()), emit NOTHING to
-// stdout and exit 0 — fail-CLOSED for content (never leak a partially
-// scrubbed or raw blob), fail-OPEN for the pipeline (the observer hook piping
-// through this script must never abort because scrub failed).
+// CLI (unreadable stdin, stdin exceeding MAX_STDIN_BYTES, an unexpected throw
+// from scrub()), emit NOTHING to stdout and exit 0 — fail-CLOSED for content
+// (never leak a partially scrubbed or raw blob), fail-OPEN for the pipeline
+// (the observer hook piping through this script must never abort because
+// scrub failed).
 
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -42,11 +42,26 @@ import { resolve } from "node:path";
 // SCRIPT_VERSION is coupled to plugin.json (asserted in the test) — the same
 // drift guard discover.mjs / evolution_candidates.mjs use. Bump both in the
 // same PR.
-export const SCRIPT_VERSION = "0.80.36";
+export const SCRIPT_VERSION = "0.80.37";
 
 export const REDACTED = "[REDACTED]";
 export const MAX_CODEPOINTS = 500;
 export const TRUNCATION_MARKER = "…[truncated]";
+
+// stdin is this script's only input (see file header): the evo-auto
+// failure-capture hook pipes captured, untrusted tool stdout/stderr through
+// it, and that caller imposes no size cap of its own
+// (failure-capture.sh:64 — `printf '%s' "$record" | node "$SCRUB"`). Every
+// sibling script in this directory already caps its equivalent read path at
+// 256 KB (discover.mjs's MAX_STDIN_BYTES, scan_repo.mjs's
+// MAX_SCAN_FILE_BYTES, evolution_candidates.mjs's MAX_TEXT_FILE_BYTES,
+// validate_agents.mjs/validate_skills.mjs's MAX_VALIDATE_FILE_BYTES) — this
+// one didn't, so an unusually large captured blob was buffered whole before
+// scrub()'s five redaction passes (including the still-open ReDoS-affected
+// NAME_ALT snake alternative, #637) ran over it (#697, CWE-400). Declared
+// here (rather than beside defaultReadStdin below, where it's used) so
+// HELP_TEXT can reference it without a temporal-dead-zone error.
+export const MAX_STDIN_BYTES = 256 * 1024;
 
 const HELP_TEXT = `scrub.mjs — privacy scrub for evo-auto failure capture
 Usage:
@@ -62,8 +77,10 @@ api-key/client-secret, bare PASSWORD/SECRET/TOKEN/APIKEY/API_KEY), HTTP
 credential-header values (Authorization/Cookie/Set-Cookie/api-key),
 URL-embedded credentials (scheme://user:pass@host), rewrites $HOME-absolute
 paths to ~-relative, and caps output at ${MAX_CODEPOINTS}
-Unicode code points. Never writes a file; on any internal error emits nothing
-and exits 0 (fail-closed for content).`;
+Unicode code points. stdin itself is capped at ${MAX_STDIN_BYTES} bytes;
+exceeding it is treated the same as any other internal error. Never writes a
+file; on any internal error (including an oversized stdin) emits nothing and
+exits 0 (fail-closed for content).`;
 
 // ---------------------------------------------------------------------------
 // 1. PEM-armored private-key blocks (redacted wholesale, markers included)
@@ -679,11 +696,33 @@ export function scrub(text, opts = {}) {
 // CLI
 // ---------------------------------------------------------------------------
 
-function defaultReadStdin() {
-  return readFileSync(0, "utf-8");
+// MAX_STDIN_BYTES is declared above, next to REDACTED/MAX_CODEPOINTS (needed
+// there so HELP_TEXT can reference it).
+//
+// Chunked accumulation, aborting once the running total exceeds capBytes —
+// mirrors discover.mjs's readStdin() almost verbatim, including the
+// string-vs-Buffer chunk normalization (process.stdin yields Buffer;
+// Readable.from(["str"]) used by tests yields strings). Exported (unlike the
+// pre-cap synchronous version) so the cap logic itself — the actual fix — is
+// unit-testable against a real stream, the same way discover.test.mjs's own
+// `readStdin` suite drives discover.mjs's version; main()'s `io.readStdin`
+// hook still defaults to this function and tests can still override it
+// wholesale, same as before.
+export async function defaultReadStdin(stdinStream = process.stdin, capBytes = MAX_STDIN_BYTES) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of stdinStream) {
+    const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk;
+    total += buf.length;
+    if (total > capBytes) {
+      throw new Error(`stdin exceeds ${capBytes} bytes`);
+    }
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
 }
 
-export function main(argv = process.argv, io = {}) {
+export async function main(argv = process.argv, io = {}) {
   const {
     write = (s) => process.stdout.write(s),
     log = console.log,
@@ -702,7 +741,11 @@ export function main(argv = process.argv, io = {}) {
   }
 
   try {
-    const input = readStdin();
+    // An oversized stream throws mid-read (defaultReadStdin's cap, above) —
+    // same fail-closed catch as every other internal error this try wraps,
+    // so exceeding the cap degrades to "emit nothing, exit 0" rather than a
+    // new failure mode (see file header contract).
+    const input = await readStdin();
     write(scrub(input, { home }));
     return exit(0);
   } catch {

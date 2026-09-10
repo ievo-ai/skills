@@ -7,12 +7,14 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import { Readable } from "node:stream";
 
 import {
   SCRIPT_VERSION,
   REDACTED,
   MAX_CODEPOINTS,
   TRUNCATION_MARKER,
+  MAX_STDIN_BYTES,
   redactPemBlocks,
   redactProviderSecrets,
   redactNamedSecrets,
@@ -21,6 +23,7 @@ import {
   rewriteHomePaths,
   truncateScrubbed,
   scrub,
+  defaultReadStdin,
   main,
   isCliEntry,
 } from "../scrub.mjs";
@@ -48,6 +51,52 @@ describe("constants", () => {
     assert.equal(REDACTED, "[REDACTED]");
     assert.equal(MAX_CODEPOINTS, 500);
     assert.equal(TRUNCATION_MARKER, "…[truncated]");
+  });
+
+  it("MAX_STDIN_BYTES matches the 256 KB cap every sibling script uses", () => {
+    assert.equal(MAX_STDIN_BYTES, 256 * 1024);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// defaultReadStdin — chunked stdin cap (#697)
+// ---------------------------------------------------------------------------
+
+describe("defaultReadStdin", () => {
+  it("reads and concatenates all chunks under the cap", async () => {
+    const stream = Readable.from(["abc", "def"]);
+    const result = await defaultReadStdin(stream);
+    assert.equal(result, "abcdef");
+  });
+
+  it("returns an empty string for an empty stream", async () => {
+    const stream = Readable.from([]);
+    const result = await defaultReadStdin(stream);
+    assert.equal(result, "");
+  });
+
+  it("accepts input exactly at the cap", async () => {
+    const stream = Readable.from(["abcde"]);
+    const result = await defaultReadStdin(stream, 5);
+    assert.equal(result, "abcde");
+  });
+
+  it("rejects input exceeding the cap", async () => {
+    const stream = Readable.from(["abcde", "f"]);
+    await assert.rejects(() => defaultReadStdin(stream, 5), /stdin exceeds 5 bytes/);
+  });
+
+  it("uses MAX_STDIN_BYTES as the default cap", async () => {
+    const stream = Readable.from(["x".repeat(MAX_STDIN_BYTES + 1)]);
+    await assert.rejects(() => defaultReadStdin(stream), new RegExp(`stdin exceeds ${MAX_STDIN_BYTES} bytes`));
+  });
+
+  it("normalizes string chunks (Readable.from) the same as Buffer chunks (process.stdin)", async () => {
+    // process.stdin yields Buffer chunks; Readable.from(["str"]) yields
+    // strings — both must be measured/concatenated identically.
+    const bufStream = Readable.from([Buffer.from("hello", "utf-8")]);
+    const result = await defaultReadStdin(bufStream);
+    assert.equal(result, "hello");
   });
 });
 
@@ -1392,29 +1441,29 @@ describe("scrub", () => {
 // ---------------------------------------------------------------------------
 
 describe("main (injected io)", () => {
-  it("--version logs the bare version and exits 0", () => {
+  it("--version logs the bare version and exits 0", async () => {
     let logged = null;
     let code = null;
-    main(["node", "x", "--version"], { log: (s) => { logged = s; }, exit: (c) => { code = c; } });
+    await main(["node", "x", "--version"], { log: (s) => { logged = s; }, exit: (c) => { code = c; } });
     assert.equal(logged, SCRIPT_VERSION);
     assert.equal(code, 0);
   });
 
-  it("--help logs usage and exits 0", () => {
+  it("--help logs usage and exits 0", async () => {
     let logged = null;
     let code = null;
-    main(["node", "x", "--help"], { log: (s) => { logged = s; }, exit: (c) => { code = c; } });
+    await main(["node", "x", "--help"], { log: (s) => { logged = s; }, exit: (c) => { code = c; } });
     assert.match(logged, /scrub\.mjs — privacy scrub/);
     assert.equal(code, 0);
   });
 
-  it("reads stdin, scrubs it, writes the result, exits 0", () => {
+  it("reads stdin, scrubs it, writes the result, exits 0", async () => {
     let written = null;
     let code = null;
     // Comma-delimited — see the "applies redaction, home-path rewrite, and
     // truncation together" test above for why an undelimited "NAME=value
     // at <path>" fixture is no longer safe to use here (skills#493).
-    main(["node", "x"], {
+    await main(["node", "x"], {
       readStdin: () => `TOKEN=hunter2, path ${FAKE_HOME}/file`,
       write: (s) => { written = s; },
       exit: (c) => { code = c; },
@@ -1424,11 +1473,23 @@ describe("main (injected io)", () => {
     assert.equal(code, 0);
   });
 
-  it("fails closed: readStdin throwing emits nothing and exits 0", () => {
+  it("supports a readStdin io hook that returns a Promise (the real async default)", async () => {
+    let written = null;
+    let code = null;
+    await main(["node", "x"], {
+      readStdin: () => Promise.resolve("TOKEN=hunter2"),
+      write: (s) => { written = s; },
+      exit: (c) => { code = c; },
+    });
+    assert.equal(written, "TOKEN=[REDACTED]");
+    assert.equal(code, 0);
+  });
+
+  it("fails closed: readStdin throwing synchronously emits nothing and exits 0", async () => {
     let written = null;
     let writeCalled = false;
     let code = null;
-    main(["node", "x"], {
+    await main(["node", "x"], {
       readStdin: () => { throw new Error("EAGAIN"); },
       write: (s) => { writeCalled = true; written = s; },
       exit: (c) => { code = c; },
@@ -1438,10 +1499,22 @@ describe("main (injected io)", () => {
     assert.equal(code, 0);
   });
 
-  it("fails closed: scrub() throwing (non-string from readStdin) emits nothing and exits 0", () => {
+  it("fails closed: readStdin rejecting (the real cap-exceeded path) emits nothing and exits 0", async () => {
     let writeCalled = false;
     let code = null;
-    main(["node", "x"], {
+    await main(["node", "x"], {
+      readStdin: () => Promise.reject(new Error(`stdin exceeds ${MAX_STDIN_BYTES} bytes`)),
+      write: () => { writeCalled = true; },
+      exit: (c) => { code = c; },
+    });
+    assert.equal(writeCalled, false);
+    assert.equal(code, 0);
+  });
+
+  it("fails closed: scrub() throwing (non-string from readStdin) emits nothing and exits 0", async () => {
+    let writeCalled = false;
+    let code = null;
+    await main(["node", "x"], {
       readStdin: () => null,
       write: () => { writeCalled = true; },
       exit: (c) => { code = c; },
@@ -1512,6 +1585,13 @@ describe("CLI invocation (subprocess — covers entry guard)", () => {
     const r = run([], "plain text");
     assert.equal(r.status, 0);
     assert.equal(r.stdout, "plain text");
+    assert.equal(r.stderr, "");
+  });
+
+  it("fails closed on real stdin exceeding MAX_STDIN_BYTES: emits nothing and exits 0 (#697)", () => {
+    const r = run([], "x".repeat(MAX_STDIN_BYTES + 1));
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, "");
     assert.equal(r.stderr, "");
   });
 });

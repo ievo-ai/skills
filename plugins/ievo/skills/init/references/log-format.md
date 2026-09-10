@@ -216,6 +216,46 @@ Dropped from testing (<M-N>): <name (score), name (score), ...>
 
 ---
 
+> **Excerpt containment (Sections 5, 6, 6b, 7b).** Every `Name`/`name`
+> column, `Source repo`/`source repo` column, and `<full list>`/`Skills
+> found`/`Agents found`/`Plugins found` expansion in these four sections
+> renders a discovered candidate's own `name`/`source_repo` (`discover.mjs`)
+> or `description` (`index-repos`/`scan_repo.mjs`) fields — the same
+> untrusted, externally-writable skills.sh/Codex-marketplace values
+> `init/SKILL.md` Step 7b's own "Excerpt containment" note covers for the
+> live interview render, reaching this log file instead (or in addition,
+> since both are populated from the same candidate objects as the run
+> progresses). `discover.mjs` only checks `typeof c.name === "string"`
+> before copying `name: skill.name` through unchanged — no agentskills.io
+> `[a-z0-9-]+` charset allowlist at fetch time, and `source_repo` for a
+> Codex-origin candidate is "a marketplace source (a path or URL)," not a
+> validated GitHub `owner/repo` slug — and `install-protocol.md`'s naming
+> check gates the later *install* write, not this log append, so a crafted
+> `![...](...)`/`[...](...)` payload in either field reaches `$LOG_PATH`
+> verbatim. `$LOG_PATH` is a plain Markdown file that renders live in any
+> Markdown viewer the moment it's opened. This covers every candidate-name/
+> description/source-repo cell in: Section 5's "Candidates after dedup +
+> ranking" table and "Dropped — already installed" list; Section 6's
+> per-repo "Skills found"/"Agents found"/"Plugins found" lists; Section 6b's
+> "Dropped"/"Demoted" lists and every per-category "Categorized candidates"
+> table (kept and dropped-overflow alike); and Section 7b's Vendor queue,
+> Plugin queue, Skipped, Overlap tail, and Filter overrides tables. Before
+> writing any such value into a row or list entry, wrap it in its own inline
+> code span — a backtick run one character longer than the longest backtick
+> run already inside that value, so it can't break out of its own span —
+> rather than embedding it raw. Pad with a single literal space on BOTH
+> sides when the value begins or ends with a backtick (CommonMark strips the
+> pad only when both ends carry one), and collapse every CR/LF run inside
+> the value to a single space before measuring and wrapping. All of Section
+> 5/6b/7b's renders (and Section 6's per-repo lists) are GFM tables or
+> pipe-adjacent lists, so also apply `inspect/SKILL.md`'s pipe step before
+> measuring the fence: double every backslash immediately preceding a `|`
+> in the run, then prefix the pipe with one more backslash (`\|` → `\\\|`),
+> since GFM splits a row into cells on unescaped pipes before inline parsing
+> runs. `Rank`/`Origin`/`Installs`/`Quality`/`Matched queries`/`Score`/
+> `Count`/`Why kept`/rule (`O1`/`O2`) columns are system-computed, not
+> candidate-supplied text — no containment needed for those.
+>
 > **Excerpt containment (Section 8).** All four of Section 8's tables render
 > an audited candidate's own metadata: `Item` (the candidate name — same
 > untrusted `discover.mjs`/`scan_repo.mjs` value `init/SKILL.md` Step 8a's

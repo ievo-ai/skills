@@ -59,6 +59,15 @@ export const DEFAULT_CONCURRENCY = 8;
 // attacker-influenced stack could drive an effectively unbounded number of
 // requests against a third-party API. 100 is comfortably above any legitimate
 // stack's language/dep/category/framework breadth.
+//
+// WHICH queries survive the cap is decided by selectWithinCap() below, not by
+// truncating the assembled list: slicing in insertion order would hand the
+// whole budget to whichever layer comes first, and layer 2 (one query per
+// direct dependency) is both the first big one and the one a real polyglot
+// monorepo blows past — so the >100-dep case would keep raw dep names only and
+// silently drop every category, framework, compound and stack-independent
+// query, the highest-signal layers, exactly when the project is largest
+// (skills#703).
 export const MAX_QUERIES = 100;
 
 // Strips C0 control characters (and DEL) from attacker-influenceable input
@@ -235,13 +244,55 @@ export function assertStackFileReadable(
 // Query generation
 // ---------------------------------------------------------------------------
 
+// Bucket index per query layer (see the `Layer N` comments in buildQueries()).
+// Layers stay separate all the way to the MAX_QUERIES cap so selectWithinCap()
+// can give each one a fair share of the budget; flattening them in this order
+// reproduces the single-Set insertion order this replaced.
+const LAYER = { LANGUAGE: 0, DEP: 1, CATEGORY: 2, FRAMEWORK: 3, COMPOUND: 4, META: 5 };
+const LAYER_COUNT = Object.keys(LAYER).length;
+
+// Picks at most `max` queries out of the per-layer buckets, giving every layer
+// a max-min fair share: smallest bucket first, each takes no more than an even
+// split of what is left, and what a small bucket does not use is redistributed
+// to the larger ones. So a stack with 500 direct deps keeps all of its
+// languages, categories, frameworks, compound and stack-independent queries
+// (a few dozen at most, each bucket smaller than its share) and spends the
+// remaining budget on deps — instead of the naive insertion-order truncation
+// that dropped layers 3-6 outright (skills#703). No layer can starve another,
+// whichever one is oversized.
+//
+// Returns the selection in layer order, so a capped result reads in the same
+// relative order as an uncapped one. Array#sort is stable, so equal-sized
+// buckets keep layer order too and the selection is deterministic.
+function selectWithinCap(buckets, max) {
+  const take = buckets.map(() => 0);
+  const bySize = buckets.map((_, i) => i).sort((a, b) => buckets[a].length - buckets[b].length);
+  let budget = max;
+  let unallocated = bySize.length;
+  for (const i of bySize) {
+    take[i] = Math.min(buckets[i].length, Math.floor(budget / unallocated));
+    budget -= take[i];
+    unallocated -= 1;
+  }
+  return buckets.flatMap((bucket, i) => bucket.slice(0, take[i]));
+}
+
 // NOTE: generated query strings must NOT start with `__`. That prefix is
 // reserved for synthetic source sentinels (e.g. `__codex-marketplace__`) which
 // rankCandidates treats specially and strips from matched_queries. Natural
 // search terms never start with `__`; the fail-fast guard at the end of this
 // function enforces the invariant rather than trusting it.
 export function buildQueries(stack) {
-  const queries = new Set();
+  // One bucket per layer. Dedup stays global and first-wins — identical to the
+  // single Set this replaced — but which layer produced a query has to survive
+  // until the cap, or the cap cannot spend the budget fairly across layers.
+  const buckets = Array.from({ length: LAYER_COUNT }, () => []);
+  const seen = new Set();
+  const addQuery = (query, layer) => {
+    if (seen.has(query)) return;
+    seen.add(query);
+    buckets[layer].push(query);
+  };
 
   // Pre-filter all input arrays to non-empty strings (drop null/undefined/empty).
   const languages = (stack.languages ?? []).filter((s) => typeof s === "string" && s.length > 0);
@@ -251,25 +302,25 @@ export function buildQueries(stack) {
 
   // Layer 1 — language fundamentals (single-word, fuzzy mode in API)
   for (const lang of languages) {
-    queries.add(lang);
+    addQuery(lang, LAYER.LANGUAGE);
   }
 
   // Layer 2 — per-dependency (single-word, fuzzy)
   for (const dep of deps) {
-    queries.add(dep);
+    addQuery(dep, LAYER.DEP);
   }
 
   // Layer 3 — categories (single-word for breadth) + their seed queries
   for (const cat of categories) {
-    queries.add(cat);
+    addQuery(cat, LAYER.CATEGORY);
     for (const seed of CATEGORY_QUERIES[cat] ?? []) {
-      queries.add(seed);
+      addQuery(seed, LAYER.CATEGORY);
     }
   }
 
   // Layer 4 — frameworks (treat as deps if listed separately)
   for (const fw of frameworks) {
-    queries.add(fw);
+    addQuery(fw, LAYER.FRAMEWORK);
   }
 
   // Layer 5 — stack-specific compound queries (multi-word, semantic mode)
@@ -278,14 +329,14 @@ export function buildQueries(stack) {
   const catSet = new Set(categories.map((s) => s.toLowerCase()));
   const fwSet = new Set(frameworks.map((s) => s.toLowerCase()));
 
-  if (langSet.has("python") && catSet.has("testing")) queries.add("python testing");
-  if (langSet.has("python") && fwSet.has("fastapi")) queries.add("fastapi python");
-  if (langSet.has("python") && fwSet.has("django")) queries.add("django python");
-  if (fwSet.has("react")) queries.add("react performance");
-  if (fwSet.has("react")) queries.add("react accessibility");
-  if (fwSet.has("nextjs")) queries.add("nextjs performance");
-  if (depSet.has("stripe")) queries.add("payments integration");
-  if (depSet.has("opentelemetry")) queries.add("observability tracing");
+  if (langSet.has("python") && catSet.has("testing")) addQuery("python testing", LAYER.COMPOUND);
+  if (langSet.has("python") && fwSet.has("fastapi")) addQuery("fastapi python", LAYER.COMPOUND);
+  if (langSet.has("python") && fwSet.has("django")) addQuery("django python", LAYER.COMPOUND);
+  if (fwSet.has("react")) addQuery("react performance", LAYER.COMPOUND);
+  if (fwSet.has("react")) addQuery("react accessibility", LAYER.COMPOUND);
+  if (fwSet.has("nextjs")) addQuery("nextjs performance", LAYER.COMPOUND);
+  if (depSet.has("stripe")) addQuery("payments integration", LAYER.COMPOUND);
+  if (depSet.has("opentelemetry")) addQuery("observability tracing", LAYER.COMPOUND);
 
   // Layer 6 — stack-independent meta-tooling queries (skills#315). Fires
   // whenever the stack produced ANY real signal, regardless of WHICH
@@ -297,18 +348,22 @@ export function buildQueries(stack) {
   // queries — preserving runDiscover's "no queries derived, abort init"
   // contract for that distinct failure mode.
   if (languages.length || deps.length || categories.length || frameworks.length) {
-    for (const q of STACK_INDEPENDENT_QUERIES) queries.add(q);
+    for (const q of STACK_INDEPENDENT_QUERIES) addQuery(q, LAYER.META);
   }
 
-  const out = [...queries].filter(Boolean);
+  const layers = buckets.map((bucket) => bucket.filter(Boolean));
+  const out = layers.flat();
   // Cap BEFORE the sentinel guard below: the guard only needs to validate
   // queries we'll actually return, and capping first avoids iterating a
   // possibly-huge (e.g. tens-of-thousands-element) pre-cap array twice.
-  // Insertion order is preserved (languages/deps/categories+seeds/frameworks/
-  // compound/stack-independent, in that order), so slicing keeps the
-  // earliest-added — and generally highest-signal — queries.
+  // Under the cap, selectWithinCap() spends the budget across ALL SIX layers
+  // rather than truncating in insertion order — a >MAX_QUERIES-dep stack keeps
+  // its categories, frameworks, compound and stack-independent queries instead
+  // of losing them to raw dep names (skills#703). Layer order — languages/deps/
+  // categories+seeds/frameworks/compound/stack-independent — is preserved
+  // either way.
   const capped = out.length > MAX_QUERIES;
-  const limited = capped ? out.slice(0, MAX_QUERIES) : out;
+  const limited = capped ? selectWithinCap(layers, MAX_QUERIES) : out;
   // Fail-fast guard for the `__` sentinel invariant (see the note above): a real
   // query must never start with `__`, or it would be mistaken for a synthetic
   // source key in rankCandidates and silently corrupt breadth-bonus filtering.

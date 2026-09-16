@@ -319,12 +319,61 @@ describe("buildQueries", () => {
     assert.equal(q.capped, true);
   });
 
-  it("caps preserve insertion order — earliest-added (language) queries survive over later (dep) ones", () => {
+  it("caps preserve layer order — language queries still precede the dep queries they were added before", () => {
     const languages = ["python"];
     const deps = Array.from({ length: MAX_QUERIES * 2 }, (_, i) => `dep-${i}`);
     const q = buildQueries({ languages, deps });
     assert.equal(q.length, MAX_QUERIES);
-    assert.ok(q.includes("python"), "earliest-added language query should survive the cap");
+    assert.ok(q.includes("python"), "the language query should survive the cap");
+    assert.ok(q.indexOf("python") < q.indexOf("dep-0"), "layer 1 should still come before layer 2");
+  });
+
+  it("caps spare every other layer when one layer alone exceeds MAX_QUERIES (skills#703)", () => {
+    // The shape a real polyglot monorepo hits: far more than MAX_QUERIES direct
+    // deps (layer 2), alongside the handful of language/category/framework/
+    // compound/stack-independent queries that carry the most signal. Truncating
+    // the assembled list in insertion order would spend the whole budget on raw
+    // dep names and drop layers 3-6 entirely; the fair share keeps them.
+    const q = buildQueries({
+      languages: ["python"],
+      deps: Array.from({ length: MAX_QUERIES * 5 }, (_, i) => `dep-${i}`),
+      categories: ["testing", "security"],
+      frameworks: ["react"],
+    });
+    assert.equal(q.length, MAX_QUERIES);
+    assert.equal(q.capped, true);
+    assert.ok(q.includes("python"), "layer 1 (language) must survive");
+    assert.ok(q.includes("dep-0"), "layer 2 (deps) must survive");
+    for (const cat of ["testing", "security"]) assert.ok(q.includes(cat), `layer 3 (category ${cat}) must survive`);
+    for (const seed of [...CATEGORY_QUERIES.testing, ...CATEGORY_QUERIES.security]) {
+      assert.ok(q.includes(seed), `layer 3 (category seed ${seed}) must survive`);
+    }
+    assert.ok(q.includes("react"), "layer 4 (framework) must survive");
+    for (const compound of ["python testing", "react performance", "react accessibility"]) {
+      assert.ok(q.includes(compound), `layer 5 (compound ${compound}) must survive`);
+    }
+    for (const meta of STACK_INDEPENDENT_QUERIES) assert.ok(q.includes(meta), `layer 6 (${meta}) must survive`);
+  });
+
+  it("caps split the budget across layers when every input layer is oversized", () => {
+    // Mirror image of the dep-heavy case: no single layer may starve the others,
+    // whichever one is oversized. Unknown category names contribute no seeds and
+    // none of the compound-query conditions fire, so layers 1-4 + 6 are in play.
+    const oversized = (prefix) => Array.from({ length: MAX_QUERIES * 2 }, (_, i) => `${prefix}-${i}`);
+    const q = buildQueries({
+      languages: oversized("lang"),
+      deps: oversized("dep"),
+      categories: oversized("cat"),
+      frameworks: oversized("fw"),
+    });
+    assert.equal(q.length, MAX_QUERIES);
+    assert.equal(q.capped, true);
+    for (const prefix of ["lang", "dep", "cat", "fw"]) {
+      const kept = q.filter((s) => s.startsWith(`${prefix}-`)).length;
+      assert.ok(kept >= 20, `${prefix} layer kept only ${kept} queries — a fair share is ~23`);
+    }
+    // Layer 6 is bounded by a constant, so it fits inside its share entirely.
+    for (const meta of STACK_INDEPENDENT_QUERIES) assert.ok(q.includes(meta), `layer 6 (${meta}) must survive`);
   });
 
   it("includes language fundamentals", () => {

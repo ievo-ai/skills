@@ -43,11 +43,23 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const SCRIPT_VERSION = "0.80.37";
+export const SCRIPT_VERSION = "0.80.38";
 export const SKILLS_SH_API = "https://skills.sh/api/search";
 export const DEFAULT_PER_QUERY_LIMIT = 10;
 export const DEFAULT_TOTAL_LIMIT = 50;
 export const DEFAULT_CONCURRENCY = 8;
+
+// Ceiling on the number of distinct queries buildQueries() may derive from one
+// stack payload (skills#701, CWE-400). --stack-file/stdin are byte-capped at
+// 256 KB (MAX_STACK_FILE_BYTES / MAX_STDIN_BYTES), but that leaves room for
+// tens of thousands of short unique strings (e.g. `{"deps":["a0",...,"a19999"]}`)
+// — buildQueries() had no limit on queries.size, and runDiscover() fans every
+// query out to its own outbound skills.sh request via mapWithConcurrency
+// (concurrency bounds in-flight parallelism, not total request count), so an
+// attacker-influenced stack could drive an effectively unbounded number of
+// requests against a third-party API. 100 is comfortably above any legitimate
+// stack's language/dep/category/framework breadth.
+export const MAX_QUERIES = 100;
 
 // Strips C0 control characters (and DEL) from attacker-influenceable input
 // before it reaches an errLog()/console.error message (CWE-117): the
@@ -289,13 +301,26 @@ export function buildQueries(stack) {
   }
 
   const out = [...queries].filter(Boolean);
+  // Cap BEFORE the sentinel guard below: the guard only needs to validate
+  // queries we'll actually return, and capping first avoids iterating a
+  // possibly-huge (e.g. tens-of-thousands-element) pre-cap array twice.
+  // Insertion order is preserved (languages/deps/categories+seeds/frameworks/
+  // compound/stack-independent, in that order), so slicing keeps the
+  // earliest-added — and generally highest-signal — queries.
+  const capped = out.length > MAX_QUERIES;
+  const limited = capped ? out.slice(0, MAX_QUERIES) : out;
   // Fail-fast guard for the `__` sentinel invariant (see the note above): a real
   // query must never start with `__`, or it would be mistaken for a synthetic
   // source key in rankCandidates and silently corrupt breadth-bonus filtering.
-  for (const q of out) {
+  for (const q of limited) {
     if (q.startsWith(SENTINEL_PREFIX)) throw new Error(`query sentinel collision: '${q}' — queries must not start with '${SENTINEL_PREFIX}'`);
   }
-  return out;
+  // Mirrors scan_repo.mjs's `plugins.truncated = true` convention: a non-enumerable-free
+  // property on the returned array itself, read by runDiscover() to surface
+  // `queries_capped: true` in its output — JSON.stringify ignores non-index
+  // array properties, so this never leaks into the serialized `queries` field.
+  if (capped) limited.capped = true;
+  return limited;
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +702,12 @@ export async function runDiscover(stack, options = {}) {
         error: codex.error ?? null,
       },
     ],
+    // Additive: only present when buildQueries() actually trimmed the set —
+    // mirrors scan_repo.mjs's `plugins.truncated` (set only when true) rather
+    // than its always-present `has_truncated_items`, so a legitimately large
+    // stack degrades visibly without changing the output shape for every
+    // other caller.
+    ...(queries.capped ? { queries_capped: true } : {}),
     queries,
     candidates: ranked,
   };

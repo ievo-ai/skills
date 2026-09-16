@@ -6,6 +6,15 @@ Entries are reverse-chronological (newest first) and reference the merging PR + 
 
 ---
 
+## v0.80.38
+
+Cap the number of search queries `discover.mjs`'s `buildQueries()` can derive from one stack payload, closing a CWE-400 unbounded-fan-out gap — closes #701.
+
+- **Gap closed** — `buildQueries(stack)` adds one query per element of `stack.languages`/`stack.deps`/`stack.categories`/`stack.frameworks` into a `Set`, with no limit anywhere on the array lengths or the resulting `queries.size`. The only existing bound on the untrusted `--stack-file`/stdin input is a 256 KB byte-size cap (`MAX_STACK_FILE_BYTES`/`MAX_STDIN_BYTES`), which leaves room for tens of thousands of short unique strings (e.g. `{"deps":["a0","a1",...,"a19999"]}`). `runDiscover()` fans every derived query out to its own outbound `skills.sh` request via `mapWithConcurrency(queries, ..., concurrency)`, where `concurrency` (default 8) bounds in-flight parallelism, not the total number of sequential batches — so an attacker-influenced stack payload (reachable via a compromised/prompt-injected agent turn writing `--stack-file`, or piping stdin — both already treated as untrusted per skills#543/#671) could drive an effectively unbounded number of requests against a third-party API with no per-request timeout beyond the platform default.
+- **Fix** — added `MAX_QUERIES = 100` and applied it inside `buildQueries()`: after the existing sentinel-collision guard's input is assembled, the array is sliced to the first `MAX_QUERIES` entries (insertion order preserved, so the earliest-added — language/dep — queries win over later stack-independent ones), and a `capped` property is set on the returned array when trimming occurred — mirroring `scan_repo.mjs`'s established `plugins.truncated` convention (a property set only when true, invisible to `JSON.stringify` since it's non-index). `runDiscover()` surfaces this as an additive `queries_capped: true` field in its output only when the cap actually trimmed the set, so a legitimately large stack degrades visibly instead of silently fanning out.
+- **Scope** — `plugins/ievo/scripts/discover.mjs` (the fix) and `plugins/ievo/scripts/tests/discover.test.mjs` (new tests: at-boundary non-cap, over-boundary cap with `queries.length`/`queries.capped` assertions, insertion-order preservation under capping, and `runDiscover()`-level `queries_capped` + `queries_executed` assertions).
+- **Version** — `fix:` → patch per AGENTS.md's bump table (security hardening, no new capability). `discover.mjs`, `evolution_candidates.mjs`, and `scrub.mjs` `SCRIPT_VERSION`, `plugin.json`, `marketplace.json`, and the AGENTS.md compliance ledger updated in lockstep (0.80.37 → 0.80.38).
+
 ## v0.80.37
 
 Cap `scrub.mjs`'s unbounded stdin read at 256 KB, closing the one sibling script in `plugins/ievo/scripts/` that lacked this protection — closes #697.

@@ -94,6 +94,8 @@ re-surface as candidates (re-accepting re-vendors into `.agents/skills/`)>
 
 ### Queries generated
 <comma-separated list>
+<only when discover.mjs returned `queries_capped: true` — omit the line entirely otherwise:>
+⚠️ Capped at 100 queries (`MAX_QUERIES`) — the stack derived more; candidate set may be incomplete.
 
 ### Candidates after dedup + ranking (top <N>)
 | Rank | Name | Origin | Source repo | Installs | Quality | Matched queries | Score |

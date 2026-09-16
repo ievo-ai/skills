@@ -17,6 +17,7 @@ import {
   DEFAULT_PER_QUERY_LIMIT,
   DEFAULT_TOTAL_LIMIT,
   DEFAULT_CONCURRENCY,
+  MAX_QUERIES,
   REPUTATION_BOOST_OWNERS,
   REPUTATION_BOOST_FACTOR,
   CODEX_VISIBILITY_FLOOR,
@@ -70,6 +71,10 @@ describe("constants", () => {
     assert.equal(DEFAULT_PER_QUERY_LIMIT, 10);
     assert.equal(DEFAULT_TOTAL_LIMIT, 50);
     assert.equal(DEFAULT_CONCURRENCY, 8);
+  });
+
+  it("MAX_QUERIES caps buildQueries() output well above any legitimate stack's breadth", () => {
+    assert.equal(MAX_QUERIES, 100);
   });
 
   it("REPUTATION_BOOST_OWNERS contains expected names from find-skills SKILL.md (lowercase)", () => {
@@ -292,6 +297,83 @@ describe("buildQueries", () => {
       () => buildQueries({ languages: ["__codex-marketplace__"] }),
       /sentinel collision/,
     );
+  });
+
+  it("does not cap a stack producing exactly MAX_QUERIES queries", () => {
+    // Layer 6 (STACK_INDEPENDENT_QUERIES) also fires once deps is non-empty,
+    // so the dep count must leave room for it to land exactly on MAX_QUERIES.
+    const deps = Array.from({ length: MAX_QUERIES - STACK_INDEPENDENT_QUERIES.length }, (_, i) => `dep-${i}`);
+    const q = buildQueries({ deps });
+    assert.equal(q.length, MAX_QUERIES);
+    assert.equal(q.capped, undefined);
+  });
+
+  it("caps queries.size at MAX_QUERIES for a stack producing more than that (CWE-400, skills#701)", () => {
+    // A 256 KB stack-file/stdin payload has room for tens of thousands of short
+    // unique strings — this reproduces that shape at a smaller, test-friendly
+    // scale (well above MAX_QUERIES, not full-size) to prove the cap actually
+    // bounds queries.size rather than just documenting an intent.
+    const deps = Array.from({ length: MAX_QUERIES * 5 }, (_, i) => `dep-${i}`);
+    const q = buildQueries({ deps });
+    assert.equal(q.length, MAX_QUERIES);
+    assert.equal(q.capped, true);
+  });
+
+  it("caps preserve layer order — language queries still precede the dep queries they were added before", () => {
+    const languages = ["python"];
+    const deps = Array.from({ length: MAX_QUERIES * 2 }, (_, i) => `dep-${i}`);
+    const q = buildQueries({ languages, deps });
+    assert.equal(q.length, MAX_QUERIES);
+    assert.ok(q.includes("python"), "the language query should survive the cap");
+    assert.ok(q.indexOf("python") < q.indexOf("dep-0"), "layer 1 should still come before layer 2");
+  });
+
+  it("caps spare every other layer when one layer alone exceeds MAX_QUERIES (skills#703)", () => {
+    // The shape a real polyglot monorepo hits: far more than MAX_QUERIES direct
+    // deps (layer 2), alongside the handful of language/category/framework/
+    // compound/stack-independent queries that carry the most signal. Truncating
+    // the assembled list in insertion order would spend the whole budget on raw
+    // dep names and drop layers 3-6 entirely; the fair share keeps them.
+    const q = buildQueries({
+      languages: ["python"],
+      deps: Array.from({ length: MAX_QUERIES * 5 }, (_, i) => `dep-${i}`),
+      categories: ["testing", "security"],
+      frameworks: ["react"],
+    });
+    assert.equal(q.length, MAX_QUERIES);
+    assert.equal(q.capped, true);
+    assert.ok(q.includes("python"), "layer 1 (language) must survive");
+    assert.ok(q.includes("dep-0"), "layer 2 (deps) must survive");
+    for (const cat of ["testing", "security"]) assert.ok(q.includes(cat), `layer 3 (category ${cat}) must survive`);
+    for (const seed of [...CATEGORY_QUERIES.testing, ...CATEGORY_QUERIES.security]) {
+      assert.ok(q.includes(seed), `layer 3 (category seed ${seed}) must survive`);
+    }
+    assert.ok(q.includes("react"), "layer 4 (framework) must survive");
+    for (const compound of ["python testing", "react performance", "react accessibility"]) {
+      assert.ok(q.includes(compound), `layer 5 (compound ${compound}) must survive`);
+    }
+    for (const meta of STACK_INDEPENDENT_QUERIES) assert.ok(q.includes(meta), `layer 6 (${meta}) must survive`);
+  });
+
+  it("caps split the budget across layers when every input layer is oversized", () => {
+    // Mirror image of the dep-heavy case: no single layer may starve the others,
+    // whichever one is oversized. Unknown category names contribute no seeds and
+    // none of the compound-query conditions fire, so layers 1-4 + 6 are in play.
+    const oversized = (prefix) => Array.from({ length: MAX_QUERIES * 2 }, (_, i) => `${prefix}-${i}`);
+    const q = buildQueries({
+      languages: oversized("lang"),
+      deps: oversized("dep"),
+      categories: oversized("cat"),
+      frameworks: oversized("fw"),
+    });
+    assert.equal(q.length, MAX_QUERIES);
+    assert.equal(q.capped, true);
+    for (const prefix of ["lang", "dep", "cat", "fw"]) {
+      const kept = q.filter((s) => s.startsWith(`${prefix}-`)).length;
+      assert.ok(kept >= 20, `${prefix} layer kept only ${kept} queries — a fair share is ~23`);
+    }
+    // Layer 6 is bounded by a constant, so it fits inside its share entirely.
+    for (const meta of STACK_INDEPENDENT_QUERIES) assert.ok(q.includes(meta), `layer 6 (${meta}) must survive`);
   });
 
   it("includes language fundamentals", () => {
@@ -901,6 +983,26 @@ describe("runDiscover", () => {
     const out = await runDiscover({}, { fetchImpl: makeFakeFetch({}), codexExec: noCodex });
     assert.match(out.error, /no queries derived/);
     assert.deepEqual(out.candidates, []);
+  });
+
+  it("does not emit queries_capped for a normal stack", async () => {
+    const out = await runDiscover(
+      { languages: ["python"] },
+      { fetchImpl: makeFakeFetch({ python: [{ id: "a/b/c", name: "c", source: "a/b", installs: 500 }] }), codexExec: noCodex },
+    );
+    assert.equal("queries_capped" in out, false);
+  });
+
+  it("surfaces queries_capped: true and caps queries_executed when the stack derives more than MAX_QUERIES queries (CWE-400, skills#701)", async () => {
+    const deps = Array.from({ length: MAX_QUERIES * 5 }, (_, i) => `dep-${i}`);
+    const out = await runDiscover(
+      { deps },
+      { fetchImpl: makeFakeFetch({}), codexExec: noCodex },
+    );
+    assert.equal(out.queries_capped, true);
+    assert.equal(out.queries.length, MAX_QUERIES);
+    const skillsSh = out.sources.find((s) => s.name === "skills.sh");
+    assert.equal(skillsSh.queries_executed, MAX_QUERIES);
   });
 
   it("produces structured output with sources + queries + candidates", async () => {

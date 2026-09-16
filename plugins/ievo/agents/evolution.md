@@ -1020,8 +1020,8 @@ all and nothing was written anywhere:
   on this verdict.
 
 Otherwise, output a short summary to the user:
-- Scope + target: project | agents/<name> | skills/<name>
-- Overlay file: path
+- Scope + target: project | agents/<name, code-fenced per Step 4's Excerpt containment note> | skills/<name, code-fenced per Step 4's Excerpt containment note>
+- Overlay file: path (with `<name>` code-fenced per Step 4's Excerpt containment note)
 - Marker injected: yes (first evolution for this target) | no (already present)
 - Section title: "<title, link/image/HTML/autolink spans code-fenced per Step 4's Excerpt containment note>"
 - Upstream escalation: not applicable (local lesson) | recommended (+ verbatim lesson for the caller to hand to `/ievo:feedback`)
